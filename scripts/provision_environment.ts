@@ -17,17 +17,12 @@ import { fileURLToPath } from "node:url"
 import { parseArgs } from "node:util"
 import { z } from "zod"
 import { readDeploymentParameters, resourceNamesFor, writeDeploymentParameters } from "../cloudflare.config.ts"
+import { searchIndexMetadataFields } from "../src/search/search_index_item.ts"
 import type { DeploymentParameters } from "../cloudflare.config.ts"
 
 const DEFAULT_WORKER_NAME = "schublade"
 const MIGRATIONS_DIRECTORY = "drizzle"
 const ACCESS_SESSION_DURATION = "720h"
-const SEARCH_METADATA_FIELDS = [
-	{ field_name: "person", data_type: "text" },
-	{ field_name: "sender", data_type: "text" },
-	{ field_name: "category", data_type: "text" },
-	{ field_name: "document_date", data_type: "datetime" },
-]
 const USAGE =
 	"Usage: pnpm run provision [--worker-name <name>] [--access-email <address>]... [--household-members <file.json>]"
 const RERUN = "then run `pnpm run provision` again"
@@ -270,7 +265,7 @@ async function ensureSearchInstance(instanceIdentifier: string, gatewayIdentifie
 		"--ai-gateway-id",
 		gatewayIdentifier,
 		"--custom-metadata",
-		JSON.stringify(SEARCH_METADATA_FIELDS),
+		JSON.stringify(searchIndexMetadataFields),
 	]
 	const existing = await findCloudflareResource(searchInstanceSchema, ["ai-search", "get", instanceIdentifier])
 	if (existing === undefined) {
@@ -278,7 +273,7 @@ async function ensureSearchInstance(instanceIdentifier: string, gatewayIdentifie
 		return { outcome: "created" }
 	}
 	const differences = [
-		containSameElements(existing.custom_metadata ?? [], SEARCH_METADATA_FIELDS)
+		containSameElements(existing.custom_metadata ?? [], searchIndexMetadataFields)
 			? undefined
 			: `custom_metadata was ${JSON.stringify(existing.custom_metadata)}`,
 		existing.ai_gateway_id === gatewayIdentifier ? undefined : `ai_gateway_id was ${existing.ai_gateway_id}`,

@@ -11,6 +11,7 @@ import {
 	tags,
 } from "../database/schema"
 import { classifyDocument } from "../inference/document_classifier"
+import { indexDocument } from "../search/document_indexing"
 import { inspectPages, rasterizePage } from "../inference/page_rasterizer"
 import { createMoondreamRecognizer } from "../inference/text_recognizer"
 import { standardCategories } from "./document_classification"
@@ -23,6 +24,7 @@ import type { WorkflowStep, WorkflowStepConfig } from "cloudflare:workers"
 import type { InferInsertModel, SQL } from "drizzle-orm"
 import type { SQLiteTable } from "drizzle-orm/sqlite-core"
 import type { ArchiveDatabase } from "../database/client"
+import type { SearchIndex } from "../search/document_indexing"
 import type { DocumentClassification } from "./document_classification"
 import type { DocumentStatus } from "./document_lifecycle"
 import type { PageTranscription, TextExtraction } from "./document_text"
@@ -31,7 +33,7 @@ import type { SourceFile } from "./source_file"
 type IngestionEnvironment = Pick<
 	Env,
 	"DATABASE" | "DOCUMENT_STORAGE" | "AI_RUNTIME" | "AI_GATEWAY_IDENTIFIER" | "CLASSIFICATION_MODEL"
->
+> & { SEARCH_INDEX: SearchIndex }
 
 type IngestionStep = Pick<WorkflowStep, "do">
 
@@ -337,12 +339,12 @@ async function archiveDocument(
 	}
 }
 
-export async function ingestDocument(
+async function archiveIngestedDocument(
 	step: IngestionStep,
 	environment: IngestionEnvironment,
+	database: ArchiveDatabase,
 	documentId: string,
 ): Promise<IngestionOutcome> {
-	const database = connectDatabase(environment.DATABASE)
 	try {
 		const extraction = await step.do("extract text", inferenceStep, async () => {
 			await recordDocumentStatus(database, documentId, "extracting")
@@ -404,4 +406,21 @@ export async function ingestDocument(
 		await step.do("record status failed", recordStep, () => recordDocumentStatus(database, documentId, "failed"))
 		throw error
 	}
+}
+
+/**
+ * Archives the document, then indexes it in AI Search. A failed index step leaves the document
+ * archived, and indexMissingDocuments uploads it later.
+ */
+export async function ingestDocument(
+	step: IngestionStep,
+	environment: IngestionEnvironment,
+	documentId: string,
+): Promise<IngestionOutcome> {
+	const database = connectDatabase(environment.DATABASE)
+	const outcome = await archiveIngestedDocument(step, environment, database, documentId)
+	await step.do("index document", recordStep, () =>
+		indexDocument(database, environment.DOCUMENT_STORAGE, environment.SEARCH_INDEX, documentId),
+	)
+	return outcome
 }

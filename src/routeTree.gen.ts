@@ -11,6 +11,7 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as ApiDocumentsRouteImport } from './routes/api/documents'
+import { Route as ApiSearch_indexRouteImport } from './routes/api/search_index'
 import { Route as ApiDocumentsDocumentIdRepresentationRouteImport } from './routes/api/documents.$documentId.$representation'
 
 const IndexRoute = IndexRouteImport.update({
@@ -23,6 +24,11 @@ const ApiDocumentsRoute = ApiDocumentsRouteImport.update({
   path: '/api/documents',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiSearch_indexRoute = ApiSearch_indexRouteImport.update({
+  id: '/api/search_index',
+  path: '/api/search_index',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiDocumentsDocumentIdRepresentationRoute =
   ApiDocumentsDocumentIdRepresentationRouteImport.update({
     id: '/$documentId/$representation',
@@ -33,35 +39,47 @@ const ApiDocumentsDocumentIdRepresentationRoute =
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/api/documents': typeof ApiDocumentsRouteWithChildren
+  '/api/search_index': typeof ApiSearch_indexRoute
   '/api/documents/$documentId/$representation': typeof ApiDocumentsDocumentIdRepresentationRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/api/documents': typeof ApiDocumentsRouteWithChildren
+  '/api/search_index': typeof ApiSearch_indexRoute
   '/api/documents/$documentId/$representation': typeof ApiDocumentsDocumentIdRepresentationRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/api/documents': typeof ApiDocumentsRouteWithChildren
+  '/api/search_index': typeof ApiSearch_indexRoute
   '/api/documents/$documentId/$representation': typeof ApiDocumentsDocumentIdRepresentationRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
-    '/' | '/api/documents' | '/api/documents/$documentId/$representation'
+    | '/'
+    | '/api/documents'
+    | '/api/search_index'
+    | '/api/documents/$documentId/$representation'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/api/documents' | '/api/documents/$documentId/$representation'
+  to:
+    | '/'
+    | '/api/documents'
+    | '/api/search_index'
+    | '/api/documents/$documentId/$representation'
   id:
     | '__root__'
     | '/'
     | '/api/documents'
+    | '/api/search_index'
     | '/api/documents/$documentId/$representation'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   ApiDocumentsRoute: typeof ApiDocumentsRouteWithChildren
+  ApiSearch_indexRoute: typeof ApiSearch_indexRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -78,6 +96,13 @@ declare module '@tanstack/react-router' {
       path: '/api/documents'
       fullPath: '/api/documents'
       preLoaderRoute: typeof ApiDocumentsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/search_index': {
+      id: '/api/search_index'
+      path: '/api/search_index'
+      fullPath: '/api/search_index'
+      preLoaderRoute: typeof ApiSearch_indexRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/documents/$documentId/$representation': {
@@ -106,6 +131,7 @@ const ApiDocumentsRouteWithChildren = ApiDocumentsRoute._addFileChildren(
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   ApiDocumentsRoute: ApiDocumentsRouteWithChildren,
+  ApiSearch_indexRoute: ApiSearch_indexRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
