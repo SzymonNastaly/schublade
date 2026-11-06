@@ -23,13 +23,19 @@ interface MoondreamStreamEvent {
 }
 
 // The Moondream service returns the euro sign, which UTF-8 encodes in three bytes, as
-// U+FFFD, while ä, ß, and ś usually survive. A U+FFFD directly before or after a digit,
-// optionally separated by one space, is taken for €. Every other U+FFFD stays, and the
-// classification prompt tells the model what it means.
-const REPLACEMENT_CHARACTER_BESIDE_DIGIT = /\uFFFD(?= ?\d)|(?<=\d ?)\uFFFD/gu
+// U+FFFD, while ä, ß, and ś usually survive. The en dash of a date range, the degree sign,
+// and the superscript two of m² also stand beside digits, so only a U+FFFD directly before
+// or after a monetary amount, optionally separated by one space, is taken for €. Moondream
+// writes amounts with a decimal comma or a decimal point and always two decimal places.
+// Every other U+FFFD stays, and the classification prompt tells the model what it means.
+const MONETARY_AMOUNT = String.raw`-?\d+(?:[.,]\d{3})*[.,]\d{2}(?![.,]?\d)`
+const REPLACEMENT_CHARACTER_BESIDE_AMOUNT = new RegExp(
+	String.raw`\uFFFD(?= ?${MONETARY_AMOUNT})|(?<=\d[.,]\d{2} ?)\uFFFD`,
+	"gu",
+)
 
 export function restoreEuroSigns(transcription: string): string {
-	return transcription.replace(REPLACEMENT_CHARACTER_BESIDE_DIGIT, "€")
+	return transcription.replace(REPLACEMENT_CHARACTER_BESIDE_AMOUNT, "€")
 }
 
 // The binding answers with a server-sent event stream even when `stream` is

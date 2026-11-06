@@ -19,18 +19,30 @@ test("parseMoondreamEventStream returns the answer of the last chunk", () => {
 	)
 })
 
-test("restoreEuroSigns turns a replacement character beside a digit into a euro sign", () => {
+test("restoreEuroSigns turns a replacement character beside a monetary amount into a euro sign", () => {
 	expect(
-		["Gesamtbetrag 72,09 �", "� 341,00", "Preis 3,99�", "�12", "Stra�e 7, Talbr�ck", "Summe in �", "Betrag �  5"].map(
-			restoreEuroSigns,
-		),
+		[
+			"91,84 �",
+			"� 12,94",
+			"Preis 3,99�",
+			"Abschlag -1.104,00 �",
+			"| 845.51 � |",
+			"01.09.2025 � 31.08.2026",
+			"21 �C",
+			"Z�hlerstand 12 � 4",
+			"Stra�e 7, Talbr�ck",
+			"Summe in �",
+		].map(restoreEuroSigns),
 	).toEqual([
-		"Gesamtbetrag 72,09 €",
-		"€ 341,00",
+		"91,84 €",
+		"€ 12,94",
 		"Preis 3,99€",
-		"€12",
+		"Abschlag -1.104,00 €",
+		"| 845.51 € |",
+		"01.09.2025 � 31.08.2026",
+		"21 �C",
+		"Z�hlerstand 12 � 4",
 		"Stra�e 7, Talbr�ck",
 		"Summe in �",
-		"Betrag �  5",
 	])
 })
