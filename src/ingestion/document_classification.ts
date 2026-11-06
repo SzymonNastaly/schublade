@@ -31,6 +31,11 @@ export const standardCategories: ReadonlyArray<{ name: string; expectedFields: R
 	{ name: "Official Identification", expectedFields: [] },
 ]
 
+/** The standard category that a category name denotes, if any. */
+export function findStandardCategory(normalizedName: string) {
+	return standardCategories.find((category) => normalizeTaxonomyName(category.name) === normalizedName)
+}
+
 const confidence = z.number().describe("Probability from 0 to 1 that the value is printed and read correctly")
 
 function fieldValue<TValue extends z.ZodType>(value: TValue, description: string) {

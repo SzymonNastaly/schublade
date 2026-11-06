@@ -15,6 +15,10 @@ const creationTime = () =>
 		.notNull()
 		.default(sql`(unixepoch())`)
 
+// Null while a record the classifier created awaits a member in Pending verification. A record
+// that a member creates, confirms, renames, or merges into is confirmed.
+const confirmationTime = () => integer("confirmed_at", { mode: "timestamp" })
+
 // An email without a usable attachment is stored as awaiting_rendering until phase 7 renders it.
 const documentStatuses = [
 	"awaiting_rendering",
@@ -26,7 +30,9 @@ const documentStatuses = [
 	"failed",
 ] as const
 
-const verificationReasons = ["new_taxonomy_record", "illegible_required_field", "non_archival_attachment"] as const
+// A new sender, category, or tag is a state of that record, not of the document, so documents
+// store only the two reasons that belong to the document itself. See verification_assessment.ts.
+const verificationReasons = ["illegible_required_field", "non_archival_attachment"] as const
 
 const extractedFieldTypes = ["text", "number", "date"] as const
 
@@ -45,6 +51,7 @@ export const senders = sqliteTable(
 		name: text("name").notNull(),
 		normalizedName: text("normalized_name").notNull(),
 		createdAt: creationTime(),
+		confirmedAt: confirmationTime(),
 	},
 	(table) => [uniqueIndex("senders_normalized_name_index").on(table.normalizedName)],
 )
@@ -58,6 +65,7 @@ export const categories = sqliteTable(
 		// Field keys the classifier extracts for this category, such as "amount" and "iban".
 		expectedFields: text("expected_fields_json", { mode: "json" }).$type<Array<string>>().notNull(),
 		createdAt: creationTime(),
+		confirmedAt: confirmationTime(),
 	},
 	(table) => [uniqueIndex("categories_normalized_name_index").on(table.normalizedName)],
 )
@@ -70,6 +78,7 @@ export const tags = sqliteTable(
 		normalizedName: text("normalized_name").notNull(),
 		colorHex: text("color_hex"),
 		createdAt: creationTime(),
+		confirmedAt: confirmationTime(),
 	},
 	(table) => [uniqueIndex("tags_normalized_name_index").on(table.normalizedName)],
 )

@@ -14,11 +14,11 @@ import { classifyDocument } from "../inference/document_classifier"
 import { indexDocument } from "../search/document_indexing"
 import { inspectPages, rasterizePage } from "../inference/page_rasterizer"
 import { createMoondreamRecognizer } from "../inference/text_recognizer"
-import { standardCategories } from "./document_classification"
+import { findStandardCategory } from "./document_classification"
 import { assembleDocumentMarkdown, recognitionLimitViolation, selectPageTextSources } from "./document_text"
 import { predecessorStatuses } from "./document_lifecycle"
 import { contentObjectKey, parseSourceFile } from "./source_file"
-import { normalizeTaxonomyName, resolveTaxonomyName } from "./taxonomy_resolution"
+import { resolveTaxonomyName } from "./taxonomy_resolution"
 import { assessVerificationReason } from "./verification_assessment"
 import type { WorkflowStep, WorkflowStepConfig } from "cloudflare:workers"
 import type { InferInsertModel, SQL } from "drizzle-orm"
@@ -166,17 +166,13 @@ async function readTaxonomy(database: ArchiveDatabase) {
 	return { senderRecords, categoryRecords, tagRecords, members }
 }
 
-function standardExpectedFields(normalizedName: string): Array<string> {
-	const standard = standardCategories.find((category) => normalizeTaxonomyName(category.name) === normalizedName)
-	return standard ? [...standard.expectedFields] : []
-}
-
 /**
  * Writes the classification in one D1 transaction. Taxonomy names resolve against the rows
  * that exist now, not when the model ran, because a concurrent workflow may have created
  * the same sender in between. Foreign keys resolve by normalized name for the same reason.
  * Every write applies only while the document is classifying, so a document that left that
- * status keeps its tags and fields and adds no taxonomy rows.
+ * status keeps its tags and fields and adds no taxonomy rows. A record the classifier creates
+ * awaits confirmation, except a standard category, which the prompt offers as established.
  */
 async function archiveDocument(
 	database: ArchiveDatabase,
@@ -196,15 +192,9 @@ async function archiveDocument(
 	const category =
 		classification.categoryName === null ? null : resolveTaxonomyName(classification.categoryName, categoryRecords)
 	const tagResolutions = classification.tagNames.map((name) => resolveTaxonomyName(name, tagRecords))
+	const standardCategory = category?.kind === "new" ? findStandardCategory(category.normalizedName) : undefined
 	const categoryExpectedFields =
-		category === null
-			? []
-			: category.kind === "existing"
-				? category.record.expectedFields
-				: standardExpectedFields(category.normalizedName)
-	const createdRecordCount = [sender, category, ...tagResolutions].filter(
-		(resolution) => resolution?.kind === "new",
-	).length
+		category?.kind === "existing" ? category.record.expectedFields : [...(standardCategory?.expectedFields ?? [])]
 
 	const recordIdentifier = (table: typeof senders | typeof categories, normalizedName: string) =>
 		sql<string>`(select ${table.id} from ${table} where ${table.normalizedName} = ${normalizedName})`
@@ -238,9 +228,9 @@ async function archiveDocument(
 			summary: classification.summary,
 			pageCount,
 			verificationReason: assessVerificationReason({
-				classification,
+				documentDate: classification.documentDate,
 				categoryExpectedFields,
-				createdTaxonomyRecordCount: createdRecordCount,
+				fields: classification.extractedFields,
 			}),
 			status: "archived",
 		})
@@ -259,6 +249,7 @@ async function archiveDocument(
 								name: sender.name,
 								normalizedName: sender.normalizedName,
 								createdAt: new Date(),
+								confirmedAt: null,
 							}),
 						)
 						.onConflictDoNothing(),
@@ -275,6 +266,7 @@ async function archiveDocument(
 								normalizedName: category.normalizedName,
 								expectedFields: categoryExpectedFields,
 								createdAt: new Date(),
+								confirmedAt: standardCategory === undefined ? null : new Date(),
 							}),
 						)
 						.onConflictDoNothing(),
@@ -292,6 +284,7 @@ async function archiveDocument(
 									normalizedName: resolution.normalizedName,
 									colorHex: null,
 									createdAt: new Date(),
+									confirmedAt: null,
 								}),
 							)
 							.onConflictDoNothing(),

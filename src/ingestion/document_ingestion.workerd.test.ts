@@ -127,8 +127,10 @@ test("ingestDocument recognizes, classifies, archives, and indexes a scanned inv
 	expect(markdown?.split("\n").filter((line) => line.includes("Nachzahlungsbetrag"))).toEqual([
 		"Bitte überweisen Sie den Nachzahlungsbetrag von 72,09 € bis zum 06.10.2026 unter Angabe der Rechnungsnummer JA-2026-0381547 das folgende Konto:",
 	])
-	const [sender] = await database.select({ id: senders.id }).from(senders)
-	const [category] = await database.select({ id: categories.id }).from(categories)
+	const [sender] = await database.select({ id: senders.id, confirmedAt: senders.confirmedAt }).from(senders)
+	const [category] = await database.select({ id: categories.id, confirmedAt: categories.confirmedAt }).from(categories)
+	// The classifier's new sender awaits a member, and the standard category Invoice does not.
+	expect([sender?.confirmedAt === null, category?.confirmedAt === null]).toEqual([true, false])
 	expect(searchIndexUploads.map((upload) => ({ ...upload, content: upload.content.split("\n").slice(0, 4) }))).toEqual([
 		{
 			name: `${documentId}.md`,

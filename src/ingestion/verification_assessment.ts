@@ -1,33 +1,51 @@
 import type { documents } from "../database/schema"
-import type { DocumentClassification, ExtractedFieldKey } from "./document_classification"
 
-export type VerificationReason = NonNullable<(typeof documents.$inferSelect)["verificationReason"]>
+/** A reason that belongs to the document itself, which the documents table stores. */
+export type DocumentVerificationReason = NonNullable<(typeof documents.$inferSelect)["verificationReason"]>
+
+/**
+ * The one reason a document awaits verification. `new_taxonomy_record` is derived from the
+ * unconfirmed sender, category, or tag the document refers to, so confirming the record
+ * resolves every document that refers to it.
+ */
+export type VerificationReason = DocumentVerificationReason | "new_taxonomy_record"
+
+/** The document date always, and the amount when the category expects one, such as Invoice or Receipt. */
+export type RequiredFieldKey = "document_date" | "amount"
 
 // A required field read with less confidence than this counts as illegible.
 const LEGIBILITY_CONFIDENCE_THRESHOLD = 0.5
 
-/** A category that expects an amount, such as Invoice or Receipt, requires it. */
-function requiredFieldKeys(categoryExpectedFields: ReadonlyArray<string>): Array<ExtractedFieldKey> {
-	return categoryExpectedFields.includes("amount") ? ["amount"] : []
+interface RequiredFieldState {
+	documentDate: string | null
+	categoryExpectedFields: ReadonlyArray<string>
+	/** A null confidence marks a value a member entered. */
+	fields: ReadonlyArray<{ fieldKey: string; confidence: number | null }>
+}
+
+export function illegibleRequiredFields(state: RequiredFieldState): Array<RequiredFieldKey> {
+	const amountRequired = state.categoryExpectedFields.includes("amount")
+	const amount = state.fields.find((field) => field.fieldKey === "amount")
+	const amountLegible = amount !== undefined && (amount.confidence ?? 1) >= LEGIBILITY_CONFIDENCE_THRESHOLD
+	return [
+		...(state.documentDate === null ? (["document_date"] as const) : []),
+		...(amountRequired && !amountLegible ? (["amount"] as const) : []),
+	]
+}
+
+/** The reason the documents table stores for a document, from its required fields. */
+export function assessVerificationReason(state: RequiredFieldState): DocumentVerificationReason | null {
+	return illegibleRequiredFields(state).length > 0 ? "illegible_required_field" : null
 }
 
 /**
- * VISION.md archives every document at once and flags it for verification only when a
- * required field is illegible or when the classifier created a sender, category, or tag.
- * The documents table holds one reason, and an illegible field takes precedence because
- * only the user can supply it. Non-archival email attachments arrive with phase 3.
+ * VISION.md gives a document one verification reason. A stored reason takes precedence over
+ * `new_taxonomy_record`, because only a member can supply an illegible field, while confirming
+ * the record resolves every document that refers to it.
  */
-export function assessVerificationReason(assessment: {
-	classification: DocumentClassification
-	categoryExpectedFields: ReadonlyArray<string>
-	createdTaxonomyRecordCount: number
-}): VerificationReason | null {
-	const { classification, categoryExpectedFields, createdTaxonomyRecordCount } = assessment
-	const illegibleField = requiredFieldKeys(categoryExpectedFields).some((fieldKey) => {
-		const field = classification.extractedFields.find((candidate) => candidate.fieldKey === fieldKey)
-		return field === undefined || field.confidence < LEGIBILITY_CONFIDENCE_THRESHOLD
-	})
-	if (classification.documentDate === null || illegibleField) return "illegible_required_field"
-	if (createdTaxonomyRecordCount > 0) return "new_taxonomy_record"
-	return null
+export function effectiveVerificationReason(
+	storedReason: DocumentVerificationReason | null,
+	refersToUnconfirmedRecord: boolean,
+): VerificationReason | null {
+	return storedReason ?? (refersToUnconfirmedRecord ? "new_taxonomy_record" : null)
 }

@@ -1,48 +1,34 @@
 import { expect, test } from "vitest"
-import { assessVerificationReason } from "./verification_assessment"
-import type { DocumentClassification } from "./document_classification"
+import {
+	assessVerificationReason,
+	effectiveVerificationReason,
+	illegibleRequiredFields,
+} from "./verification_assessment"
 
-const receipt: DocumentClassification = {
-	title: "Werkhof Baumarkt Receipt October 2026",
-	documentDate: "2026-10-17",
-	senderName: "Werkhof Baumarkt GmbH",
-	categoryName: "Receipt",
-	personMemberId: null,
-	tagNames: [],
-	summary: null,
-	extractedFields: [{ fieldKey: "amount", fieldType: "number", value: 75.49, confidence: 0.9 }],
-}
 const receiptFields = ["amount", "currency", "due_date", "iban", "invoice_number"]
+const receipt = {
+	documentDate: "2026-10-17",
+	categoryExpectedFields: receiptFields,
+	fields: [{ fieldKey: "amount", confidence: 0.9 }],
+}
 
-test("assessVerificationReason flags an illegible required field before a new taxonomy record", () => {
+test("illegibleRequiredFields names a missing date and an amount that is absent or read with low confidence", () => {
 	expect([
-		assessVerificationReason({
-			classification: receipt,
-			categoryExpectedFields: receiptFields,
-			createdTaxonomyRecordCount: 0,
-		}),
-		assessVerificationReason({
-			classification: receipt,
-			categoryExpectedFields: receiptFields,
-			createdTaxonomyRecordCount: 1,
-		}),
-		assessVerificationReason({
-			classification: {
-				...receipt,
-				extractedFields: [{ fieldKey: "amount", fieldType: "number", value: 75.49, confidence: 0.3 }],
-			},
-			categoryExpectedFields: receiptFields,
-			createdTaxonomyRecordCount: 1,
-		}),
-		assessVerificationReason({
-			classification: { ...receipt, extractedFields: [] },
-			categoryExpectedFields: [],
-			createdTaxonomyRecordCount: 0,
-		}),
-		assessVerificationReason({
-			classification: { ...receipt, documentDate: null },
-			categoryExpectedFields: [],
-			createdTaxonomyRecordCount: 0,
-		}),
-	]).toEqual([null, "new_taxonomy_record", "illegible_required_field", null, "illegible_required_field"])
+		illegibleRequiredFields(receipt),
+		illegibleRequiredFields({ ...receipt, fields: [{ fieldKey: "amount", confidence: 0.3 }] }),
+		illegibleRequiredFields({ ...receipt, documentDate: null, fields: [] }),
+		illegibleRequiredFields({ ...receipt, fields: [{ fieldKey: "amount", confidence: null }] }),
+		illegibleRequiredFields({ documentDate: null, categoryExpectedFields: [], fields: [] }),
+		illegibleRequiredFields({ documentDate: "2026-07-01", categoryExpectedFields: [], fields: [] }),
+	]).toEqual([[], ["amount"], ["document_date", "amount"], [], ["document_date"], []])
+})
+
+test("an illegible required field takes precedence over a new taxonomy record", () => {
+	const illegibleReceipt = { ...receipt, fields: [] }
+	expect([
+		effectiveVerificationReason(assessVerificationReason(receipt), false),
+		effectiveVerificationReason(assessVerificationReason(receipt), true),
+		effectiveVerificationReason(assessVerificationReason(illegibleReceipt), false),
+		effectiveVerificationReason(assessVerificationReason(illegibleReceipt), true),
+	]).toEqual([null, "new_taxonomy_record", "illegible_required_field", "illegible_required_field"])
 })
