@@ -157,16 +157,8 @@ export async function indexMissingDocuments(
 
 type IndexingEnvironment = Pick<Env, "DATABASE" | "DOCUMENT_STORAGE"> & { SEARCH_INDEX: SearchIndex }
 
-/**
- * Answers POST /api/search_index. A browser sends Origin with every POST, and a page on another
- * site must not start billed uploads through the Access session of a household member. A
- * script sends no Origin.
- */
-export async function receiveIndexingRequest(environment: IndexingEnvironment, request: Request): Promise<Response> {
-	const origin = request.headers.get("Origin")
-	if (origin !== null && origin !== new URL(request.url).origin) {
-		return Response.json({ error: `A page on ${origin} may not index documents` }, { status: 403 })
-	}
+/** Answers POST /api/search_index. src/server.ts refuses cross-site writes before this runs. */
+export async function receiveIndexingRequest(environment: IndexingEnvironment): Promise<Response> {
 	return Response.json(
 		await indexMissingDocuments(
 			connectDatabase(environment.DATABASE),
