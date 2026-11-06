@@ -492,7 +492,7 @@ function supermarketReceipt(): DocumentSpecification {
 		pageCount: 1,
 		language: "de",
 		category: "Receipt",
-		sender: "Frischemarkt Talbrück",
+		sender: "Frischemarkt Talbrück GmbH",
 		person: "household",
 		documentDate: germanDateField(purchaseDate),
 		titleHint: "Frischemarkt Talbrück Receipt October 2026",
