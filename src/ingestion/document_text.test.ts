@@ -13,10 +13,10 @@ test("pagesRequiringRecognition selects pages with fewer than 40 text layer char
 	expect(
 		pagesRequiringRecognition(
 			[
-				{ pageIndex: 0, textCharacterCount: 1200 },
-				{ pageIndex: 1, textCharacterCount: 39 },
-				{ pageIndex: 2, textCharacterCount: 40 },
-				{ pageIndex: 3, textCharacterCount: 0 },
+				{ pageIndex: 0, textCharacterCount: 1200, text: "" },
+				{ pageIndex: 1, textCharacterCount: 39, text: "" },
+				{ pageIndex: 2, textCharacterCount: 40, text: "" },
+				{ pageIndex: 3, textCharacterCount: 0, text: "" },
 			],
 			"",
 		),
@@ -37,8 +37,8 @@ test("pagesRequiringRecognition also selects a page whose converted text is spar
 	expect(
 		pagesRequiringRecognition(
 			[
-				{ pageIndex: 0, textCharacterCount: 900 },
-				{ pageIndex: 1, textCharacterCount: 750 },
+				{ pageIndex: 0, textCharacterCount: 900, text: "" },
+				{ pageIndex: 1, textCharacterCount: 750, text: "" },
 			],
 			convertedMarkdown,
 		),

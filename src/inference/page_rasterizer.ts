@@ -7,6 +7,8 @@ type PdfiumLibrary = Awaited<ReturnType<typeof init>>
 export interface PageInspection {
 	pageIndex: number
 	textCharacterCount: number
+	/** The text layer as PDFium extracts it, with lines separated by line feeds. */
+	text: string
 }
 
 export interface RasterizedPage {
@@ -69,12 +71,27 @@ export function inspectPages(pdfBytes: Uint8Array): Promise<Array<PageInspection
 		for (let pageIndex = 0; pageIndex < pageCount; pageIndex++) {
 			const pageHandle = library.FPDF_LoadPage(documentHandle, pageIndex)
 			const textPageHandle = library.FPDFText_LoadPage(pageHandle)
-			pages.push({ pageIndex, textCharacterCount: library.FPDFText_CountChars(textPageHandle) })
+			const textCharacterCount = library.FPDFText_CountChars(textPageHandle)
+			pages.push({ pageIndex, textCharacterCount, text: readPageText(library, textPageHandle, textCharacterCount) })
 			library.FPDFText_ClosePage(textPageHandle)
 			library.FPDF_ClosePage(pageHandle)
 		}
 		return pages
 	})
+}
+
+function readPageText(library: PdfiumLibrary, textPageHandle: number, characterCount: number): string {
+	const runtime = library.pdfium
+	const bufferPointer = runtime.wasmExports.malloc((characterCount + 1) * 2)
+	try {
+		// The returned count of UTF-16 code units includes the terminator, and is 0 without characters,
+		// so the buffer holds no terminator to read up to.
+		const textUnits = library.FPDFText_GetText(textPageHandle, 0, characterCount, bufferPointer) - 1
+		const textBytes = runtime.HEAPU8.subarray(bufferPointer, bufferPointer + textUnits * 2)
+		return new TextDecoder("utf-16le").decode(textBytes).replaceAll("\r\n", "\n")
+	} finally {
+		runtime.wasmExports.free(bufferPointer)
+	}
 }
 
 export function rasterizePage(pdfBytes: Uint8Array, pageIndex: number, dotsPerInch = 150): Promise<RasterizedPage> {

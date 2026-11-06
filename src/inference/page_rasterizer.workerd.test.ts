@@ -2,6 +2,7 @@ import { describe, expect, test } from "vitest"
 import expectedExtraction from "../../test_fixtures/documents/expected_extraction.json"
 import digitalStatement from "../../test_fixtures/documents/bank_statement_digital.pdf"
 import scannedAssessment from "../../test_fixtures/documents/income_tax_assessment_scanned.pdf"
+import telecommunicationInvoice from "../../test_fixtures/documents/telecommunication_invoice_digital.pdf"
 import { inspectPages, rasterizePage } from "./page_rasterizer"
 
 function expectationFor(fileName: string) {
@@ -24,6 +25,22 @@ describe("inspectPages", () => {
 	test("reports the pages of a scanned PDF and the absence of a text layer", async () => {
 		expect(await inspectionSummary(scannedAssessment)).toEqual(expectationFor("income_tax_assessment_scanned.pdf"))
 		expect(expectationFor("income_tax_assessment_scanned.pdf")).toEqual({ pageCount: 2, hasTextLayer: false })
+	})
+
+	test("extracts the text of each page", async () => {
+		const pages = await inspectPages(new Uint8Array(telecommunicationInvoice))
+		expect(
+			pages.map((page) =>
+				page.text.split("\n").filter((line) => /NK-2026-1048-3391|DE28 9302 4580 0418 8200 37/.test(line)),
+			),
+		).toEqual([
+			[
+				"Rechnungsnummer NK-2026-1048-3391",
+				"Rechnungsnummer NK-2026-1048-3391 auf das folgende Konto:",
+				"IBAN DE28 9302 4580 0418 8200 37",
+				"IBAN DE28 9302 4580 0418 8200 37",
+			],
+		])
 	})
 })
 
