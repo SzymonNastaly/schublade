@@ -10,7 +10,9 @@
  *
  * A rerun without flags reuses the saved answers. --hostname moves the Worker from workers.dev to a
  * Workers custom domain in a zone on the account. --email-address enables Email Routing on the
- * address's zone, and the deployment then routes that address to the Worker.
+ * address's zone, and the deployment then routes that address to the Worker. Enabling Email Routing
+ * rewrites the zone's MX and SPF records, so it stops while the zone has MX records of its own,
+ * unless --replace-mail-records allows replacing them. That flag is not saved.
  */
 import { spawn } from "node:child_process"
 import { createHash } from "node:crypto"
@@ -31,6 +33,7 @@ import {
 	accessApplicationBody,
 	accessProtectedHostnames,
 	bypassPolicyBody,
+	mailRecordsBlockingEmailRouting,
 	routesAddressToWorker,
 	tokenIngestionDestination,
 	zoneNameCandidates,
@@ -40,7 +43,7 @@ import type { DeploymentParameters } from "../cloudflare.config.ts"
 const DEFAULT_WORKER_NAME = "schublade"
 const MIGRATIONS_DIRECTORY = "drizzle"
 const USAGE =
-	"Usage: pnpm run provision [--worker-name <name>] [--access-email <address>]... [--household-members <file.json>] [--hostname <name>] [--email-address <address>]"
+	"Usage: pnpm run provision [--worker-name <name>] [--access-email <address>]... [--household-members <file.json>] [--hostname <name>] [--email-address <address>] [--replace-mail-records]"
 const RERUN = "then run `pnpm run provision` again"
 
 const cloudflareExecutable = fileURLToPath(new URL("../node_modules/.bin/cf", import.meta.url))
@@ -170,6 +173,7 @@ function parseCommandLine(commandLine: Array<string>) {
 			"household-members": { type: "string" },
 			hostname: { type: "string" },
 			"email-address": { type: "string" },
+			"replace-mail-records": { type: "boolean", default: false },
 		},
 	})
 	return {
@@ -178,6 +182,7 @@ function parseCommandLine(commandLine: Array<string>) {
 		householdMembersFile: values["household-members"],
 		customHostname: z.hostname().optional().parse(values.hostname?.trim().toLowerCase()),
 		ingestionEmailAddress: z.email().optional().parse(values["email-address"]?.trim().toLowerCase()),
+		replaceMailRecords: values["replace-mail-records"],
 	}
 }
 
@@ -541,17 +546,40 @@ async function findZone(hostname: string): Promise<StepReport & { zoneIdentifier
 	throw new Error(`No zone on the account holds ${hostname}.`)
 }
 
-// Enabling Email Routing adds and locks the MX and SPF records it needs; it changes no other record.
-async function ensureEmailRouting(zoneIdentifier: string): Promise<StepReport> {
+const mailExchangeRecordSchema = z.object({ name: z.string(), content: z.string(), priority: z.number().optional() })
+
+// Enabling Email Routing adds and locks the MX and SPF records it needs and rewrites the apex MX
+// and SPF records the zone had, so it waits for consent while the zone receives mail elsewhere.
+async function ensureEmailRouting(
+	zone: { zoneIdentifier: string; zoneName: string },
+	{ replaceMailRecords }: { replaceMailRecords: boolean },
+): Promise<StepReport> {
 	const settings = await queryCloudflare(z.object({ enabled: z.boolean() }), [
 		"email-routing",
 		"settings",
 		"get",
 		"--zone",
-		zoneIdentifier,
+		zone.zoneIdentifier,
 	])
 	if (settings.enabled) return { outcome: "already present" }
-	await runCloudflare(["email-routing", "enable", "--zone", zoneIdentifier])
+	const mailExchangeRecords = await listCloudflareResources(mailExchangeRecordSchema, [
+		"dns",
+		"records",
+		"list",
+		"--zone",
+		zone.zoneIdentifier,
+		"--type",
+		"MX",
+	])
+	const blockingRecords = mailRecordsBlockingEmailRouting(zone.zoneName, mailExchangeRecords, { replaceMailRecords })
+	if (blockingRecords.length > 0) {
+		const listing = blockingRecords.map((record) => `${record.content} (priority ${record.priority ?? "unset"})`)
+		throw new Error(
+			`${zone.zoneName} receives mail through MX records that Email Routing did not create: ${listing.join(", ")}. ` +
+				"Enabling Email Routing replaces them, and mail to every address of the zone then reaches Cloudflare instead.",
+		)
+	}
+	await runCloudflare(["email-routing", "enable", "--zone", zone.zoneIdentifier])
 	return { outcome: "enabled" }
 }
 
@@ -796,8 +824,8 @@ async function main(): Promise<void> {
 	if (emailZone !== undefined) {
 		await performStep(
 			`Email Routing on ${emailZone.zoneName}`,
-			`Enable Email Routing under the zone's Email, Email Routing page and resolve any conflicting MX records it reports, ${RERUN}.`,
-			() => ensureEmailRouting(emailZone.zoneIdentifier),
+			`Move the zone's mail off the MX records named above, or choose an address in a zone without them. To let Email Routing replace them, run \`pnpm run provision --replace-mail-records\`. For any other error, enable Email Routing under the zone's Email, Email Routing page, ${RERUN}.`,
+			() => ensureEmailRouting(emailZone, { replaceMailRecords: commandLine.replaceMailRecords }),
 		)
 	}
 

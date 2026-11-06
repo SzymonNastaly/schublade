@@ -64,3 +64,35 @@ export function routesAddressToWorker(rule: EmailRoutingRule, address: string, w
 		rule.actions.some((action) => action.type === "worker" && action.value?.includes(workerName) === true)
 	)
 }
+
+// The MX hosts that Email Routing adds to the apex of a zone when it is enabled.
+const EMAIL_ROUTING_MAIL_EXCHANGERS = new Set([
+	"route1.mx.cloudflare.net",
+	"route2.mx.cloudflare.net",
+	"route3.mx.cloudflare.net",
+])
+
+interface MailExchangeRecord {
+	name: string
+	content: string
+	priority?: number | undefined
+}
+
+/**
+ * The MX records that stop `pnpm run provision` from enabling Email Routing: those at the apex of
+ * the zone that point anywhere but Email Routing. Enabling Email Routing rewrites the apex MX and
+ * SPF records, so the mail those records deliver would arrive at Cloudflare instead, unless the
+ * operator allowed replacing them.
+ */
+export function mailRecordsBlockingEmailRouting(
+	zoneName: string,
+	records: Array<MailExchangeRecord>,
+	{ replaceMailRecords }: { replaceMailRecords: boolean },
+): Array<MailExchangeRecord> {
+	if (replaceMailRecords) return []
+	return records.filter(
+		(record) =>
+			record.name.toLowerCase() === zoneName.toLowerCase() &&
+			!EMAIL_ROUTING_MAIL_EXCHANGERS.has(record.content.toLowerCase().replace(/\.$/, "")),
+	)
+}

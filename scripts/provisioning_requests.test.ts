@@ -1,5 +1,10 @@
 import { expect, test } from "vitest"
-import { accessProtectedHostnames, routesAddressToWorker, zoneNameCandidates } from "./provisioning_requests"
+import {
+	accessProtectedHostnames,
+	mailRecordsBlockingEmailRouting,
+	routesAddressToWorker,
+	zoneNameCandidates,
+} from "./provisioning_requests"
 
 test("accessProtectedHostnames keeps workers.dev behind Access until the Worker stops serving it", () => {
 	const workerHostname = "schublade-staging.household.workers.dev"
@@ -49,4 +54,33 @@ test("routesAddressToWorker accepts only an enabled literal rule that sends the 
 			"schublade-staging",
 		),
 	]).toEqual([true, false, false, false])
+})
+
+test("mailRecordsBlockingEmailRouting names the apex MX records Email Routing did not create unless replacing them is allowed", () => {
+	const records = [
+		{ name: "schublade.org", content: "route1.mx.cloudflare.net", priority: 13 },
+		{ name: "schublade.org", content: "mx01.mail.example.net", priority: 10 },
+		{ name: "Schublade.org", content: "MX02.mail.example.net.", priority: 20 },
+		{ name: "bounces.schublade.org", content: "feedback-smtp.example.com", priority: 10 },
+	]
+	expect({
+		withoutPermission: mailRecordsBlockingEmailRouting("schublade.org", records, { replaceMailRecords: false }),
+		withPermission: mailRecordsBlockingEmailRouting("schublade.org", records, { replaceMailRecords: true }),
+		onlyEmailRouting: mailRecordsBlockingEmailRouting(
+			"schublade.org",
+			[
+				{ name: "schublade.org", content: "route1.mx.cloudflare.net", priority: 13 },
+				{ name: "schublade.org", content: "route2.mx.cloudflare.net", priority: 86 },
+				{ name: "schublade.org", content: "route3.mx.cloudflare.net", priority: 24 },
+			],
+			{ replaceMailRecords: false },
+		),
+	}).toEqual({
+		withoutPermission: [
+			{ name: "schublade.org", content: "mx01.mail.example.net", priority: 10 },
+			{ name: "Schublade.org", content: "MX02.mail.example.net.", priority: 20 },
+		],
+		withPermission: [],
+		onlyEmailRouting: [],
+	})
 })
