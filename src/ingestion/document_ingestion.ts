@@ -1,5 +1,5 @@
 import { NonRetryableError } from "cloudflare:workflows"
-import { and, asc, eq, inArray, sql } from "drizzle-orm"
+import { and, asc, eq, exists, getTableColumns, inArray, sql } from "drizzle-orm"
 import { connectDatabase } from "../database/client"
 import {
 	categories,
@@ -20,6 +20,8 @@ import { contentObjectKey, parseSourceFile } from "./source_file"
 import { normalizeTaxonomyName, resolveTaxonomyName } from "./taxonomy_resolution"
 import { assessVerificationReason } from "./verification_assessment"
 import type { WorkflowStep, WorkflowStepConfig } from "cloudflare:workers"
+import type { InferInsertModel, SQL } from "drizzle-orm"
+import type { SQLiteTable } from "drizzle-orm/sqlite-core"
 import type { ArchiveDatabase } from "../database/client"
 import type { DocumentClassification } from "./document_classification"
 import type { DocumentStatus } from "./document_lifecycle"
@@ -171,6 +173,8 @@ function standardExpectedFields(normalizedName: string): Array<string> {
  * Writes the classification in one D1 transaction. Taxonomy names resolve against the rows
  * that exist now, not when the model ran, because a concurrent workflow may have created
  * the same sender in between. Foreign keys resolve by normalized name for the same reason.
+ * Every write applies only while the document is classifying, so a document that left that
+ * status keeps its tags and fields and adds no taxonomy rows.
  */
 async function archiveDocument(
 	database: ArchiveDatabase,
@@ -202,6 +206,24 @@ async function archiveDocument(
 
 	const recordIdentifier = (table: typeof senders | typeof categories, normalizedName: string) =>
 		sql<string>`(select ${table.id} from ${table} where ${table.normalizedName} = ${normalizedName})`
+	const classifyingDocument = and(eq(documents.id, documentId), eq(documents.status, "classifying"))
+	const documentIsClassifying = exists(database.select({ id: documents.id }).from(documents).where(classifyingDocument))
+	// Selects the row from the document's own row, so an insert built on it writes nothing once
+	// the document has left classifying. Insert-select assigns values by position, so the
+	// selection follows the table's column order.
+	const whileClassifying = <TTable extends SQLiteTable>(table: TTable, row: Required<InferInsertModel<TTable>>): SQL =>
+		database
+			.select(
+				Object.fromEntries(
+					Object.entries(getTableColumns(table)).map(([key, column]) => [
+						key,
+						sql`${sql.param(row[key as keyof typeof row], column)}`,
+					]),
+				),
+			)
+			.from(documents)
+			.where(classifyingDocument)
+			.getSQL()
 
 	const archived = database
 		.update(documents)
@@ -220,16 +242,23 @@ async function archiveDocument(
 			}),
 			status: "archived",
 		})
-		.where(and(eq(documents.id, documentId), eq(documents.status, "classifying")))
+		.where(classifyingDocument)
 
 	await database.batch([
-		database.delete(documentTags).where(eq(documentTags.documentId, documentId)),
-		database.delete(extractedFields).where(eq(extractedFields.documentId, documentId)),
+		database.delete(documentTags).where(and(eq(documentTags.documentId, documentId), documentIsClassifying)),
+		database.delete(extractedFields).where(and(eq(extractedFields.documentId, documentId), documentIsClassifying)),
 		...(sender?.kind === "new"
 			? [
 					database
 						.insert(senders)
-						.values({ name: sender.name, normalizedName: sender.normalizedName })
+						.select(
+							whileClassifying(senders, {
+								id: crypto.randomUUID(),
+								name: sender.name,
+								normalizedName: sender.normalizedName,
+								createdAt: new Date(),
+							}),
+						)
 						.onConflictDoNothing(),
 				]
 			: []),
@@ -237,11 +266,15 @@ async function archiveDocument(
 			? [
 					database
 						.insert(categories)
-						.values({
-							name: category.name,
-							normalizedName: category.normalizedName,
-							expectedFields: categoryExpectedFields,
-						})
+						.select(
+							whileClassifying(categories, {
+								id: crypto.randomUUID(),
+								name: category.name,
+								normalizedName: category.normalizedName,
+								expectedFields: categoryExpectedFields,
+								createdAt: new Date(),
+							}),
+						)
 						.onConflictDoNothing(),
 				]
 			: []),
@@ -250,7 +283,15 @@ async function archiveDocument(
 				? [
 						database
 							.insert(tags)
-							.values({ name: resolution.name, normalizedName: resolution.normalizedName })
+							.select(
+								whileClassifying(tags, {
+									id: crypto.randomUUID(),
+									name: resolution.name,
+									normalizedName: resolution.normalizedName,
+									colorHex: null,
+									createdAt: new Date(),
+								}),
+							)
 							.onConflictDoNothing(),
 					]
 				: [],
@@ -262,28 +303,30 @@ async function archiveDocument(
 							.select({ documentId: sql<string>`${documentId}`.as("document_id"), tagId: tags.id })
 							.from(tags)
 							.where(
-								inArray(
-									tags.normalizedName,
-									tagResolutions.map((resolution) => resolution.normalizedName),
+								and(
+									inArray(
+										tags.normalizedName,
+										tagResolutions.map((resolution) => resolution.normalizedName),
+									),
+									documentIsClassifying,
 								),
 							),
 					),
 				]
 			: []),
-		...(classification.extractedFields.length > 0
-			? [
-					database.insert(extractedFields).values(
-						classification.extractedFields.map((field) => ({
-							documentId,
-							fieldKey: field.fieldKey,
-							fieldType: field.fieldType,
-							valueText: field.fieldType === "number" ? null : field.value,
-							valueNumber: field.fieldType === "number" ? field.value : null,
-							confidenceScore: field.confidence,
-						})),
-					),
-				]
-			: []),
+		...classification.extractedFields.map((field) =>
+			database.insert(extractedFields).select(
+				whileClassifying(extractedFields, {
+					id: crypto.randomUUID(),
+					documentId,
+					fieldKey: field.fieldKey,
+					fieldType: field.fieldType,
+					valueText: field.fieldType === "number" ? null : field.value,
+					valueNumber: field.fieldType === "number" ? field.value : null,
+					confidenceScore: field.confidence,
+				}),
+			),
+		),
 		archived,
 	])
 	const [archivedDocument] = await database

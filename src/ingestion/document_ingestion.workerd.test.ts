@@ -1,11 +1,12 @@
-import { applyD1Migrations, env } from "cloudflare:test"
+import { applyD1Migrations, env, reset } from "cloudflare:test"
+import { eq } from "drizzle-orm"
 import { expect, inject, test } from "vitest"
 import scannedInvoice from "../../test_fixtures/documents/electricity_invoice_scanned.pdf"
 import expectedExtraction from "../../test_fixtures/documents/expected_extraction.json"
 import recording from "../../test_fixtures/inference_recordings/electricity_invoice_scanned.json"
 import { queryDocumentListing } from "../archive/document_listing"
 import { connectDatabase } from "../database/client"
-import { documents } from "../database/schema"
+import { categories, documents, extractedFields, senders, tags } from "../database/schema"
 import { ingestDocument } from "./document_ingestion"
 import { contentObjectKey } from "./source_file"
 import type { WorkflowStep } from "cloudflare:workers"
@@ -21,22 +22,29 @@ const recordedRuntime = {
 		),
 }
 
+const recordedEnvironment = {
+	...env,
+	AI_RUNTIME: recordedRuntime as unknown as Ai,
+	CLASSIFICATION_MODEL: "@cf/google/gemma-4-26b-a4b-it",
+}
+
 // Runs each step once and passes its result through structured cloning, as Workflows persist it.
-function createRecordingStep() {
+function createRecordingStep(beforeStep: (name: string) => Promise<void> = () => Promise.resolve()) {
 	const stepNames: Array<string> = []
 	const step = {
 		async do(name: string, _configuration: unknown, callback: () => Promise<unknown>) {
 			stepNames.push(name)
+			await beforeStep(name)
 			return structuredClone(await callback())
 		},
 	}
 	return { stepNames, step: step as unknown as Pick<WorkflowStep, "do"> }
 }
 
-test("ingestDocument recognizes, classifies, and archives a scanned invoice one step per unit", async () => {
+async function storeScannedInvoice(documentId: string) {
+	await reset()
 	await applyD1Migrations(env.DATABASE, inject("databaseMigrations"))
 	const database = connectDatabase(env.DATABASE)
-	const documentId = "0f4c2b8e-5d71-4a39-9e62-3b1d7c8a4f10"
 	const storageObjectKey = `documents/${documentId}/original.pdf`
 	await env.DOCUMENT_STORAGE.put(storageObjectKey, scannedInvoice)
 	await database.insert(documents).values({
@@ -46,13 +54,15 @@ test("ingestDocument recognizes, classifies, and archives a scanned invoice one 
 		byteSize: scannedInvoice.byteLength,
 		status: "processing",
 	})
+	return database
+}
+
+test("ingestDocument recognizes, classifies, and archives a scanned invoice one step per unit", async () => {
+	const documentId = "0f4c2b8e-5d71-4a39-9e62-3b1d7c8a4f10"
+	const database = await storeScannedInvoice(documentId)
 	const { stepNames, step } = createRecordingStep()
 
-	const outcome = await ingestDocument(
-		step,
-		{ ...env, AI_RUNTIME: recordedRuntime as unknown as Ai, CLASSIFICATION_MODEL: "@cf/google/gemma-4-26b-a4b-it" },
-		documentId,
-	)
+	const outcome = await ingestDocument(step, recordedEnvironment, documentId)
 
 	expect(stepNames).toEqual([
 		"extract text",
@@ -100,4 +110,36 @@ test("ingestDocument recognizes, classifies, and archives a scanned invoice one 
 	expect(markdown?.split("\n").filter((line) => line.includes("Nachzahlungsbetrag"))).toEqual([
 		"Bitte überweisen Sie den Nachzahlungsbetrag von 72,09 € bis zum 06.10.2026 unter Angabe der Rechnungsnummer JA-2026-0381547 das folgende Konto:",
 	])
+})
+
+test("ingestDocument writes nothing when the document leaves classifying before the archive step", async () => {
+	const documentId = "3c9a7e15-2b84-4f06-8d1e-5a6f0b9c2e47"
+	const database = await storeScannedInvoice(documentId)
+	await database
+		.insert(extractedFields)
+		.values({ documentId, fieldKey: "amount", fieldType: "number", valueNumber: 10 })
+	const { step } = createRecordingStep(async (name) => {
+		if (name === "archive document") {
+			await database.update(documents).set({ status: "failed" }).where(eq(documents.id, documentId))
+		}
+	})
+
+	await expect(ingestDocument(step, recordedEnvironment, documentId)).rejects.toThrow(
+		`Document ${documentId} left the classifying status before it was archived`,
+	)
+	expect({
+		documents: await database.select({ status: documents.status, title: documents.title }).from(documents),
+		fields: await database
+			.select({ fieldKey: extractedFields.fieldKey, valueNumber: extractedFields.valueNumber })
+			.from(extractedFields),
+		senders: await database.select({ name: senders.name }).from(senders),
+		categories: await database.select({ name: categories.name }).from(categories),
+		tags: await database.select({ name: tags.name }).from(tags),
+	}).toEqual({
+		documents: [{ status: "failed", title: null }],
+		fields: [{ fieldKey: "amount", valueNumber: 10 }],
+		senders: [],
+		categories: [],
+		tags: [],
+	})
 })
