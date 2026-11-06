@@ -8,7 +8,7 @@ Schublade is for a person or a household that wants paper and PDF mail archived 
 
 Phases 0 and 1 are complete and deployed to the `schublade-staging` Worker on `workers.dev` behind Cloudflare Access. You can provision an environment, upload PDF, JPEG, PNG, and WebP files in the browser, and inspect archived originals and extracted Markdown. The archive page polls while documents process. On staging, a scanned dental invoice stored in R2 and run as a workflow instance through the `cf` CLI archived in about 20 seconds with every expected field correct.
 
-On the 12 synthetic test documents, the default `@cf/deepseek-ai/deepseek-v4.1-flash-1017` model matched 79 of 80 expected fields. Its single mismatch was a supermarket receipt fixture that expected `Frischemarkt Talbrück` instead of the printed legal name `Frischemarkt Talbrück GmbH`. The fixture now expects the legal name.
+On the 12 synthetic test documents, the default `@cf/deepseek-ai/deepseek-v4.1-flash-1017` model matched 80 of 80 expected fields. An earlier run matched 79 of 80 fields because a supermarket receipt fixture expected `Frischemarkt Talbrück` instead of the printed legal name `Frischemarkt Talbrück GmbH`. After the fixture correction and the narrower euro-sign repair, `pnpm evaluate:extraction` matched all 12 documents in 55 seconds of wall time and cost 0.036 USD.
 
 Search in phase 2, API tokens and email in phase 3, and the **Pending verification** view in phase 4 are not built yet. Live WebSocket updates in phase 5, the `/mcp` server in phase 6, and mobile installation in phase 7 also remain planned. `pnpm run provision` does not yet add an Access bypass for `/api/documents/ingest` and `/mcp`. The workflow refuses a document with more than 50 pages without a text layer before it transcribes any page and sets the status to `failed`. That 50-page limit caps OCR cost at about 0.04 USD per document. A workflow step result over about 1 MiB of Markdown still fails the step, and the workflow does not truncate the classifier input.
 
@@ -96,7 +96,7 @@ Run `pnpm check` to execute `typecheck`, `lint`, `format:check`, `knip`, and `te
 
 Run `pnpm run generate:test-documents` to regenerate the 12 synthetic, anonymous test documents in `test_fixtures/documents/` and their expected values in `expected_extraction.json`. The output is byte-identical on every run.
 
-To evaluate extraction accuracy against a local dev server, run `pnpm evaluate:extraction`. This command makes real, billed Workers AI calls. Evaluating DeepSeek V4.1 Flash at 79 of 80 fields, `gpt-oss-120b` at 74 of 80, and Gemma 4 26B at 70 of 80 with one failed document cost 0.175 USD in total.
+To evaluate extraction accuracy against a local dev server, run `pnpm evaluate:extraction`. This command makes real, billed Workers AI calls. After the fixture correction and the narrower euro-sign repair, `pnpm evaluate:extraction` scored DeepSeek V4.1 Flash at 80 of 80 fields on all 12 documents. The batch took 55 seconds of wall time at a cost of 0.036 USD for the run. Before the fixture correction, an earlier run scored `gpt-oss-120b` at 74 of 80 and Gemma 4 26B at 70 of 80 with one failed document. That earlier three-model run cost 0.175 USD in total, and only DeepSeek V4.1 Flash had a rerun after the fixture correction.
 
 ## Further reading
 

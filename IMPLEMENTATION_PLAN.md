@@ -124,9 +124,9 @@ Tests assert against `expected_extraction.json`:
 
 | Model | Correct fields | Notes |
 | --- | --- | --- |
-| `@cf/deepseek-ai/deepseek-v4.1-flash-1017` | 79 of 80 | The one miss was a fixture error. The supermarket receipt fixture expected `Frischemarkt Talbrück` while the receipt prints the legal name `Frischemarkt Talbrück GmbH`. The fixture now expects the legal name, and the evaluation has not been rerun since. |
-| `gpt-oss-120b` | 74 of 80 | Completed all 12 documents. |
-| `Gemma 4 26B` | 70 of 80 | One document failed. |
+| `@cf/deepseek-ai/deepseek-v4.1-flash-1017` | 80 of 80 | The first run scored 79 of 80 because the supermarket receipt fixture expected `Frischemarkt Talbrück` while the receipt prints the legal name `Frischemarkt Talbrück GmbH`. After the fixture correction and the narrower euro-sign repair, `pnpm evaluate:extraction` scored 80 of 80 fields on all 12 documents. The rerun took 55 seconds of wall time for the batch and cost 0.036 USD. |
+| `gpt-oss-120b` | 74 of 80 | The model completed all 12 documents in the run before the fixture correction, with no later rerun. |
+| `Gemma 4 26B` | 70 of 80 | One document failed in the run before the fixture correction, with no later rerun. |
 
 OCR findings from the phase 1 evaluation:
 
