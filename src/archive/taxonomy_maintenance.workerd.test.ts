@@ -1,5 +1,5 @@
 import { applyD1Migrations, env, reset } from "cloudflare:test"
-import { asc } from "drizzle-orm"
+import { asc, eq } from "drizzle-orm"
 import { expect, inject, test } from "vitest"
 import { connectDatabase } from "../database/client"
 import { documentTags, documents, senders, tags } from "../database/schema"
@@ -146,4 +146,29 @@ test("deleteTaxonomyRecord deletes an unconfirmed record no document refers to, 
 		`The tag ${taxYear.id} is confirmed, so only a merge removes it`,
 		[{ id: taxYear.id }],
 	])
+})
+
+test("a merge whose source no longer exists changes nothing and reports it", async () => {
+	const { database } = await prepareArchive()
+	const mergedTagId = "6f3b8d1e-4a2c-4e97-b051-9c7e2a5d8f16"
+
+	const outcome = await mergeTaxonomyRecords(database, {
+		kind: "tag",
+		sourceRecordId: mergedTagId,
+		targetRecordId: taxAlias.id,
+	}).then(
+		() => "merged",
+		(error: unknown) => (error instanceof Error ? error.message : String(error)),
+	)
+
+	expect({
+		outcome,
+		target: await database
+			.select({ id: tags.id, confirmedAt: tags.confirmedAt })
+			.from(tags)
+			.where(eq(tags.id, taxAlias.id)),
+	}).toEqual({
+		outcome: `The tag ${mergedTagId} to merge does not exist`,
+		target: [{ id: taxAlias.id, confirmedAt: null }],
+	})
 })

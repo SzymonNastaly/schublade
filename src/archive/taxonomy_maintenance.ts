@@ -1,4 +1,4 @@
-import { and, eq, inArray, isNull, ne, notExists, sql } from "drizzle-orm"
+import { and, eq, exists, inArray, isNull, ne, notExists, sql } from "drizzle-orm"
 import { z } from "zod"
 import { categories, documentTags, documents, senders, succeedingModificationTime, tags } from "../database/schema"
 import { normalizeTaxonomyName } from "../ingestion/taxonomy_resolution"
@@ -141,11 +141,12 @@ export async function deleteTaxonomyRecord(
 }
 
 /**
- * Moves every document and tag link from the source record to the target, deletes the source,
- * and confirms the target, in one D1 batch. Each moved document becomes stale, and the backfill
- * uploads it again with the target's identifier and name. A merge whose source no longer
- * exists changes nothing, so a repeated merge converges. A document keeps its stored
- * verification reason, even when the target category requires an amount the source did not.
+ * Moves every document and tag link from the source record to the target, confirms the target,
+ * and deletes the source, in one D1 batch. Each moved document becomes stale, and the backfill
+ * uploads it again with the target's identifier and name. A merge whose source no longer exists,
+ * such as a repeated one, changes nothing and throws, so it never confirms a target on its own.
+ * A document keeps its stored verification reason, even when the target category requires an
+ * amount the source did not.
  */
 export async function mergeTaxonomyRecords(
 	database: ArchiveDatabase,
@@ -169,17 +170,24 @@ export async function mergeTaxonomyRecords(
 					.update(documents)
 					.set(kind === "sender" ? { senderId: targetRecordId } : { categoryId: targetRecordId })
 					.where(referringDocuments(sourceRecordId))
-	await database.batch([
+	const [, , confirmed] = await database.batch([
 		database
 			.update(documents)
 			.set({ updatedAt: succeedingModificationTime() })
 			.where(referringDocuments(sourceRecordId)),
 		reassignment,
-		// Deleting the source tag also deletes its links, which cascade.
-		database.delete(table).where(eq(table.id, sourceRecordId)),
 		database
 			.update(table)
 			.set({ confirmedAt: confirmation(table) })
-			.where(eq(table.id, targetRecordId)),
+			.where(
+				and(
+					eq(table.id, targetRecordId),
+					exists(database.select({ id: table.id }).from(table).where(eq(table.id, sourceRecordId))),
+				),
+			)
+			.returning({ id: table.id }),
+		// Deleting the source tag also deletes its links, which cascade.
+		database.delete(table).where(eq(table.id, sourceRecordId)),
 	])
+	if (confirmed.length === 0) throw new Error(`The ${kind} ${sourceRecordId} to merge does not exist`)
 }
