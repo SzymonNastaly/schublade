@@ -12,6 +12,7 @@ import {
 	taxonomyRecordSchema,
 	taxonomyRenameSchema,
 } from "../archive/taxonomy_maintenance"
+import { countVerificationItems, listVerificationItems } from "../archive/verification_items"
 import { apiTokenIssuanceSchema, issueApiToken, listApiTokens, revokeApiToken } from "../authentication/api_tokens"
 import { authorizeOperation } from "../authorization/caller_authorization"
 import { database } from "../database/client"
@@ -48,6 +49,18 @@ export const revokeApiTokenRecord = createServerFn({ method: "POST" })
 		authorizeOperation(context, "administerApiTokens")
 		return revokeApiToken(database, data.tokenId)
 	})
+
+/** @public */
+export const retrieveVerificationItems = createServerFn({ method: "GET" }).handler(({ context }) => {
+	authorizeOperation(context, "readArchive")
+	return listVerificationItems(database)
+})
+
+/** @public */
+export const countPendingVerificationItems = createServerFn({ method: "GET" }).handler(({ context }) => {
+	authorizeOperation(context, "readArchive")
+	return countVerificationItems(database)
+})
 
 const archiveEnvironment = () => ({ database, storage: env.DOCUMENT_STORAGE, searchIndex: env.SEARCH_INDEX })
 

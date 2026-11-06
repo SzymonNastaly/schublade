@@ -5,9 +5,9 @@ import { normalizeTaxonomyName } from "../ingestion/taxonomy_resolution"
 import type { SQL } from "drizzle-orm"
 import type { ArchiveDatabase } from "../database/client"
 
-const taxonomyKinds = ["sender", "category", "tag"] as const
+export const taxonomyKinds = ["sender", "category", "tag"] as const
 
-type TaxonomyKind = (typeof taxonomyKinds)[number]
+export type TaxonomyKind = (typeof taxonomyKinds)[number]
 
 /** A sender, category, or tag name must hold a letter or digit, or it identifies nothing. */
 export const taxonomyNameSchema = z
@@ -21,7 +21,7 @@ export const taxonomyNameSchema = z
  * and whether the AI Search item of such a document carries the record's name. The index
  * content names the sender and the tags, while the metadata holds only identifiers.
  */
-const taxonomyKindModels = {
+export const taxonomyKindModels = {
 	sender: {
 		table: senders,
 		referringDocuments: (recordId: string): SQL => eq(documents.senderId, recordId),
