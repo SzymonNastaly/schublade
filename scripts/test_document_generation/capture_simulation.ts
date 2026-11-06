@@ -38,8 +38,8 @@ function sampleBilinear(raster: GrayscaleRaster, x: number, y: number): number {
 	const horizontalWeight = column - left;
 	const verticalWeight = row - top;
 	const index = top * raster.width + left;
-	const upper = raster.luminance[index] * (1 - horizontalWeight) + raster.luminance[index + 1] * horizontalWeight;
-	const lower = raster.luminance[index + raster.width] * (1 - horizontalWeight) + raster.luminance[index + raster.width + 1] * horizontalWeight;
+	const upper = raster.luminance[index]! * (1 - horizontalWeight) + raster.luminance[index + 1]! * horizontalWeight;
+	const lower = raster.luminance[index + raster.width]! * (1 - horizontalWeight) + raster.luminance[index + raster.width + 1]! * horizontalWeight;
 	return upper * (1 - verticalWeight) + lower * verticalWeight;
 }
 
@@ -52,7 +52,7 @@ function createValueNoise(random: RandomSource, columns: number, rows: number): 
 		const cellY = Math.min(Math.floor(gridY), rows - 1);
 		const weightX = smoothstep(gridX - cellX);
 		const weightY = smoothstep(gridY - cellY);
-		const at = (offsetX: number, offsetY: number) => lattice[(cellY + offsetY) * (columns + 1) + cellX + offsetX];
+		const at = (offsetX: number, offsetY: number) => lattice[(cellY + offsetY) * (columns + 1) + cellX + offsetX]!;
 		const upper = at(0, 0) * (1 - weightX) + at(1, 0) * weightX;
 		const lower = at(0, 1) * (1 - weightX) + at(1, 1) * weightX;
 		return upper * (1 - weightY) + lower * weightY;
@@ -64,18 +64,18 @@ function blurChannel(values: Float32Array, width: number, height: number): Float
 	for (let y = 0; y < height; y++) {
 		for (let x = 0; x < width; x++) {
 			const index = y * width + x;
-			const left = values[x > 0 ? index - 1 : index];
-			const right = values[x < width - 1 ? index + 1 : index];
-			horizontal[index] = (left + 2 * values[index] + right) / 4;
+			const left = values[x > 0 ? index - 1 : index]!;
+			const right = values[x < width - 1 ? index + 1 : index]!;
+			horizontal[index] = (left + 2 * values[index]! + right) / 4;
 		}
 	}
 	const result = new Float32Array(values.length);
 	for (let y = 0; y < height; y++) {
 		for (let x = 0; x < width; x++) {
 			const index = y * width + x;
-			const above = horizontal[y > 0 ? index - width : index];
-			const below = horizontal[y < height - 1 ? index + width : index];
-			result[index] = (above + 2 * horizontal[index] + below) / 4;
+			const above = horizontal[y > 0 ? index - width : index]!;
+			const below = horizontal[y < height - 1 ? index + width : index]!;
+			result[index] = (above + 2 * horizontal[index]! + below) / 4;
 		}
 	}
 	return result;
@@ -102,7 +102,7 @@ export function simulateFlatbedScan(page: GrayscaleRaster, random: RandomSource)
 			const sourceX = cosine * offsetX + sine * offsetY + width / 2;
 			const sourceY = -sine * offsetX + cosine * offsetY + height / 2;
 			const distanceOutside = Math.max(-sourceX, sourceX - (width - 1), -sourceY, sourceY - (height - 1));
-			const tone = distanceOutside > 0 ? lidLevel - 70 * Math.exp(-distanceOutside / 1.5) : toneCurve[Math.round(sampleBilinear(page, sourceX, sourceY))];
+			const tone = distanceOutside > 0 ? lidLevel - 70 * Math.exp(-distanceOutside / 1.5) : toneCurve[Math.round(sampleBilinear(page, sourceX, sourceY))]!;
 			tones[y * width + x] = tone * (1 + illuminationSlope * (x / width - 0.5));
 		}
 	}
@@ -117,14 +117,14 @@ export function simulateFlatbedScan(page: GrayscaleRaster, random: RandomSource)
 		for (let y = Math.floor(centerY - radius); y <= Math.ceil(centerY + radius); y++) {
 			for (let x = Math.floor(centerX - radius); x <= Math.ceil(centerX + radius); x++) {
 				if (x < 0 || y < 0 || x >= width || y >= height) continue;
-				if ((x - centerX) ** 2 + (y - centerY) ** 2 <= radius * radius) softened[y * width + x] = Math.min(softened[y * width + x], darkness);
+				if ((x - centerX) ** 2 + (y - centerY) ** 2 <= radius * radius) softened[y * width + x] = Math.min(softened[y * width + x]!, darkness);
 			}
 		}
 	}
 
 	const rgba = new Uint8Array(width * height * 4);
 	for (let index = 0; index < width * height; index++) {
-		const value = softened[index] + standardNormalSample(random) * 3;
+		const value = softened[index]! + standardNormalSample(random) * 3;
 		rgba[index * 4] = clampByte(value + 2);
 		rgba[index * 4 + 1] = clampByte(value);
 		rgba[index * 4 + 2] = clampByte(value - 4);
@@ -148,7 +148,7 @@ export function simulateReceiptPhotograph(receipt: GrayscaleRaster, random: Rand
 	const thermalFade = createValueNoise(random, 3, 6);
 	const paperBlotches = createValueNoise(random, 5, 9);
 	const creaseRow = receipt.height * (0.38 + random() * 0.2);
-	const inkColor = [64, 60, 74];
+	const inkColor = [64, 60, 74] as const;
 
 	const toReceiptCoordinates = (x: number, y: number): [number, number] => {
 		const offsetX = x - centerX;
@@ -157,7 +157,7 @@ export function simulateReceiptPhotograph(receipt: GrayscaleRaster, random: Rand
 	};
 	const insideDistance = (column: number, row: number) => Math.min(column, receipt.width - column, row, receipt.height - row);
 
-	const channels = [new Float32Array(width * height), new Float32Array(width * height), new Float32Array(width * height)];
+	const channels = [new Float32Array(width * height), new Float32Array(width * height), new Float32Array(width * height)] as const;
 	for (let y = 0; y < height; y++) {
 		for (let x = 0; x < width; x++) {
 			const index = y * width + x;
@@ -177,7 +177,7 @@ export function simulateReceiptPhotograph(receipt: GrayscaleRaster, random: Rand
 				const crease = 1 - 0.07 * Math.exp(-((creaseOffset / 3) ** 2)) + 0.03 * Math.exp(-(((creaseOffset - 7) / 6) ** 2));
 				const paper = (0.96 + 0.04 * paperBlotches(column / receipt.width, row / receipt.height)) * crease;
 				const inkStrength = ink * fade;
-				const paperColor = [247 * paper, 239 * paper, 222 * paper];
+				const paperColor = [247 * paper, 239 * paper, 222 * paper] as const;
 				red = red * (1 - coverage) + (paperColor[0] * (1 - inkStrength) + inkColor[0] * inkStrength) * coverage;
 				green = green * (1 - coverage) + (paperColor[1] * (1 - inkStrength) + inkColor[1] * inkStrength) * coverage;
 				blue = blue * (1 - coverage) + (paperColor[2] * (1 - inkStrength) + inkColor[2] * inkStrength) * coverage;
@@ -196,7 +196,7 @@ export function simulateReceiptPhotograph(receipt: GrayscaleRaster, random: Rand
 	for (let index = 0; index < width * height; index++) {
 		const luminanceNoise = standardNormalSample(random) * 4;
 		for (let channel = 0; channel < 3; channel++) {
-			rgba[index * 4 + channel] = clampByte(softened[channel][index] + luminanceNoise + standardNormalSample(random) * 1.5);
+			rgba[index * 4 + channel] = clampByte(softened[channel]![index]! + luminanceNoise + standardNormalSample(random) * 1.5);
 		}
 		rgba[index * 4 + 3] = 255;
 	}

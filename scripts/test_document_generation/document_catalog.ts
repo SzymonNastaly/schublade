@@ -637,7 +637,7 @@ function rentalContract(): DocumentSpecification {
 					{
 						heading: "§ 4 Mietsicherheit",
 						paragraphs: [
-							`(1) Die Mieter leisten eine Mietsicherheit in Höhe von ${formatEuro(3 * rentComponents[0][1])}. Sie sind berechtigt, die Sicherheit in drei gleichen monatlichen Teilzahlungen zu erbringen. Die erste Teilzahlung ist zu Beginn des Mietverhältnisses fällig.`,
+							`(1) Die Mieter leisten eine Mietsicherheit in Höhe von ${formatEuro(3 * rentComponents[0]![1])}. Sie sind berechtigt, die Sicherheit in drei gleichen monatlichen Teilzahlungen zu erbringen. Die erste Teilzahlung ist zu Beginn des Mietverhältnisses fällig.`,
 							"(2) Die Vermieterin legt die Sicherheit getrennt von ihrem Vermögen bei einem Kreditinstitut zu dem für Spareinlagen üblichen Zinssatz an. Die Zinsen stehen den Mietern zu.",
 						],
 					},
@@ -1154,7 +1154,7 @@ function dentalInvoice(): DocumentSpecification {
 					procedure.teeth,
 					String(procedure.quantity),
 					procedure.factor.toLocaleString("de-DE", { minimumFractionDigits: 1 }),
-					formatEuro(lineCents[index]),
+					formatEuro(lineCents[index]!),
 				]),
 				summaryRows: [["", "", "Rechnungsbetrag", "", "", "", formatEuro(totalCents)]],
 				bandColor: "#e2eff6",

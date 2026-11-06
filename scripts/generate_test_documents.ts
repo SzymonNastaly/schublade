@@ -76,7 +76,7 @@ function rasterizePages(pdfium: Pdfium, bytes: Uint8Array, dotsPerInch: number):
 			for (let y = 0; y < height; y++) {
 				for (let x = 0; x < width; x++) {
 					const pixel = bufferPointer + y * stride + x * 4;
-					luminance[y * width + x] = (heap[pixel] * 29 + heap[pixel + 1] * 150 + heap[pixel + 2] * 77) >> 8;
+					luminance[y * width + x] = (heap[pixel]! * 29 + heap[pixel + 1]! * 150 + heap[pixel + 2]! * 77) >> 8;
 				}
 			}
 			pdfium.FPDFBitmap_Destroy(bitmap);
@@ -147,6 +147,7 @@ async function captureDocument(pdfium: Pdfium, specification: DocumentSpecificat
 		}
 		case "photographed": {
 			const [receipt] = rasterizePages(pdfium, sourcePdf, photographResolutionDotsPerInch);
+			if (!receipt) throw new Error(`${specification.fileStem} rendered no page to photograph`);
 			return encodeJpeg(simulateReceiptPhotograph(receipt, random), 80);
 		}
 	}
