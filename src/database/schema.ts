@@ -30,6 +30,12 @@ const documentStatuses = [
 	"failed",
 ] as const
 
+/**
+ * The updated_at of a document's next revision. It exceeds the previous value even within one
+ * second, so an AI Search upload of an earlier revision never counts as current.
+ */
+export const succeedingModificationTime = () => sql`max(unixepoch(), updated_at + 1)`
+
 // A new sender, category, or tag is a state of that record, not of the document, so documents
 // store only the two reasons that belong to the document itself. See verification_assessment.ts.
 const verificationReasons = ["illegible_required_field", "non_archival_attachment"] as const
@@ -105,7 +111,10 @@ export const documents = sqliteTable(
 		updatedAt: integer("updated_at", { mode: "timestamp" })
 			.notNull()
 			.default(sql`(unixepoch())`)
-			.$onUpdateFn(() => new Date()),
+			.$onUpdateFn(succeedingModificationTime),
+		// The updated_at of the revision that AI Search holds, null until the index step uploads
+		// the document. A document whose updated_at is later awaits a new upload.
+		indexedAt: integer("indexed_at", { mode: "timestamp" }),
 	},
 	(table) => [
 		uniqueIndex("documents_storage_object_key_index").on(table.storageObjectKey),
@@ -204,7 +213,7 @@ export const documentInsertSchema = createInsertSchema(documents, {
 	documentDate: z.iso.date(),
 	byteSize: (schema) => schema.int().nonnegative(),
 	pageCount: (schema) => schema.int().positive(),
-}).omit({ ...managedColumns, updatedAt: true })
+}).omit({ ...managedColumns, updatedAt: true, indexedAt: true })
 
 export const documentTagInsertSchema = createInsertSchema(documentTags)
 

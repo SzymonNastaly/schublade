@@ -1,4 +1,4 @@
-import { and, asc, eq } from "drizzle-orm"
+import { and, asc, eq, gt, isNull, lt, or, sql } from "drizzle-orm"
 import { connectDatabase } from "../database/client"
 import { documentTags, documents, senders, tags } from "../database/schema"
 import { contentObjectKey } from "../ingestion/source_file"
@@ -36,11 +36,12 @@ async function readIndexedDocument(
 	database: ArchiveDatabase,
 	storage: R2Bucket,
 	documentId: string,
-): Promise<IndexedDocument> {
+): Promise<IndexedDocument & { updatedAt: Date }> {
 	const [[document], tagRows, content] = await Promise.all([
 		database
 			.select({
 				id: documents.id,
+				updatedAt: documents.updatedAt,
 				title: documents.title,
 				documentDate: documents.documentDate,
 				senderId: documents.senderId,
@@ -66,8 +67,10 @@ async function readIndexedDocument(
 }
 
 /**
- * Uploads the archived document to AI Search as `<documentId>.md`. An upload under an existing
- * name replaces that item, so a repeated call converges on the current D1 record.
+ * Uploads the archived document to AI Search as `<documentId>.md` and records the revision it
+ * uploaded in indexed_at. An upload under an existing name replaces that item, so a repeated
+ * call converges on the current D1 record. A revision written while the upload ran has a later
+ * updated_at, so the document stays stale until the backfill uploads it again.
  */
 export async function indexDocument(
 	database: ArchiveDatabase,
@@ -80,6 +83,13 @@ export async function indexDocument(
 	await items.upload(searchIndexItemName(documentId), composeSearchIndexContent(document), {
 		metadata: searchIndexMetadata(document),
 	})
+	await database
+		.update(documents)
+		// Recording the upload is no revision of the document, so updated_at keeps its value.
+		.set({ indexedAt: document.updatedAt, updatedAt: sql`${documents.updatedAt}` })
+		.where(
+			and(eq(documents.id, documentId), or(isNull(documents.indexedAt), lt(documents.indexedAt, document.updatedAt))),
+		)
 }
 
 /**
@@ -112,15 +122,15 @@ export interface IndexingReport {
 	indexedDocumentIds: Array<string>
 	/** Documents of this batch that could not be uploaded. The next call attempts them again. */
 	failedDocuments: Array<IndexingFailure>
-	/** Archived documents still absent from the index after this call, failed ones included. */
+	/** Archived documents still absent from the index or stale in it after this call, failed ones included. */
 	remainingDocumentCount: number
 }
 
 /**
- * Uploads every archived document that has no item in AI Search, or whose item failed to
- * index, such as documents archived before the workflow indexed them. A repeated call
- * uploads only what is still missing. A document that cannot be uploaded is reported and
- * does not stop the others.
+ * Uploads every archived document that has no item in AI Search, whose item failed to index,
+ * or whose item is stale because the document changed after its upload, such as the documents
+ * of a merged sender. A repeated call uploads only what is still missing or stale. A document
+ * that cannot be uploaded is reported and does not stop the others.
  */
 export async function indexMissingDocuments(
 	database: ArchiveDatabase,
@@ -129,18 +139,23 @@ export async function indexMissingDocuments(
 ): Promise<IndexingReport> {
 	const [archivedDocuments, itemStatuses] = await Promise.all([
 		database
-			.select({ id: documents.id })
+			.select({
+				id: documents.id,
+				stale: sql<boolean>`${or(isNull(documents.indexedAt), gt(documents.updatedAt, documents.indexedAt))}`.mapWith(
+					Boolean,
+				),
+			})
 			.from(documents)
 			.where(eq(documents.status, "archived"))
 			.orderBy(asc(documents.createdAt), asc(documents.id)),
 		listIndexedItemStatuses(searchIndex),
 	])
-	const missingDocumentIds = archivedDocuments
+	const pendingDocumentIds = archivedDocuments
+		.filter((document) => document.stale || [undefined, "error"].includes(itemStatuses.get(document.id)))
 		.map((document) => document.id)
-		.filter((documentId) => [undefined, "error"].includes(itemStatuses.get(documentId)))
 	const indexedDocumentIds: Array<string> = []
 	const failedDocuments: Array<IndexingFailure> = []
-	for (const documentId of missingDocumentIds.slice(0, INDEXING_BATCH_SIZE)) {
+	for (const documentId of pendingDocumentIds.slice(0, INDEXING_BATCH_SIZE)) {
 		try {
 			await indexDocument(database, storage, searchIndex, documentId)
 			indexedDocumentIds.push(documentId)
@@ -151,7 +166,7 @@ export async function indexMissingDocuments(
 	return {
 		indexedDocumentIds,
 		failedDocuments,
-		remainingDocumentCount: missingDocumentIds.length - indexedDocumentIds.length,
+		remainingDocumentCount: pendingDocumentIds.length - indexedDocumentIds.length,
 	}
 }
 
@@ -169,8 +184,8 @@ export async function receiveIndexingRequest(environment: IndexingEnvironment): 
 }
 
 /**
- * The scheduled run of the backfill, which indexes documents that AI Search lacks or failed to
- * index without a signed-in request, and logs one line per run.
+ * The scheduled run of the backfill, which uploads documents that AI Search lacks, failed to
+ * index, or holds a stale revision of without a signed-in request, and logs one line per run.
  */
 export async function indexMissingDocumentsOnSchedule(environment: IndexingEnvironment): Promise<void> {
 	const report = await indexMissingDocuments(

@@ -1,9 +1,10 @@
 import { applyD1Migrations, env, reset } from "cloudflare:test"
+import { eq } from "drizzle-orm"
 import { expect, inject, test, vi } from "vitest"
 import { connectDatabase } from "../database/client"
 import { documents } from "../database/schema"
 import { contentObjectKey } from "../ingestion/source_file"
-import { indexMissingDocuments, indexMissingDocumentsOnSchedule } from "./document_indexing"
+import { indexDocument, indexMissingDocuments, indexMissingDocumentsOnSchedule } from "./document_indexing"
 import type { SearchIndex } from "./document_indexing"
 
 const brokenDocumentId = "1c9e4a7b-2d3f-4e5a-8b6c-7d8e9f0a1b2c"
@@ -39,6 +40,9 @@ async function archiveDocument(documentId: string, createdAt: Date, markdown?: s
 			byteSize: 1024,
 			status: "archived",
 			createdAt,
+			// The revision of the document's creation is current in the index once AI Search lists it.
+			updatedAt: createdAt,
+			indexedAt: createdAt,
 		})
 	if (markdown !== undefined) await env.DOCUMENT_STORAGE.put(contentObjectKey(documentId), markdown)
 }
@@ -116,4 +120,52 @@ test("indexMissingDocumentsOnSchedule indexes a batch and logs one summary line"
 		],
 	})
 	log.mockRestore()
+})
+
+test("indexMissingDocuments re-uploads a document changed since its item was uploaded, once", async () => {
+	await prepareArchive()
+	const database = connectDatabase(env.DATABASE)
+	const revisedDocumentId = "5a0e3c9d-7b21-4f64-9c8e-2d4f6a1b3c75"
+	// Archived, indexed, and revised within one second, as a member edits a document just archived.
+	await archiveDocument(revisedDocumentId, new Date(), "# Wasserrechnung\n\nBetrag 41,30 €")
+	const listedItems = [intactDocumentId, revisedDocumentId].map((documentId) => ({
+		key: `${documentId}.md`,
+		status: "completed" as const,
+	}))
+	const { uploadedItemNames, searchIndex } = createSearchIndex([listedItems])
+	await indexDocument(database, env.DOCUMENT_STORAGE, searchIndex, intactDocumentId)
+	await indexDocument(database, env.DOCUMENT_STORAGE, searchIndex, revisedDocumentId)
+	await database.update(documents).set({ title: "Wasserrechnung 2026" }).where(eq(documents.id, revisedDocumentId))
+	uploadedItemNames.length = 0
+
+	const reports = [
+		await indexMissingDocuments(database, env.DOCUMENT_STORAGE, searchIndex),
+		await indexMissingDocuments(database, env.DOCUMENT_STORAGE, searchIndex),
+	]
+
+	expect({ reports, uploadedItemNames }).toEqual({
+		reports: [
+			{
+				indexedDocumentIds: [revisedDocumentId],
+				failedDocuments: [
+					{
+						documentId: brokenDocumentId,
+						reason: `Document ${brokenDocumentId} has no extracted Markdown at documents/${brokenDocumentId}/content.md`,
+					},
+				],
+				remainingDocumentCount: 1,
+			},
+			{
+				indexedDocumentIds: [],
+				failedDocuments: [
+					{
+						documentId: brokenDocumentId,
+						reason: `Document ${brokenDocumentId} has no extracted Markdown at documents/${brokenDocumentId}/content.md`,
+					},
+				],
+				remainingDocumentCount: 1,
+			},
+		],
+		uploadedItemNames: [`${revisedDocumentId}.md`],
+	})
 })
