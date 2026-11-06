@@ -15,8 +15,8 @@ const deploymentParametersSchema = z.strictObject({
 	documentStorageBucketName: z.string().min(1).optional(),
 	searchInstanceName: z.string().min(1).optional(),
 	aiGatewayIdentifier: z.string().min(1).optional(),
-	accessTeamDomain: z.string().optional(),
-	accessAudience: z.string().optional(),
+	accessTeamDomain: z.hostname().optional(),
+	accessAudience: z.string().min(1).optional(),
 })
 
 const deployment = deploymentParametersSchema.parse(
