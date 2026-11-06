@@ -1,8 +1,15 @@
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { createRouter } from "@tanstack/react-router"
 import { routeTree } from "./routeTree.gen"
 
 export function getRouter() {
-	return createRouter({ routeTree, scrollRestoration: true })
+	// The server calls getRouter once per request, so no query cache is shared between requests.
+	const queryClient = new QueryClient()
+	return createRouter({
+		routeTree,
+		scrollRestoration: true,
+		Wrap: ({ children }) => <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>,
+	})
 }
 
 declare module "@tanstack/react-router" {

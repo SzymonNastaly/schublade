@@ -1,15 +1,5 @@
 import { createServerFn } from "@tanstack/react-start"
-import { asc } from "drizzle-orm"
+import { queryDocumentListing } from "../archive/document_listing"
 import { database } from "../database/client"
-import { householdMembers } from "../database/schema"
 
-export const listHouseholdMembers = createServerFn({ method: "GET" }).handler(() =>
-	database
-		.select({
-			id: householdMembers.id,
-			displayName: householdMembers.displayName,
-			addresseeNames: householdMembers.addresseeNames,
-		})
-		.from(householdMembers)
-		.orderBy(asc(householdMembers.displayName)),
-)
+export const listDocuments = createServerFn({ method: "GET" }).handler(() => queryDocumentListing(database))
