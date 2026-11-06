@@ -9,7 +9,10 @@ import { normalizeTaxonomyName } from "../src/ingestion/taxonomy_resolution.ts"
 // test_fixtures/documents/expected_extraction.json. The dev server calls the real,
 // billed Workers AI models.
 
+const commandLine = process.argv.slice(2)
+// `pnpm evaluate:extraction -- --gateway-id …` passes the separator through to the script.
 const { values: options } = parseArgs({
+	args: commandLine[0] === "--" ? commandLine.slice(1) : commandLine,
 	options: {
 		"base-url": { type: "string", default: "http://localhost:3000" },
 		"gateway-id": { type: "string" },
@@ -20,7 +23,8 @@ const baseUrl = options["base-url"]
 const explorerUrl = `${baseUrl}/cdn-cgi/local/explorer/api`
 // Keep equal to LOCAL_DATABASE_IDENTIFIER and the Workflow name in cloudflare.config.ts.
 const localDatabaseIdentifier = "00000000-0000-4000-8000-000000000000"
-const workflowName = "schublade-document-ingestion"
+// Local development always runs as schublade-development, see LOCAL_WORKER_NAME in cloudflare.config.ts.
+const workflowName = "schublade-development-document-ingestion"
 const fixtureDirectory = new URL("../test_fixtures/documents/", import.meta.url)
 
 const expectedFieldSchema = z.object({ value: z.union([z.string(), z.number()]) })

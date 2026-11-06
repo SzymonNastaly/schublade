@@ -55,11 +55,20 @@ const deployment = readDeploymentParameters()
 const workerName = deployment.workerName ?? "schublade"
 const resourceNames = resourceNamesFor(workerName)
 
+// `cf dev` runs remote bindings through a preview of the Worker under this name. Under the
+// deployed name, that preview would sit behind its Access application and demand a service
+// token. scripts/evaluate_extraction.ts addresses the local Workflow under this name too.
+const LOCAL_WORKER_NAME = "schublade-development"
+
+function isLocalMode(mode: string | undefined): boolean {
+	return mode === undefined || mode === "development"
+}
+
 // Builds evaluate this configuration in `production` mode or the `--mode` they receive.
 // `cf dev` evaluates it in `development` mode, and commands that only read it, such as
 // `cf workers types`, evaluate it without a mode.
 function resourceBindings(mode: string | undefined) {
-	if (mode === undefined || mode === "development") {
+	if (isLocalMode(mode)) {
 		return {
 			DATABASE: bindings.d1({ name: resourceNames.databaseName, id: LOCAL_DATABASE_IDENTIFIER }),
 			DOCUMENT_STORAGE: bindings.r2({
@@ -86,35 +95,40 @@ function resourceBindings(mode: string | undefined) {
 	}
 }
 
-export default defineConfig(({ mode }) => ({
-	worker: {
-		name: workerName,
-		compatibilityDate: "2026-11-01",
-		compatibilityFlags: ["nodejs_compat"],
-		entrypoint: "./src/server.ts",
-		observability: { enabled: true },
-		// Per-version preview hostnames are outside the Access application.
-		previewUrls: false,
-		exports: {
-			DocumentIngestionWorkflow: workerExports.workflow({ name: `${workerName}-document-ingestion` }),
-			ArchiveCoordinator: workerExports.durableObject({ storage: "sqlite" }),
+export default defineConfig(({ mode }) => {
+	const name = isLocalMode(mode) ? LOCAL_WORKER_NAME : workerName
+	return {
+		worker: {
+			name,
+			compatibilityDate: "2026-11-01",
+			compatibilityFlags: ["nodejs_compat"],
+			entrypoint: "./src/server.ts",
+			observability: { enabled: true },
+			// Per-version preview hostnames are outside the Access application.
+			previewUrls: false,
+			exports: {
+				DocumentIngestionWorkflow: workerExports.workflow({ name: `${name}-document-ingestion` }),
+				ArchiveCoordinator: workerExports.durableObject({ storage: "sqlite" }),
+			},
+			env: {
+				...resourceBindings(mode),
+				// Workers AI and Browser Run have no local simulation.
+				AI_RUNTIME: bindings.ai({ dev: { remote: true } }),
+				BROWSER_RENDERER: bindings.browser({ dev: { remote: true } }),
+				DOCUMENT_INGESTION_WORKFLOW: bindings.workflow({
+					name: `${name}-document-ingestion`,
+					worker: name,
+					exportName: "DocumentIngestionWorkflow",
+				}),
+				ARCHIVE_COORDINATOR: bindings.durableObject({ worker: name, exportName: "ArchiveCoordinator" }),
+				// Blank Access values make the Worker reject every browser request.
+				ACCESS_TEAM_DOMAIN: bindings.text(deployment.accessTeamDomain ?? ""),
+				ACCESS_AUD: bindings.text(deployment.accessAudience ?? ""),
+				AI_GATEWAY_IDENTIFIER: bindings.text(deployment.aiGatewayIdentifier ?? "schublade"),
+				CLASSIFICATION_MODEL: bindings.text(
+					deployment.classificationModel ?? "@cf/deepseek-ai/deepseek-v4.1-flash-1017",
+				),
+			},
 		},
-		env: {
-			...resourceBindings(mode),
-			// Workers AI and Browser Run have no local simulation.
-			AI_RUNTIME: bindings.ai({ dev: { remote: true } }),
-			BROWSER_RENDERER: bindings.browser({ dev: { remote: true } }),
-			DOCUMENT_INGESTION_WORKFLOW: bindings.workflow({
-				name: `${workerName}-document-ingestion`,
-				worker: workerName,
-				exportName: "DocumentIngestionWorkflow",
-			}),
-			ARCHIVE_COORDINATOR: bindings.durableObject({ worker: workerName, exportName: "ArchiveCoordinator" }),
-			// Blank Access values make the Worker reject every browser request.
-			ACCESS_TEAM_DOMAIN: bindings.text(deployment.accessTeamDomain ?? ""),
-			ACCESS_AUD: bindings.text(deployment.accessAudience ?? ""),
-			AI_GATEWAY_IDENTIFIER: bindings.text(deployment.aiGatewayIdentifier ?? "schublade"),
-			CLASSIFICATION_MODEL: bindings.text(deployment.classificationModel ?? "@cf/deepseek-ai/deepseek-v4.1-flash-1017"),
-		},
-	},
-}))
+	}
+})
