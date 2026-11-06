@@ -1,43 +1,30 @@
-import { Badge, Button, Empty, LayerCard, Table, Tabs, Text } from "@cloudflare/kumo"
-import { FilesIcon, UploadSimpleIcon } from "@phosphor-icons/react"
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { createFileRoute } from "@tanstack/react-router"
-import { useRef, useState } from "react"
+import { Button, Empty, LayerCard, Tabs, Text } from "@cloudflare/kumo"
+import { FilesIcon, MagnifyingGlassIcon, UploadSimpleIcon } from "@phosphor-icons/react"
+import { useMutation, useQuery } from "@tanstack/react-query"
+import { createFileRoute, useRouter, useRouterState } from "@tanstack/react-router"
+import { useEffect, useRef, useState } from "react"
 import { isSettledStatus } from "../ingestion/document_lifecycle"
 import { acceptedMediaTypes } from "../ingestion/source_file"
-import { listDocuments } from "../utilities/server_functions"
-import type { BadgeVariant } from "@cloudflare/kumo"
-import type { ListedDocument } from "../archive/document_listing"
-import type { DocumentStatus } from "../ingestion/document_lifecycle"
+import { DocumentList } from "../interface/document_list"
+import { DocumentSearchControls } from "../interface/document_search_controls"
+import { searchCriteriaSchema } from "../search/search_criteria"
+import { listArchiveFacets, retrieveDocuments } from "../utilities/server_functions"
 import type { UploadOutcome } from "../ingestion/document_upload"
+import type { SearchCriteria } from "../search/search_criteria"
+import type { RetrievedDocument } from "../search/document_search"
 
 export const Route = createFileRoute("/")({
-	loader: () => listDocuments(),
+	// An unreadable URL parameter shows the whole archive rather than an error.
+	validateSearch: (search) => searchCriteriaSchema.catch({}).parse(search),
+	loaderDeps: ({ search }) => search,
+	loader: async ({ deps }) => {
+		const [documents, facets] = await Promise.all([retrieveDocuments({ data: deps }), listArchiveFacets()])
+		return { documents, facets }
+	},
 	component: ArchiveOverview,
 })
 
 const DOCUMENT_LISTING_REFRESH_MILLISECONDS = 2000
-
-const statusBadges: Record<DocumentStatus, { label: string; variant: BadgeVariant }> = {
-	processing: { label: "Processing", variant: "secondary" },
-	extracting: { label: "Extracting", variant: "info" },
-	recognizing_text: { label: "Recognizing text", variant: "info" },
-	classifying: { label: "Classifying", variant: "info" },
-	archived: { label: "Archived", variant: "success" },
-	failed: { label: "Failed", variant: "error" },
-}
-
-function primaryAmount(document: ListedDocument): string {
-	const amount = document.fields.find((field) => field.fieldKey === "amount")?.value
-	const currency = document.fields.find((field) => field.fieldKey === "currency")?.value
-	if (typeof amount !== "number") return ""
-	return `${amount.toFixed(2)} ${typeof currency === "string" ? currency : ""}`.trim()
-}
-
-function personLabel(document: ListedDocument): string {
-	if (document.personName !== null) return document.personName
-	return document.status === "archived" ? "Household" : ""
-}
 
 async function uploadDocuments(files: Array<File>): Promise<Array<UploadOutcome>> {
 	const formData = new FormData()
@@ -52,11 +39,11 @@ async function uploadDocuments(files: Array<File>): Promise<Array<UploadOutcome>
 }
 
 function UploadControl() {
-	const queryClient = useQueryClient()
+	const router = useRouter()
 	const fileInput = useRef<HTMLInputElement>(null)
 	const upload = useMutation({
 		mutationFn: uploadDocuments,
-		onSettled: () => queryClient.invalidateQueries({ queryKey: ["documents"] }),
+		onSettled: () => router.invalidate(),
 	})
 	const unarchivedOutcomes = upload.data?.filter((outcome) => outcome.kind !== "accepted") ?? []
 	return (
@@ -92,7 +79,7 @@ function UploadControl() {
 	)
 }
 
-function DocumentInspection({ document }: { document: ListedDocument }) {
+function DocumentInspection({ document }: { document: RetrievedDocument }) {
 	const [representation, setRepresentation] = useState("original")
 	const markdown = useQuery({
 		queryKey: ["documents", document.id, "content"],
@@ -131,71 +118,66 @@ function DocumentInspection({ document }: { document: ListedDocument }) {
 }
 
 function ArchiveOverview() {
-	const initialDocuments = Route.useLoaderData()
+	const { documents, facets } = Route.useLoaderData()
+	const criteria = Route.useSearch()
+	const navigate = Route.useNavigate()
+	const router = useRouter()
+	const searching = useRouterState({ select: (state) => state.status === "pending" })
 	const [selectedDocumentId, setSelectedDocumentId] = useState<string>()
-	const { data: documents } = useQuery({
-		queryKey: ["documents"],
-		queryFn: () => listDocuments(),
-		initialData: initialDocuments,
-		refetchInterval: (query) =>
-			query.state.data?.some((document) => !isSettledStatus(document.status))
-				? DOCUMENT_LISTING_REFRESH_MILLISECONDS
-				: false,
-	})
+	const hasUnsettledDocument = documents.some((document) => !isSettledStatus(document.status))
+	useEffect(() => {
+		if (!hasUnsettledDocument) return
+		const timer = setInterval(() => void router.invalidate(), DOCUMENT_LISTING_REFRESH_MILLISECONDS)
+		return () => clearInterval(timer)
+	}, [hasUnsettledDocument, router])
+	const changeCriteria = (changes: Partial<SearchCriteria>) =>
+		void navigate({
+			search: (previous) =>
+				Object.fromEntries(
+					Object.entries<string | number | undefined>({ ...previous, ...changes }).filter(
+						([, value]) => value !== undefined,
+					),
+				),
+			replace: true,
+		})
+	const filtered = Object.keys(criteria).length > 0
 	const selectedDocument = documents.find((document) => document.id === selectedDocumentId)
 	return (
-		<main className="mx-auto flex max-w-6xl flex-col gap-6 px-6 py-12">
-			<div className="flex items-center justify-between gap-4">
+		<main className="mx-auto flex max-w-6xl flex-col gap-6 px-4 py-6 md:px-6 md:py-12">
+			<div className="flex flex-wrap items-center justify-between gap-4">
 				<Text variant="heading1" as="h1">
 					Schublade
 				</Text>
 				<UploadControl />
 			</div>
+			<DocumentSearchControls criteria={criteria} facets={facets} searching={searching} onChange={changeCriteria} />
 			<LayerCard>
-				<LayerCard.Secondary>Documents</LayerCard.Secondary>
+				<LayerCard.Secondary>
+					{criteria.query === undefined
+						? "Documents"
+						: `${documents.length} ${documents.length === 1 ? "document matches" : "documents match"} “${criteria.query}”`}
+				</LayerCard.Secondary>
 				<LayerCard.Primary>
 					{documents.length === 0 ? (
-						<Empty
-							icon={<FilesIcon size={32} />}
-							title="No documents"
-							description="Upload a PDF, JPEG, PNG, or WebP file to archive it."
-						/>
+						filtered ? (
+							<Empty
+								icon={<MagnifyingGlassIcon size={32} />}
+								title="No matching documents"
+								description="Search for other words or remove a filter."
+							/>
+						) : (
+							<Empty
+								icon={<FilesIcon size={32} />}
+								title="No documents"
+								description="Upload a PDF, JPEG, PNG, or WebP file to archive it."
+							/>
+						)
 					) : (
-						<Table>
-							<Table.Header>
-								<Table.Row>
-									<Table.Head>Date</Table.Head>
-									<Table.Head>Sender</Table.Head>
-									<Table.Head>Title</Table.Head>
-									<Table.Head>Person</Table.Head>
-									<Table.Head>Category</Table.Head>
-									<Table.Head>Amount</Table.Head>
-									<Table.Head>Status</Table.Head>
-								</Table.Row>
-							</Table.Header>
-							<Table.Body>
-								{documents.map((document) => (
-									<Table.Row
-										key={document.id}
-										variant={document.id === selectedDocumentId ? "selected" : "default"}
-										className="cursor-pointer"
-										onClick={() => setSelectedDocumentId(document.id)}
-									>
-										<Table.Cell>{document.documentDate}</Table.Cell>
-										<Table.Cell>{document.senderName}</Table.Cell>
-										<Table.Cell>{document.title}</Table.Cell>
-										<Table.Cell>{personLabel(document)}</Table.Cell>
-										<Table.Cell>{document.categoryName}</Table.Cell>
-										<Table.Cell className="text-right tabular-nums">{primaryAmount(document)}</Table.Cell>
-										<Table.Cell>
-											<Badge variant={statusBadges[document.status].variant}>
-												{statusBadges[document.status].label}
-											</Badge>
-										</Table.Cell>
-									</Table.Row>
-								))}
-							</Table.Body>
-						</Table>
+						<DocumentList
+							documents={documents}
+							selectedDocumentId={selectedDocumentId}
+							onSelect={setSelectedDocumentId}
+						/>
 					)}
 				</LayerCard.Primary>
 			</LayerCard>

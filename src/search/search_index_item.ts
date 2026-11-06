@@ -10,7 +10,7 @@ export const searchIndexMetadataFields = [
 ] as const
 
 /** The person value of a document that concerns the whole household. */
-const HOUSEHOLD_PERSON = "household"
+export const HOUSEHOLD_PERSON = "household"
 
 // A type alias, unlike an interface, is assignable to the Record that the binding accepts.
 export type SearchIndexMetadata = {
@@ -50,7 +50,7 @@ export function documentIdOfItemName(itemName: string): string | undefined {
  * AI Search reads a datetime field from an ISO 8601 timestamp and compares range filters
  * against the same form, so a calendar date becomes midnight UTC of that day.
  */
-function searchIndexDateTime(calendarDate: string): string {
+export function searchIndexDateTime(calendarDate: string): string {
 	return `${calendarDate}T00:00:00Z`
 }
 

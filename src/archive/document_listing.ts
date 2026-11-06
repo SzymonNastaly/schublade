@@ -1,8 +1,19 @@
-import { asc, desc, eq } from "drizzle-orm"
-import { categories, documents, extractedFields, householdMembers, senders } from "../database/schema"
+import { and, asc, desc, eq, exists, gte, inArray, isNull, lte } from "drizzle-orm"
+import {
+	categories,
+	documentTags,
+	documents,
+	extractedFields,
+	householdMembers,
+	senders,
+	tags,
+} from "../database/schema"
+import { HOUSEHOLD_PERSON } from "../search/search_index_item"
+import type { SQL } from "drizzle-orm"
 import type { ArchiveDatabase } from "../database/client"
 import type { DocumentStatus } from "../ingestion/document_lifecycle"
 import type { VerificationReason } from "../ingestion/verification_assessment"
+import type { SearchCriteria } from "../search/search_criteria"
 
 interface ListedField {
 	fieldKey: string
@@ -26,7 +37,56 @@ export interface ListedDocument {
 	fields: Array<ListedField>
 }
 
-export async function queryDocumentListing(database: ArchiveDatabase): Promise<Array<ListedDocument>> {
+/** Restricts a listing to the given documents and to every filter of the criteria. The query text plays no part. */
+export type ListingCriteria = Omit<SearchCriteria, "query"> & { documentIds?: Array<string> }
+
+function listingConditions(database: ArchiveDatabase, criteria: ListingCriteria): Array<SQL | undefined> {
+	const amountBounds = [
+		criteria.minimumAmount === undefined ? undefined : gte(extractedFields.valueNumber, criteria.minimumAmount),
+		criteria.maximumAmount === undefined ? undefined : lte(extractedFields.valueNumber, criteria.maximumAmount),
+	]
+	return [
+		criteria.documentIds === undefined ? undefined : inArray(documents.id, criteria.documentIds),
+		criteria.person === undefined
+			? undefined
+			: criteria.person === HOUSEHOLD_PERSON
+				? and(isNull(documents.personMemberId), eq(documents.status, "archived"))
+				: eq(documents.personMemberId, criteria.person),
+		criteria.sender === undefined ? undefined : eq(documents.senderId, criteria.sender),
+		criteria.category === undefined ? undefined : eq(documents.categoryId, criteria.category),
+		criteria.earliestDocumentDate === undefined
+			? undefined
+			: gte(documents.documentDate, criteria.earliestDocumentDate),
+		criteria.latestDocumentDate === undefined ? undefined : lte(documents.documentDate, criteria.latestDocumentDate),
+		criteria.tag === undefined
+			? undefined
+			: exists(
+					database
+						.select({ documentId: documentTags.documentId })
+						.from(documentTags)
+						.where(and(eq(documentTags.documentId, documents.id), eq(documentTags.tagId, criteria.tag))),
+				),
+		amountBounds.every((bound) => bound === undefined)
+			? undefined
+			: exists(
+					database
+						.select({ documentId: extractedFields.documentId })
+						.from(extractedFields)
+						.where(
+							and(
+								eq(extractedFields.documentId, documents.id),
+								eq(extractedFields.fieldKey, "amount"),
+								...amountBounds,
+							),
+						),
+				),
+	]
+}
+
+export async function queryDocumentListing(
+	database: ArchiveDatabase,
+	criteria: ListingCriteria = {},
+): Promise<Array<ListedDocument>> {
 	const [rows, fieldRows] = await Promise.all([
 		database
 			.select({
@@ -46,6 +106,7 @@ export async function queryDocumentListing(database: ArchiveDatabase): Promise<A
 			.leftJoin(senders, eq(documents.senderId, senders.id))
 			.leftJoin(categories, eq(documents.categoryId, categories.id))
 			.leftJoin(householdMembers, eq(documents.personMemberId, householdMembers.id))
+			.where(and(...listingConditions(database, criteria)))
 			.orderBy(desc(documents.createdAt), desc(documents.id)),
 		database
 			.select({
@@ -56,6 +117,7 @@ export async function queryDocumentListing(database: ArchiveDatabase): Promise<A
 				confidence: extractedFields.confidenceScore,
 			})
 			.from(extractedFields)
+			.where(criteria.documentIds === undefined ? undefined : inArray(extractedFields.documentId, criteria.documentIds))
 			.orderBy(asc(extractedFields.fieldKey)),
 	])
 	const fieldsByDocument = new Map<string, Array<ListedField>>()
@@ -69,4 +131,30 @@ export async function queryDocumentListing(database: ArchiveDatabase): Promise<A
 		fieldsByDocument.set(field.documentId, listedFields)
 	}
 	return rows.map((row) => ({ ...row, fields: fieldsByDocument.get(row.id) ?? [] }))
+}
+
+interface FacetOption {
+	id: string
+	name: string
+}
+
+/** The household members, senders, categories, and tags that the filter controls offer. */
+export interface ArchiveFacets {
+	members: Array<FacetOption>
+	senders: Array<FacetOption>
+	categories: Array<FacetOption>
+	tags: Array<FacetOption>
+}
+
+export async function queryArchiveFacets(database: ArchiveDatabase): Promise<ArchiveFacets> {
+	const [memberRows, senderRows, categoryRows, tagRows] = await Promise.all([
+		database
+			.select({ id: householdMembers.id, name: householdMembers.displayName })
+			.from(householdMembers)
+			.orderBy(asc(householdMembers.displayName)),
+		database.select({ id: senders.id, name: senders.name }).from(senders).orderBy(asc(senders.name)),
+		database.select({ id: categories.id, name: categories.name }).from(categories).orderBy(asc(categories.name)),
+		database.select({ id: tags.id, name: tags.name }).from(tags).orderBy(asc(tags.name)),
+	])
+	return { members: memberRows, senders: senderRows, categories: categoryRows, tags: tagRows }
 }
