@@ -39,7 +39,7 @@ const recordingSearchIndex: SearchIndex = {
 const recordedEnvironment = {
 	...env,
 	AI_RUNTIME: recordedRuntime as unknown as Ai,
-	CLASSIFICATION_MODEL: "@cf/google/gemma-4-26b-a4b-it",
+	CLASSIFICATION_MODEL: "@cf/deepseek-ai/deepseek-v4.1-flash-1017",
 	SEARCH_INDEX: recordingSearchIndex,
 }
 
@@ -93,9 +93,9 @@ test("ingestDocument recognizes, classifies, archives, and indexes a scanned inv
 	expect(outcome).toEqual({
 		documentId,
 		recognizedPageCount: 1,
-		classificationModel: "@cf/google/gemma-4-26b-a4b-it",
-		classificationInputTokens: 2347,
-		classificationOutputTokens: 2172,
+		classificationModel: "@cf/deepseek-ai/deepseek-v4.1-flash-1017",
+		classificationInputTokens: 2504,
+		classificationOutputTokens: 1756,
 	})
 	const expected = expectedExtraction.documents.find(
 		(document) => document.file_name === "electricity_invoice_scanned.pdf",
@@ -104,22 +104,24 @@ test("ingestDocument recognizes, classifies, archives, and indexes a scanned inv
 		{
 			id: documentId,
 			status: "archived",
-			title: "Stadtwerke Talbrück Electricity Annual Statement 2025-2026",
+			title: "Stadtwerke Talbrück Invoice Electricity Consumption September 2025 to August 2026",
 			documentDate: "2026-09-22",
 			senderName: "Stadtwerke Talbrück GmbH",
 			categoryName: "Invoice",
 			personName: null,
 			summary:
-				"This is an annual electricity consumption statement from Stadtwerke Talbrück GmbH. It records the electricity usage from September 2025 to August 2026 and requires a back payment of 72.09 EUR.",
+				"This is an annual electricity consumption statement from Stadtwerke Talbrück for the joint supply address Am Lindenhang 7, covering 1 September 2025 to 31 August 2026. It records a consumption of 2,691 kWh and requires a Nachzahlung of €72.09 by 6 October 2026.",
 			mimeType: "application/pdf",
 			pageCount: 1,
 			verificationReason: "new_taxonomy_record",
 			fields: [
-				{ fieldKey: "amount", value: expected?.amount?.value, confidence: 1 },
-				{ fieldKey: "currency", value: expected?.currency?.value, confidence: 1 },
-				{ fieldKey: "due_date", value: expected?.due_date?.value, confidence: 1 },
-				{ fieldKey: "iban", value: expected?.iban?.value, confidence: 1 },
-				{ fieldKey: "invoice_number", value: expected?.invoice_number?.value, confidence: 1 },
+				{ fieldKey: "amount", value: expected?.amount?.value, confidence: 0.99 },
+				{ fieldKey: "currency", value: expected?.currency?.value, confidence: 0.99 },
+				{ fieldKey: "due_date", value: expected?.due_date?.value, confidence: 0.99 },
+				{ fieldKey: "iban", value: expected?.iban?.value, confidence: 0.99 },
+				{ fieldKey: "invoice_number", value: expected?.invoice_number?.value, confidence: 0.99 },
+				// The model read the contract account number Vertragskonto as a policy number.
+				{ fieldKey: "policy_number", value: "300 418 225", confidence: 0.95 },
 			],
 		},
 	])
@@ -135,10 +137,10 @@ test("ingestDocument recognizes, classifies, archives, and indexes a scanned inv
 		{
 			name: `${documentId}.md`,
 			content: [
-				"# Stadtwerke Talbrück Electricity Annual Statement 2025-2026",
+				"# Stadtwerke Talbrück Invoice Electricity Consumption September 2025 to August 2026",
 				"Sender: Stadtwerke Talbrück GmbH",
 				"",
-				"This is an annual electricity consumption statement from Stadtwerke Talbrück GmbH. It records the electricity usage from September 2025 to August 2026 and requires a back payment of 72.09 EUR.",
+				"This is an annual electricity consumption statement from Stadtwerke Talbrück for the joint supply address Am Lindenhang 7, covering 1 September 2025 to 31 August 2026. It records a consumption of 2,691 kWh and requires a Nachzahlung of €72.09 by 6 October 2026.",
 			],
 			metadata: {
 				person: "household",

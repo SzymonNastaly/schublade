@@ -228,6 +228,7 @@ async function archiveDocument(
 			summary: classification.summary,
 			pageCount,
 			verificationReason: assessVerificationReason({
+				nonArchival: classification.nonArchival,
 				documentDate: classification.documentDate,
 				categoryExpectedFields,
 				fields: classification.extractedFields,

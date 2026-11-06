@@ -33,16 +33,24 @@ export function illegibleRequiredFields(state: RequiredFieldState): Array<Requir
 	]
 }
 
-/** The reason the documents table stores for a document, from its required fields. */
-export function assessVerificationReason(state: RequiredFieldState): DocumentVerificationReason | null {
+/**
+ * The reason the documents table stores for a document. VISION.md gives a document one reason,
+ * in this order of precedence:
+ *
+ * 1. `non_archival_attachment`, because the member deletes such a file, so supplying its fields
+ *    or confirming its records first would be wasted work.
+ * 2. `illegible_required_field`, because only a member can supply the value.
+ * 3. `new_taxonomy_record`, derived in effectiveVerificationReason, because confirming the record
+ *    resolves every document that refers to it.
+ */
+export function assessVerificationReason(
+	state: RequiredFieldState & { nonArchival: boolean },
+): DocumentVerificationReason | null {
+	if (state.nonArchival) return "non_archival_attachment"
 	return illegibleRequiredFields(state).length > 0 ? "illegible_required_field" : null
 }
 
-/**
- * VISION.md gives a document one verification reason. A stored reason takes precedence over
- * `new_taxonomy_record`, because only a member can supply an illegible field, while confirming
- * the record resolves every document that refers to it.
- */
+/** The reason a document awaits verification: its stored reason, else an unconfirmed record it refers to. */
 export function effectiveVerificationReason(
 	storedReason: DocumentVerificationReason | null,
 	refersToUnconfirmedRecord: boolean,

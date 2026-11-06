@@ -38,6 +38,7 @@ const expectationSchema = z.object({
 			sender: z.string(),
 			person: z.string(),
 			document_date: z.string(),
+			is_non_archival: z.boolean(),
 			fields: z.record(z.string(), expectedFieldSchema),
 		}),
 	),
@@ -51,6 +52,7 @@ const listedDocumentSchema = z.object({
 	senderName: z.string().nullable(),
 	categoryName: z.string().nullable(),
 	personName: z.string().nullable(),
+	verificationReason: z.string().nullable(),
 	fields: z.array(z.object({ fieldKey: z.string(), value: z.union([z.string(), z.number()]).nullable() })),
 })
 type ListedDocument = z.infer<typeof listedDocumentSchema>
@@ -78,8 +80,9 @@ const gatewayLogSchema = z.array(
 )
 
 type Comparison = "match" | "mismatch" | "unscored"
+type ScoredValue = string | number | boolean
 
-const fieldComparators: Record<string, (expected: string | number, actual: string | number | null) => boolean> = {
+const fieldComparators: Record<string, (expected: ScoredValue, actual: ScoredValue | null) => boolean> = {
 	category: (expected, actual) =>
 		actual !== null && normalizeTaxonomyName(String(actual)) === normalizeTaxonomyName(String(expected)),
 	sender: (expected, actual) =>
@@ -92,11 +95,14 @@ const fieldComparators: Record<string, (expected: string | number, actual: strin
 	invoice_number: (expected, actual) => actual === expected,
 	due_date: (expected, actual) => actual === expected,
 	policy_number: (expected, actual) => actual === expected,
+	non_archival: (expected, actual) => actual === expected,
 }
 const comparedFields = Object.keys(fieldComparators)
 
-function expectedValue(document: ExpectedDocument, field: string): string | number | undefined {
+function expectedValue(document: ExpectedDocument, field: string): ScoredValue | undefined {
 	switch (field) {
+		case "non_archival":
+			return document.is_non_archival
 		case "category":
 			return document.category
 		case "sender":
@@ -110,8 +116,10 @@ function expectedValue(document: ExpectedDocument, field: string): string | numb
 	}
 }
 
-function actualValue(document: ListedDocument, field: string): string | number | null {
+function actualValue(document: ListedDocument, field: string): ScoredValue | null {
 	switch (field) {
+		case "non_archival":
+			return document.status === "archived" ? document.verificationReason === "non_archival_attachment" : null
 		case "category":
 			return document.categoryName
 		case "sender":

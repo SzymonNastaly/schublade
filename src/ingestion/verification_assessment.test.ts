@@ -23,12 +23,23 @@ test("illegibleRequiredFields names a missing date and an amount that is absent 
 	]).toEqual([[], ["amount"], ["document_date", "amount"], [], ["document_date"], []])
 })
 
-test("an illegible required field takes precedence over a new taxonomy record", () => {
-	const illegibleReceipt = { ...receipt, fields: [] }
+test("a non-archival attachment precedes an illegible field, which precedes a new taxonomy record", () => {
+	const reason = (nonArchival: boolean, fields: typeof receipt.fields, refersToUnconfirmedRecord: boolean) =>
+		effectiveVerificationReason(
+			assessVerificationReason({ ...receipt, fields, nonArchival }),
+			refersToUnconfirmedRecord,
+		)
 	expect([
-		effectiveVerificationReason(assessVerificationReason(receipt), false),
-		effectiveVerificationReason(assessVerificationReason(receipt), true),
-		effectiveVerificationReason(assessVerificationReason(illegibleReceipt), false),
-		effectiveVerificationReason(assessVerificationReason(illegibleReceipt), true),
-	]).toEqual([null, "new_taxonomy_record", "illegible_required_field", "illegible_required_field"])
+		reason(false, receipt.fields, false),
+		reason(false, receipt.fields, true),
+		reason(false, [], true),
+		reason(true, [], true),
+		reason(true, receipt.fields, false),
+	]).toEqual([
+		null,
+		"new_taxonomy_record",
+		"illegible_required_field",
+		"non_archival_attachment",
+		"non_archival_attachment",
+	])
 })
