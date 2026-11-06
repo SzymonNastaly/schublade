@@ -5,9 +5,6 @@ import { receiveDocumentUploads } from "./document_upload"
 
 type TokenIngestionEnvironment = Pick<Env, "DATABASE" | "DOCUMENT_STORAGE" | "DOCUMENT_INGESTION_WORKFLOW">
 
-/** The one path that Cloudflare Access bypasses. It authenticates its own bearer tokens. */
-export const TOKEN_INGESTION_PATH = "/api/documents/ingest"
-
 /**
  * Accepts the same multipart files as the browser upload from a caller with an ingest token.
  * A missing token and an unknown one get the same answer, so the answer reveals no token.

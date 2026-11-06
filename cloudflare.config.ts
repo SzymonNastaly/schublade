@@ -27,6 +27,8 @@ const deploymentParametersSchema = z.strictObject({
 	accessAudience: z.string().min(1).optional(),
 	// The Email Routing address whose mail the Worker archives. Without it, the Worker rejects all mail.
 	ingestionEmailAddress: z.email().optional(),
+	// A Workers custom domain, such as staging.schublade.org, that replaces the workers.dev hostname.
+	customHostname: z.hostname().optional(),
 })
 
 export type DeploymentParameters = z.infer<typeof deploymentParametersSchema>
@@ -42,6 +44,21 @@ export function writeDeploymentParameters(parameters: DeploymentParameters): voi
 		DEPLOYMENT_PARAMETERS_FILE,
 		`${JSON.stringify(deploymentParametersSchema.parse(parameters), null, "\t")}\n`,
 	)
+}
+
+/**
+ * The text and JSON binding values that come from the deployment parameters. `pnpm run provision`
+ * compares them with the live Worker to decide whether it must deploy again.
+ */
+export function parameterBindingValues(parameters: DeploymentParameters) {
+	return {
+		// Blank Access values make the Worker reject every browser request.
+		ACCESS_TEAM_DOMAIN: parameters.accessTeamDomain ?? "",
+		ACCESS_AUD: parameters.accessAudience ?? "",
+		// A blank ingestion address or an empty allowlist makes the Worker reject all mail.
+		INGESTION_EMAIL_ADDRESS: parameters.ingestionEmailAddress ?? "",
+		MAIL_SENDER_ALLOWLIST: parameters.accessEmails ?? [],
+	}
 }
 
 export function resourceNamesFor(workerName: string) {
@@ -100,8 +117,16 @@ function resourceBindings(mode: string | undefined) {
 	}
 }
 
+// A custom hostname replaces workers.dev only in deployments. pnpm run provision extends the Access
+// application to the custom hostname before the deployment that moves the route.
+function hosting(mode: string | undefined) {
+	if (isLocalMode(mode) || deployment.customHostname === undefined) return {}
+	return { domains: [deployment.customHostname], workersDev: false }
+}
+
 export default defineConfig(({ mode }) => {
 	const name = isLocalMode(mode) ? LOCAL_WORKER_NAME : workerName
+	const bindingValues = parameterBindingValues(deployment)
 	return {
 		worker: {
 			name,
@@ -111,6 +136,7 @@ export default defineConfig(({ mode }) => {
 			observability: { enabled: true },
 			// Per-version preview hostnames are outside the Access application.
 			previewUrls: false,
+			...hosting(mode),
 			// Indexes archived documents that AI Search lacks, such as those archived before the
 			// workflow indexed documents or whose index step failed. Local development does not
 			// run Cron Triggers.
@@ -137,12 +163,10 @@ export default defineConfig(({ mode }) => {
 					exportName: "DocumentIngestionWorkflow",
 				}),
 				ARCHIVE_COORDINATOR: bindings.durableObject({ worker: name, exportName: "ArchiveCoordinator" }),
-				// Blank Access values make the Worker reject every browser request.
-				ACCESS_TEAM_DOMAIN: bindings.text(deployment.accessTeamDomain ?? ""),
-				ACCESS_AUD: bindings.text(deployment.accessAudience ?? ""),
-				// A blank ingestion address or an empty allowlist makes the Worker reject all mail.
-				INGESTION_EMAIL_ADDRESS: bindings.text(deployment.ingestionEmailAddress ?? ""),
-				MAIL_SENDER_ALLOWLIST: bindings.json(deployment.accessEmails ?? []),
+				ACCESS_TEAM_DOMAIN: bindings.text(bindingValues.ACCESS_TEAM_DOMAIN),
+				ACCESS_AUD: bindings.text(bindingValues.ACCESS_AUD),
+				INGESTION_EMAIL_ADDRESS: bindings.text(bindingValues.INGESTION_EMAIL_ADDRESS),
+				MAIL_SENDER_ALLOWLIST: bindings.json(bindingValues.MAIL_SENDER_ALLOWLIST),
 				AI_GATEWAY_IDENTIFIER: bindings.text(deployment.aiGatewayIdentifier ?? "schublade"),
 				CLASSIFICATION_MODEL: bindings.text(
 					deployment.classificationModel ?? "@cf/deepseek-ai/deepseek-v4.1-flash-1017",

@@ -5,9 +5,12 @@
  * a rerun reports each resource as already present.
  *
  *   pnpm run provision --worker-name schublade-staging --access-email person@example.com \
- *     --household-members test_fixtures/documents/expected_extraction.json
+ *     --household-members test_fixtures/documents/expected_extraction.json \
+ *     --hostname staging.schublade.org --email-address documents@schublade.org
  *
- * A rerun without flags reuses the saved answers.
+ * A rerun without flags reuses the saved answers. --hostname moves the Worker from workers.dev to a
+ * Workers custom domain in a zone on the account. --email-address enables Email Routing on the
+ * address's zone, and the deployment then routes that address to the Worker.
  */
 import { spawn } from "node:child_process"
 import { createHash } from "node:crypto"
@@ -16,21 +19,34 @@ import { basename } from "node:path"
 import { fileURLToPath } from "node:url"
 import { parseArgs } from "node:util"
 import { z } from "zod"
-import { readDeploymentParameters, resourceNamesFor, writeDeploymentParameters } from "../cloudflare.config.ts"
+import {
+	parameterBindingValues,
+	readDeploymentParameters,
+	resourceNamesFor,
+	writeDeploymentParameters,
+} from "../cloudflare.config.ts"
 import { searchIndexMetadataFields } from "../src/search/search_index_item.ts"
+import {
+	ACCESS_SESSION_DURATION,
+	accessApplicationBody,
+	accessProtectedHostnames,
+	bypassPolicyBody,
+	routesAddressToWorker,
+	tokenIngestionDestination,
+	zoneNameCandidates,
+} from "./provisioning_requests.ts"
 import type { DeploymentParameters } from "../cloudflare.config.ts"
 
 const DEFAULT_WORKER_NAME = "schublade"
 const MIGRATIONS_DIRECTORY = "drizzle"
-const ACCESS_SESSION_DURATION = "720h"
 const USAGE =
-	"Usage: pnpm run provision [--worker-name <name>] [--access-email <address>]... [--household-members <file.json>]"
+	"Usage: pnpm run provision [--worker-name <name>] [--access-email <address>]... [--household-members <file.json>] [--hostname <name>] [--email-address <address>]"
 const RERUN = "then run `pnpm run provision` again"
 
 const cloudflareExecutable = fileURLToPath(new URL("../node_modules/.bin/cf", import.meta.url))
 const workersDevHostnamePattern = /https:\/\/([a-z0-9-]+\.[a-z0-9-]+\.workers\.dev)\b/
 
-type StepOutcome = "created" | "updated" | "applied" | "deployed" | "already present"
+type StepOutcome = "created" | "updated" | "applied" | "enabled" | "deployed" | "already present"
 
 interface StepReport {
 	outcome: StepOutcome
@@ -152,12 +168,16 @@ function parseCommandLine(commandLine: Array<string>) {
 			"worker-name": { type: "string" },
 			"access-email": { type: "string", multiple: true },
 			"household-members": { type: "string" },
+			hostname: { type: "string" },
+			"email-address": { type: "string" },
 		},
 	})
 	return {
 		workerName: values["worker-name"],
 		accessEmails: values["access-email"]?.map((address) => address.trim().toLowerCase()),
 		householdMembersFile: values["household-members"],
+		customHostname: z.hostname().optional().parse(values.hostname?.trim().toLowerCase()),
+		ingestionEmailAddress: z.email().optional().parse(values["email-address"]?.trim().toLowerCase()),
 	}
 }
 
@@ -331,7 +351,14 @@ async function ensureLockedDeployment(
 		return { outcome: "already present", detail: parameters.workerHostname, workerHostname: parameters.workerHostname }
 	}
 	// Blank Access values make the Worker reject every request until Access protects its hostname.
-	const output = await deployWorker({ ...parameters, accessTeamDomain: undefined, accessAudience: undefined })
+	// The first deployment stays on workers.dev and receives no mail.
+	const output = await deployWorker({
+		...parameters,
+		accessTeamDomain: undefined,
+		accessAudience: undefined,
+		customHostname: undefined,
+		ingestionEmailAddress: undefined,
+	})
 	const workerHostname = workersDevHostnamePattern.exec(output)?.[1]
 	if (workerHostname === undefined) throw new Error(`cf deploy printed no workers.dev address:\n${output}`)
 	return { outcome: "deployed", detail: workerHostname, workerHostname }
@@ -367,7 +394,7 @@ const accessPolicySchema = z.object({
 	id: z.string(),
 	name: z.string(),
 	decision: z.string(),
-	include: z.array(z.object({ email: z.object({ email: z.string() }).optional() })),
+	include: z.array(z.object({ email: z.object({ email: z.string() }).optional(), everyone: z.object({}).optional() })),
 	exclude: z.array(z.unknown()),
 	require: z.array(z.unknown()),
 })
@@ -407,6 +434,32 @@ async function ensureAccessPolicy(
 	return { outcome: "updated", detail: emails.join(", "), policyIdentifier: existing.id }
 }
 
+async function ensureBypassPolicy(policyName: string): Promise<StepReport & { policyIdentifier: string }> {
+	const body = JSON.stringify(bypassPolicyBody(policyName))
+	const policies = await listCloudflareResources(accessPolicySchema, ["zero-trust", "access", "policies", "list"])
+	const existing = policies.find((policy) => policy.name === policyName)
+	if (existing === undefined) {
+		const created = await queryCloudflare(accessPolicySchema, [
+			"zero-trust",
+			"access",
+			"policies",
+			"create",
+			"--body",
+			body,
+		])
+		return { outcome: "created", detail: "bypass for everyone", policyIdentifier: created.id }
+	}
+	const matches =
+		existing.decision === "bypass" &&
+		existing.exclude.length === 0 &&
+		existing.require.length === 0 &&
+		existing.include.length === 1 &&
+		existing.include[0]?.everyone !== undefined
+	if (matches) return { outcome: "already present", detail: "bypass for everyone", policyIdentifier: existing.id }
+	await runCloudflare(["zero-trust", "access", "policies", "update", existing.id, "--body", body])
+	return { outcome: "updated", detail: "bypass for everyone", policyIdentifier: existing.id }
+}
+
 const accessApplicationSchema = z.object({
 	id: z.string(),
 	name: z.string(),
@@ -419,17 +472,12 @@ const accessApplicationSchema = z.object({
 
 async function ensureAccessApplication(
 	applicationName: string,
-	workerHostname: string,
+	destinationUris: Array<string>,
 	policyIdentifier: string,
 ): Promise<StepReport & { audience: string }> {
-	const destinations = [{ type: "public", uri: workerHostname }]
-	const body = JSON.stringify({
-		type: "self_hosted",
-		name: applicationName,
-		destinations,
-		policies: [policyIdentifier],
-		session_duration: ACCESS_SESSION_DURATION,
-	})
+	const request = accessApplicationBody(applicationName, destinationUris, policyIdentifier)
+	const { destinations } = request
+	const body = JSON.stringify(request)
 	const applications = await listCloudflareResources(accessApplicationSchema, [
 		"zero-trust",
 		"access",
@@ -449,7 +497,7 @@ async function ensureAccessApplication(
 			"--body",
 			body,
 		])
-		return { outcome: "created", detail: `aud ${created.aud}`, audience: created.aud }
+		return { outcome: "created", detail: destinationUris.join(", "), audience: created.aud }
 	}
 	const matches =
 		existing.type === "self_hosted" &&
@@ -459,7 +507,7 @@ async function ensureAccessApplication(
 			existing.policies.map((policy) => policy.id),
 			[policyIdentifier],
 		)
-	if (matches) return { outcome: "already present", detail: `aud ${existing.aud}`, audience: existing.aud }
+	if (matches) return { outcome: "already present", detail: destinationUris.join(", "), audience: existing.aud }
 	const updated = await queryCloudflare(accessApplicationSchema, [
 		"zero-trust",
 		"access",
@@ -469,17 +517,84 @@ async function ensureAccessApplication(
 		"--body",
 		body,
 	])
-	return { outcome: "updated", detail: `aud ${updated.aud}`, audience: updated.aud }
+	return { outcome: "updated", detail: destinationUris.join(", "), audience: updated.aud }
+}
+
+const zoneSchema = z.object({ id: z.string(), name: z.string(), status: z.string() })
+
+/** The active zone on the account that holds the hostname, such as schublade.org for staging.schublade.org. */
+async function findZone(hostname: string): Promise<StepReport & { zoneIdentifier: string; zoneName: string }> {
+	for (const candidate of zoneNameCandidates(hostname)) {
+		const zones = await listCloudflareResources(zoneSchema, ["zones", "list", "--name", candidate])
+		const zone = zones.find((listed) => listed.name === candidate)
+		if (zone === undefined) continue
+		if (zone.status !== "active") throw new Error(`The zone ${zone.name} is ${zone.status}, not active.`)
+		return { outcome: "already present", detail: zone.name, zoneIdentifier: zone.id, zoneName: zone.name }
+	}
+	throw new Error(`No zone on the account holds ${hostname}.`)
+}
+
+// Enabling Email Routing adds and locks the MX and SPF records it needs; it changes no other record.
+async function ensureEmailRouting(zoneIdentifier: string): Promise<StepReport> {
+	const settings = await queryCloudflare(z.object({ enabled: z.boolean() }), [
+		"email-routing",
+		"settings",
+		"get",
+		"--zone",
+		zoneIdentifier,
+	])
+	if (settings.enabled) return { outcome: "already present" }
+	await runCloudflare(["email-routing", "enable", "--zone", zoneIdentifier])
+	return { outcome: "enabled" }
+}
+
+const emailRoutingRuleSchema = z.object({
+	enabled: z.boolean(),
+	matchers: z.array(z.object({ type: z.string(), field: z.string().optional(), value: z.string().optional() })),
+	actions: z.array(z.object({ type: z.string(), value: z.array(z.string()).optional() })),
+})
+
+// `cf deploy` creates the rule from the email trigger in cloudflare.config.ts. This step only confirms it.
+async function confirmEmailRoutingRule(
+	zoneIdentifier: string,
+	address: string,
+	workerName: string,
+): Promise<StepReport> {
+	const rules = await listCloudflareResources(emailRoutingRuleSchema, [
+		"email-routing",
+		"rules",
+		"list-account",
+		"--zone",
+		zoneIdentifier,
+	])
+	if (!rules.some((rule) => routesAddressToWorker(rule, address, workerName))) {
+		throw new Error(`No enabled Email Routing rule sends ${address} to ${workerName}.`)
+	}
+	return { outcome: "already present", detail: `${address} to ${workerName}` }
+}
+
+/** An unknown answer counts as enabled, which keeps workers.dev behind Access. */
+async function servesWorkersDev(workerName: string): Promise<boolean> {
+	const worker = await findCloudflareResource(z.object({ subdomain: z.object({ enabled: z.boolean() }).optional() }), [
+		"workers",
+		"get",
+		workerName,
+	])
+	return worker?.subdomain?.enabled ?? true
 }
 
 const deploymentListSchema = z.object({
 	deployments: z.array(z.object({ versions: z.array(z.object({ version_id: z.string() })) })),
 })
 const workerVersionSchema = z.object({
-	bindings: z.array(z.object({ name: z.string(), text: z.string().optional() })),
+	bindings: z.array(z.object({ name: z.string(), text: z.string().optional(), json: z.unknown().optional() })),
 })
 
-async function servesAccessValues(parameters: DeploymentParameters & { workerName: string }): Promise<boolean> {
+/**
+ * True when every live version carries the binding values of the parameters and, with a custom
+ * hostname, the route has left workers.dev.
+ */
+async function servesParameters(parameters: DeploymentParameters & { workerName: string }): Promise<boolean> {
 	const listing = await findCloudflareResource(deploymentListSchema, [
 		"workers",
 		"deployments",
@@ -498,19 +613,17 @@ async function servesAccessValues(parameters: DeploymentParameters & { workerNam
 			"--worker-id",
 			parameters.workerName,
 		])
-		const text = (bindingName: string) => version.bindings.find((binding) => binding.name === bindingName)?.text
-		if (
-			text("ACCESS_TEAM_DOMAIN") !== parameters.accessTeamDomain ||
-			text("ACCESS_AUD") !== parameters.accessAudience
-		) {
-			return false
+		for (const [bindingName, expected] of Object.entries(parameterBindingValues(parameters))) {
+			const binding = version.bindings.find((candidate) => candidate.name === bindingName)
+			const live = typeof expected === "string" ? binding?.text : binding?.json
+			if (JSON.stringify(live) !== JSON.stringify(expected)) return false
 		}
 	}
-	return true
+	return parameters.customHostname === undefined || !(await servesWorkersDev(parameters.workerName))
 }
 
 async function ensureAccessDeployment(parameters: DeploymentParameters & { workerName: string }): Promise<StepReport> {
-	if (await servesAccessValues(parameters)) {
+	if (await servesParameters(parameters)) {
 		writeDeploymentParameters(parameters)
 		return { outcome: "already present" }
 	}
@@ -528,8 +641,10 @@ async function main(): Promise<void> {
 		workerName,
 		accessEmails: commandLine.accessEmails ?? saved.accessEmails,
 		householdMembersFile: commandLine.householdMembersFile ?? saved.householdMembersFile,
+		customHostname: commandLine.customHostname ?? saved.customHostname,
+		ingestionEmailAddress: commandLine.ingestionEmailAddress ?? saved.ingestionEmailAddress,
 	}
-	const { accessEmails, householdMembersFile } = parameters
+	const { accessEmails, householdMembersFile, customHostname, ingestionEmailAddress } = parameters
 	if (accessEmails === undefined) {
 		throw new StepFailure(
 			"Command line",
@@ -623,22 +738,85 @@ async function main(): Promise<void> {
 		`Inspect the policy under Zero Trust, Access, Policies, ${RERUN}.`,
 		() => ensureAccessPolicy(policyName, accessEmails),
 	)
+	if (customHostname !== undefined) {
+		await performStep(
+			`Zone of ${customHostname}`,
+			`Add the zone to the Cloudflare account and wait until it is active, ${RERUN}.`,
+			() => findZone(customHostname),
+		)
+	}
+	// Access covers a hostname before any deployment serves the Worker on it.
 	const applicationName = `schublade ${workerName}`
+	const protectedHostnames = async () =>
+		accessProtectedHostnames({
+			workerHostname,
+			customHostname,
+			workersDevEnabled: customHostname === undefined || (await servesWorkersDev(workerName)),
+		})
 	const { audience } = await performStep(
 		`Access application "${applicationName}"`,
 		`Inspect the application under Zero Trust, Access, Applications, ${RERUN}.`,
-		() => ensureAccessApplication(applicationName, workerHostname, policyIdentifier),
+		async () => ensureAccessApplication(applicationName, await protectedHostnames(), policyIdentifier),
 	)
+	const primaryHostname = customHostname ?? workerHostname
+	const tokenIngestionName = `schublade ${workerName}: token ingestion`
+	const { policyIdentifier: bypassPolicyIdentifier } = await performStep(
+		`Access policy "${tokenIngestionName}"`,
+		`Inspect the policy under Zero Trust, Access, Policies, ${RERUN}.`,
+		() => ensureBypassPolicy(tokenIngestionName),
+	)
+	await performStep(
+		`Access application "${tokenIngestionName}"`,
+		`Inspect the application under Zero Trust, Access, Applications, ${RERUN}.`,
+		() =>
+			ensureAccessApplication(tokenIngestionName, [tokenIngestionDestination(primaryHostname)], bypassPolicyIdentifier),
+	)
+
+	const emailZone =
+		ingestionEmailAddress === undefined
+			? undefined
+			: await performStep(
+					`Zone of ${ingestionEmailAddress}`,
+					`Add the zone of the address to the Cloudflare account and wait until it is active, ${RERUN}.`,
+					() => findZone(ingestionEmailAddress.split("@")[1] ?? ""),
+				)
+	if (emailZone !== undefined) {
+		await performStep(
+			`Email Routing on ${emailZone.zoneName}`,
+			`Enable Email Routing under the zone's Email, Email Routing page and resolve any conflicting MX records it reports, ${RERUN}.`,
+			() => ensureEmailRouting(emailZone.zoneIdentifier),
+		)
+	}
 
 	parameters = { ...parameters, accessTeamDomain: teamDomain, accessAudience: audience }
 	await performStep(
 		"Deployment behind Access",
-		`Run \`pnpm build\` and \`pnpm exec cf deploy --prebuilt\` to see the full error, ${RERUN}.`,
+		`Run \`pnpm build\` and \`pnpm exec cf deploy --prebuilt\` to see the full error. When cf deploy asks to replace or remove an Email Routing rule, run \`pnpm run deploy\` in a terminal and confirm, ${RERUN}.`,
 		() => ensureAccessDeployment(parameters),
 	)
+	if (customHostname !== undefined) {
+		await performStep(
+			`Access application "${applicationName}" after the move to ${customHostname}`,
+			`Inspect the application under Zero Trust, Access, Applications, ${RERUN}.`,
+			async () => ensureAccessApplication(applicationName, await protectedHostnames(), policyIdentifier),
+		)
+	}
+	if (emailZone !== undefined && ingestionEmailAddress !== undefined) {
+		await performStep(
+			`Email Routing rule for ${ingestionEmailAddress}`,
+			`Run \`pnpm run deploy\` in a terminal and confirm the Email Routing changes it lists, ${RERUN}.`,
+			() => confirmEmailRoutingRule(emailZone.zoneIdentifier, ingestionEmailAddress, workerName),
+		)
+	}
 
-	console.log(`\nSchublade runs at https://${workerHostname} behind Cloudflare Access.`)
+	console.log(`\nSchublade runs at https://${primaryHostname} behind Cloudflare Access.`)
 	console.log(`Sign in as ${accessEmails.join(" or ")}. Ship later code changes with \`pnpm run deploy\`.`)
+	console.log(
+		`Scanners and Shortcuts upload to https://${tokenIngestionDestination(primaryHostname)} with an API token.`,
+	)
+	if (ingestionEmailAddress !== undefined) {
+		console.log(`Mail from ${accessEmails.join(" or ")} to ${ingestionEmailAddress} is archived.`)
+	}
 }
 
 main().catch((error: unknown) => {

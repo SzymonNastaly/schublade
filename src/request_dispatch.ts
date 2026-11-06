@@ -1,6 +1,7 @@
 import { requireAccess } from "./authentication/access_verification"
 import { crossSiteWriteRejection } from "./authentication/cross_site_writes"
-import { TOKEN_INGESTION_PATH, receiveTokenIngestion } from "./ingestion/token_ingestion"
+import { receiveTokenIngestion } from "./ingestion/token_ingestion"
+import { TOKEN_INGESTION_PATH } from "./ingestion/token_ingestion_path"
 import type { Caller } from "./authorization/caller_authorization"
 
 type ApplicationHandler = (request: Request, caller: Caller) => Response | Promise<Response>
