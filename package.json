@@ -4,14 +4,37 @@
 	"type": "module",
 	"packageManager": "pnpm@10.18.1",
 	"scripts": {
+		"dev": "cf dev",
+		"build": "cf build",
+		"deploy": "cf deploy",
+		"provision": "node scripts/provision_environment.ts",
 		"generate:test-documents": "node scripts/generate_test_documents.ts"
 	},
+	"dependencies": {
+		"@cloudflare/kumo": "^2.17.0",
+		"@phosphor-icons/react": "^2.1.10",
+		"@tailwindcss/vite": "^4.3.4",
+		"@tanstack/react-router": "1.170.46",
+		"@tanstack/react-start": "1.169.4",
+		"react": "^19.3.1",
+		"react-dom": "^19.3.1",
+		"tailwindcss": "^4.3.4",
+		"zod": "^4.6.7"
+	},
 	"devDependencies": {
+		"@cloudflare/vite-plugin": "2.0.0-beta.v.12",
 		"@embedpdf/pdfium": "^2.15.1",
 		"@ibm/plex-mono": "^2.5.0",
 		"@ibm/plex-sans": "^1.1.0",
 		"@ibm/plex-serif": "^2.0.0",
+		"@types/node": "^24.10.0",
+		"@types/react": "^19.2.0",
+		"@types/react-dom": "^19.2.0",
+		"@vitejs/plugin-react": "^6.2.1",
+		"cf": "1.0.0-beta.28",
 		"jpeg-js": "^0.4.4",
-		"pdfkit": "^0.20.2"
+		"pdfkit": "^0.20.2",
+		"typescript": "~6.0.3",
+		"vite": "^8.3.6"
 	}
 }

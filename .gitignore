@@ -8,3 +8,4 @@ dist/
 schublade.deploy.json
 *.local
 .DS_Store
+.tanstack/
