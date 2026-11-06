@@ -1,9 +1,13 @@
 import { queryDocumentListing } from "../archive/document_listing"
-import { SEARCH_RESULT_LIMIT, candidateChunkCount, rankPassages, searchIndexFilter } from "./search_criteria"
+import { SEARCH_RESULT_LIMIT, rankPassages, searchIndexFilter } from "./search_criteria"
 import type { ListedDocument } from "../archive/document_listing"
 import type { ArchiveDatabase } from "../database/client"
 import type { SearchIndex } from "./document_indexing"
 import type { SearchCriteria } from "./search_criteria"
+
+// AI Search returns at most 50 chunks per query. A long document contributes several of them,
+// and D1 discards those that fail a tag or amount bound, so every search requests the maximum.
+const MAXIMUM_CANDIDATE_CHUNKS = 50
 
 export interface RetrievedDocument extends ListedDocument {
 	/** The text around the match, or null when the criteria hold no query. */
@@ -29,7 +33,7 @@ export async function searchDocuments(
 		ai_search_options: {
 			retrieval: {
 				retrieval_type: "hybrid",
-				max_num_results: candidateChunkCount(filters),
+				max_num_results: MAXIMUM_CANDIDATE_CHUNKS,
 				filters: searchIndexFilter(filters),
 			},
 			// The similarity cache would answer a repeated query without documents indexed since.

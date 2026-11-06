@@ -6,9 +6,6 @@ const MAXIMUM_QUERY_LENGTH = 500
 /** The most documents one search returns. */
 export const SEARCH_RESULT_LIMIT = 20
 
-// AI Search returns at most 50 chunks per query.
-const MAXIMUM_CANDIDATE_CHUNKS = 50
-
 const PASSAGE_LENGTH = 240
 const PASSAGE_LEADING_CONTEXT = 80
 
@@ -45,19 +42,6 @@ export function searchIndexFilter(criteria: SearchCriteria): VectorizeVectorMeta
 		...(Object.keys(documentDateRange).length > 0 && { document_date: documentDateRange }),
 	}
 	return Object.keys(filter).length > 0 ? filter : undefined
-}
-
-/** True when D1 removes candidates that AI Search already ranked: a tag or an amount bound. */
-function hasDatabaseOnlyCriteria(criteria: SearchCriteria): boolean {
-	return criteria.tag !== undefined || criteria.minimumAmount !== undefined || criteria.maximumAmount !== undefined
-}
-
-/**
- * The number of chunks to request from AI Search. When D1 discards candidates afterwards, the
- * search requests as many as AI Search returns, so the page still fills.
- */
-export function candidateChunkCount(criteria: SearchCriteria): number {
-	return hasDatabaseOnlyCriteria(criteria) ? MAXIMUM_CANDIDATE_CHUNKS : SEARCH_RESULT_LIMIT
 }
 
 /**

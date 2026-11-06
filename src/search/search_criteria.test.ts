@@ -1,5 +1,5 @@
 import { expect, test } from "vitest"
-import { candidateChunkCount, rankPassages, searchCriteriaSchema, searchIndexFilter } from "./search_criteria"
+import { rankPassages, searchCriteriaSchema, searchIndexFilter } from "./search_criteria"
 
 const memberId = "1a2b3c4d-5e6f-8a1b-9c2d-3e4f5a6b7c8d"
 const senderId = "0b6c1f7e-3d2a-4e5b-9c8d-7f6e5d4c3b2a"
@@ -33,15 +33,6 @@ test("searchIndexFilter sends person, sender, category, and date range to AI Sea
 		document_date: { $gte: "2026-09-01T00:00:00Z", $lte: "2026-09-30T00:00:00Z" },
 	})
 	expect(searchIndexFilter({ tag: tagId, minimumAmount: 50 })).toBeUndefined()
-})
-
-test("candidateChunkCount requests the AI Search maximum only when D1 filters the candidates", () => {
-	expect([
-		candidateChunkCount({}),
-		candidateChunkCount({ person: memberId, earliestDocumentDate: "2026-01-01" }),
-		candidateChunkCount({ tag: tagId }),
-		candidateChunkCount({ maximumAmount: 100 }),
-	]).toEqual([20, 20, 50, 50])
 })
 
 test("rankPassages keeps the best chunk of each document and excerpts it around the query", () => {
