@@ -68,10 +68,10 @@ Maintaining SQLite FTS5 virtual tables and synchronization triggers inside D1 wo
 To avoid the 15-minute to 24-hour latency of scheduled R2 bucket synchronization jobs in AI Search, Schublade separates binary object storage from search indexing:
 
 1. **R2 stores the unmodified original file.** When a PDF or image arrives, the Worker writes the binary payload to `env.DOCUMENT_STORAGE` under `documents/<documentId>/original.<fileExtension>`.
-2. **AI Search indexes the enriched Markdown immediately.** After the ingestion workflow extracts text, performs optical character recognition, and classifies metadata, the workflow calls `env.SEARCH_INDEX.items.upload()` with the item name `<documentId>.md`. That call writes the combined title, sender, summary, tags, and full Markdown text into AI Search's managed storage. AI Search indexes the document without scheduling delay.
+2. **AI Search indexes the enriched Markdown immediately.** After the ingestion workflow extracts text, performs optical character recognition, and classifies metadata, the workflow calls `env.SEARCH_INDEX.items.upload()` with the item name `<documentId>.md`. That call writes the title, sender, tags, summary, and full Markdown text into AI Search's managed storage. AI Search indexes the document without scheduling delay.
 3. **D1 stores the relational records.** D1 holds nine standard SQLite tables managed with Drizzle ORM, covering `documents`, `senders`, `categories`, `tags`, `document_tags`, `extracted_fields`, `household_members`, `api_tokens`, and `authorization_grants`.
 
-When you filter the document table by category or sort invoices by amount, the Worker queries D1 in a few milliseconds. When you submit a text query, the Worker calls `env.SEARCH_INDEX.search()` in hybrid mode. That call returns the matching item names and highlighted text passages, which the Worker joins with D1 metadata. Even if a query is in English and the invoice is in German, the multilingual embedding model matches the semantic content while BM25 matches exact invoice numbers and IBAN strings.
+When you filter the document table by category or sort invoices by amount without a text query, the Worker queries D1 in a few milliseconds. When you submit a text query, the Worker calls `env.SEARCH_INDEX.search()` in hybrid mode with the similarity cache disabled so newly indexed documents appear. That call requests the maximum of 50 chunks, groups those chunks by document, and joins each document's best passage with D1 metadata. Even if a query is in English and the invoice is in German, the multilingual embedding model matches the semantic content while BM25 matches exact invoice numbers and IBAN strings.
 
 ### Which filters AI Search applies and which D1 applies
 
@@ -87,12 +87,14 @@ Schublade assigns the fields as follows:
 | `person` | Custom text | Household member identifier, or `household` |
 | `sender` | Custom text | Sender identifier |
 | `category` | Custom text | Category identifier |
-| `document_date` | Custom datetime | Issue date of the document |
+| `document_date` | Custom datetime | Issue date of the document as an ISO 8601 datetime such as `2026-09-22T00:00:00Z`, because Unix seconds do not filter |
 | Unassigned | Custom | Reserved for a later requirement |
 
-D1 applies tag filters, amount ranges, and the tag predicates of an `AuthorizationScope` to the candidates that AI Search returns. The search operation already joins every candidate with D1, so these predicates add no query. When a D1 predicate is active, the search operation requests a larger candidate set from AI Search so that the result page still fills.
+A text query passes the person, sender, category, and date range filters to AI Search and always requests the maximum of 50 chunks. D1 then reapplies every filter and applies the tag filters, amount ranges, and the predicates of an `AuthorizationScope` to the grouped documents. The search operation already joins every candidate with D1, so these checks add no query, and a stale index item can only drop a result, never show a wrong one. Tag and amount filters only see documents among the top 50 chunks.
 
-AI Search offers no operation that updates an indexed item. When you rename or merge a sender, category, or person, Schublade uploads each affected item again under the same name.
+Uploading under an existing item name replaces the item in AI Search, so the index step is safe to retry. When you edit a document's person, sender, category, or date, or rename or merge a sender or category, Schublade uploads each affected item again under the same name.
+
+A Cron Trigger on the schedule `*/15 * * * *` and `POST /api/search_index` both run a backfill for archived documents that AI Search lacks or failed to index. The backfill pages through the index until an empty page and stops after 100 pages, or 5,000 items. An index above 5,000 items makes the backfill fail by design. Each call uploads at most 100 documents and reports `failedDocuments` with a reason for each document instead of stopping.
 
 ### How the ingestion workflow processes a file
 
@@ -175,6 +177,8 @@ The four permission levels define strict operational boundaries:
 
 Because `AuthorizationScope` is enforced by the central guard from the outset, Schublade supports both coarse-grained tokens and fine-grained client restrictions without modifying individual operation handlers. You can connect Claude Code, OpenClaw, or Coworkers to `/mcp` using `@cloudflare/workers-oauth-provider`. Each grant can authorize full `read` access or restrict the external client to `allowedCategories: ["Invoice", "Tax Notice"]` and `deniedTags: ["medical", "private"]`. The authorization guard adds category and sender predicates to the AI Search filter and adds every predicate, including the tag predicates, to the D1 query that joins the search candidates. A passage from a denied document never reaches the caller.
 
+Browsers send the Cloudflare Access session cookie with cross-site requests. The Worker entry therefore returns HTTP 403 for any request other than `GET`, `HEAD`, or `OPTIONS` whose `Origin` header names another site. Requests without an `Origin` header, such as scripts and token-authenticated callers, pass this check.
+
 ## How a household shares one archive
 
 One Schublade deployment serves one household. The household has one member or several. Cloudflare Access decides who can sign in, through the email allowlist that `scripts/provision_environment.ts` configures. The household is trusted, so every member who signs in sees every document. Schublade does not record which member is signed in.
@@ -192,12 +196,12 @@ Schublade uses **TanStack Start**, **React 19**, **Cloudflare Kumo** from `@clou
 On desktop viewports, the interface presents a three-pane layout built with `react-resizable-panels`:
 
 1. **Left navigation pane.** Contains the **All documents** and **Pending verification** views, the person filter, **Categories**, pinned **Tags**, and **Settings** for household members, Workers AI models, ingestion tokens, email routing, and authorized MCP clients.
-2. **Center search and document table.** Opens with a unified search input activated by `/` or `Cmd+K`. Facet filter controls for person, sender, category, tag, date range, and amount sit directly below the search input. Beneath the filter controls sits a tabular document list. Each row displays the document date, sender, title, person, category indicator, tags, and primary extracted value such as `124.50 EUR`. Uploading files displays active workflow progress indicators at the bottom of the pane.
+2. **Center search and document table.** Opens with a unified search input focused by `/`, `Cmd+K`, or `Ctrl+K`. Facet filter controls for person, sender, category, tag, date range, and amount sit directly below the search input. Search state lives in the URL so you can share a search as a link, and the router parses each parameter on its own so one invalid parameter does not discard the rest. Beneath the filter controls sits a tabular document list. Each row displays the document date, sender, title, person, category indicator, tags, and primary extracted value such as `124.50 EUR`. Uploading files displays active workflow progress indicators at the bottom of the pane.
 3. **Right inspection pane.** Selecting a document opens the inspection pane beside the table without resetting your scroll position or search query. The upper section displays editable metadata fields, extracted key-value attributes, and any pending verification prompt. The lower section renders the original PDF or image from R2, with a selector to view the extracted Markdown text.
 
-Mobile usability is a core requirement. Below the `md` viewport breakpoint, Schublade switches to a responsive layout using `useMobileViewport()` and Base UI `Drawer` panels. It also includes a Web App Manifest so you can install the interface on a mobile home screen:
+Mobile usability is a core requirement. Below the `md` viewport breakpoint, Schublade switches to a responsive layout using CSS breakpoints and Base UI `Drawer` panels. It also includes a Web App Manifest so you can install the interface on a mobile home screen:
 
-- **Single-column navigation and bottom drawers.** The search input and document list occupy the full viewport width with safe-area bottom padding. Selecting a document opens the document viewer and metadata inspector in a `Drawer` panel, and navigation filters open in a secondary slide-over panel.
+- **Single-column list, folding filter panel, and bottom drawers.** The search input and document list occupy the full viewport width with safe-area bottom padding and no horizontal scrolling at 375 px. The facet controls fold behind a filter button, and the document table becomes one stacked row per document that shows the title, then the sender, date, person, and amount. Selecting a document opens the document viewer and metadata inspector in a `Drawer` panel.
 - **Bottom action bar.** A fixed bottom bar on mobile viewports provides direct navigation to search and the **Pending verification** queue. Its primary **Upload document** control invokes the device camera, photo library, or system file selector.
 - **Touch-sized verification controls.** Confirming a new sender record or supplying a missing field on a mobile viewport uses full-width action buttons that dismiss the verification entry upon completion.
 
@@ -219,3 +223,5 @@ Every browser request to the Worker must carry a valid Cloudflare Access JSON We
 The `schublade.org` domain will host the planned public landing page and documentation, which introduce the project, explain the architecture, and provide deployment instructions for self-hosting.
 
 The staging deployment runs as the Worker `schublade-staging` on the account's `workers.dev` subdomain behind Cloudflare Access, rather than on `staging.schublade.org`. You choose an environment by Worker name rather than a `--mode staging` flag.
+
+Local development binds `SEARCH_INDEX` to a separate remote AI Search instance named `schublade-development`, so local runs never write into a deployment's index. `pnpm run provision` does not create that instance. Create it once with `cf ai-search create schublade-development` and the same four custom metadata fields: `person`, `sender`, and `category` as text, and `document_date` as datetime.

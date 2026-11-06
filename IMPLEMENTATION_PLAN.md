@@ -44,7 +44,7 @@ The [coworkers](https://github.com/fayazara/coworkers) repository runs on the sa
 
 Schublade also closes the gaps that repository leaves open:
 
-- **Fail closed.** The coworkers server treats every request as a demo user when the Access variables are blank. Schublade rejects every browser request when `ACCESS_TEAM_DOMAIN` or `ACCESS_AUD` is absent. For local development, `VITE_ACCESS_DEVELOPMENT_EXEMPTION=true pnpm dev` skips the Access check and never reaches a production build. `pnpm dev` requires `cf auth login` because the Workers AI and Browser Run bindings run remotely in development without deploying. Set `aiGatewayIdentifier` in `schublade.deploy.json` to a gateway that exists on the account.
+- **Fail closed.** The coworkers server treats every request as a demo user when the Access variables are blank. Schublade rejects every browser request when `ACCESS_TEAM_DOMAIN` or `ACCESS_AUD` is absent. For local development, `VITE_ACCESS_DEVELOPMENT_EXEMPTION=true pnpm dev` skips the Access check and never reaches a production build. `pnpm dev` requires `cf auth login` because the Workers AI, Browser Run, and AI Search bindings run remotely in development without deploying. Set `aiGatewayIdentifier` in `schublade.deploy.json` to a gateway that exists on the account.
 - **One gate, run before every push.** The coworkers repository has a lint configuration but nothing that runs it. In Schublade, `pnpm check` runs `typecheck`, `lint`, `format:check`, `knip`, and `test` in sequence. A `pre-push` git hook installed by `simple-git-hooks` runs `pnpm check`, so a failing change never reaches `main`.
 - **Pinned toolchain.** `packageManager` in `package.json` and a `.node-version` file pin pnpm and Node.
 - **Binding tests.** Vitest 5 runs two projects. Pure modules run in Node. Tests that touch D1, R2, Workflows, or Durable Objects run in `workerd` through `@cloudflare/vitest-plugin`, the renamed `@cloudflare/vitest-pool-workers`.
@@ -57,11 +57,11 @@ Schublade uses no pull requests. Each change is one commit pushed to `main` afte
 
 The test suite stays small and fast, so it costs almost nothing on GitHub Actions or Cloudflare.
 
-- **Targets.** `pnpm check` finishes in under one minute on a laptop, and the GitHub Actions run finishes in under three minutes. With 28 tests at the end of phase 1, `pnpm check` takes about 11 seconds locally and about 40 seconds on GitHub Actions. A test that pushes the suite past either target needs a reason in its commit message.
+- **Targets.** `pnpm check` finishes in under one minute on a laptop, and the GitHub Actions run finishes in under three minutes. With 46 tests at the end of phase 2, `pnpm check` takes about 12 seconds locally, and it took about 40 seconds on GitHub Actions at the end of phase 1. A test that pushes the suite past either target needs a reason in its commit message.
 - **No Cloudflare usage in tests.** `@cloudflare/vitest-plugin` simulates D1, R2, Workflows, and Durable Objects locally in Miniflare, so tests make no billed requests. The Workers AI and AI Search bindings are replaced by recorded responses.
 - **Few `workerd` tests.** The `workerd` project starts more slowly than the Node project, so it covers only the parts that need real bindings: the D1 queries with scope predicates, the workflow step sequence, and the `ArchiveCoordinator` broadcast. Everything else is a pure module tested in Node.
 - **One test per behavior.** Tests assert literal expected values from `expected_extraction.json` or written into the test. Snapshot tests and browser end-to-end tests are not part of the suite. The interface is verified by hand on staging at the end of each phase.
-- **Model evaluation stays manual.** `pnpm evaluate:extraction` calls the real Workers AI models against a local dev server and runs only when you start it, after a change to a prompt, a model, or the OCR path.
+- **Model and search evaluation stays manual.** `pnpm evaluate:extraction` calls the real Workers AI models against a local dev server and runs only when you start it, after a change to a prompt, a model, or the OCR path. `pnpm evaluate:search` runs fixed queries against a local dev server and the `schublade-development` AI Search instance on demand.
 
 Lint and formatting use ESLint with `@tanstack/eslint-config` and Prettier with `prettier-plugin-tailwindcss`, matching the TanStack Start ecosystem. `knip` reports unused files, exports, and dependencies.
 
@@ -134,13 +134,29 @@ OCR findings from the phase 1 evaluation:
 - **Thermal receipt photo.** Moondream read the total, date, and receipt number accurately, along with 7 of 10 item prices. Splitting the image into halves lowered accuracy to 0 of 10 item prices.
 - **Scanned hardware-store receipt.** Rendering at 200 dpi read 6 of 6 item lines compared to 5 of 6 at 150 dpi on one sample. Schublade keeps 150 dpi.
 
-### Phase 2. Search
+### Phase 2. Search (complete)
 
-1. The workflow uploads the enriched Markdown to AI Search as `<documentId>.md` with the metadata fields from VISION.md.
-2. The search operation queries AI Search in hybrid mode with the person, sender, category, and date filters, then joins the candidates with D1 and applies tag and scope predicates.
-3. The center pane gains the search input and the facet controls, including the person filter.
+1. The last workflow step, `index document`, uploads one AI Search item named `<documentId>.md`. Its content leads with the title, sender, tags, and summary, followed by the full Markdown. The item carries four custom metadata fields: `person` holds the household member identifier or `household`, `sender` holds the sender identifier, `category` holds the category identifier, and `document_date` holds an ISO 8601 datetime such as `2026-09-22T00:00:00Z` because Unix seconds do not filter. Uploading under an existing name replaces the item, so the step is safe to retry.
+2. `POST /api/search_index` indexes archived documents that the index lacks or failed to index, at most 100 per call, and reports `failedDocuments` with a reason for each instead of stopping. A Cron Trigger runs the same backfill every 15 minutes on the `*/15 * * * *` schedule, so documents archived before phase 2 and documents whose index step failed get indexed without a signed-in request. The backfill pages through the index until an empty page and stops after 100 pages, or 5,000 items. Local development binds `SEARCH_INDEX` to a separate remote AI Search instance named `schublade-development`, so local runs never write into a deployment's index. `pnpm run provision` does not create that instance. Create it once with `cf ai-search create schublade-development` and the same four custom metadata fields: `person`, `sender`, and `category` as text, and `document_date` as datetime.
+3. A text query runs a hybrid AI Search query with the `person`, `sender`, `category`, and date range filters, always requests the maximum of 50 chunks, groups chunks by document, and shows each document's best passage. D1 then reapplies every filter and applies the tag and amount filters, so a stale index item can only drop a result and never show a wrong one. The similarity cache is turned off per search so new documents are found. Without a text query, filtering is a plain D1 query.
+4. The archive page adds a search input focused with `/`, `Cmd+K`, or `Ctrl+K`, and facets for person, sender, category, tag, date range, and amount. The person facet hides when the household has one member, and on phones the facets fold behind a filter button. Search state lives in the URL so a search can be shared as a link, and each parameter is parsed on its own so one bad parameter does not discard the rest. Below the `md` breakpoint, the document list becomes one stacked row per document with the title, then the sender, date, person, and amount, with no horizontal scrolling at 375 px. Desktop widths keep the table. The layout uses CSS breakpoints, not a `useMobileViewport()` hook.
+5. The Worker entry in `src/server.ts` refuses every write request, which is any method other than `GET`, `HEAD`, or `OPTIONS`, with 403 when its `Origin` header names another site, because the browser sends the Access session cookie with cross-site requests. Requests without an `Origin` header, such as scripts and token-authenticated callers, pass. An upload without a multipart body gets 400.
+6. Add `pnpm evaluate:search` to run fixed queries against a local `VITE_ACCESS_DEVELOPMENT_EXEMPTION=true pnpm dev` server and the `schublade-development` index.
 
 **Check.** An English query finds a German invoice. An exact IBAN string finds its document. Filtering a search to one member returns every matching document of that member, not a subset of the unfiltered top results.
+
+**Verified.** `pnpm evaluate:search` passed 8 of 8 checks against a local `VITE_ACCESS_DEVELOPMENT_EXEMPTION=true pnpm dev` server and the `schublade-development` index:
+
+- `"electricity bill"` returns the German electricity invoice first.
+- The printed IBAN of the dental invoice returns that invoice first.
+- A person filter for Jonas Becker with a text query returns only his 3 documents.
+- A person filter for Jonas Becker without a text query returns only his 3 documents.
+- Category `Invoice` with `"Nordkabel"` ranks the telecom invoice first and returns only invoices.
+- `"Nordkabel"` without the category filter also returns the general terms.
+- `"Talbrück"` with a September 2026 date range returns only the 2 documents dated in that month.
+- An amount range of 70 to 100 returns only the 3 matching documents.
+
+Measured through the local dev server, which adds a hop to the remote binding, text queries took 0.5 to 2.4 seconds with a median of about 1.7 seconds, and D1-only filtering took about 10 ms. Indexing 12 documents uploaded together took 73 to 145 seconds per item from upload to indexed, with a median of 104 seconds. After the deploy to `schublade-staging`, the 11:30 UTC run of the scheduled backfill uploaded the 3 documents archived on staging before phase 2, and all 3 were indexed by 11:32 UTC. A query for the dental invoice's IBAN on the staging index returned that document as the only result. The signed-in search page on staging has not been tried yet.
 
 ### Phase 3. Tokens and inbound mail
 
@@ -179,3 +195,6 @@ Add `/mcp` with `McpAgent` and `@cloudflare/workers-oauth-provider`, with the co
 
 - **Very large documents.** The workflow refuses a document with more than 50 pages without a text layer before it transcribes any page. The limit caps OCR cost per document at about 0.04 USD, and the refused document ends with the status `failed`. A workflow step output over about 1 MiB of Markdown still fails the step, and the workflow does not truncate classifier input.
 - **OCR resolution and receipt item lines.** Choosing whether to render scanned pages at 200 dpi instead of 150 dpi and improving item-line transcription on thermal receipts remain open.
+- **Tag and amount filters on text searches.** AI Search returns at most 50 chunks per query, and D1 applies the tag and amount filters to the documents in those chunks. A text query combined with a tag or amount filter therefore sees only documents among the top 50 chunks.
+- **Re-uploading index items after metadata edits.** AI Search filters on the `person`, `sender`, `category`, and `document_date` fields stored on each index item. When phase 4 lets members edit a document's person, sender, category, or date, the index item must be uploaded again.
+- **The 5,000-item backfill limit.** The backfill pages through AI Search until an empty page and stops after 100 pages, or 5,000 items. An index above 5,000 items makes the backfill fail by design.
