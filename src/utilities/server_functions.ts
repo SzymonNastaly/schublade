@@ -1,7 +1,7 @@
 import { createServerFn } from "@tanstack/react-start"
 import { env } from "cloudflare:workers"
 import { z } from "zod"
-import { queryArchiveFacets } from "../archive/document_listing"
+import { queryArchiveFacets, queryDocumentListing } from "../archive/document_listing"
 import { deleteDocument, documentRevisionSchema, reviseDocument } from "../archive/document_revision"
 import {
 	confirmTaxonomyRecord,
@@ -24,6 +24,13 @@ export const retrieveDocuments = createServerFn({ method: "GET" })
 	.handler(({ context, data }) => {
 		authorizeOperation(context, "readArchive")
 		return searchDocuments(database, env.SEARCH_INDEX, data)
+	})
+
+export const retrieveDocument = createServerFn({ method: "GET" })
+	.validator(z.strictObject({ documentId: z.uuid() }))
+	.handler(async ({ context, data }) => {
+		authorizeOperation(context, "readArchive")
+		return (await queryDocumentListing(database, { documentIds: [data.documentId] }))[0] ?? null
 	})
 
 export const listArchiveFacets = createServerFn({ method: "GET" }).handler(({ context }) => {

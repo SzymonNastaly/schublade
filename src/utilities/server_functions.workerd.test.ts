@@ -22,6 +22,7 @@ const compiled = <TBuilder extends object>(builder: TBuilder): TBuilder =>
 vi.spyOn(reactStart, "createServerFn").mockImplementation((...parameters) => compiled(createServerFn(...parameters)))
 const {
 	countPendingVerificationItems,
+	retrieveDocument,
 	retrieveVerificationItems,
 	submitDocumentDeletion,
 	submitDocumentRevision,
@@ -62,7 +63,7 @@ const token = (level: PermissionLevel): Caller => ({ kind: "api_token", tokenId:
 const documentId = "9c1e5a37-2b4d-4f86-a0c3-7e5d9b1f2a64"
 const recordId = "3b7f1d95-6e2a-4c48-8d07-1a9e5c3b7f20"
 
-test("each Pending verification server function refuses a caller below its level and admits one at it", async () => {
+test("each server function of Pending verification and the document page refuses a caller below its level and admits one at it", async () => {
 	await reset()
 	await applyD1Migrations(env.DATABASE, inject("databaseMigrations"))
 	Object.assign(env, { SEARCH_INDEX: createInMemorySearchIndex().searchIndex })
@@ -70,6 +71,7 @@ test("each Pending verification server function refuses a caller below its level
 	const cases = {
 		retrieveVerificationItems: [retrieveVerificationItems, undefined, token("read"), undefined],
 		countPendingVerificationItems: [countPendingVerificationItems, undefined, token("read"), undefined],
+		retrieveDocument: [retrieveDocument, undefined, token("read"), { documentId }],
 		submitDocumentRevision: [submitDocumentRevision, token("ingest"), token("modify"), { documentId }],
 		submitTaxonomyConfirmation: [submitTaxonomyConfirmation, token("ingest"), token("modify"), record],
 		submitTaxonomyRename: [submitTaxonomyRename, token("ingest"), token("modify"), { ...record, name: "Werkhof" }],
@@ -94,6 +96,7 @@ test("each Pending verification server function refuses a caller below its level
 	expect(outcomes).toEqual({
 		retrieveVerificationItems: { below: "This action requires the read permission", at: [] },
 		countPendingVerificationItems: { below: "This action requires the read permission", at: 0 },
+		retrieveDocument: { below: "This action requires the read permission", at: null },
 		submitDocumentRevision: {
 			below: "This action requires the modify permission",
 			at: `Document ${documentId} does not exist`,
