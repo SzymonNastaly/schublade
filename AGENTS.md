@@ -25,11 +25,18 @@ VISION.md explains the architecture and IMPLEMENTATION_PLAN.md the build order. 
 
 ```text
 src/
-	server.ts                              Worker entry: Access verification, then TanStack Start; the scheduled backfill; the Workflow and Durable Object classes
+	server.ts                              Worker entry: request dispatch with the caller as TanStack Start request context; the scheduled backfill; the email handler; the Workflow and Durable Object classes
+	request_dispatch.ts                    Cross-site write refusal, then bearer tokens for exactly /api/documents/ingest and Access for every other path
+	request_dispatch.workerd.test.ts
 	ambient_declarations.d.ts              Types for import.meta.env, the PDFium WebAssembly import, and PDF fixture imports
+	authorization/
+		caller_authorization.ts              Caller union, PermissionLevel order, AuthorizationScope schema, and permits()
+		caller_authorization.test.ts
 	authentication/
-		access_verification.ts               requireAccess: Cloudflare Access assertion verification with jose
+		access_verification.ts               requireAccess: Cloudflare Access assertion verification with jose; hands on a member_session caller
 		access_verification.test.ts
+		api_tokens.ts                        API token issuance, listing, revocation, and bearer authentication with hourly last-use records
+		api_tokens.workerd.test.ts
 	database/
 		schema.ts                            The nine Drizzle tables and their drizzle-zod insert schemas
 		client.ts                            Drizzle bound to env.DATABASE, and connectDatabase for a passed binding
@@ -38,18 +45,22 @@ src/
 		document_listing.workerd.test.ts
 		document_representation.ts           The original file or the extracted Markdown, served with nosniff and a sandbox policy
 		document_representation.workerd.test.ts
-	ingestion/                             Ingestion domain; all but document_ingestion.ts and document_upload.ts are pure and tested in Node
+	ingestion/                             Ingestion domain; all but document_ingestion.ts, document_upload.ts, token_ingestion.ts, and inbound_mail.ts are pure and tested in Node
 		document_lifecycle.ts                Document status transition table
 		source_file.ts                       Accepted file kinds, their leading-byte signatures, and R2 object keys
 		document_text.ts                     Text layer detection threshold and Markdown assembly
 		document_classification.ts           Extracted field set, standard categories, output schema, and normalization
-		classification_prompt.ts             Classification prompt with the taxonomy, the members, and the schema
+		classification_prompt.ts             Classification prompt with the taxonomy, the members, the schema, and the email that delivered a document
 		taxonomy_resolution.ts               Name normalization and matching against sender, category, and tag rows
 		verification_assessment.ts           Verification reason of an archived document
 		document_ingestion.ts                The workflow steps and their D1 and R2 writes
 		document_ingestion.workerd.test.ts   Step order with recorded Workers AI responses
 		document_upload.ts                   Multipart uploads: size limits, then per file identification, R2 write, row, and workflow start
 		document_upload.workerd.test.ts
+		token_ingestion.ts                   POST /api/documents/ingest: bearer token, ingest level, then the multipart upload
+		token_ingestion_path.ts              The one path Access bypasses, shared with the provisioning script
+		inbound_mail.ts                      email() handler: recipient, DMARC, and allowlist admission, attachments, awaiting_rendering, Message-ID idempotency
+		inbound_mail.workerd.test.ts
 	search/                                AI Search indexing and retrieval; search_index_item.ts and search_criteria.ts are pure and tested in Node
 		search_index_item.ts                 Item name, Markdown content, and custom metadata of an indexed document
 		search_criteria.ts                   Search parameter schema, URL search parsing, the AI Search filter, and passage excerpts
@@ -61,10 +72,11 @@ src/
 		document_search_controls.tsx         Search input with the / and Cmd+K shortcuts, and the facet controls
 		document_list.tsx                    Stacked rows below the md breakpoint, the document table from md upward
 	utilities/
-		server_functions.ts                  TanStack Start server functions
+		server_functions.ts                  TanStack Start server functions; the API token functions require the administer level
 	routes/
 		__root.tsx                           HTML document shell
 		index.tsx                            Archive page: search controls, document list, upload control, and inspection pane
+		settings.tsx                         Settings page: issue an ingest token shown once, list and revoke tokens
 		api/documents.ts                     GET searches or lists documents by the searchCriteriaSchema parameters, POST accepts multipart uploads in fields named files
 		api/documents.$documentId.$representation.ts   GET the original file or the extracted Markdown
 		api/search_index.ts                  POST indexes archived documents that AI Search lacks and reports failedDocuments; repeat while it indexes some
@@ -83,7 +95,8 @@ src/
 		document_classifier.ts               generateText with workers-ai-provider through AI Gateway
 drizzle/                                 Generated SQL migrations and drizzle-kit snapshots
 scripts/
-	provision_environment.ts               `pnpm run provision`: creates or reuses the resources, deploys behind Access
+	provision_environment.ts               `pnpm run provision`: creates or reuses the resources, deploys behind Access, custom hostname, Email Routing, token ingestion bypass
+	provisioning_requests.ts               Access bodies, protected hostnames, zone candidates, and routing rule matching, tested in Node
 	generate_test_documents.ts             Deterministic generator for test_fixtures/documents
 	evaluate_extraction.ts                 `pnpm evaluate:extraction`: uploads the test documents to a dev server and scores the results
 	evaluate_search.ts                     `pnpm evaluate:search`: archives and indexes the test documents on a dev server, then checks fixed searches
@@ -110,13 +123,19 @@ eslint.config.js, .prettierrc.json, knip.json, tsconfig.json
 - **`cf dev` needs a Cloudflare login.** `AI_RUNTIME`, `BROWSER_RENDERER`, and `SEARCH_INDEX` are remote in development, so `cf dev` opens a remote preview session on the signed-in account. It deploys nothing.
 - **Local development runs as `schublade-development`.** The remote preview of a Worker that shares a deployed name sits behind that deployment's Access application and fails without a service token. `cloudflare.config.ts` therefore names the Worker `schublade-development` in every local mode, and `pnpm evaluate:extraction` addresses the local Workflow under that name. Never provision an environment with that worker name.
 - **Local development does not run the Cron Trigger.** Every 15 minutes a deployed Worker runs the scheduled backfill, which indexes up to 100 archived documents that AI Search lacks or failed to index and logs one `Scheduled search indexing:` line. To run it once on a dev server, request `http://localhost:3000/cdn-cgi/local/scheduled?format=json`. It lists and uploads into the billed development instance.
+- **Only `/api/documents/ingest` skips Access.** `request_dispatch.ts` compares the exact pathname. Access bypasses that path through the application "schublade <worker>: token ingestion", and its subpaths inherit the bypass, so the Worker keeps them behind `requireAccess`. Never widen the comparison to a prefix; `request_dispatch.workerd.test.ts` fails when you do.
+- **Server functions read the caller through a cast.** The Worker entry passes `{ caller }` to `handler.fetch` as request context, and TanStack Start delivers it to server functions at run time, but types their `context` as undefined. `requirePermission` in `server_functions.ts` reads it and refuses a request without a caller.
+- **Only the first Authentication-Results header is trusted.** Email Routing prepends its own header from `mx.cloudflare.net`; a sender can add more below it. Email Routing delivers mail from domains whose DMARC policy is `none`, such as gmail.com, so the allowlist means nothing without the `dmarc=pass` check.
+- **Test inbound mail locally through the email endpoint.** Set `ingestionEmailAddress` and `accessEmails` in `schublade.deploy.json`, start `pnpm dev`, and post a raw RFC 5322 message with a `Message-ID` and an `Authentication-Results: mx.cloudflare.net; dmarc=pass` header: `curl -X POST "http://localhost:3000/cdn-cgi/local/email?from=<sender>&to=<ingestion address>" --data-binary @message.eml`. The response states whether the Worker accepted or rejected the message.
+- **The email trigger owns the routing rule.** With `ingestionEmailAddress` set, `cf deploy` creates and updates the Email Routing rule for the address. It asks before replacing or deleting a rule and fails in a non-interactive run, such as `pnpm run provision`; run `pnpm run deploy` in a terminal to confirm. Leaving the address unset leaves the trigger out and the rules alone.
+- **A custom hostname turns workers.dev off.** With `customHostname` set, build modes add the Workers custom domain and `workersDev: false`. `pnpm run provision` extends the Access application to a new hostname before the deployment that moves the route and removes old hostnames only afterwards.
 - **Local development returns 403.** The Access variables are blank locally, so `GET /` returns `Access denied: access_unconfigured`. Start the dev server with `VITE_ACCESS_DEVELOPMENT_EXEMPTION=true pnpm dev` to see the interface.
 - **One local database identifier.** Local development simulates D1 under `00000000-0000-4000-8000-000000000000`. The constant lives in `cloudflare.config.ts` and in the `database:migrate:local` script. Change both together.
 - **`cf d1` takes database UUIDs.** Names and binding names are rejected. `--local` without `--persist-to .cloudflare/state` writes to a directory the dev server never reads. Query the local database with `cf d1 raw <DATABASE_ID> --local --persist-to .cloudflare/state --sql "..."`.
 - **Import PDFium as `@embedpdf/pdfium/pdfium.wasm?module`.** Workers cannot compile WebAssembly at runtime. The `?module` suffix makes both the Vite plugin and the Vitest plugin load a compiled module. Without it, the test runner treats the file as a WebAssembly ES module and fails on its `env` imports.
 - **The workerd test project does not read `cloudflare.config.ts`.** It declares its compatibility date, flags, module rules, and any bindings in `vitest.config.ts`. Keep its compatibility date equal to the one in `cloudflare.config.ts`.
 - **`pnpm run deploy`, not `pnpm deploy`.** The second is a pnpm built-in.
-- **`pnpm run provision` converges.** It finds each resource by name, applies pending migrations, and inserts missing household members without changing existing ones. It deploys only while the live Worker lacks the current Access values, so ship code changes with `pnpm run deploy`. It touches only the Access policy and application named `schublade <workerName>`.
+- **`pnpm run provision` converges.** It finds each resource by name, applies pending migrations, and inserts missing household members without changing existing ones. It deploys only while the live Worker lacks a binding value from `parameterBindingValues` or the requested custom hostname, so ship code changes with `pnpm run deploy`. It touches only the Access policies and applications named `schublade <workerName>` and `schublade <workerName>: token ingestion`, and with `--email-address` it enables Email Routing on that address's zone. It never deletes.
 - **knip exceptions.** knip ignores the IBM Plex packages, which the generator reads by file path, and `@types/emscripten`, which the `@embedpdf/pdfium` declarations reference. An export that a later phase will import carries a `/** @public */` tag. Remove the tag when the export gains a caller.
 - **TypeScript stays on 6.0.** typescript-eslint supports TypeScript below 6.1, so `typescript` is pinned to `~6.0.3`.
 - **Exact pins.** `cf` and `@cloudflare/vite-plugin` are open betas. They are pinned to exact versions that share one miniflare release. Upgrade them together in a deliberate commit.
