@@ -1,0 +1,339 @@
+{
+	"household_members": [
+		"Mira Wiśniewska",
+		"Jonas Becker",
+		"Lena Becker"
+	],
+	"documents": [
+		{
+			"file_name": "telecommunication_invoice_digital.pdf",
+			"media_type": "application/pdf",
+			"capture_method": "digital",
+			"has_text_layer": true,
+			"page_count": 1,
+			"language": "de",
+			"category": "Invoice",
+			"sender": "Nordkabel Kommunikation GmbH",
+			"person": "Jonas Becker",
+			"document_date": "2026-10-05",
+			"title_hint": "Nordkabel Kommunikation Invoice October 2026",
+			"is_non_archival": false,
+			"fields": {
+				"amount": {
+					"value": 67.13,
+					"printed": "67,13 €"
+				},
+				"currency": {
+					"value": "EUR",
+					"printed": "€"
+				},
+				"due_date": {
+					"value": "2026-10-20",
+					"printed": "20.10.2026"
+				},
+				"iban": {
+					"value": "DE28930245800418820037",
+					"printed": "DE28 9302 4580 0418 8200 37"
+				},
+				"invoice_number": {
+					"value": "NK-2026-1048-3391",
+					"printed": "NK-2026-1048-3391"
+				}
+			}
+		},
+		{
+			"file_name": "electricity_invoice_scanned.pdf",
+			"media_type": "application/pdf",
+			"capture_method": "scanned",
+			"has_text_layer": false,
+			"page_count": 1,
+			"language": "de",
+			"category": "Invoice",
+			"sender": "Stadtwerke Talbrück GmbH",
+			"person": "household",
+			"document_date": "2026-09-22",
+			"title_hint": "Stadtwerke Talbrück Electricity Annual Statement 2025-2026",
+			"is_non_archival": false,
+			"fields": {
+				"amount": {
+					"value": 72.09,
+					"printed": "72,09 €"
+				},
+				"currency": {
+					"value": "EUR",
+					"printed": "€"
+				},
+				"due_date": {
+					"value": "2026-10-06",
+					"printed": "06.10.2026"
+				},
+				"iban": {
+					"value": "DE12970113200300418225",
+					"printed": "DE12 9701 1320 0300 4182 25"
+				},
+				"invoice_number": {
+					"value": "JA-2026-0381547",
+					"printed": "JA-2026-0381547"
+				}
+			}
+		},
+		{
+			"file_name": "supermarket_receipt_photograph.jpg",
+			"media_type": "image/jpeg",
+			"capture_method": "photographed",
+			"has_text_layer": false,
+			"page_count": 1,
+			"language": "de",
+			"category": "Receipt",
+			"sender": "Frischemarkt Talbrück",
+			"person": "household",
+			"document_date": "2026-10-31",
+			"title_hint": "Frischemarkt Talbrück Receipt October 2026",
+			"is_non_archival": false,
+			"fields": {
+				"amount": {
+					"value": 29.63,
+					"printed": "29,63"
+				},
+				"currency": {
+					"value": "EUR",
+					"printed": "EUR"
+				},
+				"invoice_number": {
+					"value": "4471",
+					"printed": "4471"
+				}
+			}
+		},
+		{
+			"file_name": "hardware_store_receipt_scanned.pdf",
+			"media_type": "application/pdf",
+			"capture_method": "scanned",
+			"has_text_layer": false,
+			"page_count": 1,
+			"language": "de",
+			"category": "Receipt",
+			"sender": "Werkhof Baumarkt GmbH",
+			"person": "household",
+			"document_date": "2026-10-17",
+			"title_hint": "Werkhof Baumarkt Receipt October 2026",
+			"is_non_archival": false,
+			"fields": {
+				"amount": {
+					"value": 75.49,
+					"printed": "75,49"
+				},
+				"currency": {
+					"value": "EUR",
+					"printed": "EUR"
+				},
+				"invoice_number": {
+					"value": "118204",
+					"printed": "118204"
+				}
+			}
+		},
+		{
+			"file_name": "rental_contract_digital.pdf",
+			"media_type": "application/pdf",
+			"capture_method": "digital",
+			"has_text_layer": true,
+			"page_count": 3,
+			"language": "de",
+			"category": "Contract",
+			"sender": "Talbrücker Wohnungsbau GmbH",
+			"person": "household",
+			"document_date": "2026-03-12",
+			"title_hint": "Talbrücker Wohnungsbau Rental Contract Am Lindenhang 7",
+			"is_non_archival": false,
+			"fields": {
+				"policy_number": {
+					"value": "MV-0417-2026",
+					"printed": "MV-0417-2026"
+				},
+				"cancellation_period": {
+					"value": "P3M",
+					"printed": "drei Monate"
+				}
+			}
+		},
+		{
+			"file_name": "household_contents_insurance_policy_scanned.pdf",
+			"media_type": "application/pdf",
+			"capture_method": "scanned",
+			"has_text_layer": false,
+			"page_count": 2,
+			"language": "de",
+			"category": "Insurance",
+			"sender": "Lindenhain Versicherung AG",
+			"person": "household",
+			"document_date": "2026-02-20",
+			"title_hint": "Lindenhain Versicherung Household Contents Insurance Policy",
+			"is_non_archival": false,
+			"fields": {
+				"policy_number": {
+					"value": "HR-7731-0482-19",
+					"printed": "HR-7731-0482-19"
+				},
+				"renewal_date": {
+					"value": "2027-03-01",
+					"printed": "01.03.2027"
+				},
+				"cancellation_period": {
+					"value": "P3M",
+					"printed": "drei Monate"
+				}
+			}
+		},
+		{
+			"file_name": "income_tax_assessment_scanned.pdf",
+			"media_type": "application/pdf",
+			"capture_method": "scanned",
+			"has_text_layer": false,
+			"page_count": 2,
+			"language": "de",
+			"category": "Tax Notice",
+			"sender": "Finanzamt Talbrück",
+			"person": "Jonas Becker",
+			"document_date": "2026-09-08",
+			"title_hint": "Finanzamt Talbrück Income Tax Assessment 2025",
+			"is_non_archival": false,
+			"fields": {
+				"amount": {
+					"value": 341,
+					"printed": "341,00 €"
+				},
+				"currency": {
+					"value": "EUR",
+					"printed": "€"
+				},
+				"due_date": {
+					"value": "2026-10-14",
+					"printed": "14.10.2026"
+				},
+				"iban": {
+					"value": "DE75960512400031846000",
+					"printed": "DE75 9605 1240 0031 8460 00"
+				}
+			}
+		},
+		{
+			"file_name": "bank_statement_digital.pdf",
+			"media_type": "application/pdf",
+			"capture_method": "digital",
+			"has_text_layer": true,
+			"page_count": 2,
+			"language": "de",
+			"category": "Bank Statement",
+			"sender": "Mühlbach Bank AG",
+			"person": "Jonas Becker",
+			"document_date": "2026-10-31",
+			"title_hint": "Mühlbach Bank Account Statement October 2026",
+			"is_non_archival": false,
+			"fields": {
+				"iban": {
+					"value": "DE72960512400471128305",
+					"printed": "DE72 9605 1240 0471 1283 05"
+				}
+			}
+		},
+		{
+			"file_name": "dental_invoice_scanned.pdf",
+			"media_type": "application/pdf",
+			"capture_method": "scanned",
+			"has_text_layer": false,
+			"page_count": 1,
+			"language": "de",
+			"category": "Medical",
+			"sender": "Zahnarztpraxis Dr. Henrike Vossberg",
+			"person": "Lena Becker",
+			"document_date": "2026-08-27",
+			"title_hint": "Zahnarztpraxis Vossberg Dental Invoice Lena Becker August 2026",
+			"is_non_archival": false,
+			"fields": {
+				"amount": {
+					"value": 91.84,
+					"printed": "91,84 €"
+				},
+				"currency": {
+					"value": "EUR",
+					"printed": "€"
+				},
+				"due_date": {
+					"value": "2026-09-26",
+					"printed": "26.09.2026"
+				},
+				"iban": {
+					"value": "DE80970113200605190031",
+					"printed": "DE80 9701 1320 0605 1900 31"
+				},
+				"invoice_number": {
+					"value": "ZA-2026-0193",
+					"printed": "ZA-2026-0193"
+				}
+			}
+		},
+		{
+			"file_name": "residence_registration_certificate_scanned.pdf",
+			"media_type": "application/pdf",
+			"capture_method": "scanned",
+			"has_text_layer": false,
+			"page_count": 1,
+			"language": "de",
+			"category": "Official Identification",
+			"sender": "Stadt Talbrück",
+			"person": "Mira Wiśniewska",
+			"document_date": "2026-05-04",
+			"title_hint": "Stadt Talbrück Residence Registration Certificate Mira Wiśniewska",
+			"is_non_archival": false,
+			"fields": {}
+		},
+		{
+			"file_name": "software_subscription_invoice_digital.pdf",
+			"media_type": "application/pdf",
+			"capture_method": "digital",
+			"has_text_layer": true,
+			"page_count": 1,
+			"language": "en",
+			"category": "Invoice",
+			"sender": "Paperlark Software Ltd.",
+			"person": "Mira Wiśniewska",
+			"document_date": "2026-10-03",
+			"title_hint": "Paperlark Software Invoice October 2026",
+			"is_non_archival": false,
+			"fields": {
+				"amount": {
+					"value": 42.84,
+					"printed": "$42.84"
+				},
+				"currency": {
+					"value": "USD",
+					"printed": "USD"
+				},
+				"due_date": {
+					"value": "2026-10-17",
+					"printed": "October 17, 2026"
+				},
+				"invoice_number": {
+					"value": "PLK-2026-004817",
+					"printed": "PLK-2026-004817"
+				}
+			}
+		},
+		{
+			"file_name": "general_terms_and_conditions_digital.pdf",
+			"media_type": "application/pdf",
+			"capture_method": "digital",
+			"has_text_layer": true,
+			"page_count": 2,
+			"language": "de",
+			"category": "Contract",
+			"sender": "Nordkabel Kommunikation GmbH",
+			"person": "household",
+			"document_date": "2026-07-01",
+			"title_hint": "Nordkabel Kommunikation General Terms and Conditions July 2026",
+			"is_non_archival": true,
+			"fields": {}
+		}
+	]
+}

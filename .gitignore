@@ -1,0 +1,10 @@
+node_modules/
+decisions.tsv
+.audit/
+.cloudflare/
+dist/
+.wrangler/
+.dev.vars
+schublade.deploy.json
+*.local
+.DS_Store

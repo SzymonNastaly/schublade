@@ -1,0 +1,17 @@
+{
+	"name": "schublade",
+	"private": true,
+	"type": "module",
+	"packageManager": "pnpm@10.18.1",
+	"scripts": {
+		"generate:test-documents": "node scripts/generate_test_documents.ts"
+	},
+	"devDependencies": {
+		"@embedpdf/pdfium": "^2.15.1",
+		"@ibm/plex-mono": "^2.5.0",
+		"@ibm/plex-sans": "^1.1.0",
+		"@ibm/plex-serif": "^2.0.0",
+		"jpeg-js": "^0.4.4",
+		"pdfkit": "^0.20.2"
+	}
+}
