@@ -35,6 +35,7 @@ src/
 		client.ts                            Drizzle bound to env.DATABASE, and connectDatabase for a passed binding
 	archive/
 		document_listing.ts                  The document listing query with its filters, and the facet options
+		document_listing.workerd.test.ts
 		document_representation.ts           The original file or the extracted Markdown, served with nosniff and a sandbox policy
 		document_representation.workerd.test.ts
 	ingestion/                             Ingestion domain; all but document_ingestion.ts and document_upload.ts are pure and tested in Node

@@ -47,11 +47,16 @@ function listingConditions(database: ArchiveDatabase, criteria: ListingCriteria)
 	]
 	return [
 		criteria.documentIds === undefined ? undefined : inArray(documents.id, criteria.documentIds),
+		// Classification assigns the person as it archives a document. An unclassified document
+		// has none yet, so it belongs to no person, not even to the whole household.
 		criteria.person === undefined
 			? undefined
-			: criteria.person === HOUSEHOLD_PERSON
-				? and(isNull(documents.personMemberId), eq(documents.status, "archived"))
-				: eq(documents.personMemberId, criteria.person),
+			: and(
+					eq(documents.status, "archived"),
+					criteria.person === HOUSEHOLD_PERSON
+						? isNull(documents.personMemberId)
+						: eq(documents.personMemberId, criteria.person),
+				),
 		criteria.sender === undefined ? undefined : eq(documents.senderId, criteria.sender),
 		criteria.category === undefined ? undefined : eq(documents.categoryId, criteria.category),
 		criteria.earliestDocumentDate === undefined
