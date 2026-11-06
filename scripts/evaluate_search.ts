@@ -42,7 +42,11 @@ const rawQuerySchema = z.object({
 const retrievedDocumentsSchema = z.object({
 	documents: z.array(z.object({ id: z.string(), matchingPassage: z.string().nullable() })),
 })
-const indexingReportSchema = z.object({ indexedDocumentIds: z.array(z.string()), remainingDocumentCount: z.number() })
+const indexingReportSchema = z.object({
+	indexedDocumentIds: z.array(z.string()),
+	failedDocuments: z.array(z.object({ documentId: z.string(), reason: z.string() })),
+	remainingDocumentCount: z.number(),
+})
 const uploadResponseSchema = z.object({
 	outcomes: z.array(z.object({ kind: z.string(), fileName: z.string(), documentId: z.string().optional() })),
 })
@@ -153,7 +157,16 @@ for (;;) {
 	if (report.indexedDocumentIds.length > 0) {
 		console.log(`Indexed ${report.indexedDocumentIds.length} archived documents that AI Search lacked`)
 	}
+	for (const { documentId, reason } of report.failedDocuments) {
+		if (fileNameById.has(documentId)) throw new Error(`Could not index ${fileNameById.get(documentId)}: ${reason}`)
+		console.log(`Could not index the archived document ${documentId}: ${reason}`)
+	}
 	if (report.remainingDocumentCount === 0) break
+	// A call that indexed nothing would index nothing again, so the remaining documents stay absent.
+	if (report.indexedDocumentIds.length === 0) {
+		console.log(`${report.remainingDocumentCount} archived documents remain absent from AI Search`)
+		break
+	}
 }
 
 const runCloudflare = async (args: Array<string>) =>

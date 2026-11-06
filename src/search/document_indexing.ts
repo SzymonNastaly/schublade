@@ -91,16 +91,24 @@ async function listIndexedItemStatuses(searchIndex: SearchIndex): Promise<Map<st
 	}
 }
 
+interface IndexingFailure {
+	documentId: string
+	reason: string
+}
+
 export interface IndexingReport {
 	indexedDocumentIds: Array<string>
-	/** Archived documents still absent from the index after this call. Call again until it is 0. */
+	/** Documents of this batch that could not be uploaded. The next call attempts them again. */
+	failedDocuments: Array<IndexingFailure>
+	/** Archived documents still absent from the index after this call, failed ones included. */
 	remainingDocumentCount: number
 }
 
 /**
  * Uploads every archived document that has no item in AI Search, or whose item failed to
  * index, such as documents archived before the workflow indexed them. A repeated call
- * uploads only what is still missing.
+ * uploads only what is still missing. A document that cannot be uploaded is reported and
+ * does not stop the others.
  */
 export async function indexMissingDocuments(
 	database: ArchiveDatabase,
@@ -118,7 +126,19 @@ export async function indexMissingDocuments(
 	const missingDocumentIds = archivedDocuments
 		.map((document) => document.id)
 		.filter((documentId) => [undefined, "error"].includes(itemStatuses.get(documentId)))
-	const batch = missingDocumentIds.slice(0, INDEXING_BATCH_SIZE)
-	for (const documentId of batch) await indexDocument(database, storage, searchIndex, documentId)
-	return { indexedDocumentIds: batch, remainingDocumentCount: missingDocumentIds.length - batch.length }
+	const indexedDocumentIds: Array<string> = []
+	const failedDocuments: Array<IndexingFailure> = []
+	for (const documentId of missingDocumentIds.slice(0, INDEXING_BATCH_SIZE)) {
+		try {
+			await indexDocument(database, storage, searchIndex, documentId)
+			indexedDocumentIds.push(documentId)
+		} catch (error) {
+			failedDocuments.push({ documentId, reason: error instanceof Error ? error.message : String(error) })
+		}
+	}
+	return {
+		indexedDocumentIds,
+		failedDocuments,
+		remainingDocumentCount: missingDocumentIds.length - indexedDocumentIds.length,
+	}
 }
