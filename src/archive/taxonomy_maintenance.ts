@@ -10,7 +10,7 @@ const taxonomyKinds = ["sender", "category", "tag"] as const
 type TaxonomyKind = (typeof taxonomyKinds)[number]
 
 /** A sender, category, or tag name must hold a letter or digit, or it identifies nothing. */
-const taxonomyNameSchema = z
+export const taxonomyNameSchema = z
 	.string()
 	.trim()
 	.min(1)

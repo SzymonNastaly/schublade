@@ -2,6 +2,7 @@ import { createServerFn } from "@tanstack/react-start"
 import { env } from "cloudflare:workers"
 import { z } from "zod"
 import { queryArchiveFacets } from "../archive/document_listing"
+import { deleteDocument, documentRevisionSchema, reviseDocument } from "../archive/document_revision"
 import {
 	confirmTaxonomyRecord,
 	deleteTaxonomyRecord,
@@ -46,6 +47,24 @@ export const revokeApiTokenRecord = createServerFn({ method: "POST" })
 	.handler(({ context, data }) => {
 		authorizeOperation(context, "administerApiTokens")
 		return revokeApiToken(database, data.tokenId)
+	})
+
+const archiveEnvironment = () => ({ database, storage: env.DOCUMENT_STORAGE, searchIndex: env.SEARCH_INDEX })
+
+/** @public */
+export const submitDocumentRevision = createServerFn({ method: "POST" })
+	.validator(documentRevisionSchema)
+	.handler(({ context, data }) => {
+		authorizeOperation(context, "reviseDocument")
+		return reviseDocument(archiveEnvironment(), data)
+	})
+
+/** @public */
+export const submitDocumentDeletion = createServerFn({ method: "POST" })
+	.validator(z.strictObject({ documentId: z.uuid() }))
+	.handler(({ context, data }) => {
+		authorizeOperation(context, "deleteDocument")
+		return deleteDocument(archiveEnvironment(), data.documentId)
 	})
 
 /** @public */

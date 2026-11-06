@@ -3,7 +3,7 @@ import { normalizeTaxonomyName } from "./taxonomy_resolution"
 
 type ExtractedFieldType = "number" | "text" | "date"
 
-const extractedFieldTypes = {
+export const extractedFieldTypes = {
 	amount: "number",
 	currency: "text",
 	due_date: "date",
@@ -15,6 +15,8 @@ const extractedFieldTypes = {
 } as const satisfies Record<string, ExtractedFieldType>
 
 export type ExtractedFieldKey = keyof typeof extractedFieldTypes
+
+export const extractedFieldKeys = Object.keys(extractedFieldTypes) as Array<ExtractedFieldKey>
 
 const invoiceFields: ReadonlyArray<ExtractedFieldKey> = ["amount", "currency", "due_date", "iban", "invoice_number"]
 const contractFields: ReadonlyArray<ExtractedFieldKey> = ["policy_number", "renewal_date", "cancellation_period"]
@@ -106,7 +108,7 @@ export interface DocumentClassification {
 	extractedFields: Array<ExtractedField>
 }
 
-const MAXIMUM_TAG_COUNT = 5
+export const MAXIMUM_TAG_COUNT = 5
 
 const currencySymbols: Record<string, string> = { "€": "EUR", $: "USD", "£": "GBP" }
 
@@ -137,7 +139,8 @@ function normalizeCurrencyCode(value: string): string | null {
 	return /^[A-Z]{3}$/.test(code) ? code : null
 }
 
-function normalizeFieldValue(fieldKey: ExtractedFieldKey, value: string | number): string | number | null {
+/** The archive value of a field, or null when the value does not fit the field's type. */
+export function normalizeFieldValue(fieldKey: ExtractedFieldKey, value: string | number): string | number | null {
 	if (extractedFieldTypes[fieldKey] === "number") {
 		return typeof value === "number" && Number.isFinite(value) ? Math.round(value * 100) / 100 : null
 	}
@@ -154,7 +157,7 @@ function normalizeFieldValue(fieldKey: ExtractedFieldKey, value: string | number
 
 function normalizeExtractedFields(fields: ClassificationOutput["fields"]): Array<ExtractedField> {
 	const extractedFields: Array<ExtractedField> = []
-	for (const fieldKey of Object.keys(extractedFieldTypes) as Array<ExtractedFieldKey>) {
+	for (const fieldKey of extractedFieldKeys) {
 		const extracted = fields[fieldKey]
 		if (extracted === null) continue
 		const value = normalizeFieldValue(fieldKey, extracted.value)

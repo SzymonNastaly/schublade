@@ -92,6 +92,15 @@ export async function indexDocument(
 		)
 }
 
+/** Deletes the AI Search item of a document. Deleting an item that does not exist changes nothing. */
+export async function removeDocumentFromIndex(searchIndex: SearchIndex, documentId: string): Promise<void> {
+	const items = await searchIndex.items
+	const itemName = searchIndexItemName(documentId)
+	const { result } = await items.list({ key: itemName, source: "builtin" })
+	// The listing is filtered again, so a parameter the service ignored cannot delete another item.
+	for (const item of result.filter((candidate) => candidate.key === itemName)) await items.delete(item.id)
+}
+
 /**
  * The status of every item Schublade uploaded, by document identifier. A short page does not
  * prove the end of the listing, so only an empty page ends it.

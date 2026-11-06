@@ -37,10 +37,15 @@ export function identifySourceFile(content: Uint8Array): SourceFile | undefined 
 	)
 }
 
+/** Every R2 object of a document lies under this prefix: its original, its Markdown, or its message. */
+export function documentObjectPrefix(documentId: string): string {
+	return `documents/${documentId}/`
+}
+
 export function originalObjectKey(documentId: string, sourceFile: SourceFile): string {
-	return `documents/${documentId}/original.${sourceFile.extension}`
+	return `${documentObjectPrefix(documentId)}original.${sourceFile.extension}`
 }
 
 export function contentObjectKey(documentId: string): string {
-	return `documents/${documentId}/content.md`
+	return `${documentObjectPrefix(documentId)}content.md`
 }
