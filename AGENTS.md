@@ -30,7 +30,7 @@ src/
 	request_dispatch.workerd.test.ts
 	ambient_declarations.d.ts              Types for import.meta.env, the PDFium WebAssembly import, and PDF fixture imports
 	authorization/
-		caller_authorization.ts              Caller union, PermissionLevel order, AuthorizationScope schema, and permits()
+		caller_authorization.ts              Caller union, PermissionLevel order, AuthorizationScope schema, permits(), and the level of each server function
 		caller_authorization.test.ts
 	authentication/
 		access_verification.ts               requireAccess: Cloudflare Access assertion verification with jose; hands on a member_session caller
@@ -45,6 +45,12 @@ src/
 		document_listing.workerd.test.ts
 		document_representation.ts           The original file or the extracted Markdown, served with nosniff and a sandbox policy
 		document_representation.workerd.test.ts
+		verification_items.ts                The Pending verification entries as one union by reason, and their count
+		verification_items.workerd.test.ts
+		taxonomy_maintenance.ts              Confirm, rename (proposing a merge on a name clash), merge, and delete senders, categories, and tags
+		taxonomy_maintenance.workerd.test.ts
+		document_revision.ts                 A member's revision of a document with its immediate reindex, and document deletion
+		document_revision.workerd.test.ts
 	ingestion/                             Ingestion domain; all but document_ingestion.ts, document_upload.ts, token_ingestion.ts, and inbound_mail.ts are pure and tested in Node
 		document_lifecycle.ts                Document status transition table
 		source_file.ts                       Accepted file kinds, their leading-byte signatures, and R2 object keys
@@ -52,7 +58,7 @@ src/
 		document_classification.ts           Extracted field set, standard categories, output schema, and normalization
 		classification_prompt.ts             Classification prompt with the taxonomy, the members, the schema, and the email that delivered a document
 		taxonomy_resolution.ts               Name normalization and matching against sender, category, and tag rows
-		verification_assessment.ts           Verification reason of an archived document
+		verification_assessment.ts           Illegible required fields and the precedence of the three verification reasons
 		document_ingestion.ts                The workflow steps and their D1 and R2 writes
 		document_ingestion.workerd.test.ts   Step order with recorded Workers AI responses
 		document_upload.ts                   Multipart uploads: size limits and 20 files per request, then per file identification, R2 write, row, and workflow start
@@ -64,19 +70,23 @@ src/
 	search/                                AI Search indexing and retrieval; search_index_item.ts and search_criteria.ts are pure and tested in Node
 		search_index_item.ts                 Item name, Markdown content, and custom metadata of an indexed document
 		search_criteria.ts                   Search parameter schema, URL search parsing, the AI Search filter, and passage excerpts
-		document_indexing.ts                 SearchIndex port, the index step, indexMissingDocuments, its POST /api/search_index and scheduled callers
+		document_indexing.ts                 SearchIndex port, the index step and indexed_at, item removal, indexMissingDocuments for missing, failed, and stale documents, its callers
 		document_indexing.workerd.test.ts
 		document_search.ts                   Hybrid AI Search query joined with D1, or the D1 listing without a query
 		document_search.workerd.test.ts
+		in_memory_search_index.ts            A SearchIndex for workerd tests that keeps items in memory
 	interface/
 		document_search_controls.tsx         Search input with the / and Cmd+K shortcuts, and the facet controls
 		document_list.tsx                    Stacked rows below the md breakpoint, the document table from md upward
+		archive_navigation.tsx               All documents, Pending verification with its count, and Settings
+		document_revision_form.tsx           The inspection pane's edit form and the confirmed document deletion
 	utilities/
-		server_functions.ts                  TanStack Start server functions; the API token functions require the administer level
+		server_functions.ts                  TanStack Start server functions, each refused below its level by authorizeOperation
 	routes/
-		__root.tsx                           HTML document shell
+		__root.tsx                           HTML document shell, and the Pending verification count for the navigation
 		index.tsx                            Archive page: search controls, document list, upload control, and inspection pane
 		settings.tsx                         Settings page: issue an ingest token shown once, list and revoke tokens
+		verification.tsx                     Pending verification: one-action buttons per entry
 		api/documents.ts                     GET searches or lists documents by the searchCriteriaSchema parameters, POST accepts multipart uploads in fields named files
 		api/documents.$documentId.$representation.ts   GET the original file or the extracted Markdown
 		api/search_index.ts                  POST indexes archived documents that AI Search lacks and reports failedDocuments; repeat while it indexes some
@@ -120,11 +130,12 @@ eslint.config.js, .prettierrc.json, knip.json, tsconfig.json
 - **Await `SEARCH_INDEX.items` before calling it.** In development, the remote binding answers over RPC, and `env.SEARCH_INDEX.items.list()` fails with `The RPC receiver does not implement the method "list"`. `await env.SEARCH_INDEX.items` first, as `document_indexing.ts` does. A deployed Worker returns the object itself, so the await costs nothing there.
 - **AI Search facts the search relies on.** An upload under an existing item name replaces the item and keeps its identifier. A `datetime` metadata field accepts `2026-09-22T00:00:00Z`, stores milliseconds, and filters correctly with ISO 8601 strings, not with Unix seconds. While an item reindexes, its old and new chunks can both match, so results are grouped by item name. Indexing an upload took 73 to 145 seconds on the development instance when 12 arrived together, so a document archived a moment ago is not yet searchable. Every search disables the similarity cache, which would answer a repeated query without the documents indexed since.
 - **URL search parameters are parsed in `parseSearchString`.** TanStack Router merges every parameter it parses into the validated search of each route, so `validateSearch` alone cannot drop an unknown or unreadable one, and the default parser reads `1.50` as a number. `src/router.tsx` therefore passes `parseSearchString` and `composeSearchString` from `search_criteria.ts`.
+- **A document is stale while its updated_at exceeds its indexed_at.** The index step stores the updated_at of the revision it uploaded, and every update raises updated_at by at least one second, so a revision written in the second of an upload still counts as stale. A write that changes nothing AI Search reads, such as recording indexed_at, sets `updatedAt` to its own column, or the backfill uploads the document again. A merge or rename marks its documents stale with `succeedingModificationTime()` instead of uploading each one.
 - **`cf dev` needs a Cloudflare login.** `AI_RUNTIME`, `BROWSER_RENDERER`, and `SEARCH_INDEX` are remote in development, so `cf dev` opens a remote preview session on the signed-in account. It deploys nothing.
 - **Local development runs as `schublade-development`.** The remote preview of a Worker that shares a deployed name sits behind that deployment's Access application and fails without a service token. `cloudflare.config.ts` therefore names the Worker `schublade-development` in every local mode, and `pnpm evaluate:extraction` addresses the local Workflow under that name. Never provision an environment with that worker name.
-- **Local development does not run the Cron Trigger.** Every 15 minutes a deployed Worker runs the scheduled backfill, which indexes up to 100 archived documents that AI Search lacks or failed to index and logs one `Scheduled search indexing:` line. To run it once on a dev server, request `http://localhost:3000/cdn-cgi/local/scheduled?format=json`. It lists and uploads into the billed development instance.
+- **Local development does not run the Cron Trigger.** Every 15 minutes a deployed Worker runs the scheduled backfill, which uploads up to 100 archived documents that AI Search lacks, failed to index, or holds a stale revision of, and logs one `Scheduled search indexing:` line. To run it once on a dev server, request `http://localhost:3000/cdn-cgi/local/scheduled?format=json`. It lists and uploads into the billed development instance.
 - **Only `/api/documents/ingest` skips Access.** `request_dispatch.ts` compares the exact pathname. Access bypasses that path through the application "schublade <worker>: token ingestion", and its subpaths inherit the bypass, so the Worker keeps them behind `requireAccess`. Never widen the comparison to a prefix; `request_dispatch.workerd.test.ts` fails when you do.
-- **Server functions read the caller through a cast.** The Worker entry passes `{ caller }` to `handler.fetch` as request context, and TanStack Start delivers it to server functions at run time, but types their `context` as undefined. `requirePermission` in `server_functions.ts` reads it and refuses a request without a caller.
+- **Server functions read the caller through a cast.** The Worker entry passes `{ caller }` to `handler.fetch` as request context, and TanStack Start delivers it to server functions at run time, but types their `context` as undefined. `authorizeOperation` in `caller_authorization.ts` reads it and refuses a request without a caller.
 - **Cloudflare's results live in the block Email Routing prepends.** On the first live delivery, from Gmail to staging, Email Routing prepended Received, ARC-Seal, ARC-Message-Signature, ARC-Authentication-Results, Received-SPF, Authentication-Results, and X-CF-SpamH-Score above Gmail's own Received header. Every relay prepends, so a sender's headers always sit below that second Received header. `inbound_mail.ts` therefore requires a Received header first, takes the block up to the next Received header, and rejects a message without one. It trusts only the one Authentication-Results header from `mx.cloudflare.net` inside the block and ignores every Authentication-Results header below it. The one From mailbox must equal the envelope sender. Every delivery the handler reads logs one `Inbound mail header layout` line with the names of its first 12 headers, the position and authserv-id of each Authentication-Results and ARC-Authentication-Results header, the trusted dmarc result unless it names a mailbox, and whether the delivery was admitted. Email Routing delivers mail from domains whose DMARC policy is `none`, such as gmail.com, so the allowlist means nothing without the `dmarc=pass` check.
 - **Test inbound mail locally through the email endpoint.** Set `ingestionEmailAddress` and `accessEmails` in `schublade.deploy.json`, start `pnpm dev`, and post a raw RFC 5322 message: `curl -X POST "http://localhost:3000/cdn-cgi/local/email?from=<sender>&to=<ingestion address>" --data-binary @message.eml`. The endpoint does not add Email Routing's headers, so the message must open with the block Email Routing prepends: a `Received: ... by mx.cloudflare.net` header and an `Authentication-Results: mx.cloudflare.net; dmarc=pass header.from=<sender domain>` header. The sender's own Received header follows, then a From that is the `from` of the request and a `Message-ID`. `emailRoutingBlock` in `inbound_mail.workerd.test.ts` has the full block. The response states whether the Worker accepted or rejected the message.
 - **The email trigger owns the routing rule.** With `ingestionEmailAddress` set, `cf deploy` creates and updates the Email Routing rule for the address. It asks before replacing or deleting a rule and fails in a non-interactive run, such as `pnpm run provision`; run `pnpm run deploy` in a terminal to confirm. Leaving the address unset leaves the trigger out and the rules alone.
