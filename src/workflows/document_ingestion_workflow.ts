@@ -1,13 +1,14 @@
 import { WorkflowEntrypoint } from "cloudflare:workers"
+import { ingestDocument } from "../ingestion/document_ingestion"
 import type { WorkflowEvent, WorkflowStep } from "cloudflare:workers"
+import type { IngestionOutcome } from "../ingestion/document_ingestion"
 
 interface DocumentIngestionParameters {
 	documentId: string
 }
 
-// Phase 1 implements text extraction, recognition, classification, and indexing.
 export class DocumentIngestionWorkflow extends WorkflowEntrypoint<Env, DocumentIngestionParameters> {
-	override run(_event: WorkflowEvent<DocumentIngestionParameters>, _step: WorkflowStep): Promise<never> {
-		return Promise.reject(new Error("DocumentIngestionWorkflow is not implemented before phase 1"))
+	override run(event: WorkflowEvent<DocumentIngestionParameters>, step: WorkflowStep): Promise<IngestionOutcome> {
+		return ingestDocument(step, this.env, event.payload.documentId)
 	}
 }

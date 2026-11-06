@@ -1,5 +1,12 @@
-import { cloudflareTest } from "@cloudflare/vitest-plugin"
+import { cloudflareTest, readD1Migrations } from "@cloudflare/vitest-plugin"
 import { defineConfig } from "vitest/config"
+import type { D1Migration } from "@cloudflare/vitest-plugin"
+
+declare module "vitest" {
+	interface ProvidedContext {
+		databaseMigrations: Array<D1Migration>
+	}
+}
 
 export default defineConfig({
 	test: {
@@ -24,12 +31,15 @@ export default defineConfig({
 								{ type: "CompiledWasm", include: ["**/*.wasm?module"] },
 								{ type: "Data", include: ["**/*.pdf"] },
 							],
+							d1Databases: ["DATABASE"],
+							r2Buckets: ["DOCUMENT_STORAGE"],
 						},
 					}),
 				],
 				test: {
 					name: "workerd",
 					include: ["src/**/*.workerd.test.ts"],
+					provide: { databaseMigrations: await readD1Migrations("drizzle") },
 				},
 			},
 		],

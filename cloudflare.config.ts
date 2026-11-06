@@ -22,6 +22,7 @@ const deploymentParametersSchema = z.strictObject({
 	searchInstanceName: z.string().min(1).optional(),
 	aiGatewayIdentifier: z.string().min(1).optional(),
 	workerHostname: z.hostname().optional(),
+	classificationModel: z.string().min(1).optional(),
 	accessTeamDomain: z.hostname().optional(),
 	accessAudience: z.string().min(1).optional(),
 })
@@ -113,6 +114,7 @@ export default defineConfig(({ mode }) => ({
 			ACCESS_TEAM_DOMAIN: bindings.text(deployment.accessTeamDomain ?? ""),
 			ACCESS_AUD: bindings.text(deployment.accessAudience ?? ""),
 			AI_GATEWAY_IDENTIFIER: bindings.text(deployment.aiGatewayIdentifier ?? "schublade"),
+			CLASSIFICATION_MODEL: bindings.text(deployment.classificationModel ?? "@cf/google/gemma-4-26b-a4b-it"),
 		},
 	},
 }))

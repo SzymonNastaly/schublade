@@ -1,15 +1,13 @@
 const TEXT_RECOGNITION_MODEL = "@cf/moondream/moondream3.1-9B-A2B"
 
-type RecognizableImageType = "image/png" | "image/jpeg" | "image/webp"
+export type RecognizableImageType = "image/png" | "image/jpeg" | "image/webp"
 
-/** @public */
-export interface RecognizableImage {
+interface RecognizableImage {
 	mediaType: RecognizableImageType
 	bytes: Uint8Array
 }
 
-/** @public */
-export interface TextRecognizer {
+interface TextRecognizer {
 	transcribe: (image: RecognizableImage) => Promise<string>
 }
 
@@ -70,7 +68,6 @@ function encodeDataUri(image: RecognizableImage): string {
 	return `data:${image.mediaType};base64,${btoa(binary)}`
 }
 
-/** @public */
 export function createMoondreamRecognizer(runtime: Ai, gatewayIdentifier: string): TextRecognizer {
 	return {
 		async transcribe(image) {
