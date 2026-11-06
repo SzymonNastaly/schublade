@@ -13,6 +13,7 @@
 		"database:migrate:local": "cf d1 migrations apply 00000000-0000-4000-8000-000000000000 --local --persist-to .cloudflare/state --dir drizzle",
 		"generate:test-documents": "node scripts/generate_test_documents.ts",
 		"evaluate:extraction": "node scripts/evaluate_extraction.ts",
+		"evaluate:search": "node scripts/evaluate_search.ts",
 		"typecheck": "cf workers types && tsc --noEmit",
 		"lint": "eslint .",
 		"format": "prettier --write .",
