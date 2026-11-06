@@ -11,8 +11,7 @@ const PASSAGE_LEADING_CONTEXT = 80
 
 /** Parses search parameters from a URL or a server function call. An empty query lists documents. */
 export const searchCriteriaSchema = z.strictObject({
-	// The router parses a numeric query, such as an invoice number, into a number.
-	query: z.coerce.string().trim().max(MAXIMUM_QUERY_LENGTH).optional(),
+	query: z.string().trim().max(MAXIMUM_QUERY_LENGTH).optional(),
 	person: z.union([z.uuid(), z.literal(HOUSEHOLD_PERSON)]).optional(),
 	sender: z.uuid().optional(),
 	category: z.uuid().optional(),
@@ -24,6 +23,39 @@ export const searchCriteriaSchema = z.strictObject({
 })
 
 export type SearchCriteria = z.infer<typeof searchCriteriaSchema>
+
+/**
+ * The criteria of the archive page URL, read one parameter at a time. An unknown parameter,
+ * such as utm_source, an unreadable one, such as minimumAmount=abc, and an empty one drop only
+ * themselves.
+ */
+export function parseSearchParameters(parameters: Record<string, unknown>): SearchCriteria {
+	const criteria: Record<string, unknown> = {}
+	for (const [key, schema] of Object.entries(searchCriteriaSchema.shape)) {
+		const field = schema.safeParse(parameters[key])
+		if (parameters[key] !== "" && field.success && field.data !== undefined) criteria[key] = field.data
+	}
+	// Every field already parsed, so this parse only gives the result its type.
+	return searchCriteriaSchema.parse(criteria)
+}
+
+/**
+ * Reads a URL search string. Each value is text, whereas the router default parses each value
+ * as JSON and turns a query such as 1.50 or 1e3 into a number.
+ */
+export function parseSearchString(searchString: string): SearchCriteria {
+	return parseSearchParameters(Object.fromEntries(new URLSearchParams(searchString)))
+}
+
+/** Writes each defined value as text, so parseSearchString reads it back unchanged. */
+export function composeSearchString(search: Record<string, unknown>): string {
+	const parameters = new URLSearchParams()
+	for (const [key, value] of Object.entries(search)) {
+		if (value !== undefined) parameters.set(key, String(value))
+	}
+	const searchString = parameters.toString()
+	return searchString === "" ? "" : `?${searchString}`
+}
 
 /**
  * The criteria AI Search applies before it ranks, so the top results come from the filtered

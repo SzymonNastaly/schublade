@@ -7,15 +7,14 @@ import { isSettledStatus } from "../ingestion/document_lifecycle"
 import { acceptedMediaTypes } from "../ingestion/source_file"
 import { DocumentList } from "../interface/document_list"
 import { DocumentSearchControls } from "../interface/document_search_controls"
-import { searchCriteriaSchema } from "../search/search_criteria"
+import { parseSearchParameters } from "../search/search_criteria"
 import { listArchiveFacets, retrieveDocuments } from "../utilities/server_functions"
 import type { UploadOutcome } from "../ingestion/document_upload"
 import type { SearchCriteria } from "../search/search_criteria"
 import type { RetrievedDocument } from "../search/document_search"
 
 export const Route = createFileRoute("/")({
-	// An unreadable URL parameter shows the whole archive rather than an error.
-	validateSearch: (search) => searchCriteriaSchema.catch({}).parse(search),
+	validateSearch: parseSearchParameters,
 	loaderDeps: ({ search }) => search,
 	loader: async ({ deps }) => {
 		const [documents, facets] = await Promise.all([retrieveDocuments({ data: deps }), listArchiveFacets()])
