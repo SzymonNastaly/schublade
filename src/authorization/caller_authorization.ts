@@ -38,3 +38,29 @@ function grantedLevel(caller: Caller): PermissionLevel {
 export function permits(caller: Caller, required: PermissionLevel): boolean {
 	return permissionLevels.indexOf(grantedLevel(caller)) >= permissionLevels.indexOf(required)
 }
+
+/** The level each server function requires. VISION.md reserves merging and deleting for administer. */
+const operationLevels = {
+	readArchive: "read",
+	reviseDocument: "modify",
+	confirmTaxonomyRecord: "modify",
+	renameTaxonomyRecord: "modify",
+	mergeTaxonomyRecords: "administer",
+	deleteDocument: "administer",
+	deleteTaxonomyRecord: "administer",
+	administerApiTokens: "administer",
+} as const satisfies Record<string, PermissionLevel>
+
+type ArchiveOperation = keyof typeof operationLevels
+
+/**
+ * Refuses a server function call whose caller lacks the operation's level. The Worker entry
+ * passes the caller to TanStack Start as request context, which types a server function's
+ * context without it, so the caller is read from the untyped context, and a call without one
+ * is refused.
+ */
+export function authorizeOperation(context: unknown, operation: ArchiveOperation): void {
+	const caller = (context as { caller?: Caller } | undefined)?.caller
+	const level = operationLevels[operation]
+	if (caller === undefined || !permits(caller, level)) throw new Error(`This action requires the ${level} permission`)
+}

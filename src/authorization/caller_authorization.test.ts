@@ -1,5 +1,5 @@
 import { expect, test } from "vitest"
-import { permits } from "./caller_authorization"
+import { authorizeOperation, permits } from "./caller_authorization"
 import type { Caller, PermissionLevel } from "./caller_authorization"
 
 const ingestToken: Caller = { kind: "api_token", tokenId: "token-1", scope: { level: "ingest" } }
@@ -22,4 +22,45 @@ test("permits a caller every level up to its own and no level above it", () => {
 		mail: ["read", "ingest"],
 		member: ["read", "ingest", "modify", "administer"],
 	})
+})
+
+test("authorizeOperation admits a modify token to revisions and reserves merging and deletion for administer", () => {
+	const modifyToken: Caller = { kind: "api_token", tokenId: "token-3", scope: { level: "modify" } }
+	const operations = [
+		"readArchive",
+		"reviseDocument",
+		"confirmTaxonomyRecord",
+		"renameTaxonomyRecord",
+		"mergeTaxonomyRecords",
+		"deleteDocument",
+		"deleteTaxonomyRecord",
+		"administerApiTokens",
+	] as const
+	const refusals = (context: unknown) =>
+		Object.fromEntries(
+			operations.map((operation) => {
+				try {
+					authorizeOperation(context, operation)
+					return [operation, "admitted"]
+				} catch (error) {
+					return [operation, error instanceof Error ? error.message : String(error)]
+				}
+			}),
+		)
+
+	expect(refusals({ caller: modifyToken })).toEqual({
+		readArchive: "admitted",
+		reviseDocument: "admitted",
+		confirmTaxonomyRecord: "admitted",
+		renameTaxonomyRecord: "admitted",
+		mergeTaxonomyRecords: "This action requires the administer permission",
+		deleteDocument: "This action requires the administer permission",
+		deleteTaxonomyRecord: "This action requires the administer permission",
+		administerApiTokens: "This action requires the administer permission",
+	})
+	expect([readToken, member, undefined].map((caller) => refusals({ caller }).reviseDocument)).toEqual([
+		"This action requires the modify permission",
+		"admitted",
+		"This action requires the modify permission",
+	])
 })
