@@ -1,6 +1,5 @@
 import handler from "@tanstack/react-start/server-entry"
-import { requireAccess } from "./authentication/access_verification"
-import { crossSiteWriteRejection } from "./authentication/cross_site_writes"
+import { createRequestDispatcher } from "./request_dispatch"
 import { indexMissingDocumentsOnSchedule } from "./search/document_indexing"
 import type { Caller } from "./authorization/caller_authorization"
 
@@ -14,21 +13,17 @@ declare module "@tanstack/react-router" {
 	}
 }
 
-const serveApplication = (request: Request, caller: Caller) => handler.fetch(request, { context: { caller } })
-const serveWithinAccess = requireAccess(serveApplication)
-
 // `VITE_ACCESS_DEVELOPMENT_EXEMPTION=true pnpm dev` serves the application without an Access
 // assertion. Builds replace `import.meta.env.DEV` with false, which removes this exemption.
 const developmentExemption = import.meta.env.DEV && import.meta.env.VITE_ACCESS_DEVELOPMENT_EXEMPTION === "true"
 
+const dispatchRequest = createRequestDispatcher(
+	(request: Request, caller: Caller) => handler.fetch(request, { context: { caller } }),
+	developmentExemption,
+)
+
 export default {
-	fetch(request, environment) {
-		const rejection = crossSiteWriteRejection(request)
-		if (rejection) return rejection
-		return developmentExemption
-			? serveApplication(request, { kind: "member_session" })
-			: serveWithinAccess(request, environment)
-	},
+	fetch: (request, environment) => dispatchRequest(request, environment),
 	// Only the Cron Trigger in cloudflare.config.ts invokes this handler. No request reaches it,
 	// so no Access assertion applies.
 	scheduled: (_controller, environment) => indexMissingDocumentsOnSchedule(environment),
