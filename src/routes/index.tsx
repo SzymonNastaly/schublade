@@ -152,9 +152,11 @@ function ArchiveOverview() {
 			<DocumentSearchControls criteria={criteria} facets={facets} searching={searching} onChange={changeCriteria} />
 			<LayerCard>
 				<LayerCard.Secondary>
-					{criteria.query === undefined
-						? "Documents"
-						: `${documents.length} ${documents.length === 1 ? "document matches" : "documents match"} “${criteria.query}”`}
+					<span className="min-w-0 wrap-break-word">
+						{criteria.query === undefined
+							? "Documents"
+							: `${documents.length} ${documents.length === 1 ? "document matches" : "documents match"} “${criteria.query}”`}
+					</span>
 				</LayerCard.Secondary>
 				<LayerCard.Primary>
 					{documents.length === 0 ? (
