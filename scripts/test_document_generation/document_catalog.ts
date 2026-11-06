@@ -1,16 +1,13 @@
 import {
-	type DocumentSpecification,
-	type Organization,
-	type PrintedValue,
 	computeGermanIban,
 	contentWidth,
 	drawDefinitionList,
 	drawLetterFooter,
 	drawLetterhead,
-	drawSingleLine,
 	drawOrganizationMark,
 	drawParagraphs,
 	drawSections,
+	drawSingleLine,
 	drawTable,
 	euroField,
 	formatEnglishDate,
@@ -26,17 +23,18 @@ import {
 	pageSizeA4,
 	rightEdge,
 	vatIncludedInGross,
-} from "./document_layout.ts";
+} from "./document_layout.ts"
+import type { DocumentSpecification, Organization, PrintedValue } from "./document_layout.ts"
 
-const householdAddressLines = ["Am Lindenhang 7", "31846 Talbrück"];
-const euroCurrency: PrintedValue = { value: "EUR", printed: "€" };
-const threeMonths: PrintedValue = { value: "P3M", printed: "drei Monate" };
+const householdAddressLines = ["Am Lindenhang 7", "31846 Talbrück"]
+const euroCurrency: PrintedValue = { value: "EUR", printed: "€" }
+const threeMonths: PrintedValue = { value: "P3M", printed: "drei Monate" }
 
 const banks = {
 	muehlbach: { name: "Mühlbach Bank AG", code: "96051240" },
 	wiesenfurt: { name: "Wiesenfurter Handelsbank AG", code: "93024580" },
 	kreditverein: { name: "Kreditverein Talbrück eG", code: "97011320" },
-};
+}
 
 const nordkabel: Organization = {
 	name: "Nordkabel Kommunikation GmbH",
@@ -47,7 +45,7 @@ const nordkabel: Organization = {
 	iban: computeGermanIban(banks.wiesenfurt.code, "0418820037"),
 	accentColor: "#0b6e6e",
 	monogram: "NK",
-};
+}
 
 const stadtwerke: Organization = {
 	name: "Stadtwerke Talbrück GmbH",
@@ -58,7 +56,7 @@ const stadtwerke: Organization = {
 	iban: computeGermanIban(banks.kreditverein.code, "0300418225"),
 	accentColor: "#1d4f91",
 	monogram: "SW",
-};
+}
 
 const wohnungsbau: Organization = {
 	name: "Talbrücker Wohnungsbau GmbH",
@@ -69,18 +67,23 @@ const wohnungsbau: Organization = {
 	iban: computeGermanIban(banks.muehlbach.code, "0220417090"),
 	accentColor: "#7a4b1f",
 	monogram: "TW",
-};
+}
 
 const lindenhain: Organization = {
 	name: "Lindenhain Versicherung AG",
 	addressLines: ["Am Schlossgarten 14", "37120 Hollerbeck"],
 	contactLines: ["service@lindenhain.example", "Schadenmeldung online", "rund um die Uhr"],
-	registrationLines: ["Vorstand: Dr. Felix Brandauer", "(Vorsitz), Svenja Ohlendorf", "Amtsgericht Hollerbeck", "HRB 5531"],
+	registrationLines: [
+		"Vorstand: Dr. Felix Brandauer",
+		"(Vorsitz), Svenja Ohlendorf",
+		"Amtsgericht Hollerbeck",
+		"HRB 5531",
+	],
 	bankName: banks.wiesenfurt.name,
 	iban: computeGermanIban(banks.wiesenfurt.code, "0773104820"),
 	accentColor: "#2f6b3a",
 	monogram: "LV",
-};
+}
 
 const finanzamt: Organization = {
 	name: "Finanzamt Talbrück",
@@ -91,7 +94,7 @@ const finanzamt: Organization = {
 	iban: computeGermanIban(banks.muehlbach.code, "0031846000"),
 	accentColor: "#222222",
 	letterheadSubtitle: "Postanschrift: Postfach 1120, 31840 Talbrück",
-};
+}
 
 const muehlbachBank: Organization = {
 	name: "Mühlbach Bank AG",
@@ -102,7 +105,7 @@ const muehlbachBank: Organization = {
 	iban: computeGermanIban(banks.muehlbach.code, "0100500013"),
 	accentColor: "#7a1f2b",
 	monogram: "MB",
-};
+}
 
 const dentalPractice: Organization = {
 	name: "Zahnarztpraxis Dr. Henrike Vossberg",
@@ -113,7 +116,7 @@ const dentalPractice: Organization = {
 	iban: computeGermanIban(banks.kreditverein.code, "0605190031"),
 	accentColor: "#2a7da8",
 	monogram: "HV",
-};
+}
 
 const stadtTalbrueck: Organization = {
 	name: "Stadt Talbrück",
@@ -124,16 +127,22 @@ const stadtTalbrueck: Organization = {
 	iban: computeGermanIban(banks.kreditverein.code, "0000100014"),
 	accentColor: "#1f3a5f",
 	letterheadSubtitle: "Der Bürgermeister · Bürgeramt",
-};
+}
 
-const sumOf = (values: readonly number[]): number => values.reduce((total, value) => total + value, 0);
+const sumOf = (values: ReadonlyArray<number>): number => values.reduce((total, value) => total + value, 0)
 
 function drawPageLabel(document: PDFKit.PDFDocument, label: string): void {
-	const bottomMargin = document.page.margins.bottom;
-	document.page.margins.bottom = 0;
-	drawSingleLine(document.font("SansRegular").fontSize(7.5).fillColor("#555555"), label, leftMargin, pageSizeA4[1] - 40, { width: contentWidth, align: "center" });
-	document.fillColor("#000000");
-	document.page.margins.bottom = bottomMargin;
+	const bottomMargin = document.page.margins.bottom
+	document.page.margins.bottom = 0
+	drawSingleLine(
+		document.font("SansRegular").fontSize(7.5).fillColor("#555555"),
+		label,
+		leftMargin,
+		pageSizeA4[1] - 40,
+		{ width: contentWidth, align: "center" },
+	)
+	document.fillColor("#000000")
+	document.page.margins.bottom = bottomMargin
 }
 
 function drawBankDetails(document: PDFKit.PDFDocument, organization: Organization, top: number): number {
@@ -145,22 +154,22 @@ function drawBankDetails(document: PDFKit.PDFDocument, organization: Organizatio
 			["Kreditinstitut", organization.bankName],
 		],
 		{ left: leftMargin + 12, top, labelWidth: 80, fontSize: 10 },
-	);
+	)
 }
 
-const telecommunicationInvoiceNumber = "NK-2026-1048-3391";
+const telecommunicationInvoiceNumber = "NK-2026-1048-3391"
 const telecommunicationCharges: ReadonlyArray<readonly [string, string, number]> = [
 	["Glasfaser 250 (monatlicher Grundpreis)", "01.10.2026 – 31.10.2026", 3999],
 	["Mobilfunktarif Allnet M (monatlicher Grundpreis)", "01.10.2026 – 31.10.2026", 1999],
 	["Miete WLAN-Router Nordbox 7", "01.10.2026 – 31.10.2026", 499],
 	["Verbindungen außerhalb des Inklusivvolumens", "01.09.2026 – 30.09.2026", 216],
-];
-const telecommunicationTotalCents = sumOf(telecommunicationCharges.map(([, , cents]) => cents));
+]
+const telecommunicationTotalCents = sumOf(telecommunicationCharges.map(([, , cents]) => cents))
 
 function telecommunicationInvoice(): DocumentSpecification {
-	const invoiceDate = "2026-10-05";
-	const dueDate = "2026-10-20";
-	const { netCents, taxCents } = vatIncludedInGross(telecommunicationTotalCents, 19);
+	const invoiceDate = "2026-10-05"
+	const dueDate = "2026-10-20"
+	const { netCents, taxCents } = vatIncludedInGross(telecommunicationTotalCents, 19)
 	return {
 		fileStem: "telecommunication_invoice_digital",
 		captureMethod: "digital",
@@ -181,7 +190,7 @@ function telecommunicationInvoice(): DocumentSpecification {
 			invoice_number: literalField(telecommunicationInvoiceNumber),
 		},
 		render(document) {
-			document.addPage();
+			document.addPage()
 			let cursor = drawLetterhead(document, nordkabel, {
 				recipientLines: ["Herrn", "Jonas Becker", ...householdAddressLines],
 				referenceRows: [
@@ -191,7 +200,7 @@ function telecommunicationInvoice(): DocumentSpecification {
 					["Seite", "1 von 1"],
 				],
 				subject: "Ihre Rechnung für Oktober 2026",
-			});
+			})
 			cursor = drawParagraphs(
 				document,
 				[
@@ -199,7 +208,7 @@ function telecommunicationInvoice(): DocumentSpecification {
 					"vielen Dank, dass Sie sich für Nordkabel entschieden haben. Mit dieser Rechnung berechnen wir Ihnen die monatlichen Grundpreise für Oktober 2026 sowie die Verbindungen aus dem Vormonat.",
 				],
 				{ top: cursor },
-			);
+			)
 			cursor = drawTable(document, {
 				left: leftMargin,
 				top: cursor + 4,
@@ -215,15 +224,15 @@ function telecommunicationInvoice(): DocumentSpecification {
 					["Rechnungsbetrag", "", formatEuro(telecommunicationTotalCents)],
 				],
 				bandColor: "#e1efee",
-			});
+			})
 			cursor = drawParagraphs(
 				document,
 				[
 					`Bitte überweisen Sie den Rechnungsbetrag von ${formatEuro(telecommunicationTotalCents)} bis zum ${formatGermanDate(dueDate)} unter Angabe der Rechnungsnummer ${telecommunicationInvoiceNumber} auf das folgende Konto:`,
 				],
 				{ top: cursor + 18 },
-			);
-			cursor = drawBankDetails(document, nordkabel, cursor + 2);
+			)
+			cursor = drawBankDetails(document, nordkabel, cursor + 2)
 			drawParagraphs(
 				document,
 				[
@@ -231,26 +240,28 @@ function telecommunicationInvoice(): DocumentSpecification {
 					"Mit freundlichen Grüßen\nIhr Nordkabel Kundenservice",
 				],
 				{ top: cursor + 14 },
-			);
-			drawLetterFooter(document, nordkabel);
+			)
+			drawLetterFooter(document, nordkabel)
 		},
-	};
+	}
 }
 
-const electricityInvoiceNumber = "JA-2026-0381547";
-const electricityConsumptionKilowattHours = 50904 - 48213;
-const electricityEnergyPriceHundredthsOfCent = 3142;
-const electricityBaseChargeCents = 1190;
-const electricityInstallmentCents = 9200;
-const electricityEnergyCents = Math.round((electricityConsumptionKilowattHours * electricityEnergyPriceHundredthsOfCent) / 100);
-const electricityNetCents = electricityEnergyCents + 12 * electricityBaseChargeCents;
-const electricityTaxCents = Math.round(electricityNetCents * 0.19);
-const electricityGrossCents = electricityNetCents + electricityTaxCents;
-const electricityBalanceCents = electricityGrossCents - 12 * electricityInstallmentCents;
+const electricityInvoiceNumber = "JA-2026-0381547"
+const electricityConsumptionKilowattHours = 50904 - 48213
+const electricityEnergyPriceHundredthsOfCent = 3142
+const electricityBaseChargeCents = 1190
+const electricityInstallmentCents = 9200
+const electricityEnergyCents = Math.round(
+	(electricityConsumptionKilowattHours * electricityEnergyPriceHundredthsOfCent) / 100,
+)
+const electricityNetCents = electricityEnergyCents + 12 * electricityBaseChargeCents
+const electricityTaxCents = Math.round(electricityNetCents * 0.19)
+const electricityGrossCents = electricityNetCents + electricityTaxCents
+const electricityBalanceCents = electricityGrossCents - 12 * electricityInstallmentCents
 
 function electricityInvoice(): DocumentSpecification {
-	const invoiceDate = "2026-09-22";
-	const dueDate = "2026-10-06";
+	const invoiceDate = "2026-09-22"
+	const dueDate = "2026-10-06"
 	return {
 		fileStem: "electricity_invoice_scanned",
 		captureMethod: "scanned",
@@ -271,7 +282,7 @@ function electricityInvoice(): DocumentSpecification {
 			invoice_number: literalField(electricityInvoiceNumber),
 		},
 		render(document) {
-			document.addPage();
+			document.addPage()
 			let cursor = drawLetterhead(document, stadtwerke, {
 				recipientLines: ["Frau Mira Wiśniewska", "Herrn Jonas Becker", ...householdAddressLines],
 				referenceRows: [
@@ -281,7 +292,7 @@ function electricityInvoice(): DocumentSpecification {
 					["Zählernummer", "1ESY 1160 4428 17"],
 				],
 				subject: "Jahresverbrauchsabrechnung Strom vom 01.09.2025 bis 31.08.2026",
-			});
+			})
 			cursor = drawParagraphs(
 				document,
 				[
@@ -289,7 +300,7 @@ function electricityInvoice(): DocumentSpecification {
 					"mit diesem Schreiben erhalten Sie die Abrechnung Ihres Stromverbrauchs für die Lieferstelle Am Lindenhang 7, 2. Obergeschoss links. Grundlage ist Ihr Tarif Talbrück Strom Basis.",
 				],
 				{ top: cursor, fontSize: 9.5 },
-			);
+			)
 			cursor = drawTable(document, {
 				left: leftMargin,
 				top: cursor + 2,
@@ -300,9 +311,16 @@ function electricityInvoice(): DocumentSpecification {
 					{ header: "Zählerstand 31.08.2026", width: 120, align: "right" },
 					{ header: "Verbrauch", width: contentWidth - 350, align: "right" },
 				],
-				rows: [["1ESY 1160 4428 17", "48.213 kWh", "50.904 kWh", `${electricityConsumptionKilowattHours.toLocaleString("de-DE")} kWh`]],
+				rows: [
+					[
+						"1ESY 1160 4428 17",
+						"48.213 kWh",
+						"50.904 kWh",
+						`${electricityConsumptionKilowattHours.toLocaleString("de-DE")} kWh`,
+					],
+				],
 				bandColor: "#e3eaf5",
-			});
+			})
 			cursor = drawTable(document, {
 				left: leftMargin,
 				top: cursor + 14,
@@ -314,26 +332,41 @@ function electricityInvoice(): DocumentSpecification {
 					{ header: "Betrag", width: contentWidth - 370, align: "right" },
 				],
 				rows: [
-					["Arbeitspreis", `${electricityConsumptionKilowattHours.toLocaleString("de-DE")} kWh`, "31,42 ct/kWh", formatEuro(electricityEnergyCents)],
-					["Grundpreis", "12 Monate", `${formatGermanDecimal(electricityBaseChargeCents)} €/Monat`, formatEuro(12 * electricityBaseChargeCents)],
+					[
+						"Arbeitspreis",
+						`${electricityConsumptionKilowattHours.toLocaleString("de-DE")} kWh`,
+						"31,42 ct/kWh",
+						formatEuro(electricityEnergyCents),
+					],
+					[
+						"Grundpreis",
+						"12 Monate",
+						`${formatGermanDecimal(electricityBaseChargeCents)} €/Monat`,
+						formatEuro(12 * electricityBaseChargeCents),
+					],
 				],
 				summaryRows: [
 					["Summe netto", "", "", formatEuro(electricityNetCents)],
 					["Umsatzsteuer 19 %", "", "", formatEuro(electricityTaxCents)],
 					["Gesamtbetrag brutto", "", "", formatEuro(electricityGrossCents)],
-					["abzüglich geleisteter Abschläge", "12 Monate", `${formatGermanDecimal(electricityInstallmentCents)} €`, formatEuro(-12 * electricityInstallmentCents)],
+					[
+						"abzüglich geleisteter Abschläge",
+						"12 Monate",
+						`${formatGermanDecimal(electricityInstallmentCents)} €`,
+						formatEuro(-12 * electricityInstallmentCents),
+					],
 					["Nachzahlung", "", "", formatEuro(electricityBalanceCents)],
 				],
 				bandColor: "#e3eaf5",
-			});
+			})
 			cursor = drawParagraphs(
 				document,
 				[
 					`Bitte überweisen Sie den Nachzahlungsbetrag von ${formatEuro(electricityBalanceCents)} bis zum ${formatGermanDate(dueDate)} unter Angabe der Rechnungsnummer ${electricityInvoiceNumber} auf das folgende Konto:`,
 				],
 				{ top: cursor + 14, fontSize: 9.5 },
-			);
-			cursor = drawBankDetails(document, stadtwerke, cursor + 2);
+			)
+			cursor = drawBankDetails(document, stadtwerke, cursor + 2)
 			drawParagraphs(
 				document,
 				[
@@ -341,69 +374,99 @@ function electricityInvoice(): DocumentSpecification {
 					"Mit freundlichen Grüßen\nIhre Stadtwerke Talbrück",
 				],
 				{ top: cursor + 10, fontSize: 8.5 },
-			);
-			drawLetterFooter(document, stadtwerke);
+			)
+			drawLetterFooter(document, stadtwerke)
 		},
-	};
+	}
 }
 
-const receiptCharacterWidth = 40;
-const receiptRow = (left: string, right: string): string => `${left.padEnd(receiptCharacterWidth - right.length)}${right}`;
-const receiptRule = "-".repeat(receiptCharacterWidth);
+const receiptCharacterWidth = 40
+const receiptRow = (left: string, right: string): string =>
+	`${left.padEnd(receiptCharacterWidth - right.length)}${right}`
+const receiptRule = "-".repeat(receiptCharacterWidth)
 
 interface ReceiptLine {
-	text: string;
-	emphasis?: boolean;
-	centered?: boolean;
+	text: string
+	emphasis?: boolean
+	centered?: boolean
 }
 
-function drawReceiptLines(document: PDFKit.PDFDocument, lines: readonly ReceiptLine[], area: { left: number; width: number; top: number }): void {
-	const fontSize = 7.6;
-	const lineHeight = fontSize * 1.32;
-	const width = document.font("MonospaceRegular").fontSize(fontSize).widthOfString("0".repeat(receiptCharacterWidth));
-	const left = area.left + (area.width - width) / 2;
-	const top = area.top;
+function drawReceiptLines(
+	document: PDFKit.PDFDocument,
+	lines: ReadonlyArray<ReceiptLine>,
+	area: { left: number; width: number; top: number },
+): void {
+	const fontSize = 7.6
+	const lineHeight = fontSize * 1.32
+	const width = document.font("MonospaceRegular").fontSize(fontSize).widthOfString("0".repeat(receiptCharacterWidth))
+	const left = area.left + (area.width - width) / 2
+	const top = area.top
 	lines.forEach((line, index) => {
-		document.font(line.emphasis ? "MonospaceBold" : "MonospaceRegular").fontSize(fontSize);
-		drawSingleLine(document, line.text, left, top + index * lineHeight, { width, align: line.centered ? "center" : "left" });
-	});
+		document.font(line.emphasis ? "MonospaceBold" : "MonospaceRegular").fontSize(fontSize)
+		drawSingleLine(document, line.text, left, top + index * lineHeight, {
+			width,
+			align: line.centered ? "center" : "left",
+		})
+	})
 }
 
 interface ReceiptItem {
-	description: string;
-	detail?: string;
-	cents: number;
-	taxRatePercent: 7 | 19;
+	description: string
+	detail?: string
+	cents: number
+	taxRatePercent: 7 | 19
 }
 
-function receiptTaxLines(items: readonly ReceiptItem[]): ReceiptLine[] {
+function receiptTaxLines(items: ReadonlyArray<ReceiptItem>): Array<ReceiptLine> {
 	const rates = [
 		{ letter: "A", ratePercent: 7 },
 		{ letter: "B", ratePercent: 19 },
-	];
+	]
 	const rows = rates
-		.map(({ letter, ratePercent }) => ({ letter, ratePercent, grossCents: sumOf(items.filter((item) => item.taxRatePercent === ratePercent).map((item) => item.cents)) }))
+		.map(({ letter, ratePercent }) => ({
+			letter,
+			ratePercent,
+			grossCents: sumOf(items.filter((item) => item.taxRatePercent === ratePercent).map((item) => item.cents)),
+		}))
 		.filter((row) => row.grossCents > 0)
-		.map((row) => ({ ...row, ...vatIncludedInGross(row.grossCents, row.ratePercent) }));
-	const column = (text: string, width: number) => text.padStart(width);
-	const format = (label: string, net: number, tax: number, gross: number) => `${label.padEnd(10)}${column(formatGermanDecimal(net), 10)}${column(formatGermanDecimal(tax), 10)}${column(formatGermanDecimal(gross), 10)}`;
+		.map((row) => ({ ...row, ...vatIncludedInGross(row.grossCents, row.ratePercent) }))
+	const column = (text: string, width: number) => text.padStart(width)
+	const format = (label: string, net: number, tax: number, gross: number) =>
+		`${label.padEnd(10)}${column(formatGermanDecimal(net), 10)}${column(formatGermanDecimal(tax), 10)}${column(formatGermanDecimal(gross), 10)}`
 	return [
 		{ text: `${"MwSt".padEnd(10)}${column("Netto", 10)}${column("Steuer", 10)}${column("Brutto", 10)}` },
-		...rows.map((row) => ({ text: format(`${row.letter} ${String(row.ratePercent).padStart(2)} %`, row.netCents, row.taxCents, row.grossCents) })),
-		{ text: format("Gesamt", sumOf(rows.map((row) => row.netCents)), sumOf(rows.map((row) => row.taxCents)), sumOf(rows.map((row) => row.grossCents))) },
-	];
+		...rows.map((row) => ({
+			text: format(
+				`${row.letter} ${String(row.ratePercent).padStart(2)} %`,
+				row.netCents,
+				row.taxCents,
+				row.grossCents,
+			),
+		})),
+		{
+			text: format(
+				"Gesamt",
+				sumOf(rows.map((row) => row.netCents)),
+				sumOf(rows.map((row) => row.taxCents)),
+				sumOf(rows.map((row) => row.grossCents)),
+			),
+		},
+	]
 }
 
-function receiptItemLines(items: readonly ReceiptItem[]): ReceiptLine[] {
-	const taxLetter = (item: ReceiptItem) => (item.taxRatePercent === 7 ? "A" : "B");
+function receiptItemLines(items: ReadonlyArray<ReceiptItem>): Array<ReceiptLine> {
+	const taxLetter = (item: ReceiptItem) => (item.taxRatePercent === 7 ? "A" : "B")
 	return items.flatMap((item) =>
 		item.detail
-			? [{ text: item.description }, { text: receiptRow(`  ${item.detail}`, `${formatGermanDecimal(item.cents)} ${taxLetter(item)}`) }]
+			? [
+					{ text: item.description },
+					{ text: receiptRow(`  ${item.detail}`, `${formatGermanDecimal(item.cents)} ${taxLetter(item)}`) },
+				]
 			: [{ text: receiptRow(item.description, `${formatGermanDecimal(item.cents)} ${taxLetter(item)}`) }],
-	);
+	)
 }
 
-const supermarketItems: readonly ReceiptItem[] = [
+const supermarketItems: ReadonlyArray<ReceiptItem> = [
 	{ description: "Vollmilch 3,5 % 1 l", cents: 119, taxRatePercent: 7 },
 	{ description: "Bio-Eier 10 Stück", cents: 349, taxRatePercent: 7 },
 	{ description: "Roggenmischbrot 750 g", cents: 279, taxRatePercent: 7 },
@@ -414,14 +477,14 @@ const supermarketItems: readonly ReceiptItem[] = [
 	{ description: "Küchenrolle 4 Rollen", cents: 299, taxRatePercent: 19 },
 	{ description: "Mineralwasser 6 x 1,5 l", cents: 294, taxRatePercent: 19 },
 	{ description: "Pfand", detail: "6 x 0,25", cents: 150, taxRatePercent: 19 },
-];
-const supermarketTotalCents = sumOf(supermarketItems.map((item) => item.cents));
-const receiptPageSize = [80 * millimetre, 172 * millimetre] as const;
+]
+const supermarketTotalCents = sumOf(supermarketItems.map((item) => item.cents))
+const receiptPageSize = [80 * millimetre, 172 * millimetre] as const
 
 function supermarketReceipt(): DocumentSpecification {
-	const receiptNumber = "4471";
-	const purchaseDate = "2026-10-31";
-	const total = formatGermanDecimal(supermarketTotalCents);
+	const receiptNumber = "4471"
+	const purchaseDate = "2026-10-31"
+	const total = formatGermanDecimal(supermarketTotalCents)
 	return {
 		fileStem: "supermarket_receipt_photograph",
 		captureMethod: "photographed",
@@ -440,8 +503,8 @@ function supermarketReceipt(): DocumentSpecification {
 			invoice_number: literalField(receiptNumber),
 		},
 		render(document) {
-			document.addPage({ size: [...receiptPageSize], margin: 8 });
-			const lines: ReceiptLine[] = [
+			document.addPage({ size: [...receiptPageSize], margin: 8 })
+			const lines: Array<ReceiptLine> = [
 				{ text: "FRISCHEMARKT TALBRÜCK", emphasis: true, centered: true },
 				{ text: "Lindenallee 3, 31846 Talbrück", centered: true },
 				{ text: "Mo bis Sa 7 bis 21 Uhr", centered: true },
@@ -467,26 +530,26 @@ function supermarketReceipt(): DocumentSpecification {
 				{ text: "" },
 				{ text: "Vielen Dank für Ihren Einkauf!", emphasis: true, centered: true },
 				{ text: "Frischemarkt Talbrück GmbH", centered: true },
-			];
-			drawReceiptLines(document, lines, { left: 0, width: receiptPageSize[0], top: 14 });
+			]
+			drawReceiptLines(document, lines, { left: 0, width: receiptPageSize[0], top: 14 })
 		},
-	};
+	}
 }
 
-const hardwareStoreItems: readonly ReceiptItem[] = [
+const hardwareStoreItems: ReadonlyArray<ReceiptItem> = [
 	{ description: "Schrauben 4,0 x 40 mm 200 St.", cents: 899, taxRatePercent: 19 },
 	{ description: "Dübel 8 mm 100 St.", cents: 449, taxRatePercent: 19 },
 	{ description: "Wandfarbe weiß matt 10 l", cents: 3999, taxRatePercent: 19 },
 	{ description: "Abdeckfolie 4 x 5 m", cents: 349, taxRatePercent: 19 },
 	{ description: "Malerrolle Set 25 cm", cents: 1295, taxRatePercent: 19 },
 	{ description: "Kreppband 30 mm x 50 m", detail: "2 x 2,79", cents: 558, taxRatePercent: 19 },
-];
+]
 
 function hardwareStoreReceipt(): DocumentSpecification {
-	const receiptNumber = "118204";
-	const purchaseDate = "2026-10-17";
-	const totalCents = sumOf(hardwareStoreItems.map((item) => item.cents));
-	const tenderedCents = 10000;
+	const receiptNumber = "118204"
+	const purchaseDate = "2026-10-17"
+	const totalCents = sumOf(hardwareStoreItems.map((item) => item.cents))
+	const tenderedCents = 10000
 	return {
 		fileStem: "hardware_store_receipt_scanned",
 		captureMethod: "scanned",
@@ -505,15 +568,15 @@ function hardwareStoreReceipt(): DocumentSpecification {
 			invoice_number: literalField(receiptNumber),
 		},
 		render(document) {
-			document.addPage();
-			const stripLeft = 62 * millimetre;
-			const stripTop = 30 * millimetre;
-			const stripWidth = 80 * millimetre;
-			const stripHeight = 150 * millimetre;
-			document.rect(stripLeft + 2, stripTop + 2, stripWidth, stripHeight).fill("#d6d6d6");
-			document.rect(stripLeft, stripTop, stripWidth, stripHeight).fill("#f2f1ec");
-			document.fillColor("#2e2e2e");
-			const lines: ReceiptLine[] = [
+			document.addPage()
+			const stripLeft = 62 * millimetre
+			const stripTop = 30 * millimetre
+			const stripWidth = 80 * millimetre
+			const stripHeight = 150 * millimetre
+			document.rect(stripLeft + 2, stripTop + 2, stripWidth, stripHeight).fill("#d6d6d6")
+			document.rect(stripLeft, stripTop, stripWidth, stripHeight).fill("#f2f1ec")
+			document.fillColor("#2e2e2e")
+			const lines: Array<ReceiptLine> = [
 				{ text: "WERKHOF BAUMARKT", emphasis: true, centered: true },
 				{ text: "Industriestraße 22, 31846 Talbrück", centered: true },
 				{ text: "Werkhof Baumarkt GmbH", centered: true },
@@ -537,25 +600,25 @@ function hardwareStoreReceipt(): DocumentSpecification {
 				{ text: "" },
 				{ text: "Umtausch nur mit Kassenbon", centered: true },
 				{ text: "innerhalb von 30 Tagen.", centered: true },
-			];
-			drawReceiptLines(document, lines, { left: stripLeft, width: stripWidth, top: stripTop + 14 });
-			document.fillColor("#000000");
+			]
+			drawReceiptLines(document, lines, { left: stripLeft, width: stripWidth, top: stripTop + 14 })
+			document.fillColor("#000000")
 		},
-	};
+	}
 }
 
-const rentalContractNumber = "MV-0417-2026";
+const rentalContractNumber = "MV-0417-2026"
 const rentComponents: ReadonlyArray<readonly [string, number]> = [
 	["Grundmiete", 94000],
 	["Vorauszahlung Betriebskosten", 21000],
 	["Vorauszahlung Heizkosten und Warmwasser", 8500],
-];
-const rentTotalCents = sumOf(rentComponents.map(([, cents]) => cents));
+]
+const rentTotalCents = sumOf(rentComponents.map(([, cents]) => cents))
 
 function rentalContract(): DocumentSpecification {
-	const signatureDate = "2026-03-12";
-	const serifSections = { headingTypeface: "SerifBold", typeface: "SerifRegular", fontSize: 10 } as const;
-	const pageLabel = (page: number) => `Mietvertrag ${rentalContractNumber} · Seite ${page} von 3`;
+	const signatureDate = "2026-03-12"
+	const serifSections = { headingTypeface: "SerifBold", typeface: "SerifRegular", fontSize: 10 } as const
+	const pageLabel = (page: number) => `Mietvertrag ${rentalContractNumber} · Seite ${page} von 3`
 	return {
 		fileStem: "rental_contract_digital",
 		captureMethod: "digital",
@@ -573,10 +636,16 @@ function rentalContract(): DocumentSpecification {
 			cancellation_period: threeMonths,
 		},
 		render(document) {
-			document.addPage();
-			drawOrganizationMark(document, wohnungsbau);
-			document.font("SerifBold").fontSize(18).text("Mietvertrag über Wohnraum", leftMargin, 110, { width: contentWidth, align: "center" });
-			document.font("SerifRegular").fontSize(10).text(`Vertragsnummer: ${rentalContractNumber}`, { width: contentWidth, align: "center" });
+			document.addPage()
+			drawOrganizationMark(document, wohnungsbau)
+			document
+				.font("SerifBold")
+				.fontSize(18)
+				.text("Mietvertrag über Wohnraum", leftMargin, 110, { width: contentWidth, align: "center" })
+			document
+				.font("SerifRegular")
+				.fontSize(10)
+				.text(`Vertragsnummer: ${rentalContractNumber}`, { width: contentWidth, align: "center" })
 			let cursor = drawParagraphs(
 				document,
 				[
@@ -584,7 +653,7 @@ function rentalContract(): DocumentSpecification {
 					"und Frau Mira Wiśniewska sowie Herrn Jonas Becker, nachfolgend gemeinsam „Mieter“ genannt, wird folgender Mietvertrag geschlossen:",
 				],
 				{ top: 160, typeface: "SerifRegular" },
-			);
+			)
 			cursor = drawSections(
 				document,
 				[
@@ -604,10 +673,13 @@ function rentalContract(): DocumentSpecification {
 							"(2) Setzen die Mieter den Gebrauch der Mietsache nach Ablauf der Mietzeit fort, so gilt das Mietverhältnis nicht als verlängert. § 545 BGB findet keine Anwendung.",
 						],
 					},
-					{ heading: "§ 3 Miete und Betriebskosten", paragraphs: ["(1) Die monatliche Miete setzt sich wie folgt zusammen:"] },
+					{
+						heading: "§ 3 Miete und Betriebskosten",
+						paragraphs: ["(1) Die monatliche Miete setzt sich wie folgt zusammen:"],
+					},
 				],
 				{ ...serifSections, top: cursor + 6 },
-			);
+			)
 			cursor = drawTable(document, {
 				left: leftMargin + 20,
 				top: cursor - 4,
@@ -619,7 +691,7 @@ function rentalContract(): DocumentSpecification {
 				],
 				rows: rentComponents.map(([label, cents]) => [label, formatEuro(cents)]),
 				summaryRows: [["Gesamtmiete monatlich", formatEuro(rentTotalCents)]],
-			});
+			})
 			drawParagraphs(
 				document,
 				[
@@ -627,10 +699,10 @@ function rentalContract(): DocumentSpecification {
 					"(3) Über die Vorauszahlungen für Betriebskosten sowie für Heiz- und Warmwasserkosten rechnet die Vermieterin jährlich ab. Abrechnungszeitraum ist das Kalenderjahr.",
 				],
 				{ top: cursor + 8, typeface: "SerifRegular" },
-			);
-			drawPageLabel(document, pageLabel(1));
+			)
+			drawPageLabel(document, pageLabel(1))
 
-			document.addPage();
+			document.addPage()
 			drawSections(
 				document,
 				[
@@ -670,10 +742,10 @@ function rentalContract(): DocumentSpecification {
 					},
 				],
 				{ ...serifSections, top: 60 },
-			);
-			drawPageLabel(document, pageLabel(2));
+			)
+			drawPageLabel(document, pageLabel(2))
 
-			document.addPage();
+			document.addPage()
 			cursor = drawSections(
 				document,
 				[
@@ -687,29 +759,37 @@ function rentalContract(): DocumentSpecification {
 					},
 				],
 				{ ...serifSections, top: 60 },
-			);
-			const signatureTop = cursor + 40;
-			const signatureWidth = (contentWidth - 30) / 3;
-			const signatories = ["Dorothea Kranich\nfür die Vermieterin", "Mira Wiśniewska\nMieterin", "Jonas Becker\nMieter"];
+			)
+			const signatureTop = cursor + 40
+			const signatureWidth = (contentWidth - 30) / 3
+			const signatories = ["Dorothea Kranich\nfür die Vermieterin", "Mira Wiśniewska\nMieterin", "Jonas Becker\nMieter"]
 			signatories.forEach((label, index) => {
-				const left = leftMargin + index * (signatureWidth + 15);
-				document.font("SerifRegular").fontSize(9.5).text(`Talbrück, ${formatGermanDate(signatureDate)}`, left, signatureTop, { lineBreak: false });
-				document.moveTo(left, signatureTop + 50).lineTo(left + signatureWidth, signatureTop + 50).lineWidth(0.6).strokeColor("#000000").stroke();
-				document.fontSize(8.5).text(label, left, signatureTop + 55, { width: signatureWidth });
-			});
-			drawPageLabel(document, pageLabel(3));
+				const left = leftMargin + index * (signatureWidth + 15)
+				document
+					.font("SerifRegular")
+					.fontSize(9.5)
+					.text(`Talbrück, ${formatGermanDate(signatureDate)}`, left, signatureTop, { lineBreak: false })
+				document
+					.moveTo(left, signatureTop + 50)
+					.lineTo(left + signatureWidth, signatureTop + 50)
+					.lineWidth(0.6)
+					.strokeColor("#000000")
+					.stroke()
+				document.fontSize(8.5).text(label, left, signatureTop + 55, { width: signatureWidth })
+			})
+			drawPageLabel(document, pageLabel(3))
 		},
-	};
+	}
 }
 
 function householdContentsInsurancePolicy(): DocumentSpecification {
-	const policyNumber = "HR-7731-0482-19";
-	const issueDate = "2026-02-20";
-	const coverageStart = "2026-03-01";
-	const renewalDate = "2027-03-01";
-	const netPremiumCents = 9953;
-	const insuranceTaxCents = Math.round(netPremiumCents * 0.19);
-	const pageLabel = (page: number) => `Versicherungsschein ${policyNumber} · Seite ${page} von 2`;
+	const policyNumber = "HR-7731-0482-19"
+	const issueDate = "2026-02-20"
+	const coverageStart = "2026-03-01"
+	const renewalDate = "2027-03-01"
+	const netPremiumCents = 9953
+	const insuranceTaxCents = Math.round(netPremiumCents * 0.19)
+	const pageLabel = (page: number) => `Versicherungsschein ${policyNumber} · Seite ${page} von 2`
 	return {
 		fileStem: "household_contents_insurance_policy_scanned",
 		captureMethod: "scanned",
@@ -728,7 +808,7 @@ function householdContentsInsurancePolicy(): DocumentSpecification {
 			cancellation_period: threeMonths,
 		},
 		render(document) {
-			document.addPage();
+			document.addPage()
 			let cursor = drawLetterhead(document, lindenhain, {
 				recipientLines: ["Frau", "Mira Wiśniewska", ...householdAddressLines],
 				referenceRows: [
@@ -737,7 +817,7 @@ function householdContentsInsurancePolicy(): DocumentSpecification {
 					["Seite", "1 von 2"],
 				],
 				subject: "Versicherungsschein zur Hausratversicherung Komfort",
-			});
+			})
 			cursor = drawParagraphs(
 				document,
 				[
@@ -745,7 +825,7 @@ function householdContentsInsurancePolicy(): DocumentSpecification {
 					"vielen Dank für Ihr Vertrauen. Mit diesem Versicherungsschein dokumentieren wir den Abschluss Ihrer Hausratversicherung. Bitte prüfen Sie die folgenden Angaben und bewahren Sie dieses Dokument sorgfältig auf.",
 				],
 				{ top: cursor, fontSize: 9.5 },
-			);
+			)
 			cursor = drawDefinitionList(
 				document,
 				[
@@ -760,7 +840,7 @@ function householdContentsInsurancePolicy(): DocumentSpecification {
 					["Zahlungsweise", "jährlich per SEPA-Lastschrift"],
 				],
 				{ left: leftMargin, top: cursor + 6, labelWidth: 140, fontSize: 9.5, rowGap: 3 },
-			);
+			)
 			cursor = drawTable(document, {
 				left: leftMargin,
 				top: cursor + 14,
@@ -775,18 +855,21 @@ function householdContentsInsurancePolicy(): DocumentSpecification {
 				],
 				summaryRows: [["Jahresbeitrag", formatEuro(netPremiumCents + insuranceTaxCents)]],
 				bandColor: "#e5efe6",
-			});
+			})
 			drawParagraphs(
 				document,
 				[
 					`Der Jahresbeitrag wird zum ${formatGermanDate(coverageStart)} von Ihrem Konto IBAN DE** **** **** **** **72 18 eingezogen. Mandatsreferenz: HR77310482-01.`,
 				],
 				{ top: cursor + 12, fontSize: 9 },
-			);
-			drawLetterFooter(document, lindenhain, pageLabel(1));
+			)
+			drawLetterFooter(document, lindenhain, pageLabel(1))
 
-			document.addPage();
-			document.font("SansBold").fontSize(11).text("Versicherte Gefahren und Leistungen", leftMargin, 60, { width: contentWidth });
+			document.addPage()
+			document
+				.font("SansBold")
+				.fontSize(11)
+				.text("Versicherte Gefahren und Leistungen", leftMargin, 60, { width: contentWidth })
 			cursor = drawTable(document, {
 				left: leftMargin,
 				top: document.y + 6,
@@ -806,11 +889,14 @@ function householdContentsInsurancePolicy(): DocumentSpecification {
 					["Hotelkosten nach einem Versicherungsfall", "bis 100 Tage"],
 				],
 				bandColor: "#e5efe6",
-			});
+			})
 			drawSections(
 				document,
 				[
-					{ heading: "Selbstbeteiligung", paragraphs: [`Je Versicherungsfall tragen Sie eine Selbstbeteiligung von ${formatEuro(15000)}.`] },
+					{
+						heading: "Selbstbeteiligung",
+						paragraphs: [`Je Versicherungsfall tragen Sie eine Selbstbeteiligung von ${formatEuro(15000)}.`],
+					},
 					{
 						heading: "Laufzeit und Kündigung",
 						paragraphs: [
@@ -833,21 +919,21 @@ function householdContentsInsurancePolicy(): DocumentSpecification {
 					},
 				],
 				{ headingTypeface: "SansBold", top: cursor + 14, fontSize: 9.5 },
-			);
-			drawLetterFooter(document, lindenhain, pageLabel(2));
+			)
+			drawLetterFooter(document, lindenhain, pageLabel(2))
 		},
-	};
+	}
 }
 
-const taxNumber = "31/846/04417";
-const incomeTaxCents = 1147400;
-const withheldWageTaxCents = 1113300;
-const taxBalanceCents = incomeTaxCents - withheldWageTaxCents;
+const taxNumber = "31/846/04417"
+const incomeTaxCents = 1147400
+const withheldWageTaxCents = 1113300
+const taxBalanceCents = incomeTaxCents - withheldWageTaxCents
 
 function incomeTaxAssessment(): DocumentSpecification {
-	const assessmentDate = "2026-09-08";
-	const dueDate = "2026-10-14";
-	const euroWhole = (euros: number) => `${euros.toLocaleString("de-DE")} €`;
+	const assessmentDate = "2026-09-08"
+	const dueDate = "2026-10-14"
+	const euroWhole = (euros: number) => `${euros.toLocaleString("de-DE")} €`
 	return {
 		fileStem: "income_tax_assessment_scanned",
 		captureMethod: "scanned",
@@ -867,7 +953,7 @@ function incomeTaxAssessment(): DocumentSpecification {
 			iban: ibanField(finanzamt.iban),
 		},
 		render(document) {
-			document.addPage();
+			document.addPage()
 			let cursor = drawLetterhead(document, finanzamt, {
 				recipientLines: ["Herrn", "Jonas Becker", ...householdAddressLines],
 				referenceRows: [
@@ -877,14 +963,14 @@ function incomeTaxAssessment(): DocumentSpecification {
 					["Seite", "1 von 2"],
 				],
 				subject: "Bescheid für 2025 über Einkommensteuer und Solidaritätszuschlag",
-			});
+			})
 			cursor = drawParagraphs(
 				document,
 				[
 					"Dieser Bescheid ergeht aufgrund Ihrer Einkommensteuererklärung für das Kalenderjahr 2025 (Einzelveranlagung).",
 				],
 				{ top: cursor, fontSize: 9.5 },
-			);
+			)
 			cursor = drawTable(document, {
 				left: leftMargin,
 				top: cursor + 4,
@@ -895,7 +981,7 @@ function incomeTaxAssessment(): DocumentSpecification {
 					{ header: "Solidaritätszuschlag", width: contentWidth - 350, align: "right" },
 				],
 				rows: [["festgesetzt werden", formatEuro(incomeTaxCents), formatEuro(0)]],
-			});
+			})
 			cursor = drawTable(document, {
 				left: leftMargin,
 				top: cursor + 14,
@@ -910,27 +996,35 @@ function incomeTaxAssessment(): DocumentSpecification {
 					["abzüglich Steuerabzug vom Lohn", formatEuro(-withheldWageTaxCents), formatEuro(0)],
 				],
 				summaryRows: [["verbleibende Beträge", formatEuro(taxBalanceCents), formatEuro(0)]],
-			});
+			})
 			cursor = drawParagraphs(
 				document,
 				[
 					`Bitte zahlen Sie den Betrag von ${formatEuro(taxBalanceCents)} spätestens bis zum ${formatGermanDate(dueDate)} an die Finanzkasse des Finanzamts Talbrück. Geben Sie als Verwendungszweck bitte „${taxNumber} ESt 2025“ an.`,
 				],
 				{ top: cursor + 14, fontSize: 9.5 },
-			);
-			cursor = drawBankDetails(document, finanzamt, cursor + 2);
+			)
+			cursor = drawBankDetails(document, finanzamt, cursor + 2)
 			drawParagraphs(
 				document,
 				[
 					"Bei verspäteter Zahlung entstehen Säumniszuschläge. Die Besteuerungsgrundlagen, die Erläuterungen und die Rechtsbehelfsbelehrung finden Sie auf der folgenden Seite.",
 				],
 				{ top: cursor + 8, fontSize: 9 },
-			);
-			drawLetterFooter(document, finanzamt);
+			)
+			drawLetterFooter(document, finanzamt)
 
-			document.addPage();
-			document.font("SansBold").fontSize(9).text(`Steuernummer ${taxNumber} · Bescheid vom ${formatGermanDate(assessmentDate)} · Seite 2 von 2`, leftMargin, 50, { width: contentWidth, align: "right" });
-			document.fontSize(11).text("Ermittlung des zu versteuernden Einkommens", leftMargin, 80, { width: contentWidth });
+			document.addPage()
+			document
+				.font("SansBold")
+				.fontSize(9)
+				.text(
+					`Steuernummer ${taxNumber} · Bescheid vom ${formatGermanDate(assessmentDate)} · Seite 2 von 2`,
+					leftMargin,
+					50,
+					{ width: contentWidth, align: "right" },
+				)
+			document.fontSize(11).text("Ermittlung des zu versteuernden Einkommens", leftMargin, 80, { width: contentWidth })
 			cursor = drawTable(document, {
 				left: leftMargin,
 				top: document.y + 6,
@@ -947,7 +1041,7 @@ function incomeTaxAssessment(): DocumentSpecification {
 					["abzüglich Kinderbetreuungskosten", euroWhole(-284)],
 				],
 				summaryRows: [["zu versteuerndes Einkommen", euroWhole(52184)]],
-			});
+			})
 			drawSections(
 				document,
 				[
@@ -968,14 +1062,14 @@ function incomeTaxAssessment(): DocumentSpecification {
 					},
 				],
 				{ headingTypeface: "SansBold", top: cursor + 16, fontSize: 9.5 },
-			);
-			drawLetterFooter(document, finanzamt);
+			)
+			drawLetterFooter(document, finanzamt)
 		},
-	};
+	}
 }
 
-const statementAccountIban = computeGermanIban(banks.muehlbach.code, "0471128305");
-const openingBalanceCents = 241837;
+const statementAccountIban = computeGermanIban(banks.muehlbach.code, "0471128305")
+const openingBalanceCents = 241837
 const statementTransactions: ReadonlyArray<readonly [string, string, string, string, number]> = [
 	["01.10.", "Dauerauftrag", wohnungsbau.name, `Miete Oktober 2026, ${rentalContractNumber}`, -rentTotalCents],
 	["02.10.", "Überweisung", stadtwerke.name, `Nachzahlung ${electricityInvoiceNumber}`, -electricityBalanceCents],
@@ -998,19 +1092,24 @@ const statementTransactions: ReadonlyArray<readonly [string, string, string, str
 	["30.10.", "Kartenzahlung", "Tankstelle Talbrück Nord", "Debitkarte 4417, 30.10. 18:21", -5804],
 	["30.10.", "Entgelt", muehlbachBank.name, "Kontoführung Oktober 2026", -490],
 	["31.10.", "Kartenzahlung", "Frischemarkt Talbrück", "Debitkarte 4417, 31.10. 17:42", -supermarketTotalCents],
-];
+]
 
 function bankStatement(): DocumentSpecification {
-	const statementDate = "2026-10-31";
-	const closingBalanceCents = openingBalanceCents + sumOf(statementTransactions.map(([, , , , cents]) => cents));
-	const signedAmount = (cents: number) => `${cents > 0 ? "+" : ""}${formatGermanDecimal(cents)}`;
+	const statementDate = "2026-10-31"
+	const closingBalanceCents = openingBalanceCents + sumOf(statementTransactions.map(([, , , , cents]) => cents))
+	const signedAmount = (cents: number) => `${cents > 0 ? "+" : ""}${formatGermanDecimal(cents)}`
 	const columns = [
 		{ header: "Buchung", width: 48 },
 		{ header: "Wert", width: 48 },
 		{ header: "Vorgang", width: 290 },
 		{ header: "Betrag EUR", width: contentWidth - 386, align: "right" as const },
-	];
-	const transactionRows = statementTransactions.map(([date, kind, counterparty, purpose, cents]) => [date, date, `${kind} ${counterparty}\n${purpose}`, signedAmount(cents)]);
+	]
+	const transactionRows = statementTransactions.map(([date, kind, counterparty, purpose, cents]) => [
+		date,
+		date,
+		`${kind} ${counterparty}\n${purpose}`,
+		signedAmount(cents),
+	])
 	return {
 		fileStem: "bank_statement_digital",
 		captureMethod: "digital",
@@ -1027,7 +1126,7 @@ function bankStatement(): DocumentSpecification {
 			iban: ibanField(statementAccountIban),
 		},
 		render(document) {
-			document.addPage();
+			document.addPage()
 			let cursor = drawLetterhead(document, muehlbachBank, {
 				recipientLines: ["Herrn", "Jonas Becker", ...householdAddressLines],
 				referenceRows: [
@@ -1039,30 +1138,41 @@ function bankStatement(): DocumentSpecification {
 					["Seite", "1 von 2"],
 				],
 				subject: "Kontoauszug Nr. 10/2026",
-			});
+			})
 			cursor = drawTable(document, {
 				left: leftMargin,
 				top: cursor,
 				fontSize: 8.5,
 				columns,
-				rows: [["", "", "Alter Kontostand am 30.09.2026", signedAmount(openingBalanceCents)], ...transactionRows.slice(0, 12)],
+				rows: [
+					["", "", "Alter Kontostand am 30.09.2026", signedAmount(openingBalanceCents)],
+					...transactionRows.slice(0, 12),
+				],
 				bandColor: "#f3e4e6",
-			});
-			drawParagraphs(document, ["Fortsetzung auf Seite 2"], { top: cursor + 6, fontSize: 8 });
-			drawLetterFooter(document, muehlbachBank);
+			})
+			drawParagraphs(document, ["Fortsetzung auf Seite 2"], { top: cursor + 6, fontSize: 8 })
+			drawLetterFooter(document, muehlbachBank)
 
-			document.addPage();
-			drawOrganizationMark(document, muehlbachBank);
-			document.font("SansRegular").fontSize(8.5).text(`Kontoauszug Nr. 10/2026 · IBAN ${groupIban(statementAccountIban)} · Seite 2 von 2`, leftMargin, 90, { width: contentWidth, align: "right" });
+			document.addPage()
+			drawOrganizationMark(document, muehlbachBank)
+			document
+				.font("SansRegular")
+				.fontSize(8.5)
+				.text(`Kontoauszug Nr. 10/2026 · IBAN ${groupIban(statementAccountIban)} · Seite 2 von 2`, leftMargin, 90, {
+					width: contentWidth,
+					align: "right",
+				})
 			cursor = drawTable(document, {
 				left: leftMargin,
 				top: 115,
 				fontSize: 8.5,
 				columns,
 				rows: transactionRows.slice(12),
-				summaryRows: [["", "", `Neuer Kontostand am ${formatGermanDate(statementDate)}`, signedAmount(closingBalanceCents)]],
+				summaryRows: [
+					["", "", `Neuer Kontostand am ${formatGermanDate(statementDate)}`, signedAmount(closingBalanceCents)],
+				],
 				bandColor: "#f3e4e6",
-			});
+			})
 			drawParagraphs(
 				document,
 				[
@@ -1071,26 +1181,42 @@ function bankStatement(): DocumentSpecification {
 					"Guthaben sind als Einlagen nach Maßgabe des Einlagensicherungsgesetzes geschützt.",
 				],
 				{ top: cursor + 16, fontSize: 8.5 },
-			);
-			drawLetterFooter(document, muehlbachBank);
+			)
+			drawLetterFooter(document, muehlbachBank)
 		},
-	};
+	}
 }
 
-const pointValueCents = 5.62421;
-const dentalProcedures: ReadonlyArray<{ code: string; description: string; teeth: string; quantity: number; points: number; factor: number }> = [
+const pointValueCents = 5.62421
+const dentalProcedures: ReadonlyArray<{
+	code: string
+	description: string
+	teeth: string
+	quantity: number
+	points: number
+	factor: number
+}> = [
 	{ code: "0010", description: "Eingehende Untersuchung", teeth: "", quantity: 1, points: 100, factor: 2.3 },
 	{ code: "1000", description: "Mundhygienestatus und Unterweisung", teeth: "", quantity: 1, points: 200, factor: 2.3 },
-	{ code: "2000", description: "Fissurenversiegelung je Zahn", teeth: "16, 26, 36, 46", quantity: 4, points: 90, factor: 2.3 },
+	{
+		code: "2000",
+		description: "Fissurenversiegelung je Zahn",
+		teeth: "16, 26, 36, 46",
+		quantity: 4,
+		points: 90,
+		factor: 2.3,
+	},
 	{ code: "1020", description: "Lokale Fluoridierung", teeth: "OK, UK", quantity: 1, points: 50, factor: 2.3 },
-];
+]
 
 function dentalInvoice(): DocumentSpecification {
-	const invoiceNumber = "ZA-2026-0193";
-	const invoiceDate = "2026-08-27";
-	const dueDate = "2026-09-26";
-	const lineCents = dentalProcedures.map((procedure) => procedure.quantity * Math.round(procedure.points * pointValueCents * procedure.factor));
-	const totalCents = sumOf(lineCents);
+	const invoiceNumber = "ZA-2026-0193"
+	const invoiceDate = "2026-08-27"
+	const dueDate = "2026-09-26"
+	const lineCents = dentalProcedures.map(
+		(procedure) => procedure.quantity * Math.round(procedure.points * pointValueCents * procedure.factor),
+	)
+	const totalCents = sumOf(lineCents)
 	return {
 		fileStem: "dental_invoice_scanned",
 		captureMethod: "scanned",
@@ -1111,7 +1237,7 @@ function dentalInvoice(): DocumentSpecification {
 			invoice_number: literalField(invoiceNumber),
 		},
 		render(document) {
-			document.addPage();
+			document.addPage()
 			let cursor = drawLetterhead(document, dentalPractice, {
 				recipientLines: ["Frau", "Mira Wiśniewska", ...householdAddressLines],
 				referenceRows: [
@@ -1123,7 +1249,7 @@ function dentalInvoice(): DocumentSpecification {
 				subject: "Rechnung für zahnärztliche Leistungen nach der GOZ",
 				bodyTypeface: "SerifRegular",
 				boldTypeface: "SerifBold",
-			});
+			})
 			cursor = drawParagraphs(
 				document,
 				[
@@ -1131,7 +1257,7 @@ function dentalInvoice(): DocumentSpecification {
 					"für die Behandlung Ihrer Tochter Lena Becker am 18.08.2026 berechne ich Ihnen die folgenden Leistungen nach der Gebührenordnung für Zahnärzte (GOZ):",
 				],
 				{ top: cursor, typeface: "SerifRegular", fontSize: 10 },
-			);
+			)
 			cursor = drawTable(document, {
 				left: leftMargin,
 				top: cursor + 4,
@@ -1158,7 +1284,7 @@ function dentalInvoice(): DocumentSpecification {
 				]),
 				summaryRows: [["", "", "Rechnungsbetrag", "", "", "", formatEuro(totalCents)]],
 				bandColor: "#e2eff6",
-			});
+			})
 			cursor = drawParagraphs(
 				document,
 				[
@@ -1166,16 +1292,21 @@ function dentalInvoice(): DocumentSpecification {
 					`Bitte überweisen Sie den Rechnungsbetrag von ${formatEuro(totalCents)} bis zum ${formatGermanDate(dueDate)} unter Angabe der Rechnungsnummer ${invoiceNumber} auf das folgende Konto:`,
 				],
 				{ top: cursor + 14, typeface: "SerifRegular", fontSize: 9.5 },
-			);
-			cursor = drawBankDetails(document, dentalPractice, cursor + 2);
-			drawParagraphs(document, ["Mit freundlichen Grüßen", "Dr. Henrike Vossberg"], { top: cursor + 12, typeface: "SerifRegular", fontSize: 10, gap: 0.2 });
-			drawLetterFooter(document, dentalPractice);
+			)
+			cursor = drawBankDetails(document, dentalPractice, cursor + 2)
+			drawParagraphs(document, ["Mit freundlichen Grüßen", "Dr. Henrike Vossberg"], {
+				top: cursor + 12,
+				typeface: "SerifRegular",
+				fontSize: 10,
+				gap: 0.2,
+			})
+			drawLetterFooter(document, dentalPractice)
 		},
-	};
+	}
 }
 
 function residenceRegistrationCertificate(): DocumentSpecification {
-	const issueDate = "2026-05-04";
+	const issueDate = "2026-05-04"
 	return {
 		fileStem: "residence_registration_certificate_scanned",
 		captureMethod: "scanned",
@@ -1190,13 +1321,29 @@ function residenceRegistrationCertificate(): DocumentSpecification {
 		isNonArchival: false,
 		fields: {},
 		render(document) {
-			document.addPage();
-			drawOrganizationMark(document, stadtTalbrueck);
-			document.font("SansRegular").fontSize(8.5).fillColor("#333333");
-			document.text("Aktenzeichen: 33.10-2026-04812", leftMargin, 50, { width: contentWidth, align: "right" });
-			document.fillColor("#000000").font("SansBold").fontSize(20).text("Meldebescheinigung", leftMargin, 130, { width: contentWidth });
-			document.font("SansRegular").fontSize(9.5).text("Einfache Meldebescheinigung nach § 18 Absatz 1 des Bundesmeldegesetzes (BMG)", leftMargin, document.y + 4, { width: contentWidth });
-			let cursor = drawParagraphs(document, ["Für die nachstehend bezeichnete Person sind im Melderegister der Stadt Talbrück folgende Daten gespeichert:"], { top: document.y + 22, fontSize: 10 });
+			document.addPage()
+			drawOrganizationMark(document, stadtTalbrueck)
+			document.font("SansRegular").fontSize(8.5).fillColor("#333333")
+			document.text("Aktenzeichen: 33.10-2026-04812", leftMargin, 50, { width: contentWidth, align: "right" })
+			document
+				.fillColor("#000000")
+				.font("SansBold")
+				.fontSize(20)
+				.text("Meldebescheinigung", leftMargin, 130, { width: contentWidth })
+			document
+				.font("SansRegular")
+				.fontSize(9.5)
+				.text(
+					"Einfache Meldebescheinigung nach § 18 Absatz 1 des Bundesmeldegesetzes (BMG)",
+					leftMargin,
+					document.y + 4,
+					{ width: contentWidth },
+				)
+			let cursor = drawParagraphs(
+				document,
+				["Für die nachstehend bezeichnete Person sind im Melderegister der Stadt Talbrück folgende Daten gespeichert:"],
+				{ top: document.y + 22, fontSize: 10 },
+			)
 			cursor = drawDefinitionList(
 				document,
 				[
@@ -1210,7 +1357,7 @@ function residenceRegistrationCertificate(): DocumentSpecification {
 					["Einzugsdatum", "01.05.2026"],
 				],
 				{ left: leftMargin + 10, top: cursor + 8, labelWidth: 150, fontSize: 11, rowGap: 6 },
-			);
+			)
 			cursor = drawParagraphs(
 				document,
 				[
@@ -1219,44 +1366,62 @@ function residenceRegistrationCertificate(): DocumentSpecification {
 					"Im Auftrag",
 				],
 				{ top: cursor + 20, fontSize: 10 },
-			);
-			const sealCenterX = rightEdge - 80;
-			const sealCenterY = cursor + 20;
-			document.circle(sealCenterX, sealCenterY, 42).lineWidth(1.5).strokeColor("#1f3a5f").stroke();
-			document.circle(sealCenterX, sealCenterY, 34).lineWidth(0.6).stroke();
-			drawSingleLine(document.font("SansBold").fontSize(7.5).fillColor("#1f3a5f"), "STADT TALBRÜCK", sealCenterX - 34, sealCenterY - 9, { width: 68, align: "center" });
-			drawSingleLine(document.font("SansRegular").fontSize(6.5), "Dienstsiegel", sealCenterX - 34, sealCenterY + 2, { width: 68, align: "center" });
-			document.fillColor("#000000").font("SansRegular").fontSize(10).text("Keller", leftMargin, cursor + 28, { lineBreak: false });
-			document.moveTo(leftMargin, cursor + 42).lineTo(leftMargin + 160, cursor + 42).lineWidth(0.6).strokeColor("#000000").stroke();
-			document.fontSize(8).text("Sachbearbeitung Bürgeramt", leftMargin, cursor + 46, { lineBreak: false });
-			drawLetterFooter(document, stadtTalbrueck);
+			)
+			const sealCenterX = rightEdge - 80
+			const sealCenterY = cursor + 20
+			document.circle(sealCenterX, sealCenterY, 42).lineWidth(1.5).strokeColor("#1f3a5f").stroke()
+			document.circle(sealCenterX, sealCenterY, 34).lineWidth(0.6).stroke()
+			drawSingleLine(
+				document.font("SansBold").fontSize(7.5).fillColor("#1f3a5f"),
+				"STADT TALBRÜCK",
+				sealCenterX - 34,
+				sealCenterY - 9,
+				{ width: 68, align: "center" },
+			)
+			drawSingleLine(document.font("SansRegular").fontSize(6.5), "Dienstsiegel", sealCenterX - 34, sealCenterY + 2, {
+				width: 68,
+				align: "center",
+			})
+			document
+				.fillColor("#000000")
+				.font("SansRegular")
+				.fontSize(10)
+				.text("Keller", leftMargin, cursor + 28, { lineBreak: false })
+			document
+				.moveTo(leftMargin, cursor + 42)
+				.lineTo(leftMargin + 160, cursor + 42)
+				.lineWidth(0.6)
+				.strokeColor("#000000")
+				.stroke()
+			document.fontSize(8).text("Sachbearbeitung Bürgeramt", leftMargin, cursor + 46, { lineBreak: false })
+			drawLetterFooter(document, stadtTalbrueck)
 
-			document.save();
-			document.rotate(-38, { origin: [pageSizeA4[0] / 2, pageSizeA4[1] / 2] });
-			document.font("SansBold").fontSize(140).fillColor("#808080").fillOpacity(0.3);
-			const watermarkWidth = document.widthOfString("MUSTER");
-			document.text("MUSTER", pageSizeA4[0] / 2 - watermarkWidth / 2, pageSizeA4[1] / 2 - 80, { lineBreak: false });
-			document.restore();
+			document.save()
+			document.rotate(-38, { origin: [pageSizeA4[0] / 2, pageSizeA4[1] / 2] })
+			document.font("SansBold").fontSize(140).fillColor("#808080").fillOpacity(0.3)
+			const watermarkWidth = document.widthOfString("MUSTER")
+			document.text("MUSTER", pageSizeA4[0] / 2 - watermarkWidth / 2, pageSizeA4[1] / 2 - 80, { lineBreak: false })
+			document.restore()
 		},
-	};
+	}
 }
 
 function softwareSubscriptionInvoice(): DocumentSpecification {
-	const invoiceNumber = "PLK-2026-004817";
-	const issueDate = "2026-10-03";
-	const dueDate = "2026-10-17";
-	const seats = 3;
-	const seatPriceCents = 1200;
-	const subtotalCents = seats * seatPriceCents;
-	const taxCents = Math.round(subtotalCents * 0.19);
-	const totalCents = subtotalCents + taxCents;
-	const dollars = (cents: number) => `$${(cents / 100).toFixed(2)}`;
+	const invoiceNumber = "PLK-2026-004817"
+	const issueDate = "2026-10-03"
+	const dueDate = "2026-10-17"
+	const seats = 3
+	const seatPriceCents = 1200
+	const subtotalCents = seats * seatPriceCents
+	const taxCents = Math.round(subtotalCents * 0.19)
+	const totalCents = subtotalCents + taxCents
+	const dollars = (cents: number) => `$${(cents / 100).toFixed(2)}`
 	const paperlark = {
 		name: "Paperlark Software Ltd.",
 		addressLines: ["41 Weaver Lane", "Larkhaven LK4 2PQ", "United Kingdom", "billing@paperlark.example"],
 		accentColor: "#5b3fd1",
 		monogram: "PL",
-	};
+	}
 	return {
 		fileStem: "software_subscription_invoice_digital",
 		captureMethod: "digital",
@@ -1276,9 +1441,9 @@ function softwareSubscriptionInvoice(): DocumentSpecification {
 			invoice_number: literalField(invoiceNumber),
 		},
 		render(document) {
-			document.addPage();
-			drawOrganizationMark(document, paperlark);
-			document.font("SansBold").fontSize(22).fillColor("#000000").text("Invoice", leftMargin, 100);
+			document.addPage()
+			drawOrganizationMark(document, paperlark)
+			document.font("SansBold").fontSize(22).fillColor("#000000").text("Invoice", leftMargin, 100)
 			let cursor = drawDefinitionList(
 				document,
 				[
@@ -1287,16 +1452,29 @@ function softwareSubscriptionInvoice(): DocumentSpecification {
 					["Date due", formatEnglishDate(dueDate)],
 				],
 				{ left: leftMargin, top: 138, labelWidth: 100, fontSize: 9.5 },
-			);
-			const columnTop = cursor + 16;
-			document.font("SansBold").fontSize(9.5).text(paperlark.name, leftMargin, columnTop);
-			document.font("SansRegular").text(paperlark.addressLines.join("\n"), leftMargin, document.y);
-			document.font("SansBold").text("Bill to", leftMargin + 240, columnTop);
-			document.font("SansRegular").text(["Mira Wiśniewska", ...householdAddressLines, "Germany", "mira.wisniewska@household.example"].join("\n"), leftMargin + 240, document.y);
-			cursor = columnTop + 90;
-			document.font("SansBold").fontSize(15).text(`${dollars(totalCents)} USD due ${formatEnglishDate(dueDate)}`, leftMargin, cursor);
-			document.font("SansRegular").fontSize(9.5).fillColor("#5b3fd1").text("Pay online at billing.paperlark.example/pay", leftMargin, document.y + 4);
-			document.fillColor("#000000");
+			)
+			const columnTop = cursor + 16
+			document.font("SansBold").fontSize(9.5).text(paperlark.name, leftMargin, columnTop)
+			document.font("SansRegular").text(paperlark.addressLines.join("\n"), leftMargin, document.y)
+			document.font("SansBold").text("Bill to", leftMargin + 240, columnTop)
+			document
+				.font("SansRegular")
+				.text(
+					["Mira Wiśniewska", ...householdAddressLines, "Germany", "mira.wisniewska@household.example"].join("\n"),
+					leftMargin + 240,
+					document.y,
+				)
+			cursor = columnTop + 90
+			document
+				.font("SansBold")
+				.fontSize(15)
+				.text(`${dollars(totalCents)} USD due ${formatEnglishDate(dueDate)}`, leftMargin, cursor)
+			document
+				.font("SansRegular")
+				.fontSize(9.5)
+				.fillColor("#5b3fd1")
+				.text("Pay online at billing.paperlark.example/pay", leftMargin, document.y + 4)
+			document.fillColor("#000000")
 			cursor = drawTable(document, {
 				left: leftMargin,
 				top: document.y + 22,
@@ -1307,7 +1485,14 @@ function softwareSubscriptionInvoice(): DocumentSpecification {
 					{ header: "Unit price", width: 80, align: "right" },
 					{ header: "Amount", width: contentWidth - 380, align: "right" },
 				],
-				rows: [["Paperlark Team plan, monthly\nOct 3 – Nov 2, 2026", String(seats), dollars(seatPriceCents), dollars(subtotalCents)]],
+				rows: [
+					[
+						"Paperlark Team plan, monthly\nOct 3 – Nov 2, 2026",
+						String(seats),
+						dollars(seatPriceCents),
+						dollars(subtotalCents),
+					],
+				],
 				summaryRows: [
 					["Subtotal", "", "", dollars(subtotalCents)],
 					[`VAT Germany (19% on ${dollars(subtotalCents)})`, "", "", dollars(taxCents)],
@@ -1315,7 +1500,7 @@ function softwareSubscriptionInvoice(): DocumentSpecification {
 					["Amount due", "", "", `${dollars(totalCents)} USD`],
 				],
 				bandColor: "#ece8fb",
-			});
+			})
 			drawParagraphs(
 				document,
 				[
@@ -1323,14 +1508,14 @@ function softwareSubscriptionInvoice(): DocumentSpecification {
 					"Paperlark Software Ltd. is registered in England and Wales. VAT for German customers is charged under the non-Union OSS scheme.",
 				],
 				{ top: cursor + 24, fontSize: 8.5 },
-			);
+			)
 		},
-	};
+	}
 }
 
 function generalTermsAndConditions(): DocumentSpecification {
-	const effectiveDate = "2026-07-01";
-	const sectionOptions = { headingTypeface: "SansBold", fontSize: 9, gap: 0.35 } as const;
+	const effectiveDate = "2026-07-01"
+	const sectionOptions = { headingTypeface: "SansBold", fontSize: 9, gap: 0.35 } as const
 	return {
 		fileStem: "general_terms_and_conditions_digital",
 		captureMethod: "digital",
@@ -1345,10 +1530,16 @@ function generalTermsAndConditions(): DocumentSpecification {
 		isNonArchival: true,
 		fields: {},
 		render(document) {
-			document.addPage();
-			drawOrganizationMark(document, nordkabel);
-			document.font("SansBold").fontSize(15).text("Allgemeine Geschäftsbedingungen für Telekommunikationsdienste", leftMargin, 100, { width: contentWidth });
-			document.font("SansRegular").fontSize(9.5).text(`${nordkabel.name} · Stand: ${formatGermanDate(effectiveDate)}`, leftMargin, document.y + 4);
+			document.addPage()
+			drawOrganizationMark(document, nordkabel)
+			document
+				.font("SansBold")
+				.fontSize(15)
+				.text("Allgemeine Geschäftsbedingungen für Telekommunikationsdienste", leftMargin, 100, { width: contentWidth })
+			document
+				.font("SansRegular")
+				.fontSize(9.5)
+				.text(`${nordkabel.name} · Stand: ${formatGermanDate(effectiveDate)}`, leftMargin, document.y + 4)
 			drawSections(
 				document,
 				[
@@ -1397,10 +1588,10 @@ function generalTermsAndConditions(): DocumentSpecification {
 					},
 				],
 				{ ...sectionOptions, top: document.y + 14 },
-			);
-			drawPageLabel(document, `${nordkabel.name} · Allgemeine Geschäftsbedingungen · Seite 1 von 2`);
+			)
+			drawPageLabel(document, `${nordkabel.name} · Allgemeine Geschäftsbedingungen · Seite 1 von 2`)
 
-			document.addPage();
+			document.addPage()
 			drawSections(
 				document,
 				[
@@ -1437,13 +1628,13 @@ function generalTermsAndConditions(): DocumentSpecification {
 					},
 				],
 				{ ...sectionOptions, top: 60 },
-			);
-			drawPageLabel(document, `${nordkabel.name} · Allgemeine Geschäftsbedingungen · Seite 2 von 2`);
+			)
+			drawPageLabel(document, `${nordkabel.name} · Allgemeine Geschäftsbedingungen · Seite 2 von 2`)
 		},
-	};
+	}
 }
 
-export const documentCatalog: readonly DocumentSpecification[] = [
+export const documentCatalog: ReadonlyArray<DocumentSpecification> = [
 	telecommunicationInvoice(),
 	electricityInvoice(),
 	supermarketReceipt(),
@@ -1456,4 +1647,4 @@ export const documentCatalog: readonly DocumentSpecification[] = [
 	residenceRegistrationCertificate(),
 	softwareSubscriptionInvoice(),
 	generalTermsAndConditions(),
-];
+]

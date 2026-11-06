@@ -1,0 +1,6 @@
+{
+	"$schema": "https://unpkg.com/knip@6/schema.json",
+	"entry": ["cloudflare.config.ts"],
+	"project": ["*.ts", "src/**/*.{ts,tsx,css}", "scripts/**/*.ts"],
+	"ignoreDependencies": ["@ibm/plex-mono", "@ibm/plex-sans", "@ibm/plex-serif", "@types/emscripten"]
+}

@@ -1,5 +1,5 @@
 import { existsSync, readFileSync } from "node:fs"
-import { bindings, defineConfig, exports } from "cf/config"
+import { bindings, defineConfig, exports as workerExports } from "cf/config"
 import { z } from "zod"
 
 const DEPLOYMENT_PARAMETERS_FILE = "schublade.deploy.json"
@@ -34,7 +34,8 @@ function resourceBindings(mode: string | undefined) {
 			DATABASE: bindings.d1({ name: databaseName, id: LOCAL_DATABASE_IDENTIFIER }),
 			DOCUMENT_STORAGE: bindings.r2({ name: deployment.documentStorageBucketName ?? `${workerName}-documents` }),
 			// AI Search has no local simulation, so development before provisioning runs without it.
-			SEARCH_INDEX: deployment.searchInstanceName !== undefined && bindings.aiSearch({ name: deployment.searchInstanceName }),
+			SEARCH_INDEX:
+				deployment.searchInstanceName !== undefined && bindings.aiSearch({ name: deployment.searchInstanceName }),
 		}
 	}
 	// `cf deploy` provisions a new, empty resource for every D1 or R2 binding without an
@@ -63,8 +64,8 @@ export default defineConfig(({ mode }) => ({
 		// Per-version preview hostnames are outside the Access application.
 		previewUrls: false,
 		exports: {
-			DocumentIngestionWorkflow: exports.workflow({ name: `${workerName}-document-ingestion` }),
-			ArchiveCoordinator: exports.durableObject({ storage: "sqlite" }),
+			DocumentIngestionWorkflow: workerExports.workflow({ name: `${workerName}-document-ingestion` }),
+			ArchiveCoordinator: workerExports.durableObject({ storage: "sqlite" }),
 		},
 		env: {
 			...resourceBindings(mode),

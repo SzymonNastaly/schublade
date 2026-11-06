@@ -1,7 +1,7 @@
 import { WorkflowEntrypoint } from "cloudflare:workers"
 import type { WorkflowEvent, WorkflowStep } from "cloudflare:workers"
 
-export interface DocumentIngestionParameters {
+interface DocumentIngestionParameters {
 	documentId: string
 }
 

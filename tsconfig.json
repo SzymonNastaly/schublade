@@ -1,5 +1,5 @@
 {
-	"include": ["**/*.ts", "**/*.tsx", ".cloudflare/types/**/*.d.ts"],
+	"include": ["**/*.ts", "**/*.tsx", "eslint.config.js", ".cloudflare/types/**/*.d.ts"],
 	"exclude": ["node_modules", "dist", ".cloudflare/output"],
 	"compilerOptions": {
 		"target": "ES2022",
@@ -21,6 +21,7 @@
 		"noUncheckedSideEffectImports": true,
 		"paths": {
 			"@/*": ["./src/*"]
-		}
+		},
+		"allowJs": true
 	}
 }
