@@ -37,6 +37,7 @@ const searchIndex: SearchIndex = {
 	items: {
 		upload: () => Promise.reject(new Error("Search does not upload")),
 		list: () => Promise.resolve({ result: [] }),
+		delete: () => Promise.reject(new Error("Search does not delete")),
 	},
 }
 

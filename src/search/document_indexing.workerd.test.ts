@@ -24,6 +24,7 @@ function createSearchIndex(listedPages: Array<Array<Pick<AiSearchItemInfo, "key"
 				Promise.resolve({
 					result: (listedPages[(parameters?.page ?? 1) - 1] ?? []).map((item) => ({ id: item.key, ...item })),
 				}),
+			delete: () => Promise.reject(new Error("Indexing does not delete")),
 		},
 	}
 	return { uploadedItemNames, searchIndex }

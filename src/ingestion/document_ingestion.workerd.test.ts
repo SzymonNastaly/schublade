@@ -33,6 +33,7 @@ const recordingSearchIndex: SearchIndex = {
 			return Promise.resolve({ id: name, key: name, status: "queued" })
 		},
 		list: () => Promise.resolve({ result: [] }),
+		delete: () => Promise.reject(new Error("Ingestion does not delete")),
 	},
 }
 

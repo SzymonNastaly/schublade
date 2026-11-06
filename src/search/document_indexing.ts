@@ -11,7 +11,7 @@ import {
 import type { ArchiveDatabase } from "../database/client"
 import type { IndexedDocument } from "./search_index_item"
 
-type SearchIndexItems = Pick<AiSearchInstance["items"], "upload" | "list">
+type SearchIndexItems = Pick<AiSearchInstance["items"], "upload" | "list" | "delete">
 
 /** The part of the AI Search binding that Schublade calls, so tests can replace it. */
 export interface SearchIndex {
