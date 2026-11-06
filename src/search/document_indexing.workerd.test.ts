@@ -5,6 +5,7 @@ import { connectDatabase } from "../database/client"
 import { documents } from "../database/schema"
 import { contentObjectKey } from "../ingestion/source_file"
 import { indexDocument, indexMissingDocuments, indexMissingDocumentsOnSchedule } from "./document_indexing"
+import { createInMemorySearchIndex } from "./in_memory_search_index"
 import type { SearchIndex } from "./document_indexing"
 
 const brokenDocumentId = "1c9e4a7b-2d3f-4e5a-8b6c-7d8e9f0a1b2c"
@@ -168,5 +169,62 @@ test("indexMissingDocuments re-uploads a document changed since its item was upl
 			},
 		],
 		uploadedItemNames: [`${revisedDocumentId}.md`],
+	})
+})
+
+test("an upload of an earlier revision that AI Search accepts last leaves the document stale until the backfill uploads it again", async () => {
+	await reset()
+	await applyD1Migrations(env.DATABASE, inject("databaseMigrations"))
+	const database = connectDatabase(env.DATABASE)
+	const lateRecordingId = "3e8a1c5f-9b2d-4e70-a6c4-8d1f5b3e7a92"
+	const earlyRecordingId = "7b4d2f9e-1a6c-4c38-9e05-2f7a8c1d6b43"
+	await archiveDocument(lateRecordingId, new Date("2026-03-09T08:00:00Z"), "Betrag 72,09 €")
+	await archiveDocument(earlyRecordingId, new Date("2026-03-09T08:00:00Z"), "Betrag 41,30 €")
+	const index = createInMemorySearchIndex()
+	const heading = (documentId: string) => index.items.get(`${documentId}.md`)?.content.split("\n")[0]
+	const revise = (documentId: string) =>
+		database.update(documents).set({ title: "Stromrechnung 2026" }).where(eq(documents.id, documentId))
+
+	index.holdUploads(true)
+	// The earlier revision's upload is accepted last, and it records its revision after the later one.
+	const earlierUpload = indexDocument(database, env.DOCUMENT_STORAGE, index.searchIndex, lateRecordingId)
+	const earlier = await index.nextHeldUpload()
+	await revise(lateRecordingId)
+	const laterUpload = indexDocument(database, env.DOCUMENT_STORAGE, index.searchIndex, lateRecordingId)
+	const later = await index.nextHeldUpload()
+	later.accept()
+	later.release()
+	await laterUpload
+	earlier.accept()
+	earlier.release()
+	await earlierUpload
+	// The earlier revision's upload is accepted last, but it records its revision before the later one.
+	const earlyUpload = indexDocument(database, env.DOCUMENT_STORAGE, index.searchIndex, earlyRecordingId)
+	const early = await index.nextHeldUpload()
+	await revise(earlyRecordingId)
+	const lateUpload = indexDocument(database, env.DOCUMENT_STORAGE, index.searchIndex, earlyRecordingId)
+	const late = await index.nextHeldUpload()
+	late.accept()
+	early.accept()
+	early.release()
+	await earlyUpload
+	late.release()
+	await lateUpload
+	index.holdUploads(false)
+	const headingsBeforeBackfill = [heading(lateRecordingId), heading(earlyRecordingId)]
+
+	const reports = [
+		await indexMissingDocuments(database, env.DOCUMENT_STORAGE, index.searchIndex),
+		await indexMissingDocuments(database, env.DOCUMENT_STORAGE, index.searchIndex),
+	]
+
+	expect({
+		headingsBeforeBackfill,
+		indexedDocumentIds: reports.map((report) => report.indexedDocumentIds),
+		headingsAfterBackfill: [heading(lateRecordingId), heading(earlyRecordingId)],
+	}).toEqual({
+		headingsBeforeBackfill: ["# Stromrechnung", "# Stromrechnung"],
+		indexedDocumentIds: [[lateRecordingId, earlyRecordingId], []],
+		headingsAfterBackfill: ["# Stromrechnung 2026", "# Stromrechnung 2026"],
 	})
 })

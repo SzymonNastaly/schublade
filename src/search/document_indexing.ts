@@ -1,6 +1,6 @@
-import { and, asc, eq, gt, isNull, lt, or, sql } from "drizzle-orm"
+import { and, asc, eq, gt, isNull, ne, or, sql } from "drizzle-orm"
 import { connectDatabase } from "../database/client"
-import { documentTags, documents, senders, tags } from "../database/schema"
+import { documentTags, documents, senders, succeedingModificationTime, tags } from "../database/schema"
 import { contentObjectKey } from "../ingestion/source_file"
 import {
 	composeSearchIndexContent,
@@ -37,22 +37,24 @@ async function readIndexedDocument(
 	storage: R2Bucket,
 	documentId: string,
 ): Promise<IndexedDocument & { updatedAt: Date }> {
-	const [[document], tagRows, content] = await Promise.all([
-		database
-			.select({
-				id: documents.id,
-				updatedAt: documents.updatedAt,
-				title: documents.title,
-				documentDate: documents.documentDate,
-				senderId: documents.senderId,
-				senderName: senders.name,
-				categoryId: documents.categoryId,
-				personMemberId: documents.personMemberId,
-				summary: documents.summary,
-			})
-			.from(documents)
-			.leftJoin(senders, eq(documents.senderId, senders.id))
-			.where(and(eq(documents.id, documentId), eq(documents.status, "archived"))),
+	// The row comes first, so its updated_at names a revision no older than the tags and text read after it.
+	const [document] = await database
+		.select({
+			id: documents.id,
+			updatedAt: documents.updatedAt,
+			title: documents.title,
+			documentDate: documents.documentDate,
+			senderId: documents.senderId,
+			senderName: senders.name,
+			categoryId: documents.categoryId,
+			personMemberId: documents.personMemberId,
+			summary: documents.summary,
+		})
+		.from(documents)
+		.leftJoin(senders, eq(documents.senderId, senders.id))
+		.where(and(eq(documents.id, documentId), eq(documents.status, "archived")))
+	if (!document) throw new Error(`Document ${documentId} is not archived, so it has nothing to index`)
+	const [tagRows, content] = await Promise.all([
 		database
 			.select({ name: tags.name })
 			.from(documentTags)
@@ -61,7 +63,6 @@ async function readIndexedDocument(
 			.orderBy(asc(tags.name)),
 		storage.get(contentObjectKey(documentId)),
 	])
-	if (!document) throw new Error(`Document ${documentId} is not archived, so it has nothing to index`)
 	if (!content) throw new Error(`Document ${documentId} has no extracted Markdown at ${contentObjectKey(documentId)}`)
 	return { ...document, tagNames: tagRows.map((tag) => tag.name), markdown: await content.text() }
 }
@@ -69,8 +70,13 @@ async function readIndexedDocument(
 /**
  * Uploads the archived document to AI Search as `<documentId>.md` and records the revision it
  * uploaded in indexed_at. An upload under an existing name replaces that item, so a repeated
- * call converges on the current D1 record. A revision written while the upload ran has a later
- * updated_at, so the document stays stale until the backfill uploads it again.
+ * call converges on the current D1 record.
+ *
+ * Two uploads of one document can overlap, and AI Search keeps whichever it accepts last, which
+ * D1 cannot observe. An upload therefore records its revision only while updated_at still holds
+ * it. Otherwise the revision changed during the upload, and the document is marked stale with a
+ * succeeding updated_at, so no overlapping upload can record its own revision either, and the
+ * backfill uploads the document again.
  */
 export async function indexDocument(
 	database: ArchiveDatabase,
@@ -79,17 +85,22 @@ export async function indexDocument(
 	documentId: string,
 ): Promise<void> {
 	const document = await readIndexedDocument(database, storage, documentId)
+	const revision = document.updatedAt
 	const items = await searchIndex.items
 	await items.upload(searchIndexItemName(documentId), composeSearchIndexContent(document), {
 		metadata: searchIndexMetadata(document),
 	})
-	await database
-		.update(documents)
-		// Recording the upload is no revision of the document, so updated_at keeps its value.
-		.set({ indexedAt: document.updatedAt, updatedAt: sql`${documents.updatedAt}` })
-		.where(
-			and(eq(documents.id, documentId), or(isNull(documents.indexedAt), lt(documents.indexedAt, document.updatedAt))),
-		)
+	await database.batch([
+		database
+			.update(documents)
+			// Recording the upload is no revision of the document, so updated_at keeps its value.
+			.set({ indexedAt: revision, updatedAt: sql`${documents.updatedAt}` })
+			.where(and(eq(documents.id, documentId), eq(documents.updatedAt, revision))),
+		database
+			.update(documents)
+			.set({ indexedAt: null, updatedAt: succeedingModificationTime() })
+			.where(and(eq(documents.id, documentId), ne(documents.updatedAt, revision))),
+	])
 }
 
 /** Deletes the AI Search item of a document. Deleting an item that does not exist changes nothing. */
