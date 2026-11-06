@@ -114,7 +114,7 @@ export default defineConfig(({ mode }) => ({
 			ACCESS_TEAM_DOMAIN: bindings.text(deployment.accessTeamDomain ?? ""),
 			ACCESS_AUD: bindings.text(deployment.accessAudience ?? ""),
 			AI_GATEWAY_IDENTIFIER: bindings.text(deployment.aiGatewayIdentifier ?? "schublade"),
-			CLASSIFICATION_MODEL: bindings.text(deployment.classificationModel ?? "@cf/google/gemma-4-26b-a4b-it"),
+			CLASSIFICATION_MODEL: bindings.text(deployment.classificationModel ?? "@cf/deepseek-ai/deepseek-v4.1-flash-1017"),
 		},
 	},
 }))
