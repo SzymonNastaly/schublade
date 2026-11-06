@@ -35,6 +35,8 @@ src/
 		client.ts                            Drizzle bound to env.DATABASE, and connectDatabase for a passed binding
 	archive/
 		document_listing.ts                  The document listing query shared by the server function and the API route
+		document_representation.ts           The original file or the extracted Markdown, served with nosniff and a sandbox policy
+		document_representation.workerd.test.ts
 	ingestion/                             Ingestion domain; all but document_ingestion.ts and document_upload.ts are pure and tested in Node
 		document_lifecycle.ts                Document status transition table
 		source_file.ts                       Accepted file kinds and R2 object keys
