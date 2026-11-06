@@ -1,13 +1,26 @@
 import type { PageInspection } from "../inference/page_rasterizer"
 
 // VISION.md: a scanned page yields fewer than 40 characters from its text layer.
-const MINIMUM_TEXT_LAYER_CHARACTERS = 40
+const MINIMUM_ALPHANUMERIC_CHARACTERS = 40
+
+const ALPHANUMERIC_CHARACTER = /[\p{L}\p{N}]/gu
+// What a glyph without a usable Unicode mapping comes out as: U+FFFD, a private use code point, or a
+// control character other than tab, line feed, and carriage return.
+const REPLACEMENT_CHARACTER = /[\uFFFD\p{Co}]|(?![\t\n\r])\p{Cc}/gu
+
+/**
+ * Where the text of a page comes from: its section of the `toMarkdown()` conversion, the text layer
+ * as PDFium extracts it, or a Moondream transcription of the rendered page.
+ */
+export type PageTextSource =
+	| { kind: "converted"; pageIndex: number }
+	| { kind: "text_layer"; pageIndex: number; text: string }
+	| { kind: "recognition"; pageIndex: number }
 
 export interface TextExtraction {
-	pageCount: number
-	/** Markdown from `toMarkdown()`, which holds the text layer of every page that has one. */
+	/** Markdown from `toMarkdown()`, with a `### Page N` section for each page. */
 	convertedMarkdown: string
-	pagesRequiringRecognition: Array<number>
+	pages: Array<PageTextSource>
 }
 
 export interface PageTranscription {
@@ -17,61 +30,81 @@ export interface PageTranscription {
 
 const PAGE_HEADING = /^### Page (\d+)\s*$/gm
 
-/** Letters and digits per page of the `toMarkdown()` output, keyed by page index. */
-function convertedCharactersByPage(convertedMarkdown: string): Map<number, number> {
+function countMatches(text: string, pattern: RegExp): number {
+	return text.match(pattern)?.length ?? 0
+}
+
+/** Text of each `### Page N` section of the `toMarkdown()` output, keyed by page index. */
+function convertedSectionsByPage(convertedMarkdown: string): Map<number, string> {
 	const headings = [...convertedMarkdown.matchAll(PAGE_HEADING)]
-	const counts = new Map<number, number>()
-	headings.forEach((heading, position) => {
-		const sectionStart = heading.index + heading[0].length
-		const sectionEnd = headings[position + 1]?.index ?? convertedMarkdown.length
-		const section = convertedMarkdown.slice(sectionStart, sectionEnd)
-		counts.set(Number(heading[1]) - 1, section.match(/[\p{L}\p{N}]/gu)?.length ?? 0)
-	})
-	return counts
+	return new Map(
+		headings.map((heading, position) => [
+			Number(heading[1]) - 1,
+			convertedMarkdown.slice(heading.index + heading[0].length, headings[position + 1]?.index),
+		]),
+	)
 }
 
 /**
- * A page is transcribed when its text layer is sparse, or when `toMarkdown()` could not read the
- * layer: a ticket on staging had 40 or more PDFium characters on its page and an empty page section
- * in the conversion, so the classifier saw no text. Without page headings in the conversion, only
- * the text layer decides, so a conversion in another layout never sends every page to OCR.
+ * A text layer is readable when it holds at least 40 letters or digits and fewer than one
+ * replacement character per ten of them. A few symbol font bullets pass; a font without a Unicode
+ * mapping, whose glyphs come out as replacement characters, sends the page to recognition.
  */
-export function pagesRequiringRecognition(
+function isReadableTextLayer(text: string): boolean {
+	const alphanumericCount = countMatches(text, ALPHANUMERIC_CHARACTER)
+	return (
+		alphanumericCount >= MINIMUM_ALPHANUMERIC_CHARACTERS &&
+		countMatches(text, REPLACEMENT_CHARACTER) * 10 < alphanumericCount
+	)
+}
+
+/**
+ * Takes the text of each page from the first source that holds it: the converted section, which
+ * keeps tables as Markdown, then the PDFium text layer, then Moondream. `toMarkdown()` returns empty
+ * sections for tagged PDFs whose structure tree it cannot follow, although PDFium reads their text
+ * layer in full, so such a page costs no rendering and no billed recognition.
+ */
+export function selectPageTextSources(
 	pages: ReadonlyArray<PageInspection>,
 	convertedMarkdown: string,
-): Array<number> {
-	const convertedCharacters = convertedCharactersByPage(convertedMarkdown)
-	return pages
-		.filter(
-			(page) =>
-				page.textCharacterCount < MINIMUM_TEXT_LAYER_CHARACTERS ||
-				(convertedCharacters.size > 0 &&
-					(convertedCharacters.get(page.pageIndex) ?? 0) < MINIMUM_TEXT_LAYER_CHARACTERS),
-		)
-		.map((page) => page.pageIndex)
+): Array<PageTextSource> {
+	const convertedSections = convertedSectionsByPage(convertedMarkdown)
+	return pages.map(({ pageIndex, text }) => {
+		const convertedSection = convertedSections.get(pageIndex) ?? ""
+		if (countMatches(convertedSection, ALPHANUMERIC_CHARACTER) >= MINIMUM_ALPHANUMERIC_CHARACTERS) {
+			return { kind: "converted", pageIndex }
+		}
+		if (isReadableTextLayer(text)) return { kind: "text_layer", pageIndex, text }
+		return { kind: "recognition", pageIndex }
+	})
 }
 
 // Each transcribed page costs one Moondream call and one workflow step, so a long scan is
 // refused before its first page is transcribed rather than after paying for every page.
 const MAXIMUM_RECOGNIZED_PAGES = 50
 
-export function recognitionLimitViolation(pageIndexes: ReadonlyArray<number>): string | undefined {
-	if (pageIndexes.length <= MAXIMUM_RECOGNIZED_PAGES) return undefined
-	return `The document has ${pageIndexes.length} pages without a text layer, and at most ${MAXIMUM_RECOGNIZED_PAGES} are transcribed`
+export function recognitionLimitViolation(pages: ReadonlyArray<PageTextSource>): string | undefined {
+	const recognizedPageCount = pages.filter((page) => page.kind === "recognition").length
+	if (recognizedPageCount <= MAXIMUM_RECOGNIZED_PAGES) return undefined
+	return `The document has ${recognizedPageCount} pages without a readable text layer, and at most ${MAXIMUM_RECOGNIZED_PAGES} are transcribed`
 }
 
 /**
- * Recognized pages follow the converted Markdown in page order. When every page needed
- * recognition, the conversion holds only headings, so it is left out.
+ * Pages read from the text layer or recognized follow the converted Markdown in page order. When
+ * no page was taken from the conversion, it holds only headings, so it is left out.
  */
 export function assembleDocumentMarkdown(
 	extraction: TextExtraction,
 	transcriptions: ReadonlyArray<PageTranscription>,
 ): string {
-	const hasTextLayerPage = extraction.pagesRequiringRecognition.length < extraction.pageCount
+	const hasConvertedPage = extraction.pages.some((page) => page.kind === "converted")
+	const pageTexts = [
+		...extraction.pages.flatMap((page) => (page.kind === "text_layer" ? [page] : [])),
+		...transcriptions,
+	].sort((first, second) => first.pageIndex - second.pageIndex)
 	const sections = [
-		hasTextLayerPage ? extraction.convertedMarkdown.trim() : "",
-		...transcriptions.map((transcription) => `## Page ${transcription.pageIndex + 1}\n\n${transcription.text}`),
+		hasConvertedPage ? extraction.convertedMarkdown.trim() : "",
+		...pageTexts.map((page) => `## Page ${page.pageIndex + 1}\n\n${page.text}`),
 	]
 	return sections.filter((section) => section !== "").join("\n\n")
 }

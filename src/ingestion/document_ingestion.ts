@@ -15,7 +15,7 @@ import { indexDocument } from "../search/document_indexing"
 import { inspectPages, rasterizePage } from "../inference/page_rasterizer"
 import { createMoondreamRecognizer } from "../inference/text_recognizer"
 import { standardCategories } from "./document_classification"
-import { assembleDocumentMarkdown, pagesRequiringRecognition, recognitionLimitViolation } from "./document_text"
+import { assembleDocumentMarkdown, recognitionLimitViolation, selectPageTextSources } from "./document_text"
 import { predecessorStatuses } from "./document_lifecycle"
 import { contentObjectKey, parseSourceFile } from "./source_file"
 import { normalizeTaxonomyName, resolveTaxonomyName } from "./taxonomy_resolution"
@@ -103,7 +103,7 @@ async function extractText(
 	sourceFile: SourceFile,
 	bytes: Uint8Array<ArrayBuffer>,
 ): Promise<TextExtraction> {
-	if (sourceFile.kind === "image") return { pageCount: 1, convertedMarkdown: "", pagesRequiringRecognition: [0] }
+	if (sourceFile.kind === "image") return { convertedMarkdown: "", pages: [{ kind: "recognition", pageIndex: 0 }] }
 	const [conversion, pages] = await Promise.all([
 		environment.AI_RUNTIME.toMarkdown(
 			{ name: `original.${sourceFile.extension}`, blob: new Blob([bytes], { type: sourceFile.mediaType }) },
@@ -112,14 +112,10 @@ async function extractText(
 		inspectPages(bytes),
 	])
 	if (conversion.format === "error") throw new Error(`Markdown conversion failed: ${conversion.error}`)
-	const pagesNeedingRecognition = pagesRequiringRecognition(pages, conversion.data)
-	const limitViolation = recognitionLimitViolation(pagesNeedingRecognition)
+	const pageTextSources = selectPageTextSources(pages, conversion.data)
+	const limitViolation = recognitionLimitViolation(pageTextSources)
 	if (limitViolation) throw new NonRetryableError(limitViolation)
-	return {
-		pageCount: pages.length,
-		convertedMarkdown: conversion.data,
-		pagesRequiringRecognition: pagesNeedingRecognition,
-	}
+	return { convertedMarkdown: conversion.data, pages: pageTextSources }
 }
 
 async function recognizePage(
@@ -359,11 +355,12 @@ async function archiveIngestedDocument(
 		})
 
 		const transcriptions: Array<PageTranscription> = []
-		if (extraction.pagesRequiringRecognition.length > 0) {
+		const recognitionPages = extraction.pages.filter((page) => page.kind === "recognition")
+		if (recognitionPages.length > 0) {
 			await step.do("record status recognizing_text", recordStep, () =>
 				recordDocumentStatus(database, documentId, "recognizing_text"),
 			)
-			for (const pageIndex of extraction.pagesRequiringRecognition) {
+			for (const { pageIndex } of recognitionPages) {
 				// Each page is its own step, so a failed page retries without repeating the others.
 				const transcription = await step.do(`recognize page ${pageIndex + 1}`, inferenceStep, async () =>
 					recognizePage(environment, await readOriginal(database, environment.DOCUMENT_STORAGE, documentId), pageIndex),
@@ -400,7 +397,7 @@ async function archiveIngestedDocument(
 		})
 
 		await step.do("archive document", recordStep, () =>
-			archiveDocument(database, documentId, result.classification, extraction.pageCount),
+			archiveDocument(database, documentId, result.classification, extraction.pages.length),
 		)
 		return {
 			documentId,

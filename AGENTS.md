@@ -48,7 +48,7 @@ src/
 	ingestion/                             Ingestion domain; all but document_ingestion.ts, document_upload.ts, token_ingestion.ts, and inbound_mail.ts are pure and tested in Node
 		document_lifecycle.ts                Document status transition table
 		source_file.ts                       Accepted file kinds, their leading-byte signatures, and R2 object keys
-		document_text.ts                     Text layer detection threshold and Markdown assembly
+		document_text.ts                     Per-page text source (conversion, PDFium text layer, or recognition) and Markdown assembly
 		document_classification.ts           Extracted field set, standard categories, output schema, and normalization
 		classification_prompt.ts             Classification prompt with the taxonomy, the members, the schema, and the email that delivered a document
 		taxonomy_resolution.ts               Name normalization and matching against sender, category, and tag rows
@@ -88,7 +88,7 @@ src/
 	durable_objects/
 		archive_coordinator.ts               ArchiveCoordinator stub, implemented in phase 5
 	inference/
-		page_rasterizer.ts                   PDFium WebAssembly: text layer detection and page rendering to PNG
+		page_rasterizer.ts                   PDFium WebAssembly: page text extraction and page rendering to PNG
 		page_rasterizer.workerd.test.ts
 		text_recognizer.ts                   Moondream page transcription, event stream parsing, and euro sign repair
 		text_recognizer.test.ts
