@@ -6,10 +6,9 @@ import { useId, useState } from "react"
 import { extractedFieldKeys, extractedFieldTypes } from "../ingestion/document_classification"
 import { submitDocumentDeletion, submitDocumentRevision } from "../utilities/server_functions"
 import { ActionConfirmation, documentDeletionDescription } from "./action_confirmation"
-import type { ArchiveFacets } from "../archive/document_listing"
+import type { ArchiveFacets, ListedDocument } from "../archive/document_listing"
 import type { ExtractedFieldKey } from "../ingestion/document_classification"
 import type { VerificationReason } from "../ingestion/verification_assessment"
-import type { RetrievedDocument } from "../search/document_search"
 
 const fieldLabels: Record<ExtractedFieldKey, string> = {
 	amount: "Amount",
@@ -40,7 +39,7 @@ interface RevisionValues {
 	fields: Record<ExtractedFieldKey, string>
 }
 
-function initialValues(document: RetrievedDocument): RevisionValues {
+function initialValues(document: ListedDocument): RevisionValues {
 	const field = (fieldKey: ExtractedFieldKey) => {
 		const value = document.fields.find((candidate) => candidate.fieldKey === fieldKey)?.value
 		return value === null || value === undefined ? "" : String(value)
@@ -85,7 +84,7 @@ function revisionOf(documentId: string, initial: RevisionValues, values: Revisio
 	}
 }
 
-function DocumentDeletion({ document, onDeleted }: { document: RetrievedDocument; onDeleted: () => void }) {
+function DocumentDeletion({ document, onDeleted }: { document: ListedDocument; onDeleted: () => void }) {
 	const router = useRouter()
 	return (
 		<ActionConfirmation
@@ -106,7 +105,7 @@ function DocumentDeletion({ document, onDeleted }: { document: RetrievedDocument
 }
 
 interface DocumentRevisionFormProperties {
-	document: RetrievedDocument
+	document: ListedDocument
 	facets: ArchiveFacets
 	onDeleted: () => void
 }

@@ -1,20 +1,18 @@
-import { Button, Empty, LayerCard, Tabs, Text } from "@cloudflare/kumo"
+import { Button, Empty, LayerCard, Text } from "@cloudflare/kumo"
 import { FilesIcon, MagnifyingGlassIcon, UploadSimpleIcon } from "@phosphor-icons/react"
-import { useMutation, useQuery } from "@tanstack/react-query"
+import { useMutation } from "@tanstack/react-query"
 import { createFileRoute, useRouter, useRouterState } from "@tanstack/react-router"
 import { useEffect, useRef, useState } from "react"
 import { isSettledStatus } from "../ingestion/document_lifecycle"
 import { acceptedMediaTypes } from "../ingestion/source_file"
 import { ArchiveNavigation } from "../interface/archive_navigation"
+import { DocumentInspection } from "../interface/document_inspection"
 import { DocumentList } from "../interface/document_list"
-import { DocumentRevisionForm } from "../interface/document_revision_form"
 import { DocumentSearchControls } from "../interface/document_search_controls"
 import { parseSearchParameters } from "../search/search_criteria"
 import { listArchiveFacets, retrieveDocuments } from "../utilities/server_functions"
-import type { ArchiveFacets } from "../archive/document_listing"
 import type { UploadOutcome } from "../ingestion/document_upload"
 import type { SearchCriteria } from "../search/search_criteria"
-import type { RetrievedDocument } from "../search/document_search"
 
 export const Route = createFileRoute("/")({
 	validateSearch: parseSearchParameters,
@@ -78,58 +76,6 @@ function UploadControl() {
 				</Text>
 			))}
 		</div>
-	)
-}
-
-function DocumentInspection({
-	document,
-	facets,
-	onDeleted,
-}: {
-	document: RetrievedDocument
-	facets: ArchiveFacets
-	onDeleted: () => void
-}) {
-	const [representation, setRepresentation] = useState("original")
-	const markdown = useQuery({
-		queryKey: ["documents", document.id, "content"],
-		queryFn: async () => {
-			const response = await fetch(`/api/documents/${document.id}/content`)
-			return response.ok ? response.text() : "No text has been extracted yet."
-		},
-		enabled: representation === "content",
-	})
-	const originalUrl = `/api/documents/${document.id}/original`
-	return (
-		<LayerCard>
-			<LayerCard.Secondary>{document.title ?? "Untitled document"}</LayerCard.Secondary>
-			<LayerCard.Primary className="flex flex-col gap-4">
-				{document.summary !== null && <Text>{document.summary}</Text>}
-				<DocumentRevisionForm document={document} facets={facets} onDeleted={onDeleted} />
-				<Tabs
-					tabs={[
-						{ value: "original", label: "Original" },
-						{ value: "content", label: "Text" },
-					]}
-					value={representation}
-					onValueChange={setRepresentation}
-				/>
-				{document.status === "awaiting_rendering" ? (
-					<Text variant="secondary">
-						This email has no PDF or image attachment. Schublade stores the message and will archive it once it can
-						render the email as a PDF.
-					</Text>
-				) : representation === "original" ? (
-					document.mimeType === "application/pdf" ? (
-						<iframe title="Original document" src={originalUrl} className="h-[80vh] w-full rounded border" />
-					) : (
-						<img alt="Original document" src={originalUrl} className="max-h-[80vh] w-full object-contain" />
-					)
-				) : (
-					<pre className="max-h-[80vh] overflow-auto text-sm whitespace-pre-wrap">{markdown.data ?? "Loading"}</pre>
-				)}
-			</LayerCard.Primary>
-		</LayerCard>
 	)
 }
 
