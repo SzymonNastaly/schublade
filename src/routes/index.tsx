@@ -9,6 +9,7 @@ import { listDocuments } from "../utilities/server_functions"
 import type { BadgeVariant } from "@cloudflare/kumo"
 import type { ListedDocument } from "../archive/document_listing"
 import type { DocumentStatus } from "../ingestion/document_lifecycle"
+import type { UploadOutcome } from "../ingestion/document_upload"
 
 export const Route = createFileRoute("/")({
 	loader: () => listDocuments(),
@@ -38,11 +39,13 @@ function personLabel(document: ListedDocument): string {
 	return document.status === "archived" ? "Household" : ""
 }
 
-async function uploadDocuments(files: Array<File>): Promise<void> {
+async function uploadDocuments(files: Array<File>): Promise<Array<UploadOutcome>> {
 	const formData = new FormData()
 	for (const file of files) formData.append("files", file)
 	const response = await fetch("/api/documents", { method: "POST", body: formData })
 	if (!response.ok) throw new Error(`The upload failed with status ${response.status}`)
+	const { outcomes } = await response.json<{ outcomes: Array<UploadOutcome> }>()
+	return outcomes
 }
 
 function UploadControl() {
@@ -52,8 +55,9 @@ function UploadControl() {
 		mutationFn: uploadDocuments,
 		onSettled: () => queryClient.invalidateQueries({ queryKey: ["documents"] }),
 	})
+	const unarchivedOutcomes = upload.data?.filter((outcome) => outcome.kind !== "accepted") ?? []
 	return (
-		<>
+		<div className="flex flex-col items-end gap-2">
 			<input
 				ref={fileInput}
 				type="file"
@@ -76,7 +80,12 @@ function UploadControl() {
 				Upload documents
 			</Button>
 			{upload.isError && <Text variant="error">{upload.error.message}</Text>}
-		</>
+			{unarchivedOutcomes.map((outcome, index) => (
+				<Text key={index} variant="error">
+					{outcome.fileName}: {outcome.reason}
+				</Text>
+			))}
+		</div>
 	)
 }
 

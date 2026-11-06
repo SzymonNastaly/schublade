@@ -39,7 +39,7 @@ src/
 		document_representation.workerd.test.ts
 	ingestion/                             Ingestion domain; all but document_ingestion.ts and document_upload.ts are pure and tested in Node
 		document_lifecycle.ts                Document status transition table
-		source_file.ts                       Accepted file kinds and R2 object keys
+		source_file.ts                       Accepted file kinds, their leading-byte signatures, and R2 object keys
 		document_text.ts                     Text layer detection threshold and Markdown assembly
 		document_classification.ts           Extracted field set, standard categories, output schema, and normalization
 		classification_prompt.ts             Classification prompt with the taxonomy, the members, and the schema
@@ -47,7 +47,8 @@ src/
 		verification_assessment.ts           Verification reason of an archived document
 		document_ingestion.ts                The workflow steps and their D1 and R2 writes
 		document_ingestion.workerd.test.ts   Step order with recorded Workers AI responses
-		document_upload.ts                   R2 write, documents row, and workflow start for one uploaded file
+		document_upload.ts                   Multipart upload handling: per file, identification, R2 write, documents row, and workflow start
+		document_upload.workerd.test.ts
 	utilities/
 		server_functions.ts                  TanStack Start server functions
 	routes/
