@@ -2,3 +2,4 @@ pnpm-lock.yaml
 src/routeTree.gen.ts
 test_fixtures/
 *.md
+drizzle/
