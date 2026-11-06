@@ -1,7 +1,7 @@
 import { Button, Empty, LayerCard, Tabs, Text } from "@cloudflare/kumo"
-import { FilesIcon, MagnifyingGlassIcon, UploadSimpleIcon } from "@phosphor-icons/react"
+import { FilesIcon, GearIcon, MagnifyingGlassIcon, UploadSimpleIcon } from "@phosphor-icons/react"
 import { useMutation, useQuery } from "@tanstack/react-query"
-import { createFileRoute, useRouter, useRouterState } from "@tanstack/react-router"
+import { Link, createFileRoute, useRouter, useRouterState } from "@tanstack/react-router"
 import { useEffect, useRef, useState } from "react"
 import { isSettledStatus } from "../ingestion/document_lifecycle"
 import { acceptedMediaTypes } from "../ingestion/source_file"
@@ -147,7 +147,16 @@ function ArchiveOverview() {
 				<Text variant="heading1" as="h1">
 					Schublade
 				</Text>
-				<UploadControl />
+				<div className="flex items-start gap-2">
+					<Link
+						to="/settings"
+						aria-label="Settings"
+						className="inline-flex h-9 items-center gap-2 rounded-lg px-3 text-kumo-subtle hover:bg-kumo-tint hover:text-kumo-default"
+					>
+						<GearIcon /> <span className="hidden md:inline">Settings</span>
+					</Link>
+					<UploadControl />
+				</div>
 			</div>
 			<DocumentSearchControls criteria={criteria} facets={facets} searching={searching} onChange={changeCriteria} />
 			<LayerCard>

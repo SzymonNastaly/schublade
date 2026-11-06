@@ -1,5 +1,6 @@
 import { createRemoteJWKSet, errors, jwtVerify } from "jose"
 import type { JWTVerifyGetKey } from "jose"
+import type { Caller } from "../authorization/caller_authorization"
 
 interface AccessEnvironment {
 	ACCESS_TEAM_DOMAIN: string
@@ -16,7 +17,10 @@ type AccessDenialReason =
 
 type KeySetResolver = (issuer: string) => JWTVerifyGetKey
 
-type RequestHandler = (request: Request) => Response | Promise<Response>
+type MemberSessionHandler = (
+	request: Request,
+	caller: Extract<Caller, { kind: "member_session" }>,
+) => Response | Promise<Response>
 
 const ASSERTION_HEADER = "Cf-Access-Jwt-Assertion"
 
@@ -61,10 +65,10 @@ async function findDenialReason(
 
 // Every browser request needs a Cloudflare Access assertion for the configured application.
 // Blank Access variables deny every request instead of admitting it.
-export function requireAccess(handler: RequestHandler, resolveKeySet: KeySetResolver = resolveRemoteKeySet) {
+export function requireAccess(handler: MemberSessionHandler, resolveKeySet: KeySetResolver = resolveRemoteKeySet) {
 	return async (request: Request, environment: AccessEnvironment): Promise<Response> => {
 		const denialReason = await findDenialReason(request, environment, resolveKeySet)
 		if (denialReason) return new Response(`Access denied: ${denialReason}`, { status: 403 })
-		return handler(request)
+		return handler(request, { kind: "member_session" })
 	}
 }
