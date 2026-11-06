@@ -1,0 +1,356 @@
+import { Badge, Banner, Button, Empty, Input, LayerCard, Select, Text } from "@cloudflare/kumo"
+import { CheckIcon, GitMergeIcon, PencilSimpleIcon, SealCheckIcon, TrashIcon } from "@phosphor-icons/react"
+import { useMutation } from "@tanstack/react-query"
+import { createFileRoute, useRouter } from "@tanstack/react-router"
+import { useState } from "react"
+import { ArchiveNavigation } from "../interface/archive_navigation"
+import {
+	listArchiveFacets,
+	retrieveVerificationItems,
+	submitDocumentDeletion,
+	submitDocumentRevision,
+	submitTaxonomyConfirmation,
+	submitTaxonomyDeletion,
+	submitTaxonomyMerge,
+	submitTaxonomyRename,
+} from "../utilities/server_functions"
+import type { ArchiveFacets } from "../archive/document_listing"
+import type { TaxonomyKind } from "../archive/taxonomy_maintenance"
+import type { VerificationDocument, VerificationItem } from "../archive/verification_items"
+import type { RequiredFieldKey } from "../ingestion/verification_assessment"
+import type { ReactNode } from "react"
+
+export const Route = createFileRoute("/verification")({
+	loader: async () => {
+		const [items, facets] = await Promise.all([retrieveVerificationItems(), listArchiveFacets()])
+		return { items, facets }
+	},
+	component: PendingVerificationPage,
+})
+
+const kindPresentations: Record<TaxonomyKind, { label: string; facet: keyof Omit<ArchiveFacets, "members"> }> = {
+	sender: { label: "sender", facet: "senders" },
+	category: { label: "category", facet: "categories" },
+	tag: { label: "tag", facet: "tags" },
+}
+
+const requiredFieldInputs: Record<RequiredFieldKey, { label: string; type: "date" | "number" }> = {
+	document_date: { label: "Document date", type: "date" },
+	amount: { label: "Amount", type: "number" },
+}
+
+// Full width and 44 pixels high below md, where a finger operates them.
+const touchSized = "w-full max-md:h-11 md:w-auto"
+
+/** Runs an action, then reloads the entries and the navigation count, which drops the resolved entry. */
+function useVerificationAction<TInput, TResult = unknown>(action: (input: TInput) => Promise<TResult>) {
+	const router = useRouter()
+	return useMutation({ mutationFn: action, onSuccess: () => router.invalidate() })
+}
+
+function documentLine(document: VerificationDocument): string {
+	return [document.title ?? "Untitled document", document.senderName, document.documentDate]
+		.filter((part) => part !== null)
+		.join(" · ")
+}
+
+function EntryCard({ heading, children, error }: { heading: ReactNode; children: ReactNode; error: Error | null }) {
+	return (
+		<li>
+			<LayerCard>
+				<LayerCard.Secondary>
+					<span className="flex min-w-0 flex-wrap items-center gap-2">{heading}</span>
+				</LayerCard.Secondary>
+				<LayerCard.Primary className="flex flex-col gap-4">
+					{children}
+					{error && <Text variant="error">{error.message}</Text>}
+				</LayerCard.Primary>
+			</LayerCard>
+		</li>
+	)
+}
+
+function NewRecordEntry({
+	item,
+	facets,
+}: {
+	item: Extract<VerificationItem, { reason: "new_taxonomy_record" }>
+	facets: ArchiveFacets
+}) {
+	const { record } = item
+	const { label, facet } = kindPresentations[record.kind]
+	const reference = { kind: record.kind, recordId: record.id }
+	const [renaming, setRenaming] = useState(false)
+	const [name, setName] = useState(record.name)
+	const mergeTargets = facets[facet].filter((option) => option.id !== record.id)
+	const [targetRecordId, setTargetRecordId] = useState<string | null>(null)
+	const confirmation = useVerificationAction(() => submitTaxonomyConfirmation({ data: reference }))
+	const rename = useVerificationAction((renamed: string) =>
+		submitTaxonomyRename({ data: { ...reference, name: renamed } }),
+	)
+	const merge = useVerificationAction((target: string) =>
+		submitTaxonomyMerge({ data: { kind: record.kind, sourceRecordId: record.id, targetRecordId: target } }),
+	)
+	const deletion = useVerificationAction(() => submitTaxonomyDeletion({ data: reference }))
+	const proposedTarget = rename.data?.kind === "merge_proposed" ? rename.data.targetRecord : undefined
+	return (
+		<EntryCard
+			heading={
+				<>
+					<Badge variant="info">New {label}</Badge>
+					<span className="min-w-0 font-medium break-words">{record.name}</span>
+				</>
+			}
+			error={confirmation.error ?? rename.error ?? merge.error ?? deletion.error}
+		>
+			{item.documents.length === 0 ? (
+				<Text variant="secondary">No document refers to this {label} any more.</Text>
+			) : (
+				<ul className="flex flex-col gap-1 text-sm text-kumo-subtle">
+					{item.documents.map((document) => (
+						<li key={document.id} className="break-words">
+							{documentLine(document)}
+						</li>
+					))}
+				</ul>
+			)}
+			{renaming && (
+				<form
+					className="flex flex-col gap-2 md:flex-row md:items-end"
+					onSubmit={(event) => {
+						event.preventDefault()
+						if (name.trim() !== "") rename.mutate(name.trim())
+					}}
+				>
+					<div className="w-full min-w-0 md:w-80">
+						<Input
+							label={`New ${label} name`}
+							className="w-full min-w-0"
+							value={name}
+							onChange={(event) => setName(event.target.value)}
+						/>
+					</div>
+					<Button type="submit" variant="primary" className={touchSized} loading={rename.isPending}>
+						Save name
+					</Button>
+				</form>
+			)}
+			{proposedTarget && (
+				<Banner
+					variant="alert"
+					title={`The ${label} ${proposedTarget.name} already has this name`}
+					description={
+						<Button
+							variant="primary"
+							icon={GitMergeIcon}
+							className={`${touchSized} mt-2`}
+							loading={merge.isPending}
+							onClick={() => merge.mutate(proposedTarget.id)}
+						>
+							Merge into {proposedTarget.name}
+						</Button>
+					}
+				/>
+			)}
+			<div className="flex flex-col gap-2 md:flex-row md:flex-wrap md:items-end">
+				<Button
+					variant="primary"
+					icon={CheckIcon}
+					className={touchSized}
+					loading={confirmation.isPending}
+					onClick={() => confirmation.mutate()}
+				>
+					Confirm
+				</Button>
+				<Button
+					variant="secondary"
+					icon={PencilSimpleIcon}
+					className={touchSized}
+					aria-expanded={renaming}
+					onClick={() => setRenaming(!renaming)}
+				>
+					Rename
+				</Button>
+				{mergeTargets.length > 0 && (
+					<div className="flex flex-col gap-2 md:flex-row md:items-end">
+						<Select<string>
+							label={`Merge into ${label}`}
+							className="w-full max-md:h-11 md:w-56"
+							value={targetRecordId}
+							placeholder={`Choose a ${label}`}
+							onValueChange={setTargetRecordId}
+							items={mergeTargets.map((option) => ({ value: option.id, label: option.name }))}
+						/>
+						<Button
+							variant="secondary"
+							icon={GitMergeIcon}
+							className={touchSized}
+							disabled={targetRecordId === null}
+							loading={merge.isPending}
+							onClick={() => targetRecordId !== null && merge.mutate(targetRecordId)}
+						>
+							Merge
+						</Button>
+					</div>
+				)}
+				{item.documents.length === 0 && (
+					<Button
+						variant="secondary-destructive"
+						icon={TrashIcon}
+						className={touchSized}
+						loading={deletion.isPending}
+						onClick={() => deletion.mutate()}
+					>
+						Delete {label}
+					</Button>
+				)}
+			</div>
+		</EntryCard>
+	)
+}
+
+function IllegibleFieldEntry({ item }: { item: Extract<VerificationItem, { reason: "illegible_required_field" }> }) {
+	const [values, setValues] = useState<Partial<Record<RequiredFieldKey, string>>>(() =>
+		Object.fromEntries(
+			item.illegibleFields.map((field) => [field.fieldKey, field.value === null ? "" : String(field.value)]),
+		),
+	)
+	const supply = useVerificationAction(() => {
+		const amount = values.amount === undefined || values.amount === "" ? undefined : Number(values.amount)
+		return submitDocumentRevision({
+			data: {
+				documentId: item.document.id,
+				...(values.document_date !== undefined &&
+					values.document_date !== "" && { documentDate: values.document_date }),
+				...(amount !== undefined && { fields: { amount } }),
+			},
+		})
+	})
+	const complete = item.illegibleFields.every((field) => (values[field.fieldKey] ?? "") !== "")
+	return (
+		<EntryCard
+			heading={
+				<>
+					<Badge variant="warning">Unreadable field</Badge>
+					<span className="min-w-0 font-medium break-words">{documentLine(item.document)}</span>
+				</>
+			}
+			error={supply.error}
+		>
+			<form
+				className="flex flex-col gap-3 md:flex-row md:items-end"
+				onSubmit={(event) => {
+					event.preventDefault()
+					if (complete) supply.mutate(undefined)
+				}}
+			>
+				{item.illegibleFields.map(({ fieldKey }) => (
+					<div key={fieldKey} className="w-full min-w-0 md:w-56">
+						<Input
+							label={requiredFieldInputs[fieldKey].label}
+							className="w-full min-w-0"
+							type={requiredFieldInputs[fieldKey].type}
+							inputMode={fieldKey === "amount" ? "decimal" : undefined}
+							step={fieldKey === "amount" ? 0.01 : undefined}
+							value={values[fieldKey] ?? ""}
+							onChange={(event) => setValues({ ...values, [fieldKey]: event.target.value })}
+						/>
+					</div>
+				))}
+				<Button
+					type="submit"
+					variant="primary"
+					icon={CheckIcon}
+					className={touchSized}
+					disabled={!complete}
+					loading={supply.isPending}
+				>
+					Save
+				</Button>
+			</form>
+		</EntryCard>
+	)
+}
+
+function NonArchivalEntry({ item }: { item: Extract<VerificationItem, { reason: "non_archival_attachment" }> }) {
+	const deletion = useVerificationAction(() => submitDocumentDeletion({ data: { documentId: item.document.id } }))
+	const retention = useVerificationAction(() =>
+		submitDocumentRevision({ data: { documentId: item.document.id, nonArchival: false } }),
+	)
+	return (
+		<EntryCard
+			heading={
+				<>
+					<Badge variant="secondary">Non-archival attachment</Badge>
+					<span className="min-w-0 font-medium break-words">{documentLine(item.document)}</span>
+				</>
+			}
+			error={deletion.error ?? retention.error}
+		>
+			<Text variant="secondary">
+				The classifier read this file as boilerplate that came with another document, such as general terms.
+			</Text>
+			<div className="flex flex-col gap-2 md:flex-row">
+				<Button
+					variant="destructive"
+					icon={TrashIcon}
+					className={touchSized}
+					loading={deletion.isPending}
+					onClick={() => deletion.mutate()}
+				>
+					Delete attachment
+				</Button>
+				<Button
+					variant="secondary"
+					className={touchSized}
+					loading={retention.isPending}
+					onClick={() => retention.mutate()}
+				>
+					Keep document
+				</Button>
+			</div>
+		</EntryCard>
+	)
+}
+
+function VerificationEntry({ item, facets }: { item: VerificationItem; facets: ArchiveFacets }) {
+	switch (item.reason) {
+		case "new_taxonomy_record":
+			return <NewRecordEntry item={item} facets={facets} />
+		case "illegible_required_field":
+			return <IllegibleFieldEntry item={item} />
+		case "non_archival_attachment":
+			return <NonArchivalEntry item={item} />
+	}
+}
+
+function entryKey(item: VerificationItem): string {
+	return item.reason === "new_taxonomy_record" ? `${item.record.kind}-${item.record.id}` : item.document.id
+}
+
+function PendingVerificationPage() {
+	const { items, facets } = Route.useLoaderData()
+	return (
+		<main className="mx-auto flex max-w-6xl flex-col gap-6 px-4 py-6 pb-[max(1.5rem,env(safe-area-inset-bottom))] md:px-6 md:py-12">
+			<div className="flex flex-wrap items-center justify-between gap-4">
+				<Text variant="heading1" as="h1">
+					Pending verification
+				</Text>
+				<ArchiveNavigation />
+			</div>
+			{items.length === 0 ? (
+				<Empty
+					icon={<SealCheckIcon size={32} />}
+					title="Nothing awaits verification"
+					description="Every document is archived and searchable. New senders, unreadable fields, and attachments appear here."
+				/>
+			) : (
+				<ul className="flex flex-col gap-4">
+					{items.map((item) => (
+						<VerificationEntry key={entryKey(item)} item={item} facets={facets} />
+					))}
+				</ul>
+			)}
+		</main>
+	)
+}

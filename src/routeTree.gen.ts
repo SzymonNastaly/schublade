@@ -11,6 +11,7 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as SettingsRouteImport } from './routes/settings'
+import { Route as VerificationRouteImport } from './routes/verification'
 import { Route as ApiDocumentsRouteImport } from './routes/api/documents'
 import { Route as ApiSearch_indexRouteImport } from './routes/api/search_index'
 import { Route as ApiDocumentsDocumentIdRepresentationRouteImport } from './routes/api/documents.$documentId.$representation'
@@ -23,6 +24,11 @@ const IndexRoute = IndexRouteImport.update({
 const SettingsRoute = SettingsRouteImport.update({
   id: '/settings',
   path: '/settings',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const VerificationRoute = VerificationRouteImport.update({
+  id: '/verification',
+  path: '/verification',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiDocumentsRoute = ApiDocumentsRouteImport.update({
@@ -45,6 +51,7 @@ const ApiDocumentsDocumentIdRepresentationRoute =
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/settings': typeof SettingsRoute
+  '/verification': typeof VerificationRoute
   '/api/documents': typeof ApiDocumentsRouteWithChildren
   '/api/search_index': typeof ApiSearch_indexRoute
   '/api/documents/$documentId/$representation': typeof ApiDocumentsDocumentIdRepresentationRoute
@@ -52,6 +59,7 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/settings': typeof SettingsRoute
+  '/verification': typeof VerificationRoute
   '/api/documents': typeof ApiDocumentsRouteWithChildren
   '/api/search_index': typeof ApiSearch_indexRoute
   '/api/documents/$documentId/$representation': typeof ApiDocumentsDocumentIdRepresentationRoute
@@ -60,6 +68,7 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/settings': typeof SettingsRoute
+  '/verification': typeof VerificationRoute
   '/api/documents': typeof ApiDocumentsRouteWithChildren
   '/api/search_index': typeof ApiSearch_indexRoute
   '/api/documents/$documentId/$representation': typeof ApiDocumentsDocumentIdRepresentationRoute
@@ -69,6 +78,7 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/settings'
+    | '/verification'
     | '/api/documents'
     | '/api/search_index'
     | '/api/documents/$documentId/$representation'
@@ -76,6 +86,7 @@ export interface FileRouteTypes {
   to:
     | '/'
     | '/settings'
+    | '/verification'
     | '/api/documents'
     | '/api/search_index'
     | '/api/documents/$documentId/$representation'
@@ -83,6 +94,7 @@ export interface FileRouteTypes {
     | '__root__'
     | '/'
     | '/settings'
+    | '/verification'
     | '/api/documents'
     | '/api/search_index'
     | '/api/documents/$documentId/$representation'
@@ -91,6 +103,7 @@ export interface FileRouteTypes {
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   SettingsRoute: typeof SettingsRoute
+  VerificationRoute: typeof VerificationRoute
   ApiDocumentsRoute: typeof ApiDocumentsRouteWithChildren
   ApiSearch_indexRoute: typeof ApiSearch_indexRoute
 }
@@ -109,6 +122,13 @@ declare module '@tanstack/react-router' {
       path: '/settings'
       fullPath: '/settings'
       preLoaderRoute: typeof SettingsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/verification': {
+      id: '/verification'
+      path: '/verification'
+      fullPath: '/verification'
+      preLoaderRoute: typeof VerificationRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/documents': {
@@ -151,6 +171,7 @@ const ApiDocumentsRouteWithChildren = ApiDocumentsRoute._addFileChildren(
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   SettingsRoute: SettingsRoute,
+  VerificationRoute: VerificationRoute,
   ApiDocumentsRoute: ApiDocumentsRouteWithChildren,
   ApiSearch_indexRoute: ApiSearch_indexRoute,
 }

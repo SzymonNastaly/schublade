@@ -6,7 +6,7 @@ import type { ArchiveDatabase } from "../database/client"
 import type { RequiredFieldKey } from "../ingestion/verification_assessment"
 import type { TaxonomyKind } from "./taxonomy_maintenance"
 
-interface VerificationDocument {
+export interface VerificationDocument {
 	id: string
 	title: string | null
 	documentDate: string | null

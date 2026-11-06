@@ -1,14 +1,17 @@
 import { Button, Empty, LayerCard, Tabs, Text } from "@cloudflare/kumo"
-import { FilesIcon, GearIcon, MagnifyingGlassIcon, UploadSimpleIcon } from "@phosphor-icons/react"
+import { FilesIcon, MagnifyingGlassIcon, UploadSimpleIcon } from "@phosphor-icons/react"
 import { useMutation, useQuery } from "@tanstack/react-query"
-import { Link, createFileRoute, useRouter, useRouterState } from "@tanstack/react-router"
+import { createFileRoute, useRouter, useRouterState } from "@tanstack/react-router"
 import { useEffect, useRef, useState } from "react"
 import { isSettledStatus } from "../ingestion/document_lifecycle"
 import { acceptedMediaTypes } from "../ingestion/source_file"
+import { ArchiveNavigation } from "../interface/archive_navigation"
 import { DocumentList } from "../interface/document_list"
+import { DocumentRevisionForm } from "../interface/document_revision_form"
 import { DocumentSearchControls } from "../interface/document_search_controls"
 import { parseSearchParameters } from "../search/search_criteria"
 import { listArchiveFacets, retrieveDocuments } from "../utilities/server_functions"
+import type { ArchiveFacets } from "../archive/document_listing"
 import type { UploadOutcome } from "../ingestion/document_upload"
 import type { SearchCriteria } from "../search/search_criteria"
 import type { RetrievedDocument } from "../search/document_search"
@@ -78,7 +81,15 @@ function UploadControl() {
 	)
 }
 
-function DocumentInspection({ document }: { document: RetrievedDocument }) {
+function DocumentInspection({
+	document,
+	facets,
+	onDeleted,
+}: {
+	document: RetrievedDocument
+	facets: ArchiveFacets
+	onDeleted: () => void
+}) {
 	const [representation, setRepresentation] = useState("original")
 	const markdown = useQuery({
 		queryKey: ["documents", document.id, "content"],
@@ -94,6 +105,7 @@ function DocumentInspection({ document }: { document: RetrievedDocument }) {
 			<LayerCard.Secondary>{document.title ?? "Untitled document"}</LayerCard.Secondary>
 			<LayerCard.Primary className="flex flex-col gap-4">
 				{document.summary !== null && <Text>{document.summary}</Text>}
+				<DocumentRevisionForm document={document} facets={facets} onDeleted={onDeleted} />
 				<Tabs
 					tabs={[
 						{ value: "original", label: "Original" },
@@ -152,14 +164,8 @@ function ArchiveOverview() {
 				<Text variant="heading1" as="h1">
 					Schublade
 				</Text>
-				<div className="flex items-start gap-2">
-					<Link
-						to="/settings"
-						aria-label="Settings"
-						className="inline-flex h-9 items-center gap-2 rounded-lg px-3 text-kumo-subtle hover:bg-kumo-tint hover:text-kumo-default"
-					>
-						<GearIcon /> <span className="hidden md:inline">Settings</span>
-					</Link>
+				<div className="flex flex-wrap items-start gap-2">
+					<ArchiveNavigation />
 					<UploadControl />
 				</div>
 			</div>
@@ -196,7 +202,14 @@ function ArchiveOverview() {
 					)}
 				</LayerCard.Primary>
 			</LayerCard>
-			{selectedDocument && <DocumentInspection key={selectedDocument.id} document={selectedDocument} />}
+			{selectedDocument && (
+				<DocumentInspection
+					key={selectedDocument.id}
+					document={selectedDocument}
+					facets={facets}
+					onDeleted={() => setSelectedDocumentId(undefined)}
+				/>
+			)}
 		</main>
 	)
 }

@@ -109,12 +109,14 @@ test("ingestDocument recognizes, classifies, archives, and indexes a scanned inv
 			documentDate: "2026-09-22",
 			senderName: "Stadtwerke Talbrück GmbH",
 			categoryName: "Invoice",
+			personMemberId: null,
 			personName: null,
 			summary:
 				"This is an annual electricity consumption statement from Stadtwerke Talbrück for the joint supply address Am Lindenhang 7, covering 1 September 2025 to 31 August 2026. It records a consumption of 2,691 kWh and requires a Nachzahlung of €72.09 by 6 October 2026.",
 			mimeType: "application/pdf",
 			pageCount: 1,
 			verificationReason: "new_taxonomy_record",
+			tagNames: [],
 			fields: [
 				{ fieldKey: "amount", value: expected?.amount?.value, confidence: 0.99 },
 				{ fieldKey: "currency", value: expected?.currency?.value, confidence: 0.99 },

@@ -30,11 +30,13 @@ export interface ListedDocument {
 	senderName: string | null
 	categoryName: string | null
 	/** Null when the document concerns the whole household or is not yet classified. */
+	personMemberId: string | null
 	personName: string | null
 	summary: string | null
 	mimeType: string
 	pageCount: number | null
 	verificationReason: VerificationReason | null
+	tagNames: Array<string>
 	fields: Array<ListedField>
 }
 
@@ -109,7 +111,7 @@ export async function queryDocumentListing(
 	database: ArchiveDatabase,
 	criteria: ListingCriteria = {},
 ): Promise<Array<ListedDocument>> {
-	const [rows, fieldRows] = await Promise.all([
+	const [rows, fieldRows, tagRows] = await Promise.all([
 		database
 			.select({
 				id: documents.id,
@@ -118,6 +120,7 @@ export async function queryDocumentListing(
 				documentDate: documents.documentDate,
 				senderName: senders.name,
 				categoryName: categories.name,
+				personMemberId: documents.personMemberId,
 				personName: householdMembers.displayName,
 				summary: documents.summary,
 				mimeType: documents.mimeType,
@@ -142,6 +145,12 @@ export async function queryDocumentListing(
 			.from(extractedFields)
 			.where(criteria.documentIds === undefined ? undefined : inArray(extractedFields.documentId, criteria.documentIds))
 			.orderBy(asc(extractedFields.fieldKey)),
+		database
+			.select({ documentId: documentTags.documentId, name: tags.name })
+			.from(documentTags)
+			.innerJoin(tags, eq(documentTags.tagId, tags.id))
+			.where(criteria.documentIds === undefined ? undefined : inArray(documentTags.documentId, criteria.documentIds))
+			.orderBy(asc(tags.name)),
 	])
 	const fieldsByDocument = new Map<string, Array<ListedField>>()
 	for (const field of fieldRows) {
@@ -156,6 +165,7 @@ export async function queryDocumentListing(
 	return rows.map(({ storedVerificationReason, refersToUnconfirmedRecord: unconfirmed, ...row }) => ({
 		...row,
 		verificationReason: effectiveVerificationReason(storedVerificationReason, unconfirmed),
+		tagNames: tagRows.filter((tag) => tag.documentId === row.id).map((tag) => tag.name),
 		fields: fieldsByDocument.get(row.id) ?? [],
 	}))
 }

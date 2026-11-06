@@ -50,13 +50,11 @@ export const revokeApiTokenRecord = createServerFn({ method: "POST" })
 		return revokeApiToken(database, data.tokenId)
 	})
 
-/** @public */
 export const retrieveVerificationItems = createServerFn({ method: "GET" }).handler(({ context }) => {
 	authorizeOperation(context, "readArchive")
 	return listVerificationItems(database)
 })
 
-/** @public */
 export const countPendingVerificationItems = createServerFn({ method: "GET" }).handler(({ context }) => {
 	authorizeOperation(context, "readArchive")
 	return countVerificationItems(database)
@@ -64,7 +62,6 @@ export const countPendingVerificationItems = createServerFn({ method: "GET" }).h
 
 const archiveEnvironment = () => ({ database, storage: env.DOCUMENT_STORAGE, searchIndex: env.SEARCH_INDEX })
 
-/** @public */
 export const submitDocumentRevision = createServerFn({ method: "POST" })
 	.validator(documentRevisionSchema)
 	.handler(({ context, data }) => {
@@ -72,7 +69,6 @@ export const submitDocumentRevision = createServerFn({ method: "POST" })
 		return reviseDocument(archiveEnvironment(), data)
 	})
 
-/** @public */
 export const submitDocumentDeletion = createServerFn({ method: "POST" })
 	.validator(z.strictObject({ documentId: z.uuid() }))
 	.handler(({ context, data }) => {
@@ -80,7 +76,6 @@ export const submitDocumentDeletion = createServerFn({ method: "POST" })
 		return deleteDocument(archiveEnvironment(), data.documentId)
 	})
 
-/** @public */
 export const submitTaxonomyConfirmation = createServerFn({ method: "POST" })
 	.validator(taxonomyRecordSchema)
 	.handler(({ context, data }) => {
@@ -88,7 +83,6 @@ export const submitTaxonomyConfirmation = createServerFn({ method: "POST" })
 		return confirmTaxonomyRecord(database, data)
 	})
 
-/** @public */
 export const submitTaxonomyRename = createServerFn({ method: "POST" })
 	.validator(taxonomyRenameSchema)
 	.handler(({ context, data }) => {
@@ -96,7 +90,6 @@ export const submitTaxonomyRename = createServerFn({ method: "POST" })
 		return renameTaxonomyRecord(database, data)
 	})
 
-/** @public */
 export const submitTaxonomyMerge = createServerFn({ method: "POST" })
 	.validator(taxonomyMergeSchema)
 	.handler(({ context, data }) => {
@@ -104,7 +97,6 @@ export const submitTaxonomyMerge = createServerFn({ method: "POST" })
 		return mergeTaxonomyRecords(database, data)
 	})
 
-/** @public */
 export const submitTaxonomyDeletion = createServerFn({ method: "POST" })
 	.validator(taxonomyRecordSchema)
 	.handler(({ context, data }) => {

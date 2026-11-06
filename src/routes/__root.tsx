@@ -1,5 +1,6 @@
 import { HeadContent, Scripts, createRootRoute } from "@tanstack/react-router"
 import applicationStylesheet from "../styles.css?url"
+import { countPendingVerificationItems } from "../utilities/server_functions"
 import type { ReactNode } from "react"
 
 export const Route = createRootRoute({
@@ -11,6 +12,9 @@ export const Route = createRootRoute({
 		],
 		links: [{ rel: "stylesheet", href: applicationStylesheet }],
 	}),
+	// Every page shows the number of entries in Pending verification, and invalidating the router
+	// after an action counts them again.
+	loader: () => countPendingVerificationItems(),
 	shellComponent: RootDocument,
 })
 
