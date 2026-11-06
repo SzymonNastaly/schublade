@@ -1,7 +1,14 @@
 import { Badge, Banner, Button, Empty, Input, LayerCard, Select, Text } from "@cloudflare/kumo"
-import { CheckIcon, GitMergeIcon, PencilSimpleIcon, SealCheckIcon, TrashIcon } from "@phosphor-icons/react"
+import {
+	CaretRightIcon,
+	CheckIcon,
+	GitMergeIcon,
+	PencilSimpleIcon,
+	SealCheckIcon,
+	TrashIcon,
+} from "@phosphor-icons/react"
 import { useMutation } from "@tanstack/react-query"
-import { createFileRoute, useRouter } from "@tanstack/react-router"
+import { Link, createFileRoute, useRouter } from "@tanstack/react-router"
 import { useState } from "react"
 import { ActionConfirmation, documentDeletionDescription } from "../interface/action_confirmation"
 import { ArchiveNavigation } from "../interface/archive_navigation"
@@ -59,6 +66,20 @@ function documentLine(document: VerificationDocument): string {
 	return [document.title ?? "Untitled document", document.senderName, document.documentDate]
 		.filter((part) => part !== null)
 		.join(" · ")
+}
+
+// At least 44 pixels high below md, where a finger taps it.
+function DocumentLink({ document }: { document: VerificationDocument }) {
+	return (
+		<Link
+			to="/documents/$documentId"
+			params={{ documentId: document.id }}
+			className="flex min-w-0 items-center gap-1 text-kumo-link underline underline-offset-2 max-md:min-h-11"
+		>
+			<span className="min-w-0 break-words">{documentLine(document)}</span>
+			<CaretRightIcon size={14} className="shrink-0" aria-hidden />
+		</Link>
+	)
 }
 
 function EntryCard({ heading, children, error }: { heading: ReactNode; children: ReactNode; error: Error | null }) {
@@ -150,8 +171,8 @@ function NewRecordEntry({
 			) : (
 				<ul className="flex flex-col gap-1 text-sm text-kumo-subtle">
 					{item.documents.map((document) => (
-						<li key={document.id} className="break-words">
-							{documentLine(document)}
+						<li key={document.id}>
+							<DocumentLink document={document} />
 						</li>
 					))}
 				</ul>
@@ -270,7 +291,7 @@ function IllegibleFieldEntry({ item }: { item: Extract<VerificationItem, { reaso
 			heading={
 				<>
 					<Badge variant="warning">Unreadable field</Badge>
-					<span className="min-w-0 font-medium break-words">{documentLine(item.document)}</span>
+					<DocumentLink document={item.document} />
 				</>
 			}
 			error={supply.error}
@@ -320,7 +341,7 @@ function NonArchivalEntry({ item }: { item: Extract<VerificationItem, { reason: 
 			heading={
 				<>
 					<Badge variant="secondary">Non-archival attachment</Badge>
-					<span className="min-w-0 font-medium break-words">{documentLine(item.document)}</span>
+					<DocumentLink document={item.document} />
 				</>
 			}
 			error={retention.error}
