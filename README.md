@@ -10,7 +10,7 @@ Phases 0 and 1 are complete and deployed to the `schublade-staging` Worker on `w
 
 On the 12 synthetic test documents, the default `@cf/deepseek-ai/deepseek-v4.1-flash-1017` model matched 79 of 80 expected fields. Its single mismatch was a supermarket receipt fixture that expected `Frischemarkt Talbrück` instead of the printed legal name `Frischemarkt Talbrück GmbH`. The fixture now expects the legal name.
 
-Search in phase 2, API tokens and email in phase 3, and the **Pending verification** view in phase 4 are not built yet. Live WebSocket updates in phase 5, the `/mcp` server in phase 6, and mobile installation in phase 7 also remain planned. `pnpm run provision` does not yet add an Access bypass for `/api/documents/ingest` and `/mcp`. Very large documents that produce over about 1 MiB of Markdown fail because page count and classifier input are uncapped.
+Search in phase 2, API tokens and email in phase 3, and the **Pending verification** view in phase 4 are not built yet. Live WebSocket updates in phase 5, the `/mcp` server in phase 6, and mobile installation in phase 7 also remain planned. `pnpm run provision` does not yet add an Access bypass for `/api/documents/ingest` and `/mcp`. The workflow refuses a document with more than 50 pages without a text layer before it transcribes any page and sets the status to `failed`. That 50-page limit caps OCR cost at about 0.04 USD per document. A workflow step result over about 1 MiB of Markdown still fails the step, and the workflow does not truncate the classifier input.
 
 ## What it does
 

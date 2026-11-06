@@ -177,5 +177,5 @@ Add `/mcp` with `McpAgent` and `@cloudflare/workers-oauth-provider`, with the co
 
 ## Follow-ups
 
-- **Very large documents.** A workflow step output over about 1 MiB of Markdown fails the step, and the workflow does not cap page counts or truncate classifier input. Very large documents would therefore end with the status `failed`.
+- **Very large documents.** The workflow refuses a document with more than 50 pages without a text layer before it transcribes any page. The limit caps OCR cost per document at about 0.04 USD, and the refused document ends with the status `failed`. A workflow step output over about 1 MiB of Markdown still fails the step, and the workflow does not truncate classifier input.
 - **OCR resolution and receipt item lines.** Choosing whether to render scanned pages at 200 dpi instead of 150 dpi and improving item-line transcription on thermal receipts remain open.

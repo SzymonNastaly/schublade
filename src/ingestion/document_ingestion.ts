@@ -14,7 +14,7 @@ import { classifyDocument } from "../inference/document_classifier"
 import { inspectPages, rasterizePage } from "../inference/page_rasterizer"
 import { createMoondreamRecognizer } from "../inference/text_recognizer"
 import { standardCategories } from "./document_classification"
-import { assembleDocumentMarkdown, pagesWithoutTextLayer } from "./document_text"
+import { assembleDocumentMarkdown, pagesWithoutTextLayer, recognitionLimitViolation } from "./document_text"
 import { predecessorStatuses } from "./document_lifecycle"
 import { contentObjectKey, parseSourceFile } from "./source_file"
 import { normalizeTaxonomyName, resolveTaxonomyName } from "./taxonomy_resolution"
@@ -109,11 +109,10 @@ async function extractText(
 		inspectPages(bytes),
 	])
 	if (conversion.format === "error") throw new Error(`Markdown conversion failed: ${conversion.error}`)
-	return {
-		pageCount: pages.length,
-		convertedMarkdown: conversion.data,
-		pagesRequiringRecognition: pagesWithoutTextLayer(pages),
-	}
+	const pagesRequiringRecognition = pagesWithoutTextLayer(pages)
+	const limitViolation = recognitionLimitViolation(pagesRequiringRecognition)
+	if (limitViolation) throw new NonRetryableError(limitViolation)
+	return { pageCount: pages.length, convertedMarkdown: conversion.data, pagesRequiringRecognition }
 }
 
 async function recognizePage(

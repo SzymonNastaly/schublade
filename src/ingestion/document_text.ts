@@ -19,6 +19,15 @@ export function pagesWithoutTextLayer(pages: ReadonlyArray<PageInspection>): Arr
 	return pages.filter((page) => page.textCharacterCount < MINIMUM_TEXT_LAYER_CHARACTERS).map((page) => page.pageIndex)
 }
 
+// Each transcribed page costs one Moondream call and one workflow step, so a long scan is
+// refused before its first page is transcribed rather than after paying for every page.
+const MAXIMUM_RECOGNIZED_PAGES = 50
+
+export function recognitionLimitViolation(pageIndexes: ReadonlyArray<number>): string | undefined {
+	if (pageIndexes.length <= MAXIMUM_RECOGNIZED_PAGES) return undefined
+	return `The document has ${pageIndexes.length} pages without a text layer, and at most ${MAXIMUM_RECOGNIZED_PAGES} are transcribed`
+}
+
 /**
  * Recognized pages follow the converted Markdown in page order. When every page needed
  * recognition, the conversion holds only headings, so it is left out.

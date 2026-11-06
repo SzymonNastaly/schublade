@@ -1,5 +1,13 @@
 import { expect, test } from "vitest"
-import { assembleDocumentMarkdown, pagesWithoutTextLayer } from "./document_text"
+import { assembleDocumentMarkdown, pagesWithoutTextLayer, recognitionLimitViolation } from "./document_text"
+
+test("recognitionLimitViolation transcribes up to 50 pages and refuses a 51st", () => {
+	const pageIndexes = (count: number) => Array.from({ length: count }, (_, index) => index)
+	expect(recognitionLimitViolation(pageIndexes(50))).toBe(undefined)
+	expect(recognitionLimitViolation(pageIndexes(51))).toBe(
+		"The document has 51 pages without a text layer, and at most 50 are transcribed",
+	)
+})
 
 test("pagesWithoutTextLayer selects pages with fewer than 40 text layer characters", () => {
 	expect(
