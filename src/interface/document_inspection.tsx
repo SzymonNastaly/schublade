@@ -1,4 +1,4 @@
-import { LayerCard, Tabs, Text } from "@cloudflare/kumo"
+import { LayerCard, Link, Tabs, Text } from "@cloudflare/kumo"
 import { useQuery } from "@tanstack/react-query"
 import { useState } from "react"
 import { DocumentRevisionForm } from "./document_revision_form"
@@ -43,11 +43,17 @@ export function DocumentInspection({
 						render the email as a PDF.
 					</Text>
 				) : representation === "original" ? (
-					document.mimeType === "application/pdf" ? (
-						<iframe title="Original document" src={originalUrl} className="h-[80vh] w-full rounded border" />
-					) : (
-						<img alt="Original document" src={originalUrl} className="max-h-[80vh] w-full object-contain" />
-					)
+					<>
+						{/* An iframe in iOS Safari shows only the first page, so a phone opens the file in its own viewer. */}
+						<Link href={originalUrl} target="_blank" rel="noopener" className="self-start max-md:min-h-11">
+							Open original <Link.ExternalIcon />
+						</Link>
+						{document.mimeType === "application/pdf" ? (
+							<iframe title="Original document" src={originalUrl} className="h-[80vh] w-full rounded border" />
+						) : (
+							<img alt="Original document" src={originalUrl} className="max-h-[80vh] w-full object-contain" />
+						)}
+					</>
 				) : (
 					<pre className="max-h-[80vh] overflow-auto text-sm whitespace-pre-wrap">{markdown.data ?? "Loading"}</pre>
 				)}
