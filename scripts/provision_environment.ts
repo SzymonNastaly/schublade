@@ -470,14 +470,16 @@ const accessApplicationSchema = z.object({
 	session_duration: z.string().optional(),
 })
 
+/**
+ * With keepCurrentDestinations, the application keeps every hostname it covers now and adds the
+ * requested ones, because the Worker may still serve an old hostname until the next deployment.
+ */
 async function ensureAccessApplication(
 	applicationName: string,
-	destinationUris: Array<string>,
+	requestedUris: Array<string>,
 	policyIdentifier: string,
+	{ keepCurrentDestinations }: { keepCurrentDestinations: boolean } = { keepCurrentDestinations: false },
 ): Promise<StepReport & { audience: string }> {
-	const request = accessApplicationBody(applicationName, destinationUris, policyIdentifier)
-	const { destinations } = request
-	const body = JSON.stringify(request)
 	const applications = await listCloudflareResources(accessApplicationSchema, [
 		"zero-trust",
 		"access",
@@ -488,6 +490,11 @@ async function ensureAccessApplication(
 		"--exact",
 	])
 	const existing = applications.find((application) => application.name === applicationName)
+	const currentUris = existing?.destinations.flatMap((destination) => destination.uri ?? []) ?? []
+	const destinationUris = keepCurrentDestinations ? [...new Set([...requestedUris, ...currentUris])] : requestedUris
+	const request = accessApplicationBody(applicationName, destinationUris, policyIdentifier)
+	const { destinations } = request
+	const body = JSON.stringify(request)
 	if (existing === undefined) {
 		const created = await queryCloudflare(accessApplicationSchema, [
 			"zero-trust",
@@ -619,15 +626,18 @@ async function servesParameters(parameters: DeploymentParameters & { workerName:
 			if (JSON.stringify(live) !== JSON.stringify(expected)) return false
 		}
 	}
+	if (parameters.customHostname !== parameters.deployedCustomHostname) return false
 	return parameters.customHostname === undefined || !(await servesWorkersDev(parameters.workerName))
 }
 
 async function ensureAccessDeployment(parameters: DeploymentParameters & { workerName: string }): Promise<StepReport> {
+	const deployed = { ...parameters, deployedCustomHostname: parameters.customHostname }
 	if (await servesParameters(parameters)) {
-		writeDeploymentParameters(parameters)
+		writeDeploymentParameters(deployed)
 		return { outcome: "already present" }
 	}
 	await deployWorker(parameters)
+	writeDeploymentParameters(deployed)
 	return { outcome: "deployed" }
 }
 
@@ -756,7 +766,10 @@ async function main(): Promise<void> {
 	const { audience } = await performStep(
 		`Access application "${applicationName}"`,
 		`Inspect the application under Zero Trust, Access, Applications, ${RERUN}.`,
-		async () => ensureAccessApplication(applicationName, await protectedHostnames(), policyIdentifier),
+		async () =>
+			ensureAccessApplication(applicationName, await protectedHostnames(), policyIdentifier, {
+				keepCurrentDestinations: true,
+			}),
 	)
 	const primaryHostname = customHostname ?? workerHostname
 	const tokenIngestionName = `schublade ${workerName}: token ingestion`
@@ -794,13 +807,12 @@ async function main(): Promise<void> {
 		`Run \`pnpm build\` and \`pnpm exec cf deploy --prebuilt\` to see the full error. When cf deploy asks to replace or remove an Email Routing rule, run \`pnpm run deploy\` in a terminal and confirm, ${RERUN}.`,
 		() => ensureAccessDeployment(parameters),
 	)
-	if (customHostname !== undefined) {
-		await performStep(
-			`Access application "${applicationName}" after the move to ${customHostname}`,
-			`Inspect the application under Zero Trust, Access, Applications, ${RERUN}.`,
-			async () => ensureAccessApplication(applicationName, await protectedHostnames(), policyIdentifier),
-		)
-	}
+	// Only now, with the deployment serving its final hostnames, does Access drop the others.
+	await performStep(
+		`Access application "${applicationName}" after the deployment`,
+		`Inspect the application under Zero Trust, Access, Applications, ${RERUN}.`,
+		async () => ensureAccessApplication(applicationName, await protectedHostnames(), policyIdentifier),
+	)
 	if (emailZone !== undefined && ingestionEmailAddress !== undefined) {
 		await performStep(
 			`Email Routing rule for ${ingestionEmailAddress}`,

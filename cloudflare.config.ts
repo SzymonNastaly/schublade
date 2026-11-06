@@ -29,6 +29,9 @@ const deploymentParametersSchema = z.strictObject({
 	ingestionEmailAddress: z.email().optional(),
 	// A Workers custom domain, such as staging.schublade.org, that replaces the workers.dev hostname.
 	customHostname: z.hostname().optional(),
+	// The custom hostname that the last deployment of `pnpm run provision` attached. cf cannot list a
+	// Worker's custom domains, so a differing customHostname tells the script to deploy again.
+	deployedCustomHostname: z.hostname().optional(),
 })
 
 export type DeploymentParameters = z.infer<typeof deploymentParametersSchema>
