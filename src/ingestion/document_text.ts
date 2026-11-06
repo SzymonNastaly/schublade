@@ -15,8 +15,40 @@ export interface PageTranscription {
 	text: string
 }
 
-export function pagesWithoutTextLayer(pages: ReadonlyArray<PageInspection>): Array<number> {
-	return pages.filter((page) => page.textCharacterCount < MINIMUM_TEXT_LAYER_CHARACTERS).map((page) => page.pageIndex)
+const PAGE_HEADING = /^### Page (\d+)\s*$/gm
+
+/** Letters and digits per page of the `toMarkdown()` output, keyed by page index. */
+function convertedCharactersByPage(convertedMarkdown: string): Map<number, number> {
+	const headings = [...convertedMarkdown.matchAll(PAGE_HEADING)]
+	const counts = new Map<number, number>()
+	headings.forEach((heading, position) => {
+		const sectionStart = heading.index + heading[0].length
+		const sectionEnd = headings[position + 1]?.index ?? convertedMarkdown.length
+		const section = convertedMarkdown.slice(sectionStart, sectionEnd)
+		counts.set(Number(heading[1]) - 1, section.match(/[\p{L}\p{N}]/gu)?.length ?? 0)
+	})
+	return counts
+}
+
+/**
+ * A page is transcribed when its text layer is sparse, or when `toMarkdown()` could not read the
+ * layer: a ticket on staging had 40 or more PDFium characters on its page and an empty page section
+ * in the conversion, so the classifier saw no text. Without page headings in the conversion, only
+ * the text layer decides, so a conversion in another layout never sends every page to OCR.
+ */
+export function pagesRequiringRecognition(
+	pages: ReadonlyArray<PageInspection>,
+	convertedMarkdown: string,
+): Array<number> {
+	const convertedCharacters = convertedCharactersByPage(convertedMarkdown)
+	return pages
+		.filter(
+			(page) =>
+				page.textCharacterCount < MINIMUM_TEXT_LAYER_CHARACTERS ||
+				(convertedCharacters.size > 0 &&
+					(convertedCharacters.get(page.pageIndex) ?? 0) < MINIMUM_TEXT_LAYER_CHARACTERS),
+		)
+		.map((page) => page.pageIndex)
 }
 
 // Each transcribed page costs one Moondream call and one workflow step, so a long scan is
