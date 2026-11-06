@@ -1,12 +1,12 @@
 import { inArray } from "drizzle-orm"
-import PostalMime from "postal-mime"
+import PostalMime, { addressParser } from "postal-mime"
 import { connectDatabase } from "../database/client"
 import { documents } from "../database/schema"
 import { acceptDocumentUpload } from "./document_upload"
 import { identifySourceFile } from "./source_file"
 import type { MailContext } from "./classification_prompt"
 import type { UploadEnvironment, UploadOutcome } from "./document_upload"
-import type { Email, PostalMimeOptions } from "postal-mime"
+import type { Email, Header, PostalMimeOptions } from "postal-mime"
 
 type MailEnvironment = UploadEnvironment & Pick<Env, "INGESTION_EMAIL_ADDRESS" | "MAIL_SENDER_ALLOWLIST">
 
@@ -29,6 +29,7 @@ const PARSE_LIMITS = {
 	maxRfc822NestingDepth: 2,
 } satisfies PostalMimeOptions
 const CLOUDFLARE_AUTHENTICATION_SERVICE = "mx.cloudflare.net"
+const LOGGED_HEADER_COUNT = 12
 
 const UNACCEPTED_RECIPIENT = "This address does not accept documents"
 // Every sender check gives the same reason, so a forged sender cannot tell whether an envelope
@@ -55,25 +56,66 @@ function rejectEnvelope(
 	return undefined
 }
 
-/**
- * Email Routing prepends its own Authentication-Results header, so only the first one is
- * trusted; a sender can add others below it. DMARC authenticates the domain of the From header,
- * which is why the allowlist is checked against that address as well as the envelope sender.
- */
-function authenticatesSender(email: Email, allowlist: ReadonlyArray<string>): boolean {
-	const fromAddress = normalizeAddress(email.from?.address ?? "")
-	if (!allowlist.map(normalizeAddress).includes(fromAddress)) return false
-	const authenticationResults = email.headers.find((header) => header.key === "authentication-results")
-	if (authenticationResults === undefined) return false
-	const [serviceIdentifier = "", ...results] = authenticationResults.value
+/** The semicolon-separated fields of an authentication results header, without comments. */
+function resultFields(header: Header): Array<string> {
+	return header.value
 		.replace(/\([^)]*\)/g, "")
 		.split(";")
-		.map((part) => part.trim())
-	if (serviceIdentifier.split(/\s+/)[0]?.toLowerCase() !== CLOUDFLARE_AUTHENTICATION_SERVICE) return false
-	const dmarcResult = results.find((result) => /^dmarc\s*=/i.test(result))
+		.map((field) => field.trim())
+}
+
+/**
+ * The authserv-id of an Authentication-Results header, or of an ARC-Authentication-Results header
+ * after its instance tag: the host that claims to have written the results.
+ */
+function authenticationService(header: Header): string {
+	const fields = resultFields(header)
+	const service = header.key === "arc-authentication-results" ? fields[1] : fields[0]
+	return service?.split(/\s+/)[0]?.toLowerCase() ?? ""
+}
+
+/**
+ * Email Routing prepends its Authentication-Results header, so that header precedes every header
+ * the sender wrote. Its documentation does not say whether Email Routing adds other headers above
+ * its own, so the results are trusted only as the first header of the message and only while no
+ * other Authentication-Results header claims mx.cloudflare.net. DMARC authenticates the domain of
+ * the From header, so the one From mailbox must be the envelope sender, which the allowlist admitted.
+ */
+function authenticatesSender(headers: ReadonlyArray<Header>, envelopeSender: string): boolean {
+	const cloudflareResults = headers.filter(
+		(header) =>
+			header.key === "authentication-results" && authenticationService(header) === CLOUDFLARE_AUTHENTICATION_SERVICE,
+	)
+	const [cloudflareResult] = cloudflareResults
+	if (cloudflareResult === undefined || cloudflareResults.length > 1 || cloudflareResult !== headers[0]) return false
+	const fromHeaders = headers.filter((header) => header.key.trim() === "from")
+	const fromMailboxes = fromHeaders.length === 1 ? addressParser(fromHeaders[0]?.value ?? "") : []
+	const fromAddress = fromMailboxes.length === 1 ? fromMailboxes[0]?.address : undefined
+	if (fromAddress === undefined || normalizeAddress(fromAddress) !== normalizeAddress(envelopeSender)) return false
+	const dmarcResult = resultFields(cloudflareResult)
+		.slice(1)
+		.find((field) => /^dmarc\s*=/i.test(field))
 	if (dmarcResult === undefined || !/^dmarc\s*=\s*pass\b/i.test(dmarcResult)) return false
 	const evaluatedDomain = /\bheader\.from\s*=\s*([^\s;]+)/i.exec(dmarcResult)?.[1]
-	return evaluatedDomain === undefined || evaluatedDomain.toLowerCase() === fromAddress.split("@").pop()
+	return (
+		evaluatedDomain === undefined || evaluatedDomain.toLowerCase() === normalizeAddress(fromAddress).split("@").pop()
+	)
+}
+
+/**
+ * The header layout of a delivery without addresses, subjects, or bodies: the names of its first
+ * headers, and the position and authserv-id of each authentication results header. The logged
+ * layout of live deliveries shows whether Cloudflare's results are their first header.
+ */
+function describeHeaderLayout(headers: ReadonlyArray<Header>) {
+	return {
+		firstHeaderNames: headers.slice(0, LOGGED_HEADER_COUNT).map((header) => header.originalKey),
+		authenticationResults: headers.flatMap((header, index) =>
+			header.key === "authentication-results" || header.key === "arc-authentication-results"
+				? [{ index, header: header.originalKey, authenticationService: authenticationService(header) }]
+				: [],
+		),
+	}
 }
 
 /** The header section of a raw message, through the empty line that ends it. */
@@ -173,8 +215,9 @@ export async function receiveInboundMail(message: InboundMessage, environment: M
 		return
 	}
 	const raw = new Uint8Array(await new Response(message.raw).arrayBuffer())
-	const headers = await parseWithinLimits(headerSection(raw))
-	if (headers === undefined || !authenticatesSender(headers, environment.MAIL_SENDER_ALLOWLIST)) {
+	const headers = (await parseWithinLimits(headerSection(raw)))?.headers ?? []
+	console.log("Inbound mail header layout", JSON.stringify(describeHeaderLayout(headers)))
+	if (!authenticatesSender(headers, message.from)) {
 		message.setReject(UNAUTHORIZED_SENDER)
 		return
 	}
@@ -188,7 +231,7 @@ export async function receiveInboundMail(message: InboundMessage, environment: M
 		message.setReject("The message has no Message-ID header")
 		return
 	}
-	const senderAddress = normalizeAddress(headers.from?.address ?? "")
+	const senderAddress = normalizeAddress(message.from)
 
 	const subject = email.subject?.trim() ?? ""
 	const mailContext: MailContext = {
