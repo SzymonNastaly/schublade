@@ -3,7 +3,7 @@ import { expect, inject, test } from "vitest"
 import { connectDatabase } from "../database/client"
 import { documents } from "../database/schema"
 import { contentObjectKey } from "../ingestion/source_file"
-import { indexMissingDocuments } from "./document_indexing"
+import { indexMissingDocuments, receiveIndexingRequest } from "./document_indexing"
 import type { SearchIndex } from "./document_indexing"
 
 const brokenDocumentId = "1c9e4a7b-2d3f-4e5a-8b6c-7d8e9f0a1b2c"
@@ -68,5 +68,60 @@ test("indexMissingDocuments indexes the other documents when one has no extracte
 			remainingDocumentCount: 1,
 		},
 		uploadedItemNames: [`${intactDocumentId}.md`],
+	})
+})
+
+test("indexMissingDocuments reads every page of items until an empty one", async () => {
+	await prepareArchive()
+	const { uploadedItemNames, searchIndex } = createSearchIndex([
+		[{ key: `${brokenDocumentId}.md`, status: "completed" }],
+		[{ key: `${intactDocumentId}.md`, status: "completed" }],
+	])
+
+	const report = await indexMissingDocuments(connectDatabase(env.DATABASE), env.DOCUMENT_STORAGE, searchIndex)
+
+	expect({ report, uploadedItemNames }).toEqual({
+		report: { indexedDocumentIds: [], failedDocuments: [], remainingDocumentCount: 0 },
+		uploadedItemNames: [],
+	})
+})
+
+test("indexMissingDocuments uploads nothing when the item listing does not end", async () => {
+	await prepareArchive()
+	const { uploadedItemNames, searchIndex } = createSearchIndex(
+		Array.from({ length: 101 }, () => [{ key: `${brokenDocumentId}.md`, status: "completed" as const }]),
+	)
+
+	const outcome = indexMissingDocuments(connectDatabase(env.DATABASE), env.DOCUMENT_STORAGE, searchIndex)
+
+	await expect(outcome).rejects.toThrow(
+		"AI Search listed more than 100 pages of items, so the documents it lacks are unknown",
+	)
+	expect(uploadedItemNames).toEqual([])
+})
+
+test("receiveIndexingRequest refuses a request from another site", async () => {
+	await prepareArchive()
+	const { uploadedItemNames, searchIndex } = createSearchIndex()
+	const environment = { ...env, SEARCH_INDEX: searchIndex }
+	const indexingRequest = (origin?: string) =>
+		new Request("https://archive.test/api/search_index", {
+			method: "POST",
+			headers: origin === undefined ? {} : { Origin: origin },
+		})
+
+	const crossSite = await receiveIndexingRequest(environment, indexingRequest("https://attacker.example"))
+	const uploadsAfterCrossSite = [...uploadedItemNames]
+	const sameSite = await receiveIndexingRequest(environment, indexingRequest("https://archive.test"))
+	const withoutOrigin = await receiveIndexingRequest(environment, indexingRequest())
+
+	expect({
+		crossSite: { status: crossSite.status, body: await crossSite.json() },
+		uploadsAfterCrossSite,
+		statuses: [sameSite.status, withoutOrigin.status],
+	}).toEqual({
+		crossSite: { status: 403, body: { error: "A page on https://attacker.example may not index documents" } },
+		uploadsAfterCrossSite: [],
+		statuses: [200, 200],
 	})
 })

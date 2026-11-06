@@ -52,7 +52,7 @@ src/
 	search/                                AI Search indexing and retrieval; search_index_item.ts and search_criteria.ts are pure and tested in Node
 		search_index_item.ts                 Item name, Markdown content, and custom metadata of an indexed document
 		search_criteria.ts                   Search parameter schema, the AI Search filter, and passage excerpts
-		document_indexing.ts                 SearchIndex port, the index step, and indexMissingDocuments for documents absent from AI Search
+		document_indexing.ts                 SearchIndex port, the index step, indexMissingDocuments, and the POST /api/search_index handler
 		document_indexing.workerd.test.ts
 		document_search.ts                   Hybrid AI Search query joined with D1, or the D1 listing without a query
 		document_search.workerd.test.ts

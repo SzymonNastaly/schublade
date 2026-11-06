@@ -1,4 +1,5 @@
 import { and, asc, eq } from "drizzle-orm"
+import { connectDatabase } from "../database/client"
 import { documentTags, documents, senders, tags } from "../database/schema"
 import { contentObjectKey } from "../ingestion/source_file"
 import {
@@ -26,6 +27,10 @@ const INDEXING_BATCH_SIZE = 100
 
 // AI Search lists at most 50 items per page.
 const ITEM_LISTING_PAGE_SIZE = 50
+
+// Each page is one subrequest. 100 pages hold 5,000 items, and a listing that does not end
+// stops here instead of at the subrequest limit of the Worker invocation.
+const MAXIMUM_LISTING_PAGES = 100
 
 async function readIndexedDocument(
 	database: ArchiveDatabase,
@@ -77,18 +82,25 @@ export async function indexDocument(
 	})
 }
 
-/** The status of every item Schublade uploaded, by document identifier. */
+/**
+ * The status of every item Schublade uploaded, by document identifier. A short page does not
+ * prove the end of the listing, so only an empty page ends it.
+ */
 async function listIndexedItemStatuses(searchIndex: SearchIndex): Promise<Map<string, AiSearchItemInfo["status"]>> {
 	const statuses = new Map<string, AiSearchItemInfo["status"]>()
 	const items = await searchIndex.items
-	for (let page = 1; ; page++) {
+	for (let page = 1; page <= MAXIMUM_LISTING_PAGES; page++) {
 		const { result } = await items.list({ page, per_page: ITEM_LISTING_PAGE_SIZE, source: "builtin" })
+		if (result.length === 0) return statuses
 		for (const item of result) {
 			const documentId = documentIdOfItemName(item.key)
 			if (documentId !== undefined) statuses.set(documentId, item.status)
 		}
-		if (result.length < ITEM_LISTING_PAGE_SIZE) return statuses
 	}
+	// Every document missing from an incomplete listing would look absent and be uploaded again.
+	throw new Error(
+		`AI Search listed more than ${MAXIMUM_LISTING_PAGES} pages of items, so the documents it lacks are unknown`,
+	)
 }
 
 interface IndexingFailure {
@@ -141,4 +153,25 @@ export async function indexMissingDocuments(
 		failedDocuments,
 		remainingDocumentCount: missingDocumentIds.length - indexedDocumentIds.length,
 	}
+}
+
+type IndexingEnvironment = Pick<Env, "DATABASE" | "DOCUMENT_STORAGE"> & { SEARCH_INDEX: SearchIndex }
+
+/**
+ * Answers POST /api/search_index. A browser sends Origin with every POST, and a page on another
+ * site must not start billed uploads through the Access session of a household member. A
+ * script sends no Origin.
+ */
+export async function receiveIndexingRequest(environment: IndexingEnvironment, request: Request): Promise<Response> {
+	const origin = request.headers.get("Origin")
+	if (origin !== null && origin !== new URL(request.url).origin) {
+		return Response.json({ error: `A page on ${origin} may not index documents` }, { status: 403 })
+	}
+	return Response.json(
+		await indexMissingDocuments(
+			connectDatabase(environment.DATABASE),
+			environment.DOCUMENT_STORAGE,
+			environment.SEARCH_INDEX,
+		),
+	)
 }
