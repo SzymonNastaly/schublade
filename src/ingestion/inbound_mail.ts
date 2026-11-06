@@ -75,27 +75,44 @@ function authenticationService(header: Header): string {
 }
 
 /**
- * Email Routing prepends its Authentication-Results header, so that header precedes every header
- * the sender wrote. Its documentation does not say whether Email Routing adds other headers above
- * its own, so the results are trusted only as the first header of the message and only while no
- * other Authentication-Results header claims mx.cloudflare.net. DMARC authenticates the domain of
- * the From header, so the one From mailbox must be the envelope sender, which the allowlist admitted.
+ * The dmarc result that Email Routing wrote, such as "dmarc=pass header.from=gmail.com".
+ * Email Routing prepends a block of headers that opens with its own Received header and ends
+ * before the Received header of the previous hop. Every relay prepends, so each header a sender
+ * wrote sits below that second Received header, and only Cloudflare writes inside the block. The
+ * result is read from the one mx.cloudflare.net Authentication-Results header inside the block.
+ * Without a second Received header, the block cannot be told apart from the sender's headers.
  */
-function authenticatesSender(headers: ReadonlyArray<Header>, envelopeSender: string): boolean {
-	const cloudflareResults = headers.filter(
-		(header) =>
-			header.key === "authentication-results" && authenticationService(header) === CLOUDFLARE_AUTHENTICATION_SERVICE,
-	)
+function cloudflareDmarcResult(headers: ReadonlyArray<Header>): string | undefined {
+	if (headers[0]?.key !== "received") return undefined
+	const blockEnd = headers.findIndex((header, index) => index > 0 && header.key === "received")
+	if (blockEnd === -1) return undefined
+	const cloudflareResults = headers
+		.slice(0, blockEnd)
+		.filter(
+			(header) =>
+				header.key === "authentication-results" && authenticationService(header) === CLOUDFLARE_AUTHENTICATION_SERVICE,
+		)
 	const [cloudflareResult] = cloudflareResults
-	if (cloudflareResult === undefined || cloudflareResults.length > 1 || cloudflareResult !== headers[0]) return false
+	if (cloudflareResult === undefined || cloudflareResults.length > 1) return undefined
+	return resultFields(cloudflareResult)
+		.slice(1)
+		.find((field) => /^dmarc\s*=/i.test(field))
+}
+
+/**
+ * DMARC authenticates the domain of the From header, so the one From mailbox must be the envelope
+ * sender, which the allowlist admitted, and Cloudflare's dmarc result must pass for its domain.
+ */
+function authenticatesSender(
+	headers: ReadonlyArray<Header>,
+	dmarcResult: string | undefined,
+	envelopeSender: string,
+): boolean {
+	if (dmarcResult === undefined || !/^dmarc\s*=\s*pass\b/i.test(dmarcResult)) return false
 	const fromHeaders = headers.filter((header) => header.key.trim() === "from")
 	const fromMailboxes = fromHeaders.length === 1 ? addressParser(fromHeaders[0]?.value ?? "") : []
 	const fromAddress = fromMailboxes.length === 1 ? fromMailboxes[0]?.address : undefined
 	if (fromAddress === undefined || normalizeAddress(fromAddress) !== normalizeAddress(envelopeSender)) return false
-	const dmarcResult = resultFields(cloudflareResult)
-		.slice(1)
-		.find((field) => /^dmarc\s*=/i.test(field))
-	if (dmarcResult === undefined || !/^dmarc\s*=\s*pass\b/i.test(dmarcResult)) return false
 	const evaluatedDomain = /\bheader\.from\s*=\s*([^\s;]+)/i.exec(dmarcResult)?.[1]
 	return (
 		evaluatedDomain === undefined || evaluatedDomain.toLowerCase() === normalizeAddress(fromAddress).split("@").pop()
@@ -104,10 +121,10 @@ function authenticatesSender(headers: ReadonlyArray<Header>, envelopeSender: str
 
 /**
  * The header layout of a delivery without addresses, subjects, or bodies: the names of its first
- * headers, and the position and authserv-id of each authentication results header. The logged
- * layout of live deliveries shows whether Cloudflare's results are their first header.
+ * headers, the position and authserv-id of each authentication results header, the dmarc result
+ * the handler trusted unless it names a mailbox, and whether the delivery was admitted.
  */
-function describeHeaderLayout(headers: ReadonlyArray<Header>) {
+function describeHeaderLayout(headers: ReadonlyArray<Header>, dmarcResult: string | undefined, admitted: boolean) {
 	return {
 		firstHeaderNames: headers.slice(0, LOGGED_HEADER_COUNT).map((header) => header.originalKey),
 		authenticationResults: headers.flatMap((header, index) =>
@@ -115,6 +132,8 @@ function describeHeaderLayout(headers: ReadonlyArray<Header>) {
 				? [{ index, header: header.originalKey, authenticationService: authenticationService(header) }]
 				: [],
 		),
+		dmarcResult: dmarcResult?.includes("@") ? undefined : dmarcResult,
+		admitted,
 	}
 }
 
@@ -216,8 +235,10 @@ export async function receiveInboundMail(message: InboundMessage, environment: M
 	}
 	const raw = new Uint8Array(await new Response(message.raw).arrayBuffer())
 	const headers = (await parseWithinLimits(headerSection(raw)))?.headers ?? []
-	console.log("Inbound mail header layout", JSON.stringify(describeHeaderLayout(headers)))
-	if (!authenticatesSender(headers, message.from)) {
+	const dmarcResult = cloudflareDmarcResult(headers)
+	const admitted = authenticatesSender(headers, dmarcResult, message.from)
+	console.log("Inbound mail header layout", JSON.stringify(describeHeaderLayout(headers, dmarcResult, admitted)))
+	if (!admitted) {
 		message.setReject(UNAUTHORIZED_SENDER)
 		return
 	}

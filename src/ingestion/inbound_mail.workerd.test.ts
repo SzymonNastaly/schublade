@@ -7,7 +7,10 @@ import { receiveInboundMail } from "./inbound_mail"
 
 const INGESTION_ADDRESS = "documents@archive.test"
 const MEMBER_ADDRESS = "mira@example.com"
-const PASSING_AUTHENTICATION = "mx.cloudflare.net; dkim=pass header.d=example.com; dmarc=pass header.from=example.com"
+const PASSING_AUTHENTICATION =
+	"mx.cloudflare.net; dkim=pass header.d=example.com header.s=mail; dmarc=pass header.from=example.com policy.dmarc=none; spf=pass smtp.mailfrom=example.com"
+const SENDER_RECEIVED =
+	"Received: by 2002:a05:6000:1a8b:b0:3a4:f6b1:2c3d with SMTP id 4c8f2e1a; Fri, 06 Nov 2026 00:59:58 -0800 (PST)"
 
 // A signature logo: PNG leading bytes padded to 1 KB.
 const signatureImage = new Uint8Array(1024)
@@ -28,21 +31,47 @@ function encodeBase64Lines(content: Uint8Array): string {
 	return btoa(binary).replace(/.{76}/g, "$&\r\n")
 }
 
-/** A synthetic RFC 5322 message, multipart/mixed with a text/plain body and the given parts. */
+/**
+ * The headers Email Routing prepended to the first Gmail delivery on staging, from its Received
+ * header to X-CF-SpamH-Score, with the given Authentication-Results values in their place.
+ */
+function emailRoutingBlock(cloudflareResults: Array<string>): Array<string> {
+	return [
+		"Received: from mail-wm1-f41.example.com (mail-wm1-f41.example.com [192.0.2.25]) by mx.cloudflare.net (Postfix) with ESMTPS id 4Xk2pQ for <documents@archive.test>; Fri, 06 Nov 2026 09:00:00 +0000",
+		"ARC-Seal: i=1; a=rsa-sha256; s=2024; d=cloudflare.net; cv=none; b=c2VhbA==",
+		"ARC-Message-Signature: i=1; a=rsa-sha256; c=relaxed/relaxed; d=cloudflare.net; s=2024; h=from:to:subject; bh=aGVhZGVy; b=c2lnbmF0dXJl",
+		"ARC-Authentication-Results: i=1; mx.cloudflare.net; dkim=pass header.d=example.com header.s=mail; dmarc=pass header.from=example.com policy.dmarc=none; spf=pass smtp.mailfrom=example.com",
+		"Received-SPF: pass (mx.cloudflare.net: domain of example.com designates 192.0.2.25 as permitted sender) receiver=mx.cloudflare.net; client-ip=192.0.2.25",
+		...cloudflareResults.map((value) => `Authentication-Results: ${value}`),
+		"X-CF-SpamH-Score: 1",
+	]
+}
+
+/**
+ * A synthetic RFC 5322 message, multipart/mixed with a text/plain body and the given parts, in the
+ * header layout of the first Gmail delivery on staging: Email Routing's block, then the headers of
+ * the sender from its Received header through its From header.
+ */
 function composeMessage(message: {
 	from: string
 	messageId: string
 	subject: string
 	text: string
-	authenticationResults: Array<string>
 	parts: Array<MessagePart>
-	received?: string
+	cloudflareResults?: Array<string>
+	senderHeaders?: Array<string>
 }): string {
 	const boundary = "schublade-test-boundary"
 	return [
-		...message.authenticationResults.map((value) => `Authentication-Results: ${value}`),
-		`Received: ${message.received ?? "from mail.example.com by mx.cloudflare.net; Fri, 06 Nov 2026 09:00:00 +0000"}`,
-		`From: Mira Becker <${message.from}>`,
+		...emailRoutingBlock(message.cloudflareResults ?? [PASSING_AUTHENTICATION]),
+		...(message.senderHeaders ?? [
+			SENDER_RECEIVED,
+			"DKIM-Signature: v=1; a=rsa-sha256; d=example.com; s=mail; h=from:to:subject; bh=aGVhZGVy; b=c2lnbmF0dXJl",
+			"X-Google-DKIM-Signature: v=1; a=rsa-sha256; d=1e100.net; s=20230601; h=from:to:subject; bh=aGVhZGVy; b=Z29vZ2xl",
+			"X-Gm-Message-State: AOJu0YzK4Q2b",
+			"X-Gm-Gg: ASbGncu7L1aT",
+			`From: Mira Becker <${message.from}>`,
+		]),
 		`To: ${INGESTION_ADDRESS}`,
 		`Subject: ${message.subject}`,
 		`Message-ID: ${message.messageId}`,
@@ -74,7 +103,6 @@ const forwardedInvoice = composeMessage({
 	messageId: "<invoice-4471@example.com>",
 	subject: "Fwd: Stromrechnung Oktober",
 	text: "Anbei die Rechnung der Stadtwerke Talbrück.",
-	authenticationResults: [PASSING_AUTHENTICATION],
 	parts: [
 		{ contentType: "image/png", disposition: "inline", fileName: "logo.png", content: signatureImage },
 		{
@@ -85,6 +113,14 @@ const forwardedInvoice = composeMessage({
 		},
 	],
 })
+
+const paymentRequest = {
+	from: MEMBER_ADDRESS,
+	messageId: "<payment-request-1@example.com>",
+	subject: "Rechnung",
+	text: "Bitte zahlen.",
+	parts: [],
+}
 
 async function prepareArchive(ingestionAddress = INGESTION_ADDRESS) {
 	await reset()
@@ -174,7 +210,6 @@ test("receiveInboundMail stores mail without a usable attachment as awaiting ren
 		messageId: "<order-2219@example.com>",
 		subject: "Fwd: Ihre Bestellung bei Paperlark",
 		text: "Vielen Dank für Ihre Bestellung. Gesamtbetrag 12,99 EUR.",
-		authenticationResults: [PASSING_AUTHENTICATION],
 		parts: [{ contentType: "image/png", disposition: "inline", fileName: "logo.png", content: signatureImage }],
 	})
 
@@ -247,156 +282,116 @@ test("receiveInboundMail rejects a delivery by its envelope before reading the m
 	})
 })
 
-test("receiveInboundMail rejects mail whose From or DMARC result does not authenticate an allowed sender", async () => {
+test("receiveInboundMail rejects mail whose From is not the one allowed envelope sender", async () => {
 	const { environment } = await prepareArchive()
+	const household = { ...environment, MAIL_SENDER_ALLOWLIST: [MEMBER_ADDRESS, "jonas@example.com"] }
+	const memberFrom = `From: Mira Becker <${MEMBER_ADDRESS}>`
 	const stranger = composeMessage({
+		...paymentRequest,
 		from: "stranger@example.org",
-		messageId: "<offer-1@example.org>",
-		subject: "Rechnung",
-		text: "Bitte zahlen.",
-		authenticationResults: ["mx.cloudflare.net; dmarc=pass header.from=example.org"],
-		parts: [],
-	})
-	// Email Routing's own header comes first; the forged passing header below it is not trusted.
-	const forged = composeMessage({
-		from: MEMBER_ADDRESS,
-		messageId: "<forged-1@example.net>",
-		subject: "Rechnung",
-		text: "Bitte zahlen.",
-		authenticationResults: ["mx.cloudflare.net; spf=fail; dmarc=fail header.from=example.com", PASSING_AUTHENTICATION],
-		parts: [],
+		cloudflareResults: ["mx.cloudflare.net; dmarc=pass header.from=example.org"],
 	})
 
 	expect({
 		// DMARC passes for the From domain of the stranger, so the allowed envelope sender alone does not admit it.
-		allowedEnvelopeOnly: await deliver(environment, stranger),
-		forgedSender: await deliver(environment, forged),
+		allowedEnvelopeOnly: await deliver(household, stranger),
+		missingFrom: await deliver(household, composeMessage({ ...paymentRequest, senderHeaders: [SENDER_RECEIVED] })),
+		fromDiffersFromEnvelopeSender: await deliver(
+			household,
+			composeMessage({ ...paymentRequest, from: "jonas@example.com" }),
+		),
+		repeatedFrom: await deliver(
+			household,
+			composeMessage({
+				...paymentRequest,
+				senderHeaders: [SENDER_RECEIVED, memberFrom, "From: Eve <eve@example.org>"],
+			}),
+		),
 		documents: await storedDocuments(),
 		storedObjects: (await env.DOCUMENT_STORAGE.list()).objects,
 	}).toEqual({
 		allowedEnvelopeOnly: ["This sender may not deliver documents to this archive"],
-		forgedSender: ["This sender may not deliver documents to this archive"],
+		missingFrom: ["This sender may not deliver documents to this archive"],
+		fromDiffersFromEnvelopeSender: ["This sender may not deliver documents to this archive"],
+		repeatedFrom: ["This sender may not deliver documents to this archive"],
 		documents: [],
 		storedObjects: [],
 	})
 })
 
-test("receiveInboundMail trusts only Cloudflare's results as the first header, for a From that is the envelope sender", async () => {
+test("receiveInboundMail trusts only the one mx.cloudflare.net result inside the block Email Routing prepends", async () => {
 	const { environment } = await prepareArchive()
-	const household = { ...environment, MAIL_SENDER_ALLOWLIST: [MEMBER_ADDRESS, "jonas@example.com"] }
-	const forgedBelowCloudflare = [
-		"Authentication-Results: mx.cloudflare.net; dmarc=pass header.from=example.com",
-		"Received: from mail.example.com by mx.cloudflare.net; Fri, 06 Nov 2026 09:00:00 +0000",
-		"Authentication-Results: mx.cloudflare.net; dkim=pass header.d=example.com; dmarc=pass header.from=example.com",
-		"From: Mira Becker <mira@example.com>",
-		"To: documents@archive.test",
-		"Subject: Rechnung",
-		"Message-ID: <forged-below-1@example.com>",
-		"Content-Type: text/plain; charset=utf-8",
-		"",
-		"Bitte zahlen.",
-		"",
-	].join("\r\n")
-	const forgedWithoutCloudflare = [
-		"Received: from relay.example.net by mail.example.net; Fri, 06 Nov 2026 09:00:00 +0000",
-		"Authentication-Results: mx.cloudflare.net; dmarc=pass header.from=example.com",
-		"From: Mira Becker <mira@example.com>",
-		"To: documents@archive.test",
-		"Subject: Rechnung",
-		"Message-ID: <forged-alone-1@example.com>",
-		"Content-Type: text/plain; charset=utf-8",
-		"",
-		"Bitte zahlen.",
-		"",
-	].join("\r\n")
-	const missingFrom = [
-		"Authentication-Results: mx.cloudflare.net; dmarc=pass header.from=example.com",
-		"Received: from mail.example.com by mx.cloudflare.net; Fri, 06 Nov 2026 09:00:00 +0000",
-		"To: documents@archive.test",
-		"Subject: Rechnung",
-		"Message-ID: <no-from-1@example.com>",
-		"Content-Type: text/plain; charset=utf-8",
-		"",
-		"Bitte zahlen.",
-		"",
-	].join("\r\n")
-	const fromOtherMember = [
-		"Authentication-Results: mx.cloudflare.net; dmarc=pass header.from=example.com",
-		"Received: from mail.example.com by mx.cloudflare.net; Fri, 06 Nov 2026 09:00:00 +0000",
-		"From: Jonas Becker <jonas@example.com>",
-		"To: documents@archive.test",
-		"Subject: Rechnung",
-		"Message-ID: <other-member-1@example.com>",
-		"Content-Type: text/plain; charset=utf-8",
-		"",
-		"Bitte zahlen.",
-		"",
-	].join("\r\n")
-	const repeatedFrom = [
-		"Authentication-Results: mx.cloudflare.net; dmarc=pass header.from=example.com",
-		"Received: from mail.example.com by mx.cloudflare.net; Fri, 06 Nov 2026 09:00:00 +0000",
-		"From: Mira Becker <mira@example.com>",
-		"From: Eve <eve@example.org>",
-		"To: documents@archive.test",
-		"Subject: Rechnung",
-		"Message-ID: <repeated-from-1@example.com>",
-		"Content-Type: text/plain; charset=utf-8",
-		"",
-		"Bitte zahlen.",
-		"",
-	].join("\r\n")
+	const memberFrom = `From: Mira Becker <${MEMBER_ADDRESS}>`
+	const passingResults = `Authentication-Results: ${PASSING_AUTHENTICATION}`
 
 	expect({
-		forgedBelowCloudflare: await deliver(household, forgedBelowCloudflare),
-		forgedWithoutCloudflare: await deliver(household, forgedWithoutCloudflare),
-		missingFrom: await deliver(household, missingFrom),
-		fromDiffersFromEnvelopeSender: await deliver(household, fromOtherMember),
-		repeatedFrom: await deliver(household, repeatedFrom),
+		forgedBelowBlock: await deliver(
+			environment,
+			composeMessage({
+				...paymentRequest,
+				cloudflareResults: [],
+				senderHeaders: [SENDER_RECEIVED, passingResults, memberFrom],
+			}),
+		),
+		forgedPassBelowFailure: await deliver(
+			environment,
+			composeMessage({
+				...paymentRequest,
+				cloudflareResults: ["mx.cloudflare.net; spf=fail; dmarc=fail header.from=example.com"],
+				senderHeaders: [SENDER_RECEIVED, passingResults, memberFrom],
+			}),
+		),
+		twoInsideBlock: await deliver(
+			environment,
+			composeMessage({ ...paymentRequest, cloudflareResults: [PASSING_AUTHENTICATION, PASSING_AUTHENTICATION] }),
+		),
+		withoutSenderReceived: await deliver(
+			environment,
+			composeMessage({ ...paymentRequest, senderHeaders: [memberFrom] }),
+		),
+		resultsAboveReceived: await deliver(
+			environment,
+			`${passingResults}\r\n${composeMessage({ ...paymentRequest, cloudflareResults: [] })}`,
+		),
 		documents: await storedDocuments(),
 	}).toEqual({
-		forgedBelowCloudflare: ["This sender may not deliver documents to this archive"],
-		forgedWithoutCloudflare: ["This sender may not deliver documents to this archive"],
-		missingFrom: ["This sender may not deliver documents to this archive"],
-		fromDiffersFromEnvelopeSender: ["This sender may not deliver documents to this archive"],
-		repeatedFrom: ["This sender may not deliver documents to this archive"],
+		forgedBelowBlock: ["This sender may not deliver documents to this archive"],
+		forgedPassBelowFailure: ["This sender may not deliver documents to this archive"],
+		twoInsideBlock: ["This sender may not deliver documents to this archive"],
+		withoutSenderReceived: ["This sender may not deliver documents to this archive"],
+		resultsAboveReceived: ["This sender may not deliver documents to this archive"],
 		documents: [],
 	})
 })
 
-test("receiveInboundMail archives a delivery that Cloudflare authenticated and logs its header layout", async () => {
+test("receiveInboundMail archives a delivery in the layout Email Routing delivered on staging and logs each layout", async () => {
 	const { environment, workflowInstances } = await prepareArchive()
 	const logged: Array<string> = []
 	const log = vi.spyOn(console, "log").mockImplementation((...values: Array<unknown>) => logged.push(values.join(" ")))
-	const delivery = [
-		"Authentication-Results: mx.cloudflare.net; dkim=pass header.d=example.com header.s=mail; dmarc=pass header.from=example.com policy.dmarc=none; spf=pass (mx.cloudflare.net: domain of mira@example.com designates 192.0.2.25 as permitted sender) smtp.mailfrom=mira@example.com",
-		"Received: from mail.example.com (mail.example.com [192.0.2.25]) by mx.cloudflare.net (Postfix) with ESMTPS id 4Xk2pQ for <documents@archive.test>; Fri, 06 Nov 2026 09:00:00 +0000",
-		"ARC-Authentication-Results: i=1; mx.example.com; dkim=pass header.d=example.com",
-		"DKIM-Signature: v=1; a=rsa-sha256; d=example.com; s=mail; h=from:to:subject; bh=aGVhZGVy; b=c2lnbmF0dXJl",
-		"From: Mira Becker <mira@example.com>",
-		"To: documents@archive.test",
-		"Subject: Kassenbon Wochenmarkt",
-		"Message-ID: <receipt-3318@example.com>",
-		"Date: Fri, 06 Nov 2026 08:59:12 +0000",
-		"X-Mailer: Apple Mail (2.3826.300.87)",
-		"Content-Language: de-DE",
-		"MIME-Version: 1.0",
-		'Content-Type: multipart/mixed; boundary="receipt"',
-		"",
-		"--receipt",
-		"Content-Type: text/plain; charset=utf-8",
-		"",
-		"Kassenbon vom Wochenmarkt.",
-		"--receipt",
-		"Content-Type: image/jpeg",
-		'Content-Disposition: attachment; filename="kassenbon.jpg"',
-		"Content-Transfer-Encoding: base64",
-		"",
-		"/9j/4A==",
-		"--receipt--",
-		"",
-	].join("\r\n")
+	const receipt = composeMessage({
+		from: MEMBER_ADDRESS,
+		messageId: "<receipt-3318@example.com>",
+		subject: "Kassenbon Wochenmarkt",
+		text: "Kassenbon vom Wochenmarkt.",
+		parts: [
+			{
+				contentType: "image/jpeg",
+				disposition: "attachment",
+				fileName: "kassenbon.jpg",
+				content: new Uint8Array([0xff, 0xd8, 0xff, 0xe0]),
+			},
+		],
+	})
+	// The dmarc result names a mailbox, so the log line leaves the result out.
+	const failedDmarc = composeMessage({
+		...paymentRequest,
+		cloudflareResults: ["mx.cloudflare.net; dmarc=fail header.from=mira@example.com"],
+	})
 
-	const rejections = await deliver(environment, delivery)
+	const rejections = {
+		receipt: await deliver(environment, receipt),
+		failedDmarc: await deliver(environment, failedDmarc),
+	}
 	log.mockRestore()
 
 	const [document] = await storedDocuments()
@@ -406,7 +401,7 @@ test("receiveInboundMail archives a delivery that Cloudflare authenticated and l
 		workflowInstances,
 		headerLayout: logged.filter((line) => line.startsWith("Inbound mail header layout")),
 	}).toEqual({
-		rejections: [],
+		rejections: { receipt: [], failedDmarc: ["This sender may not deliver documents to this archive"] },
 		documents: [{ mimeType: "image/jpeg", status: "processing" }],
 		workflowInstances: [
 			{
@@ -422,7 +417,8 @@ test("receiveInboundMail archives a delivery that Cloudflare authenticated and l
 			},
 		],
 		headerLayout: [
-			'Inbound mail header layout {"firstHeaderNames":["Authentication-Results","Received","ARC-Authentication-Results","DKIM-Signature","From","To","Subject","Message-ID","Date","X-Mailer","Content-Language","MIME-Version"],"authenticationResults":[{"index":0,"header":"Authentication-Results","authenticationService":"mx.cloudflare.net"},{"index":2,"header":"ARC-Authentication-Results","authenticationService":"mx.example.com"}]}',
+			'Inbound mail header layout {"firstHeaderNames":["Received","ARC-Seal","ARC-Message-Signature","ARC-Authentication-Results","Received-SPF","Authentication-Results","X-CF-SpamH-Score","Received","DKIM-Signature","X-Google-DKIM-Signature","X-Gm-Message-State","X-Gm-Gg"],"authenticationResults":[{"index":3,"header":"ARC-Authentication-Results","authenticationService":"mx.cloudflare.net"},{"index":5,"header":"Authentication-Results","authenticationService":"mx.cloudflare.net"}],"dmarcResult":"dmarc=pass header.from=example.com policy.dmarc=none","admitted":true}',
+			'Inbound mail header layout {"firstHeaderNames":["Received","ARC-Seal","ARC-Message-Signature","ARC-Authentication-Results","Received-SPF","Authentication-Results","X-CF-SpamH-Score","Received","DKIM-Signature","X-Google-DKIM-Signature","X-Gm-Message-State","X-Gm-Gg"],"authenticationResults":[{"index":3,"header":"ARC-Authentication-Results","authenticationService":"mx.cloudflare.net"},{"index":5,"header":"Authentication-Results","authenticationService":"mx.cloudflare.net"}],"admitted":false}',
 		],
 	})
 })
@@ -434,7 +430,6 @@ test("receiveInboundMail rejects mail from an allowed sender with more than 20 a
 		messageId: "<receipts-21@example.com>",
 		subject: "Kassenbons September",
 		text: "Alle Kassenbons aus dem September.",
-		authenticationResults: [PASSING_AUTHENTICATION],
 		parts: Array.from({ length: 21 }, (_, index) => ({
 			contentType: "image/jpeg",
 			disposition: "attachment" as const,
@@ -458,7 +453,8 @@ test("receiveInboundMail rejects mail from an allowed sender whose parts nest be
 	const { environment } = await prepareArchive()
 	const levels = Array.from({ length: 40 }, (_, level) => level)
 	const nested = [
-		`Authentication-Results: ${PASSING_AUTHENTICATION}`,
+		...emailRoutingBlock([PASSING_AUTHENTICATION]),
+		SENDER_RECEIVED,
 		`From: ${MEMBER_ADDRESS}`,
 		`To: ${INGESTION_ADDRESS}`,
 		"Subject: Verschachtelt",
@@ -483,10 +479,7 @@ test("receiveInboundMail rejects mail from an allowed sender whose parts nest be
 
 test("receiveInboundMail adds nothing when Email Routing delivers a message with the same Message-ID again", async () => {
 	const { environment, workflowInstances } = await prepareArchive()
-	const retriedDelivery = forwardedInvoice.replace(
-		"Received: from mail.example.com by mx.cloudflare.net; Fri, 06 Nov 2026 09:00:00 +0000",
-		"Received: from mail.example.com by mx.cloudflare.net; Fri, 06 Nov 2026 09:05:00 +0000",
-	)
+	const retriedDelivery = forwardedInvoice.replace("09:00:00 +0000", "09:05:00 +0000")
 
 	await deliver(environment, forwardedInvoice)
 	const [document] = await storedDocuments()
