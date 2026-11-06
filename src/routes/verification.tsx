@@ -3,6 +3,7 @@ import { CheckIcon, GitMergeIcon, PencilSimpleIcon, SealCheckIcon, TrashIcon } f
 import { useMutation } from "@tanstack/react-query"
 import { createFileRoute, useRouter } from "@tanstack/react-router"
 import { useState } from "react"
+import { ActionConfirmation, documentDeletionDescription } from "../interface/action_confirmation"
 import { ArchiveNavigation } from "../interface/archive_navigation"
 import {
 	listArchiveFacets,
@@ -48,6 +49,12 @@ function useVerificationAction<TInput, TResult = unknown>(action: (input: TInput
 	return useMutation({ mutationFn: action, onSuccess: () => router.invalidate() })
 }
 
+/** States how many documents a merge moves, such as "3 documents move". */
+function movedDocumentCount(count: number): string {
+	if (count === 0) return "No document moves"
+	return count === 1 ? "1 document moves" : `${count} documents move`
+}
+
 function documentLine(document: VerificationDocument): string {
 	return [document.title ?? "Untitled document", document.senderName, document.documentDate]
 		.filter((part) => part !== null)
@@ -70,6 +77,44 @@ function EntryCard({ heading, children, error }: { heading: ReactNode; children:
 	)
 }
 
+function MergeConfirmation({
+	item,
+	target,
+	label,
+	variant,
+	className,
+}: {
+	item: Extract<VerificationItem, { reason: "new_taxonomy_record" }>
+	target: { id: string; name: string } | undefined
+	label: string
+	variant: "primary" | "secondary"
+	className?: string
+}) {
+	const router = useRouter()
+	const { record } = item
+	const kindLabel = kindPresentations[record.kind].label
+	const targetName = target?.name ?? ""
+	return (
+		<ActionConfirmation
+			label={label}
+			icon={GitMergeIcon}
+			variant={variant}
+			className={className}
+			disabled={target === undefined}
+			title={`Merge ${record.name} into ${targetName}?`}
+			description={`${movedDocumentCount(item.documents.length)} from the ${kindLabel} ${record.name} to ${targetName}. Schublade then deletes ${record.name} and confirms ${targetName}. You cannot undo this.`}
+			confirmationLabel="Merge"
+			confirmationVariant="primary"
+			action={() =>
+				submitTaxonomyMerge({
+					data: { kind: record.kind, sourceRecordId: record.id, targetRecordId: target?.id ?? "" },
+				})
+			}
+			onCompleted={() => router.invalidate()}
+		/>
+	)
+}
+
 function NewRecordEntry({
 	item,
 	facets,
@@ -84,14 +129,11 @@ function NewRecordEntry({
 	const [name, setName] = useState(record.name)
 	const mergeTargets = facets[facet].filter((option) => option.id !== record.id)
 	const [targetRecordId, setTargetRecordId] = useState<string | null>(null)
+	const router = useRouter()
 	const confirmation = useVerificationAction(() => submitTaxonomyConfirmation({ data: reference }))
 	const rename = useVerificationAction((renamed: string) =>
 		submitTaxonomyRename({ data: { ...reference, name: renamed } }),
 	)
-	const merge = useVerificationAction((target: string) =>
-		submitTaxonomyMerge({ data: { kind: record.kind, sourceRecordId: record.id, targetRecordId: target } }),
-	)
-	const deletion = useVerificationAction(() => submitTaxonomyDeletion({ data: reference }))
 	const proposedTarget = rename.data?.kind === "merge_proposed" ? rename.data.targetRecord : undefined
 	return (
 		<EntryCard
@@ -101,7 +143,7 @@ function NewRecordEntry({
 					<span className="min-w-0 font-medium break-words">{record.name}</span>
 				</>
 			}
-			error={confirmation.error ?? rename.error ?? merge.error ?? deletion.error}
+			error={confirmation.error ?? rename.error}
 		>
 			{item.documents.length === 0 ? (
 				<Text variant="secondary">No document refers to this {label} any more.</Text>
@@ -140,15 +182,13 @@ function NewRecordEntry({
 					variant="alert"
 					title={`The ${label} ${proposedTarget.name} already has this name`}
 					description={
-						<Button
+						<MergeConfirmation
+							item={item}
+							target={proposedTarget}
+							label={`Merge into ${proposedTarget.name}`}
 							variant="primary"
-							icon={GitMergeIcon}
 							className={`${touchSized} mt-2`}
-							loading={merge.isPending}
-							onClick={() => merge.mutate(proposedTarget.id)}
-						>
-							Merge into {proposedTarget.name}
-						</Button>
+						/>
 					}
 				/>
 			)}
@@ -181,28 +221,26 @@ function NewRecordEntry({
 							onValueChange={setTargetRecordId}
 							items={mergeTargets.map((option) => ({ value: option.id, label: option.name }))}
 						/>
-						<Button
+						<MergeConfirmation
+							item={item}
+							target={mergeTargets.find((option) => option.id === targetRecordId)}
+							label="Merge"
 							variant="secondary"
-							icon={GitMergeIcon}
-							className={touchSized}
-							disabled={targetRecordId === null}
-							loading={merge.isPending}
-							onClick={() => targetRecordId !== null && merge.mutate(targetRecordId)}
-						>
-							Merge
-						</Button>
+						/>
 					</div>
 				)}
 				{item.documents.length === 0 && (
-					<Button
-						variant="secondary-destructive"
+					<ActionConfirmation
+						label={`Delete ${label}`}
 						icon={TrashIcon}
-						className={touchSized}
-						loading={deletion.isPending}
-						onClick={() => deletion.mutate()}
-					>
-						Delete {label}
-					</Button>
+						variant="secondary-destructive"
+						title={`Delete the ${label} ${record.name}?`}
+						description={`No document refers to ${record.name}, so Schublade deletes the ${label} and nothing else. You cannot undo this.`}
+						confirmationLabel="Delete"
+						confirmationVariant="destructive"
+						action={() => submitTaxonomyDeletion({ data: reference })}
+						onCompleted={() => router.invalidate()}
+					/>
 				)}
 			</div>
 		</EntryCard>
@@ -273,7 +311,7 @@ function IllegibleFieldEntry({ item }: { item: Extract<VerificationItem, { reaso
 }
 
 function NonArchivalEntry({ item }: { item: Extract<VerificationItem, { reason: "non_archival_attachment" }> }) {
-	const deletion = useVerificationAction(() => submitDocumentDeletion({ data: { documentId: item.document.id } }))
+	const router = useRouter()
 	const retention = useVerificationAction(() =>
 		submitDocumentRevision({ data: { documentId: item.document.id, nonArchival: false } }),
 	)
@@ -285,21 +323,23 @@ function NonArchivalEntry({ item }: { item: Extract<VerificationItem, { reason: 
 					<span className="min-w-0 font-medium break-words">{documentLine(item.document)}</span>
 				</>
 			}
-			error={deletion.error ?? retention.error}
+			error={retention.error}
 		>
 			<Text variant="secondary">
 				The classifier read this file as boilerplate that came with another document, such as general terms.
 			</Text>
 			<div className="flex flex-col gap-2 md:flex-row">
-				<Button
-					variant="destructive"
+				<ActionConfirmation
+					label="Delete attachment"
 					icon={TrashIcon}
-					className={touchSized}
-					loading={deletion.isPending}
-					onClick={() => deletion.mutate()}
-				>
-					Delete attachment
-				</Button>
+					variant="destructive"
+					title="Delete this attachment?"
+					description={documentDeletionDescription(item.document.title)}
+					confirmationLabel="Delete"
+					confirmationVariant="destructive"
+					action={() => submitDocumentDeletion({ data: { documentId: item.document.id } })}
+					onCompleted={() => router.invalidate()}
+				/>
 				<Button
 					variant="secondary"
 					className={touchSized}

@@ -1,10 +1,11 @@
-import { Banner, Button, Dialog, Input, Select, TagInput, Text } from "@cloudflare/kumo"
+import { Banner, Button, Input, Select, TagInput, Text } from "@cloudflare/kumo"
 import { FloppyDiskIcon, TrashIcon } from "@phosphor-icons/react"
 import { useMutation } from "@tanstack/react-query"
 import { Link, useRouter } from "@tanstack/react-router"
 import { useId, useState } from "react"
 import { extractedFieldKeys, extractedFieldTypes } from "../ingestion/document_classification"
 import { submitDocumentDeletion, submitDocumentRevision } from "../utilities/server_functions"
+import { ActionConfirmation, documentDeletionDescription } from "./action_confirmation"
 import type { ArchiveFacets } from "../archive/document_listing"
 import type { ExtractedFieldKey } from "../ingestion/document_classification"
 import type { VerificationReason } from "../ingestion/verification_assessment"
@@ -86,48 +87,21 @@ function revisionOf(documentId: string, initial: RevisionValues, values: Revisio
 
 function DocumentDeletion({ document, onDeleted }: { document: RetrievedDocument; onDeleted: () => void }) {
 	const router = useRouter()
-	const [open, setOpen] = useState(false)
-	const deletion = useMutation({
-		mutationFn: () => submitDocumentDeletion({ data: { documentId: document.id } }),
-		onSuccess: () => {
-			setOpen(false)
-			onDeleted()
-			void router.invalidate()
-		},
-	})
 	return (
-		<Dialog.Root role="alertdialog" open={open} onOpenChange={setOpen}>
-			<Button
-				variant="secondary-destructive"
-				icon={TrashIcon}
-				className="w-full max-md:h-11 md:w-auto"
-				onClick={() => setOpen(true)}
-			>
-				Delete document
-			</Button>
-			<Dialog size="base" className="flex flex-col gap-4 p-6">
-				<Dialog.Title className="text-lg font-semibold">Delete this document?</Dialog.Title>
-				<Dialog.Description className="text-kumo-subtle">
-					Schublade deletes the original file, the extracted text, the search entry, and every field of “
-					{document.title ?? "Untitled document"}”. You cannot undo this.
-				</Dialog.Description>
-				{deletion.isError && <Text variant="error">{deletion.error.message}</Text>}
-				<div className="flex flex-col-reverse gap-2 md:flex-row md:justify-end">
-					<Button variant="secondary" className="w-full max-md:h-11 md:w-auto" onClick={() => setOpen(false)}>
-						Cancel
-					</Button>
-					<Button
-						variant="destructive"
-						icon={TrashIcon}
-						className="w-full max-md:h-11 md:w-auto"
-						loading={deletion.isPending}
-						onClick={() => deletion.mutate()}
-					>
-						Delete
-					</Button>
-				</div>
-			</Dialog>
-		</Dialog.Root>
+		<ActionConfirmation
+			label="Delete document"
+			icon={TrashIcon}
+			variant="secondary-destructive"
+			title="Delete this document?"
+			description={documentDeletionDescription(document.title)}
+			confirmationLabel="Delete"
+			confirmationVariant="destructive"
+			action={() => submitDocumentDeletion({ data: { documentId: document.id } })}
+			onCompleted={() => {
+				onDeleted()
+				return router.invalidate()
+			}}
+		/>
 	)
 }
 

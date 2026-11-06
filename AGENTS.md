@@ -80,13 +80,14 @@ src/
 		document_list.tsx                    Stacked rows below the md breakpoint, the document table from md upward
 		archive_navigation.tsx               All documents, Pending verification with its count, and Settings
 		document_revision_form.tsx           The inspection pane's edit form and the confirmed document deletion
+		action_confirmation.tsx              The dialog that names what an irreversible action does before it runs
 	utilities/
 		server_functions.ts                  TanStack Start server functions, each refused below its level by authorizeOperation
 	routes/
 		__root.tsx                           HTML document shell, and the Pending verification count for the navigation
 		index.tsx                            Archive page: search controls, document list, upload control, and inspection pane
 		settings.tsx                         Settings page: issue an ingest token shown once, list and revoke tokens
-		verification.tsx                     Pending verification: one-action buttons per entry
+		verification.tsx                     Pending verification: one-action buttons per entry; deletions and merges ask first
 		api/documents.ts                     GET searches or lists documents by the searchCriteriaSchema parameters, POST accepts multipart uploads in fields named files
 		api/documents.$documentId.$representation.ts   GET the original file or the extracted Markdown
 		api/search_index.ts                  POST indexes archived documents that AI Search lacks and reports failedDocuments; repeat while it indexes some
