@@ -1,5 +1,5 @@
-import { and, asc, desc, eq, inArray, isNotNull, isNull } from "drizzle-orm"
-import { categories, documentTags, documents, extractedFields, senders } from "../database/schema"
+import { and, asc, desc, eq, isNotNull, isNull } from "drizzle-orm"
+import { categories, documentTags, documents, extractedFields, senders, tags } from "../database/schema"
 import { illegibleRequiredFields } from "../ingestion/verification_assessment"
 import { taxonomyKindModels, taxonomyKinds } from "./taxonomy_maintenance"
 import type { ArchiveDatabase } from "../database/client"
@@ -48,45 +48,57 @@ async function readUnconfirmedRecords(database: ArchiveDatabase) {
 	return recordsByKind.flat()
 }
 
-/** Which documents refer to each record, as pairs of record and document identifiers. */
-async function readReferences(database: ArchiveDatabase, recordIds: Array<string>) {
-	if (recordIds.length === 0) return []
-	const [senderReferences, categoryReferences, tagReferences] = await Promise.all([
+const referringDocumentColumns = {
+	id: documents.id,
+	title: documents.title,
+	documentDate: documents.documentDate,
+	senderName: senders.name,
+}
+
+const newestDocumentFirst = [desc(documents.createdAt), asc(documents.id)]
+
+/**
+ * The documents that refer to each unconfirmed record, newest first. Each query joins the
+ * unconfirmed records instead of binding their identifiers, because D1 binds at most 100
+ * parameters per query and an archive can hold more records and documents than that.
+ */
+async function readReferringDocuments(database: ArchiveDatabase) {
+	const [sender, category, tag] = await Promise.all([
 		database
-			.select({ recordId: senders.id, documentId: documents.id })
+			.select({ recordId: senders.id, ...referringDocumentColumns })
 			.from(documents)
-			.innerJoin(senders, eq(documents.senderId, senders.id))
-			.where(inArray(senders.id, recordIds)),
+			.innerJoin(senders, and(eq(documents.senderId, senders.id), isNull(senders.confirmedAt)))
+			.orderBy(...newestDocumentFirst),
 		database
-			.select({ recordId: categories.id, documentId: documents.id })
+			.select({ recordId: categories.id, ...referringDocumentColumns })
 			.from(documents)
-			.innerJoin(categories, eq(documents.categoryId, categories.id))
-			.where(inArray(categories.id, recordIds)),
+			.innerJoin(categories, and(eq(documents.categoryId, categories.id), isNull(categories.confirmedAt)))
+			.leftJoin(senders, eq(documents.senderId, senders.id))
+			.orderBy(...newestDocumentFirst),
 		database
-			.select({ recordId: documentTags.tagId, documentId: documentTags.documentId })
+			.select({ recordId: tags.id, ...referringDocumentColumns })
 			.from(documentTags)
-			.where(inArray(documentTags.tagId, recordIds)),
+			.innerJoin(tags, and(eq(documentTags.tagId, tags.id), isNull(tags.confirmedAt)))
+			.innerJoin(documents, eq(documentTags.documentId, documents.id))
+			.leftJoin(senders, eq(documents.senderId, senders.id))
+			.orderBy(...newestDocumentFirst),
 	])
-	return [...senderReferences, ...categoryReferences, ...tagReferences]
+	const referringDocuments: Record<TaxonomyKind, Array<VerificationDocument & { recordId: string }>> = {
+		sender,
+		category,
+		tag,
+	}
+	return referringDocuments
 }
 
 /** The entries of the Pending verification view, newest first. */
 export async function listVerificationItems(database: ArchiveDatabase): Promise<Array<VerificationItem>> {
-	const records = await readUnconfirmedRecords(database)
-	const references = await readReferences(
-		database,
-		records.map((record) => record.id),
-	)
-	const documentColumns = {
-		id: documents.id,
-		title: documents.title,
-		documentDate: documents.documentDate,
-		senderName: senders.name,
-	}
-	const [flaggedDocuments, referringDocuments] = await Promise.all([
+	const [records, referringDocuments, flaggedDocuments, fieldRows] = await Promise.all([
+		readUnconfirmedRecords(database),
+		readReferringDocuments(database),
 		database
 			.select({
-				...documentColumns,
+				...referringDocumentColumns,
 				reason: documents.verificationReason,
 				createdAt: documents.createdAt,
 				categoryExpectedFields: categories.expectedFields,
@@ -95,48 +107,27 @@ export async function listVerificationItems(database: ArchiveDatabase): Promise<
 			.leftJoin(senders, eq(documents.senderId, senders.id))
 			.leftJoin(categories, eq(documents.categoryId, categories.id))
 			.where(flaggedDocument),
-		references.length === 0
-			? []
-			: database
-					.select(documentColumns)
-					.from(documents)
-					.leftJoin(senders, eq(documents.senderId, senders.id))
-					.where(
-						inArray(
-							documents.id,
-							references.map((reference) => reference.documentId),
-						),
-					)
-					.orderBy(desc(documents.createdAt), asc(documents.id)),
+		database
+			.select({
+				documentId: extractedFields.documentId,
+				fieldKey: extractedFields.fieldKey,
+				valueText: extractedFields.valueText,
+				valueNumber: extractedFields.valueNumber,
+				confidence: extractedFields.confidenceScore,
+			})
+			.from(extractedFields)
+			.innerJoin(documents, eq(extractedFields.documentId, documents.id))
+			.where(and(flaggedDocument, eq(documents.verificationReason, "illegible_required_field"))),
 	])
-	const illegibleDocumentIds = flaggedDocuments
-		.filter((document) => document.reason === "illegible_required_field")
-		.map((document) => document.id)
-	const fieldRows =
-		illegibleDocumentIds.length === 0
-			? []
-			: await database
-					.select({
-						documentId: extractedFields.documentId,
-						fieldKey: extractedFields.fieldKey,
-						valueText: extractedFields.valueText,
-						valueNumber: extractedFields.valueNumber,
-						confidence: extractedFields.confidenceScore,
-					})
-					.from(extractedFields)
-					.where(inArray(extractedFields.documentId, illegibleDocumentIds))
 
-	const recordItems: Array<VerificationItem> = records.map(({ kind, id, name, createdAt }) => {
-		const documentIds = new Set(
-			references.filter((reference) => reference.recordId === id).map((reference) => reference.documentId),
-		)
-		return {
-			reason: "new_taxonomy_record",
-			createdAt,
-			record: { kind, id, name },
-			documents: referringDocuments.filter((document) => documentIds.has(document.id)),
-		}
-	})
+	const recordItems = records.map(({ kind, id, name, createdAt }): VerificationItem => ({
+		reason: "new_taxonomy_record",
+		createdAt,
+		record: { kind, id, name },
+		documents: referringDocuments[kind]
+			.filter((document) => document.recordId === id)
+			.map(({ recordId: _recordId, ...document }) => document),
+	}))
 	const documentItems = flaggedDocuments.map(
 		({ reason, createdAt, categoryExpectedFields, ...document }): VerificationItem => {
 			if (reason !== "illegible_required_field") return { reason: "non_archival_attachment", createdAt, document }
