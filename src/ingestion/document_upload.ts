@@ -66,11 +66,13 @@ async function acceptDocumentUpload(environment: UploadEnvironment, file: File):
 	return { kind: "accepted", fileName: file.name, documentId }
 }
 
+type MultipartBody = { kind: "form"; formData: FormData } | { kind: "too_large" } | { kind: "malformed" }
+
 /**
- * Parses the multipart body, or returns undefined once it exceeds MAXIMUM_REQUEST_BYTES. The bytes
+ * Parses the multipart body and reports a body over MAXIMUM_REQUEST_BYTES as too large. The bytes
  * are counted as they arrive, because a request need not declare its length in Content-Length.
  */
-async function readLimitedFormData(request: Request): Promise<FormData | undefined> {
+async function readLimitedFormData(request: Request): Promise<MultipartBody> {
 	let receivedBytes = 0
 	const limitedBody = request.body?.pipeThrough(
 		new TransformStream<Uint8Array, Uint8Array>({
@@ -83,23 +85,28 @@ async function readLimitedFormData(request: Request): Promise<FormData | undefin
 	)
 	const contentType = request.headers.get("Content-Type") ?? ""
 	try {
-		return await new Response(limitedBody, { headers: { "Content-Type": contentType } }).formData()
+		return {
+			kind: "form",
+			formData: await new Response(limitedBody, { headers: { "Content-Type": contentType } }).formData(),
+		}
 	} catch (error) {
-		if (receivedBytes > MAXIMUM_REQUEST_BYTES) return undefined
+		if (receivedBytes > MAXIMUM_REQUEST_BYTES) return { kind: "too_large" }
+		// workerd raises a TypeError for a body that is not multipart or URL-encoded form data.
+		if (error instanceof TypeError) return { kind: "malformed" }
 		throw error
 	}
 }
 
 /** Accepts the files of a multipart request whose fields are named files, one outcome per file. */
 export async function receiveDocumentUploads(environment: UploadEnvironment, request: Request): Promise<Response> {
-	const formData = await readLimitedFormData(request)
-	if (formData === undefined) {
+	const body = await readLimitedFormData(request)
+	if (body.kind === "too_large") {
 		return Response.json(
 			{ error: `The upload is larger than ${MAXIMUM_REQUEST_BYTES / 1_000_000} MB. Upload fewer files at once.` },
 			{ status: 413 },
 		)
 	}
-	const files = formData.getAll("files").filter((entry) => entry instanceof File)
+	const files = body.kind === "form" ? body.formData.getAll("files").filter((entry) => entry instanceof File) : []
 	if (files.length === 0) {
 		return Response.json({ error: "Send the documents as multipart form fields named files" }, { status: 400 })
 	}

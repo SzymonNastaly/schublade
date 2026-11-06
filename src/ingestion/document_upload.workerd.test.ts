@@ -113,6 +113,20 @@ test("receiveDocumentUploads rejects an oversized file and reports a failed one 
 	})
 })
 
+test("receiveDocumentUploads answers a request without a multipart body with 400", async () => {
+	const { environment } = await prepareArchive()
+
+	const response = await receiveDocumentUploads(
+		environment,
+		new Request("https://archive.test/api/documents", { method: "POST", body: "not a form" }),
+	)
+
+	expect({ status: response.status, body: await response.json() }).toEqual({
+		status: 400,
+		body: { error: "Send the documents as multipart form fields named files" },
+	})
+})
+
 test("receiveDocumentUploads refuses a request larger than 50 MB", async () => {
 	const { environment } = await prepareArchive()
 
