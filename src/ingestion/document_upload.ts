@@ -13,6 +13,9 @@ const MAXIMUM_DOCUMENT_BYTES = 25_000_000
 // The parsed request stays in memory while each file is buffered once more for R2, so 50 MB
 // per request keeps the upload near 75 MB as well.
 const MAXIMUM_REQUEST_BYTES = 50_000_000
+// Each file costs an R2 write, a D1 insert, and a Workflow start in the same invocation, so one
+// upload request or one mail message starts at most this many of each.
+export const MAXIMUM_FILES_PER_SUBMISSION = 20
 
 /** A rejected file cannot be archived as sent. A failed file met a storage error and may succeed again. */
 export type UploadOutcome =
@@ -134,7 +137,15 @@ export async function receiveDocumentUploads(environment: UploadEnvironment, req
 		return Response.json({ error: "Send the documents as multipart form fields named files" }, { status: 400 })
 	}
 	const outcomes: Array<UploadOutcome> = []
-	for (const file of files) {
+	for (const [index, file] of files.entries()) {
+		if (index >= MAXIMUM_FILES_PER_SUBMISSION) {
+			outcomes.push({
+				kind: "rejected",
+				fileName: file.name,
+				reason: `An upload accepts at most ${MAXIMUM_FILES_PER_SUBMISSION} files. Upload this file again.`,
+			})
+			continue
+		}
 		try {
 			outcomes.push(await acceptDocumentUpload(environment, file))
 		} catch (error) {

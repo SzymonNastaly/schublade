@@ -113,6 +113,35 @@ test("receiveDocumentUploads rejects an oversized file and reports a failed one 
 	})
 })
 
+test("receiveDocumentUploads archives the first 20 files of a request and rejects the others", async () => {
+	const { workflowInstances, environment } = await prepareArchive()
+	const receipts = Array.from(
+		{ length: 21 },
+		(_, index) => new File([new Uint8Array(jpegSignature)], `receipt-${index + 1}.jpg`, { type: "image/jpeg" }),
+	)
+
+	const response = await receiveDocumentUploads(environment, uploadRequest(receipts))
+
+	const { outcomes } = await response.json<{ outcomes: Array<{ kind: string; fileName: string }> }>()
+	expect({
+		acceptedFileNames: outcomes.filter((outcome) => outcome.kind === "accepted").map((outcome) => outcome.fileName),
+		otherOutcomes: outcomes.filter((outcome) => outcome.kind !== "accepted"),
+		storedDocuments: (await connectDatabase(env.DATABASE).select({ id: documents.id }).from(documents)).length,
+		workflowInstances: workflowInstances.length,
+	}).toEqual({
+		acceptedFileNames: receipts.slice(0, 20).map((receipt) => receipt.name),
+		otherOutcomes: [
+			{
+				kind: "rejected",
+				fileName: "receipt-21.jpg",
+				reason: "An upload accepts at most 20 files. Upload this file again.",
+			},
+		],
+		storedDocuments: 20,
+		workflowInstances: 20,
+	})
+})
+
 test("receiveDocumentUploads answers a request without a multipart body with 400", async () => {
 	const { environment } = await prepareArchive()
 

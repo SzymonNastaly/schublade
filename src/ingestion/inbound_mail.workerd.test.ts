@@ -427,6 +427,33 @@ test("receiveInboundMail archives a delivery that Cloudflare authenticated and l
 	})
 })
 
+test("receiveInboundMail rejects mail from an allowed sender with more than 20 attachments", async () => {
+	const { environment, workflowInstances } = await prepareArchive()
+	const receipts = composeMessage({
+		from: MEMBER_ADDRESS,
+		messageId: "<receipts-21@example.com>",
+		subject: "Kassenbons September",
+		text: "Alle Kassenbons aus dem September.",
+		authenticationResults: [PASSING_AUTHENTICATION],
+		parts: Array.from({ length: 21 }, (_, index) => ({
+			contentType: "image/jpeg",
+			disposition: "attachment" as const,
+			fileName: `kassenbon-${index + 1}.jpg`,
+			content: new Uint8Array([0xff, 0xd8, 0xff, 0xe0]),
+		})),
+	})
+
+	expect({
+		rejections: await deliver(environment, receipts),
+		documents: await storedDocuments(),
+		workflowInstances,
+	}).toEqual({
+		rejections: ["The message has more than 20 attachments. Send them in several messages."],
+		documents: [],
+		workflowInstances: [],
+	})
+})
+
 test("receiveInboundMail rejects mail from an allowed sender whose parts nest beyond the parse limit", async () => {
 	const { environment } = await prepareArchive()
 	const levels = Array.from({ length: 40 }, (_, level) => level)

@@ -2,7 +2,7 @@ import { inArray } from "drizzle-orm"
 import PostalMime, { addressParser } from "postal-mime"
 import { connectDatabase } from "../database/client"
 import { documents } from "../database/schema"
-import { acceptDocumentUpload } from "./document_upload"
+import { MAXIMUM_FILES_PER_SUBMISSION, acceptDocumentUpload } from "./document_upload"
 import { identifySourceFile } from "./source_file"
 import type { MailContext } from "./classification_prompt"
 import type { UploadEnvironment, UploadOutcome } from "./document_upload"
@@ -239,10 +239,17 @@ export async function receiveInboundMail(message: InboundMessage, environment: M
 		subject,
 		bodyText: (email.text ?? "").trim().slice(0, MAXIMUM_BODY_CHARACTERS),
 	}
+	const documentAttachments = email.attachments
+		.map((attachment, index) => ({ attachment, index, content: attachmentBytes(attachment.content) }))
+		.filter(({ attachment, content }) => !isSignatureGraphic(attachment.disposition, content))
+	if (documentAttachments.length > MAXIMUM_FILES_PER_SUBMISSION) {
+		message.setReject(
+			`The message has more than ${MAXIMUM_FILES_PER_SUBMISSION} attachments. Send them in several messages.`,
+		)
+		return
+	}
 	const candidates = await Promise.all(
-		email.attachments
-			.map((attachment, index) => ({ attachment, index, content: attachmentBytes(attachment.content) }))
-			.filter(({ attachment, content }) => !isSignatureGraphic(attachment.disposition, content))
+		documentAttachments
 			// The content digest keeps a different message that reuses a Message-ID from being dropped.
 			.map(async ({ attachment, index, content }) => ({
 				documentId: await deriveDocumentIdentifier(
