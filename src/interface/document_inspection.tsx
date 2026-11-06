@@ -28,7 +28,6 @@ export function DocumentInspection({
 			<LayerCard.Secondary>{document.title ?? "Untitled document"}</LayerCard.Secondary>
 			<LayerCard.Primary className="flex flex-col gap-4">
 				{document.summary !== null && <Text>{document.summary}</Text>}
-				<DocumentRevisionForm document={document} facets={facets} onDeleted={onDeleted} />
 				<Tabs
 					tabs={[
 						{ value: "original", label: "Original" },
@@ -57,6 +56,7 @@ export function DocumentInspection({
 				) : (
 					<pre className="max-h-[80vh] overflow-auto text-sm whitespace-pre-wrap">{markdown.data ?? "Loading"}</pre>
 				)}
+				<DocumentRevisionForm document={document} facets={facets} onDeleted={onDeleted} />
 			</LayerCard.Primary>
 		</LayerCard>
 	)
