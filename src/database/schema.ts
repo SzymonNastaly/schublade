@@ -2,6 +2,8 @@ import { sql } from "drizzle-orm"
 import { index, integer, primaryKey, real, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core"
 import { createInsertSchema } from "drizzle-zod"
 import { z } from "zod"
+import { authorizationScopeSchema } from "../authorization/caller_authorization"
+import type { AuthorizationScope } from "../authorization/caller_authorization"
 
 const identifier = () =>
 	text("id")
@@ -18,18 +20,6 @@ const documentStatuses = ["processing", "extracting", "recognizing_text", "class
 const verificationReasons = ["new_taxonomy_record", "illegible_required_field", "non_archival_attachment"] as const
 
 const extractedFieldTypes = ["text", "number", "date"] as const
-
-const permissionLevels = ["read", "ingest", "modify", "administer"] as const
-
-const authorizationScopeSchema = z.strictObject({
-	level: z.enum(permissionLevels),
-	allowedCategories: z.array(z.string()).optional(),
-	allowedTags: z.array(z.string()).optional(),
-	deniedTags: z.array(z.string()).optional(),
-	allowedSenders: z.array(z.string()).optional(),
-})
-
-type AuthorizationScope = z.infer<typeof authorizationScopeSchema>
 
 export const householdMembers = sqliteTable("household_members", {
 	id: identifier(),
