@@ -1,3 +1,10 @@
 onlyBuiltDependencies:
   - esbuild
   - workerd
+
+# The IBM Plex install scripts only send usage telemetry, and the prepare script installs the git hooks.
+ignoredBuiltDependencies:
+  - "@ibm/plex-mono"
+  - "@ibm/plex-sans"
+  - "@ibm/plex-serif"
+  - simple-git-hooks
