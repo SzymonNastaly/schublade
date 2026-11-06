@@ -78,13 +78,19 @@ function admitMessage(
 	}
 }
 
+async function sha256Hexadecimal(content: Uint8Array<ArrayBuffer>): Promise<string> {
+	const digest = await crypto.subtle.digest("SHA-256", content)
+	return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("")
+}
+
 /**
  * A UUID version 8 derived from the Message-ID and the part of the message, so a retried
  * delivery of the same message addresses the documents its first delivery recorded.
  */
 async function deriveDocumentIdentifier(messageIdentifier: string, part: string): Promise<string> {
-	const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(`${messageIdentifier}\n${part}`))
-	const bytes = new Uint8Array(digest).slice(0, 16)
+	const bytes = new Uint8Array(
+		await crypto.subtle.digest("SHA-256", new TextEncoder().encode(`${messageIdentifier}\n${part}`)),
+	).slice(0, 16)
 	bytes[6] = ((bytes[6] ?? 0) & 0x0f) | 0x80
 	bytes[8] = ((bytes[8] ?? 0) & 0x3f) | 0x80
 	const hexadecimal = Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("")
@@ -160,8 +166,12 @@ export async function receiveInboundMail(message: InboundMessage, environment: M
 		email.attachments
 			.map((attachment, index) => ({ attachment, index, content: attachmentBytes(attachment.content) }))
 			.filter(({ attachment, content }) => !isSignatureGraphic(attachment.disposition, content))
+			// The content digest keeps a different message that reuses a Message-ID from being dropped.
 			.map(async ({ attachment, index, content }) => ({
-				documentId: await deriveDocumentIdentifier(admission.messageIdentifier, `attachment ${index}`),
+				documentId: await deriveDocumentIdentifier(
+					admission.messageIdentifier,
+					`attachment ${index} ${await sha256Hexadecimal(content)}`,
+				),
 				file: new File([content], attachment.filename ?? `attachment-${index + 1}`),
 			})),
 	)
