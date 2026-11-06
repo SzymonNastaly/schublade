@@ -16,7 +16,7 @@ Automated extraction can still create duplicate sender records or fail to read a
 2. **A required field is illegible.** If a photographed receipt has an unreadable issue date or total amount, Schublade records the missing field so you can supply it later.
 3. **An email attachment is non-archival boilerplate.** Commercial emails frequently attach a signature image or a general terms PDF alongside the primary invoice. Schublade marks the secondary file so you can delete it with one action.
 
-If you do not open the **Pending verification** view for a month, every ingested document remains indexed and searchable in your archive.
+The `documents` table stores one verification reason per document. When a document has both an illegible required field and a new sender, category, or tag, the illegible field takes precedence. If you do not open the **Pending verification** view for a month, every ingested document remains indexed and searchable in your archive.
 
 ## What Schublade extracts and what it omits from Paperless-ngx
 
@@ -122,7 +122,7 @@ sequenceDiagram
 	end
 	WF->>Coord: Broadcast status "classifying"
 	WF->>DB: Read existing senders, categories, tags, and household members
-	WF->>AI: Run generateObject() with taxonomy and Markdown
+	WF->>AI: Run generateText() with Output.object, taxonomy, and Markdown
 	WF->>DB: Write metadata, extracted_fields, and verification flags to D1
 	WF->>DB: Upload enriched Markdown to env.SEARCH_INDEX.items.upload()
 	WF->>Coord: Broadcast status "archived"
@@ -131,8 +131,8 @@ sequenceDiagram
 The text extraction and classification pipeline executes in three stages:
 
 1. **Markdown conversion.** The workflow calls `env.AI_RUNTIME.toMarkdown()` on the file bytes. For digital PDFs, HTML files, and PDFs generated with on-device optical character recognition in applications such as QuickScan, `toMarkdown()` extracts the text structure at no inference cost.
-2. **Conditional optical character recognition fallback.** Scanned PDFs without a text layer yield fewer than 40 characters per page from `toMarkdown()`, and camera uploads arrive as raster images. A Worker has no canvas, so the workflow renders each scanned page to a grayscale PNG at 150 dots per inch with PDFium compiled to WebAssembly (`@embedpdf/pdfium`). The workflow then sends each page image to `@cf/moondream/moondream3.1-9B-A2B` in a separate call that asks for a verbatim transcription. Camera uploads go to the model without rendering. Each page runs as its own workflow step, so a failed page retries without repeating the others.
-3. **Structured classification.** The workflow calls `generateObject()` from the Vercel AI SDK with `workers-ai-provider` and a strict Zod schema. The prompt includes the extracted Markdown, any email header fields, your current list of senders, categories, and tags, and the household members from D1.
+2. **Conditional optical character recognition fallback.** Scanned PDFs without a text layer yield fewer than 40 characters per page from `toMarkdown()`, and camera uploads arrive as raster images. A Worker has no canvas, so the workflow renders each scanned page to a grayscale PNG at 150 dots per inch with PDFium compiled to WebAssembly (`@embedpdf/pdfium`). The workflow then sends each page image to `@cf/moondream/moondream3.1-9B-A2B` in a separate call that asks for a verbatim transcription. The Moondream service returns 3-byte UTF-8 characters such as the euro sign as `U+FFFD`, while 2-byte characters such as `ä`, `ß`, and `ś` survive. Schublade restores `€` only directly beside a two-decimal amount and tells the classifier that any remaining `U+FFFD` marks an unreadable character. Camera uploads go to the model without rendering. Each page runs as its own workflow step, so a failed page retries without repeating the others.
+3. **Structured classification.** The workflow calls `generateText()` with `Output.object` from the Vercel AI SDK, `workers-ai-provider`, and a strict Zod schema. The default classification model is `@cf/deepseek-ai/deepseek-v4.1-flash-1017`, chosen by the extraction evaluation on the synthetic test documents. You can override it per deployment with `classificationModel` in `schublade.deploy.json`. The prompt includes the extracted Markdown, any email header fields, your current list of senders, categories, and tags, and the household members from D1.
 
 Every inference request runs on a Workers AI model through AI Gateway, which logs, caches, and rate-limits each request. Schublade sends no document to a third-party model provider and requires no provider API key.
 
@@ -181,7 +181,7 @@ One Schublade deployment serves one household. The household has one member or s
 
 The `household_members` table lists the people that documents concern. A member does not need to sign in, so a child with medical records is a member too. Each member has a display name and the spellings of their name as printed on letters, such as `Mira Wiśniewska` and `M. Wisniewska`.
 
-The classifier assigns each document to one member or to `household`. The extraction prompt lists the members with their name spellings, and the Zod output schema restricts the person field to the known member identifiers and `household`, so the model cannot invent a member. A letter addressed to one member gets that member. A document with no personal addressee, or with several members as addressees, gets `household`. You correct a wrong assignment with one edit, and a person assignment never creates a **Pending verification** entry.
+The classifier assigns each document to the member that the document concerns, or to `household`. The extraction prompt lists the members with their name spellings, and the Zod output schema restricts the person field to the known member identifiers and `household`, so the model cannot invent a member. For a dental invoice addressed to a parent, the classifier assigns the child who is the patient. A document that concerns several members or the household as a whole gets `household`. You correct a wrong assignment with one edit, and a person assignment never creates a **Pending verification** entry.
 
 The navigation pane shows a person filter with **Everyone** selected by default, one entry per member, and **Household**. When the household has one member, the filter is hidden.
 
@@ -209,15 +209,13 @@ Schublade maintains no internal password table. Executing `pnpm run provision` f
 
 1. Creates the D1 database, the R2 bucket, the AI Search instance with its four custom metadata fields, and the AI Gateway, applies the Drizzle SQL schema migrations, and records the household members.
 2. Deploys the Worker in a locked state so the public hostname rejects all requests until authentication is configured.
-3. Configures a **Cloudflare Access** application on Cloudflare Zero Trust, which is free for up to 50 users. The script sets an email allowlist for authorized users and adds a bypass rule for `/api/documents/ingest` and `/mcp`. Those two endpoints validate their own bearer and OAuth tokens.
+3. Configures a self-hosted **Cloudflare Access** application for the Worker's `workers.dev` hostname on Cloudflare Zero Trust, which is free for up to 50 users. The script creates an allow policy for the given email addresses. It does not yet create an Access bypass rule for `/api/documents/ingest` and `/mcp`. The bypass rule for `/api/documents/ingest` arrives in Phase 3 with the token-authenticated endpoint, and the bypass rule for `/mcp` arrives in Phase 6 with the MCP server. Both routes then validate their own bearer and OAuth tokens.
 4. Redeploys the Worker with the `ACCESS_TEAM_DOMAIN` and `ACCESS_AUD` parameters written to a git-ignored `schublade.deploy.json` configuration file.
 
 Every browser request to the Worker must carry a valid Cloudflare Access JSON Web Token. The Worker verifies that cryptographic signature before executing any server function or establishing an `ArchiveCoordinator` WebSocket connection. When `ACCESS_TEAM_DOMAIN` or `ACCESS_AUD` is absent, the Worker rejects every browser request rather than admitting it. Per-version preview hostnames are disabled, because the Access application does not cover them.
 
 ### Official domain and staging environment
 
-The `schublade.org` domain is registered and active on Cloudflare. It serves two roles for the project:
+The `schublade.org` domain will host the planned public landing page and documentation, which introduce the project, explain the architecture, and provide deployment instructions for self-hosting.
 
-- **Public landing page and documentation at `schublade.org`.** Introduces the project, explains the architecture, and provides deployment instructions for self-hosting.
-- **Staging and development deployment at `staging.schublade.org`.** Configured through `--mode staging` in `cloudflare.config.ts`, this environment runs the active development build behind Cloudflare Access and receives test email ingestion traffic through `schublade.org` Email Routing rules.
-
+The staging deployment runs as the Worker `schublade-staging` on the account's `workers.dev` subdomain behind Cloudflare Access, rather than on `staging.schublade.org`. You choose an environment by Worker name rather than a `--mode staging` flag.
