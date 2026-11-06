@@ -224,20 +224,22 @@ export async function reviseDocument(
 }
 
 /**
- * Deletes a settled document: its AI Search item, its R2 objects, and then its D1 rows, whose
- * tags and fields cascade. The row goes last, so a deletion that fails part way can run again.
+ * Deletes a settled document: its AI Search item, its R2 objects, its D1 rows, whose tags and
+ * fields cascade, and then its AI Search item again. A backfill that read the row before it went
+ * can upload the document after the first removal, and the second removal deletes that item. A
+ * deletion that fails part way, even after the row went, converges when it runs again.
  */
 export async function deleteDocument({ database, storage, searchIndex }: ArchiveEnvironment, documentId: string) {
 	const [document] = await database
 		.select({ status: documents.status })
 		.from(documents)
 		.where(eq(documents.id, documentId))
-	if (!document) return
-	if (!isSettledStatus(document.status)) {
+	if (document && !isSettledStatus(document.status)) {
 		throw new Error(`Document ${documentId} is still being ingested, so it cannot be deleted yet`)
 	}
 	await removeDocumentFromIndex(searchIndex, documentId)
 	const { objects } = await storage.list({ prefix: documentObjectPrefix(documentId) })
 	if (objects.length > 0) await storage.delete(objects.map((object) => object.key))
 	await database.delete(documents).where(eq(documents.id, documentId))
+	await removeDocumentFromIndex(searchIndex, documentId)
 }

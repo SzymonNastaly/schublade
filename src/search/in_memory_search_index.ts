@@ -40,12 +40,11 @@ export function createInMemorySearchIndex() {
 					else heldUploads.push(held)
 				})
 			},
+			// The AI Search documentation names no exact key filter, so the listing ignores every filter.
 			list: (parameters) => {
 				const page = parameters?.page ?? 1
-				const pageSize = parameters?.per_page ?? 50
-				const listed = [...items.keys()]
-					.filter((key) => parameters?.key === undefined || key === parameters.key)
-					.map((key) => ({ id: key, key, status: "completed" as const }))
+				const pageSize = parameters?.per_page ?? 20
+				const listed = [...items.keys()].map((key) => ({ id: key, key, status: "completed" as const }))
 				return Promise.resolve({ result: listed.slice((page - 1) * pageSize, page * pageSize) })
 			},
 			delete: (itemId) => {

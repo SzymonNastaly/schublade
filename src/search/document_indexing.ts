@@ -76,7 +76,8 @@ async function readIndexedDocument(
  * D1 cannot observe. An upload therefore records its revision only while updated_at still holds
  * it. Otherwise the revision changed during the upload, and the document is marked stale with a
  * succeeding updated_at, so no overlapping upload can record its own revision either, and the
- * backfill uploads the document again.
+ * backfill uploads the document again. An upload that finds the document deleted removes the
+ * item it may have created after the deletion removed the item.
  */
 export async function indexDocument(
 	database: ArchiveDatabase,
@@ -90,47 +91,71 @@ export async function indexDocument(
 	await items.upload(searchIndexItemName(documentId), composeSearchIndexContent(document), {
 		metadata: searchIndexMetadata(document),
 	})
-	await database.batch([
+	const [recorded, invalidated] = await database.batch([
 		database
 			.update(documents)
 			// Recording the upload is no revision of the document, so updated_at keeps its value.
 			.set({ indexedAt: revision, updatedAt: sql`${documents.updatedAt}` })
-			.where(and(eq(documents.id, documentId), eq(documents.updatedAt, revision))),
+			.where(and(eq(documents.id, documentId), eq(documents.updatedAt, revision)))
+			.returning({ id: documents.id }),
 		database
 			.update(documents)
 			.set({ indexedAt: null, updatedAt: succeedingModificationTime() })
-			.where(and(eq(documents.id, documentId), ne(documents.updatedAt, revision))),
+			.where(and(eq(documents.id, documentId), ne(documents.updatedAt, revision)))
+			.returning({ id: documents.id }),
 	])
+	// The document was deleted during the upload, possibly after its deletion removed the item.
+	if (recorded.length === 0 && invalidated.length === 0) await removeDocumentFromIndex(searchIndex, documentId)
+}
+
+/**
+ * Every item AI Search lists for the parameters, or undefined when the listing does not end
+ * within MAXIMUM_LISTING_PAGES. A short page does not prove the end of the listing, so only an
+ * empty page ends it.
+ */
+async function listEveryItem(
+	searchIndex: SearchIndex,
+	parameters: Pick<AiSearchListItemsParams, "key" | "source">,
+): Promise<Array<AiSearchItemInfo> | undefined> {
+	const items = await searchIndex.items
+	const listed: Array<AiSearchItemInfo> = []
+	for (let page = 1; page <= MAXIMUM_LISTING_PAGES; page++) {
+		const { result } = await items.list({ ...parameters, page, per_page: ITEM_LISTING_PAGE_SIZE })
+		if (result.length === 0) return listed
+		listed.push(...result)
+	}
+	return undefined
 }
 
 /** Deletes the AI Search item of a document. Deleting an item that does not exist changes nothing. */
 export async function removeDocumentFromIndex(searchIndex: SearchIndex, documentId: string): Promise<void> {
-	const items = await searchIndex.items
 	const itemName = searchIndexItemName(documentId)
-	const { result } = await items.list({ key: itemName, source: "builtin" })
-	// The listing is filtered again, so a parameter the service ignored cannot delete another item.
-	for (const item of result.filter((candidate) => candidate.key === itemName)) await items.delete(item.id)
+	// The documentation names no exact key filter, so every page is read and filtered here.
+	const listed = await listEveryItem(searchIndex, { key: itemName, source: "builtin" })
+	if (listed === undefined) {
+		throw new Error(
+			`AI Search listed more than ${MAXIMUM_LISTING_PAGES} pages of items, so the item ${itemName} may remain`,
+		)
+	}
+	const items = await searchIndex.items
+	for (const item of listed.filter((candidate) => candidate.key === itemName)) await items.delete(item.id)
 }
 
-/**
- * The status of every item Schublade uploaded, by document identifier. A short page does not
- * prove the end of the listing, so only an empty page ends it.
- */
+/** The status of every item Schublade uploaded, by document identifier. */
 async function listIndexedItemStatuses(searchIndex: SearchIndex): Promise<Map<string, AiSearchItemInfo["status"]>> {
-	const statuses = new Map<string, AiSearchItemInfo["status"]>()
-	const items = await searchIndex.items
-	for (let page = 1; page <= MAXIMUM_LISTING_PAGES; page++) {
-		const { result } = await items.list({ page, per_page: ITEM_LISTING_PAGE_SIZE, source: "builtin" })
-		if (result.length === 0) return statuses
-		for (const item of result) {
-			const documentId = documentIdOfItemName(item.key)
-			if (documentId !== undefined) statuses.set(documentId, item.status)
-		}
-	}
+	const listed = await listEveryItem(searchIndex, { source: "builtin" })
 	// Every document missing from an incomplete listing would look absent and be uploaded again.
-	throw new Error(
-		`AI Search listed more than ${MAXIMUM_LISTING_PAGES} pages of items, so the documents it lacks are unknown`,
-	)
+	if (listed === undefined) {
+		throw new Error(
+			`AI Search listed more than ${MAXIMUM_LISTING_PAGES} pages of items, so the documents it lacks are unknown`,
+		)
+	}
+	const statuses = new Map<string, AiSearchItemInfo["status"]>()
+	for (const item of listed) {
+		const documentId = documentIdOfItemName(item.key)
+		if (documentId !== undefined) statuses.set(documentId, item.status)
+	}
+	return statuses
 }
 
 interface IndexingFailure {

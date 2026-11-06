@@ -150,3 +150,68 @@ test("deleteDocument removes the index item, every R2 object, and the rows of a 
 		tags: await database.select({ id: tags.id }).from(tags),
 	}).toEqual({ items: [], objects: 0, documents: [], fields: [], links: [], tags: [{ id: groceriesTagId }] })
 })
+
+test("deleteDocument removes the index item from any page of the listing", async () => {
+	const { database, items, searchIndex } = await prepareReceipt()
+	const receiptItem = items.get(`${receiptId}.md`)
+	items.clear()
+	for (let index = 0; index < 50; index++) items.set(`other-${index}.md`, { content: "", metadata: {} })
+	if (receiptItem) items.set(`${receiptId}.md`, receiptItem)
+
+	await deleteDocument({ database, storage: env.DOCUMENT_STORAGE, searchIndex }, receiptId)
+
+	expect({ receiptItem: items.has(`${receiptId}.md`), otherItems: items.size }).toEqual({
+		receiptItem: false,
+		otherItems: 50,
+	})
+})
+
+test("deleteDocument leaves no index item when a backfill upload is accepted after its first removal", async () => {
+	const index = await prepareReceipt()
+	const { database, items, searchIndex } = index
+	index.holdUploads(true)
+	const backfillUpload = indexDocument(database, env.DOCUMENT_STORAGE, searchIndex, receiptId)
+	const held = await index.nextHeldUpload()
+	const searchItems = await searchIndex.items
+	let removals = 0
+	const deletingSearchIndex = {
+		...searchIndex,
+		items: {
+			...searchItems,
+			// AI Search accepts the backfill's upload right after the first removal of the item.
+			delete: async (itemId: string) => {
+				await searchItems.delete(itemId)
+				if (++removals > 1) return
+				held.accept()
+				held.release()
+			},
+		},
+	}
+
+	await deleteDocument({ database, storage: env.DOCUMENT_STORAGE, searchIndex: deletingSearchIndex }, receiptId)
+	await backfillUpload
+
+	expect({ items: [...items.keys()], documents: await database.select({ id: documents.id }).from(documents) }).toEqual({
+		items: [],
+		documents: [],
+	})
+})
+
+test("a backfill upload accepted after deleteDocument finished removes the item it created", async () => {
+	const index = await prepareReceipt()
+	const { database, items, searchIndex } = index
+	index.holdUploads(true)
+	const backfillUpload = indexDocument(database, env.DOCUMENT_STORAGE, searchIndex, receiptId)
+	const held = await index.nextHeldUpload()
+
+	await deleteDocument({ database, storage: env.DOCUMENT_STORAGE, searchIndex }, receiptId)
+	const itemsAfterDeletion = [...items.keys()]
+	held.accept()
+	held.release()
+	await backfillUpload
+
+	expect({ itemsAfterDeletion, itemsAfterUpload: [...items.keys()] }).toEqual({
+		itemsAfterDeletion: [],
+		itemsAfterUpload: [],
+	})
+})
