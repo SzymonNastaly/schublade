@@ -52,6 +52,7 @@ src/
 		text_recognizer.test.ts
 drizzle/                                 Generated SQL migrations and drizzle-kit snapshots
 scripts/
+	provision_environment.ts               `pnpm run provision`: creates or reuses the resources, deploys behind Access
 	generate_test_documents.ts             Deterministic generator for test_fixtures/documents
 	test_document_generation/              Document catalog, page layout, and scan and photograph simulation
 test_fixtures/
@@ -65,8 +66,6 @@ vitest.config.ts                         The node and workerd test projects
 eslint.config.js, .prettierrc.json, knip.json, tsconfig.json
 ```
 
-`scripts/provision_environment.ts` does not exist yet. The `provision` script in package.json already points at it.
-
 ## Things that will bite you
 
 - **Configuration modes.** Builds evaluate `cloudflare.config.ts` in `production` mode or the `--mode` they receive. `cf dev` evaluates it in `development` mode, and `cf workers types` evaluates it without a mode. Only build modes require the identifiers in `schublade.deploy.json`.
@@ -78,6 +77,7 @@ eslint.config.js, .prettierrc.json, knip.json, tsconfig.json
 - **Import PDFium as `@embedpdf/pdfium/pdfium.wasm?module`.** Workers cannot compile WebAssembly at runtime. The `?module` suffix makes both the Vite plugin and the Vitest plugin load a compiled module. Without it, the test runner treats the file as a WebAssembly ES module and fails on its `env` imports.
 - **The workerd test project does not read `cloudflare.config.ts`.** It declares its compatibility date, flags, module rules, and any bindings in `vitest.config.ts`. Keep its compatibility date equal to the one in `cloudflare.config.ts`.
 - **`pnpm run deploy`, not `pnpm deploy`.** The second is a pnpm built-in.
+- **`pnpm run provision` converges.** It finds each resource by name, applies pending migrations, and inserts missing household members without changing existing ones. It deploys only while the live Worker lacks the current Access values, so ship code changes with `pnpm run deploy`. It touches only the Access policy and application named `schublade <workerName>`.
 - **knip exceptions.** knip ignores the IBM Plex packages, which the generator reads by file path, and `@types/emscripten`, which the `@embedpdf/pdfium` declarations reference. An export that a later phase will import carries a `/** @public */` tag. Remove the tag when the export gains a caller.
 - **TypeScript stays on 6.0.** typescript-eslint supports TypeScript below 6.1, so `typescript` is pinned to `~6.0.3`.
 - **Exact pins.** `cf` and `@cloudflare/vite-plugin` are open betas. They are pinned to exact versions that share one miniflare release. Upgrade them together in a deliberate commit.
@@ -94,6 +94,7 @@ pnpm format                     # Prettier
 pnpm database:generate          # drizzle-kit generate after a schema change
 pnpm database:migrate:local     # apply migrations to the local database
 pnpm generate:test-documents    # regenerate test_fixtures/documents
+pnpm run provision              # create or reuse the environment, deploy behind Access; only when the user asks
 pnpm run build                  # cf build; needs schublade.deploy.json
 pnpm run deploy                 # cf deploy; only when the user asks
 ```

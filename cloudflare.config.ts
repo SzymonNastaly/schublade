@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from "node:fs"
+import { existsSync, readFileSync, writeFileSync } from "node:fs"
 import { bindings, defineConfig, exports as workerExports } from "cf/config"
 import { z } from "zod"
 
@@ -9,21 +9,50 @@ const DEPLOYMENT_PARAMETERS_FILE = "schublade.deploy.json"
 const LOCAL_DATABASE_IDENTIFIER = "00000000-0000-4000-8000-000000000000"
 
 // Written by `pnpm run provision` (scripts/provision_environment.ts) and ignored by git.
+// `accessEmails` and `householdMembersFile` are command-line answers that a rerun reuses.
 const deploymentParametersSchema = z.strictObject({
-	workerName: z.string().min(1).optional(),
+	workerName: z
+		.string()
+		.regex(/^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/, "use lowercase letters, digits, and inner hyphens")
+		.optional(),
+	accessEmails: z.array(z.email()).min(1).optional(),
+	householdMembersFile: z.string().min(1).optional(),
 	databaseIdentifier: z.uuid().optional(),
 	documentStorageBucketName: z.string().min(1).optional(),
 	searchInstanceName: z.string().min(1).optional(),
 	aiGatewayIdentifier: z.string().min(1).optional(),
+	workerHostname: z.hostname().optional(),
 	accessTeamDomain: z.hostname().optional(),
 	accessAudience: z.string().min(1).optional(),
 })
 
-const deployment = deploymentParametersSchema.parse(
-	existsSync(DEPLOYMENT_PARAMETERS_FILE) ? JSON.parse(readFileSync(DEPLOYMENT_PARAMETERS_FILE, "utf8")) : {},
-)
+export type DeploymentParameters = z.infer<typeof deploymentParametersSchema>
+
+export function readDeploymentParameters(): DeploymentParameters {
+	return deploymentParametersSchema.parse(
+		existsSync(DEPLOYMENT_PARAMETERS_FILE) ? JSON.parse(readFileSync(DEPLOYMENT_PARAMETERS_FILE, "utf8")) : {},
+	)
+}
+
+export function writeDeploymentParameters(parameters: DeploymentParameters): void {
+	writeFileSync(
+		DEPLOYMENT_PARAMETERS_FILE,
+		`${JSON.stringify(deploymentParametersSchema.parse(parameters), null, "\t")}\n`,
+	)
+}
+
+export function resourceNamesFor(workerName: string) {
+	return {
+		databaseName: `${workerName}-database`,
+		documentStorageBucketName: `${workerName}-documents`,
+		searchInstanceName: workerName,
+		aiGatewayIdentifier: workerName,
+	}
+}
+
+const deployment = readDeploymentParameters()
 const workerName = deployment.workerName ?? "schublade"
-const databaseName = `${workerName}-database`
+const resourceNames = resourceNamesFor(workerName)
 
 // Builds evaluate this configuration in `production` mode or the `--mode` they receive.
 // `cf dev` evaluates it in `development` mode, and commands that only read it, such as
@@ -31,8 +60,10 @@ const databaseName = `${workerName}-database`
 function resourceBindings(mode: string | undefined) {
 	if (mode === undefined || mode === "development") {
 		return {
-			DATABASE: bindings.d1({ name: databaseName, id: LOCAL_DATABASE_IDENTIFIER }),
-			DOCUMENT_STORAGE: bindings.r2({ name: deployment.documentStorageBucketName ?? `${workerName}-documents` }),
+			DATABASE: bindings.d1({ name: resourceNames.databaseName, id: LOCAL_DATABASE_IDENTIFIER }),
+			DOCUMENT_STORAGE: bindings.r2({
+				name: deployment.documentStorageBucketName ?? resourceNames.documentStorageBucketName,
+			}),
 			// AI Search has no local simulation, so development before provisioning runs without it.
 			SEARCH_INDEX:
 				deployment.searchInstanceName !== undefined && bindings.aiSearch({ name: deployment.searchInstanceName }),
@@ -48,7 +79,7 @@ function resourceBindings(mode: string | undefined) {
 		)
 	}
 	return {
-		DATABASE: bindings.d1({ name: databaseName, id: databaseIdentifier }),
+		DATABASE: bindings.d1({ name: resourceNames.databaseName, id: databaseIdentifier }),
 		DOCUMENT_STORAGE: bindings.r2({ name: documentStorageBucketName }),
 		SEARCH_INDEX: bindings.aiSearch({ name: searchInstanceName }),
 	}
