@@ -1,5 +1,5 @@
 import { existsSync, readFileSync, writeFileSync } from "node:fs"
-import { bindings, defineConfig, exports as workerExports } from "cf/config"
+import { bindings, defineConfig, triggers, exports as workerExports } from "cf/config"
 import { z } from "zod"
 
 const DEPLOYMENT_PARAMETERS_FILE = "schublade.deploy.json"
@@ -109,6 +109,10 @@ export default defineConfig(({ mode }) => {
 			observability: { enabled: true },
 			// Per-version preview hostnames are outside the Access application.
 			previewUrls: false,
+			// Indexes archived documents that AI Search lacks, such as those archived before the
+			// workflow indexed documents or whose index step failed. Local development does not
+			// run Cron Triggers.
+			triggers: [triggers.scheduled({ schedule: "*/15 * * * *" })],
 			exports: {
 				DocumentIngestionWorkflow: workerExports.workflow({ name: `${name}-document-ingestion` }),
 				ArchiveCoordinator: workerExports.durableObject({ storage: "sqlite" }),

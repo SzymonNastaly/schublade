@@ -175,3 +175,20 @@ export async function receiveIndexingRequest(environment: IndexingEnvironment, r
 		),
 	)
 }
+
+/**
+ * The scheduled run of the backfill, which indexes documents that AI Search lacks or failed to
+ * index without a signed-in request, and logs one line per run.
+ */
+export async function indexMissingDocumentsOnSchedule(environment: IndexingEnvironment): Promise<void> {
+	const report = await indexMissingDocuments(
+		connectDatabase(environment.DATABASE),
+		environment.DOCUMENT_STORAGE,
+		environment.SEARCH_INDEX,
+	)
+	const failures = report.failedDocuments.map(({ documentId, reason }) => `${documentId}: ${reason}`)
+	console.log(
+		`Scheduled search indexing: ${report.indexedDocumentIds.length} indexed, ${failures.length} failed, ` +
+			`${report.remainingDocumentCount} remaining${failures.length > 0 ? `. ${failures.join("; ")}` : ""}`,
+	)
+}

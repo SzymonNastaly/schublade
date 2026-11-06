@@ -1,5 +1,6 @@
 import handler from "@tanstack/react-start/server-entry"
 import { requireAccess } from "./authentication/access_verification"
+import { indexMissingDocumentsOnSchedule } from "./search/document_indexing"
 
 export { ArchiveCoordinator } from "./durable_objects/archive_coordinator"
 export { DocumentIngestionWorkflow } from "./workflows/document_ingestion_workflow"
@@ -15,4 +16,7 @@ export default {
 	fetch(request, environment) {
 		return developmentExemption ? serveApplication(request) : serveWithinAccess(request, environment)
 	},
+	// Only the Cron Trigger in cloudflare.config.ts invokes this handler. No request reaches it,
+	// so no Access assertion applies.
+	scheduled: (_controller, environment) => indexMissingDocumentsOnSchedule(environment),
 } satisfies ExportedHandler<Env>

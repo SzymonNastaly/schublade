@@ -25,7 +25,7 @@ VISION.md explains the architecture and IMPLEMENTATION_PLAN.md the build order. 
 
 ```text
 src/
-	server.ts                              Worker entry: Access verification, then TanStack Start; exports the Workflow and Durable Object classes
+	server.ts                              Worker entry: Access verification, then TanStack Start; the scheduled backfill; the Workflow and Durable Object classes
 	ambient_declarations.d.ts              Types for import.meta.env, the PDFium WebAssembly import, and PDF fixture imports
 	authentication/
 		access_verification.ts               requireAccess: Cloudflare Access assertion verification with jose
@@ -53,7 +53,7 @@ src/
 	search/                                AI Search indexing and retrieval; search_index_item.ts and search_criteria.ts are pure and tested in Node
 		search_index_item.ts                 Item name, Markdown content, and custom metadata of an indexed document
 		search_criteria.ts                   Search parameter schema, URL search parsing, the AI Search filter, and passage excerpts
-		document_indexing.ts                 SearchIndex port, the index step, indexMissingDocuments, and the POST /api/search_index handler
+		document_indexing.ts                 SearchIndex port, the index step, indexMissingDocuments, its POST /api/search_index and scheduled callers
 		document_indexing.workerd.test.ts
 		document_search.ts                   Hybrid AI Search query joined with D1, or the D1 listing without a query
 		document_search.workerd.test.ts
@@ -93,7 +93,7 @@ test_fixtures/
 	inference_recordings/                  Workers AI responses recorded from the test documents for workerd tests
 .agents/skills/                          Project skills; .claude/skills links here
 .github/workflows/check.yml              Runs `pnpm check` on each push to main
-cloudflare.config.ts                     Worker, bindings, Workflow and Durable Object exports, and the deployment guard
+cloudflare.config.ts                     Worker, bindings, Cron Trigger, Workflow and Durable Object exports, and the deployment guard
 drizzle.config.ts                        drizzle-kit configuration
 vite.config.ts                           Vite plugins, dev server port, Worker source maps
 vitest.config.ts                         The node and workerd test projects
@@ -109,6 +109,7 @@ eslint.config.js, .prettierrc.json, knip.json, tsconfig.json
 - **URL search parameters are parsed in `parseSearchString`.** TanStack Router merges every parameter it parses into the validated search of each route, so `validateSearch` alone cannot drop an unknown or unreadable one, and the default parser reads `1.50` as a number. `src/router.tsx` therefore passes `parseSearchString` and `composeSearchString` from `search_criteria.ts`.
 - **`cf dev` needs a Cloudflare login.** `AI_RUNTIME`, `BROWSER_RENDERER`, and `SEARCH_INDEX` are remote in development, so `cf dev` opens a remote preview session on the signed-in account. It deploys nothing.
 - **Local development runs as `schublade-development`.** The remote preview of a Worker that shares a deployed name sits behind that deployment's Access application and fails without a service token. `cloudflare.config.ts` therefore names the Worker `schublade-development` in every local mode, and `pnpm evaluate:extraction` addresses the local Workflow under that name. Never provision an environment with that worker name.
+- **Local development does not run the Cron Trigger.** Every 15 minutes a deployed Worker runs the scheduled backfill, which indexes up to 100 archived documents that AI Search lacks or failed to index and logs one `Scheduled search indexing:` line. To run it once on a dev server, request `http://localhost:3000/cdn-cgi/local/scheduled?format=json`. It lists and uploads into the billed development instance.
 - **Local development returns 403.** The Access variables are blank locally, so `GET /` returns `Access denied: access_unconfigured`. Start the dev server with `VITE_ACCESS_DEVELOPMENT_EXEMPTION=true pnpm dev` to see the interface.
 - **One local database identifier.** Local development simulates D1 under `00000000-0000-4000-8000-000000000000`. The constant lives in `cloudflare.config.ts` and in the `database:migrate:local` script. Change both together.
 - **`cf d1` takes database UUIDs.** Names and binding names are rejected. `--local` without `--persist-to .cloudflare/state` writes to a directory the dev server never reads. Query the local database with `cf d1 raw <DATABASE_ID> --local --persist-to .cloudflare/state --sql "..."`.

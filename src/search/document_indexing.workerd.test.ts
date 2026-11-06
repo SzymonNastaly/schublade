@@ -1,9 +1,9 @@
 import { applyD1Migrations, env, reset } from "cloudflare:test"
-import { expect, inject, test } from "vitest"
+import { expect, inject, test, vi } from "vitest"
 import { connectDatabase } from "../database/client"
 import { documents } from "../database/schema"
 import { contentObjectKey } from "../ingestion/source_file"
-import { indexMissingDocuments, receiveIndexingRequest } from "./document_indexing"
+import { indexMissingDocuments, indexMissingDocumentsOnSchedule, receiveIndexingRequest } from "./document_indexing"
 import type { SearchIndex } from "./document_indexing"
 
 const brokenDocumentId = "1c9e4a7b-2d3f-4e5a-8b6c-7d8e9f0a1b2c"
@@ -124,4 +124,22 @@ test("receiveIndexingRequest refuses a request from another site", async () => {
 		uploadsAfterCrossSite: [],
 		statuses: [200, 200],
 	})
+})
+
+test("indexMissingDocumentsOnSchedule indexes a batch and logs one summary line", async () => {
+	await prepareArchive()
+	const { uploadedItemNames, searchIndex } = createSearchIndex()
+	const log = vi.spyOn(console, "log").mockImplementation(() => undefined)
+
+	await indexMissingDocumentsOnSchedule({ ...env, SEARCH_INDEX: searchIndex })
+
+	expect({ uploadedItemNames, logLines: log.mock.calls }).toEqual({
+		uploadedItemNames: [`${intactDocumentId}.md`],
+		logLines: [
+			[
+				`Scheduled search indexing: 1 indexed, 1 failed, 1 remaining. ${brokenDocumentId}: Document ${brokenDocumentId} has no extracted Markdown at documents/${brokenDocumentId}/content.md`,
+			],
+		],
+	})
+	log.mockRestore()
 })
