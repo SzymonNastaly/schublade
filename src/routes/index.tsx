@@ -43,7 +43,10 @@ async function uploadDocuments(files: Array<File>): Promise<Array<UploadOutcome>
 	const formData = new FormData()
 	for (const file of files) formData.append("files", file)
 	const response = await fetch("/api/documents", { method: "POST", body: formData })
-	if (!response.ok) throw new Error(`The upload failed with status ${response.status}`)
+	if (!response.ok) {
+		const failure = await response.json<{ error?: string }>().catch(() => ({ error: undefined }))
+		throw new Error(failure.error ?? `The upload failed with status ${response.status}`)
+	}
 	const { outcomes } = await response.json<{ outcomes: Array<UploadOutcome> }>()
 	return outcomes
 }

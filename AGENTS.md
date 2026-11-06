@@ -47,7 +47,7 @@ src/
 		verification_assessment.ts           Verification reason of an archived document
 		document_ingestion.ts                The workflow steps and their D1 and R2 writes
 		document_ingestion.workerd.test.ts   Step order with recorded Workers AI responses
-		document_upload.ts                   Multipart upload handling: per file, identification, R2 write, documents row, and workflow start
+		document_upload.ts                   Multipart uploads: size limits, then per file identification, R2 write, row, and workflow start
 		document_upload.workerd.test.ts
 	utilities/
 		server_functions.ts                  TanStack Start server functions

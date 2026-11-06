@@ -56,6 +56,7 @@ const uploadResponseSchema = z.object({
 		z.discriminatedUnion("kind", [
 			z.object({ kind: z.literal("accepted"), fileName: z.string(), documentId: z.string() }),
 			z.object({ kind: z.literal("rejected"), fileName: z.string(), reason: z.string() }),
+			z.object({ kind: z.literal("failed"), fileName: z.string(), reason: z.string() }),
 		]),
 	),
 })
@@ -165,7 +166,7 @@ async function uploadDocuments(expectedDocuments: Array<ExpectedDocument>): Prom
 	)
 	const documentIds = new Map<string, string>()
 	for (const outcome of response.outcomes) {
-		if (outcome.kind === "rejected") throw new Error(`The server rejected ${outcome.fileName}: ${outcome.reason}`)
+		if (outcome.kind !== "accepted") throw new Error(`The server did not accept ${outcome.fileName}: ${outcome.reason}`)
 		documentIds.set(outcome.fileName, outcome.documentId)
 	}
 	return documentIds
