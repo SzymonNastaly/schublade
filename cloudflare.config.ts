@@ -25,6 +25,8 @@ const deploymentParametersSchema = z.strictObject({
 	classificationModel: z.string().min(1).optional(),
 	accessTeamDomain: z.hostname().optional(),
 	accessAudience: z.string().min(1).optional(),
+	// The Email Routing address whose mail the Worker archives. Without it, the Worker rejects all mail.
+	ingestionEmailAddress: z.email().optional(),
 })
 
 export type DeploymentParameters = z.infer<typeof deploymentParametersSchema>
@@ -112,7 +114,14 @@ export default defineConfig(({ mode }) => {
 			// Indexes archived documents that AI Search lacks, such as those archived before the
 			// workflow indexed documents or whose index step failed. Local development does not
 			// run Cron Triggers.
-			triggers: [triggers.scheduled({ schedule: "*/15 * * * *" })],
+			triggers: [
+				triggers.scheduled({ schedule: "*/15 * * * *" }),
+				// `cf deploy` creates and updates the Email Routing rule that sends this address to the
+				// Worker. Without an address the trigger is left out, which leaves existing rules alone.
+				...(deployment.ingestionEmailAddress === undefined
+					? []
+					: [triggers.email({ addresses: [deployment.ingestionEmailAddress] })]),
+			],
 			exports: {
 				DocumentIngestionWorkflow: workerExports.workflow({ name: `${name}-document-ingestion` }),
 				ArchiveCoordinator: workerExports.durableObject({ storage: "sqlite" }),
@@ -131,6 +140,9 @@ export default defineConfig(({ mode }) => {
 				// Blank Access values make the Worker reject every browser request.
 				ACCESS_TEAM_DOMAIN: bindings.text(deployment.accessTeamDomain ?? ""),
 				ACCESS_AUD: bindings.text(deployment.accessAudience ?? ""),
+				// A blank ingestion address or an empty allowlist makes the Worker reject all mail.
+				INGESTION_EMAIL_ADDRESS: bindings.text(deployment.ingestionEmailAddress ?? ""),
+				MAIL_SENDER_ALLOWLIST: bindings.json(deployment.accessEmails ?? []),
 				AI_GATEWAY_IDENTIFIER: bindings.text(deployment.aiGatewayIdentifier ?? "schublade"),
 				CLASSIFICATION_MODEL: bindings.text(
 					deployment.classificationModel ?? "@cf/deepseek-ai/deepseek-v4.1-flash-1017",

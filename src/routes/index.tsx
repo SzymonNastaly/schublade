@@ -102,7 +102,12 @@ function DocumentInspection({ document }: { document: RetrievedDocument }) {
 					value={representation}
 					onValueChange={setRepresentation}
 				/>
-				{representation === "original" ? (
+				{document.status === "awaiting_rendering" ? (
+					<Text variant="secondary">
+						This email has no PDF or image attachment. Schublade stores the message and will archive it once it can
+						render the email as a PDF.
+					</Text>
+				) : representation === "original" ? (
 					document.mimeType === "application/pdf" ? (
 						<iframe title="Original document" src={originalUrl} className="h-[80vh] w-full rounded border" />
 					) : (

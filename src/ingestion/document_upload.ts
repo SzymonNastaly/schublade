@@ -2,8 +2,9 @@ import { connectDatabase } from "../database/client"
 import { documents } from "../database/schema"
 import { recordDocumentStatus } from "./document_ingestion"
 import { acceptedMediaTypes, identifySourceFile, originalObjectKey } from "./source_file"
+import type { MailContext } from "./classification_prompt"
 
-type UploadEnvironment = Pick<Env, "DATABASE" | "DOCUMENT_STORAGE" | "DOCUMENT_INGESTION_WORKFLOW">
+export type UploadEnvironment = Pick<Env, "DATABASE" | "DOCUMENT_STORAGE" | "DOCUMENT_INGESTION_WORKFLOW">
 
 // A Worker isolate has 128 MB of memory. Text extraction holds an original three times at once,
 // in the R2 read, the Blob for Markdown conversion, and the PDFium heap, so 25 MB per file
@@ -19,8 +20,21 @@ export type UploadOutcome =
 	| { kind: "rejected"; fileName: string; reason: string }
 	| { kind: "failed"; fileName: string; reason: string }
 
+/**
+ * Inbound mail derives the document identifier from the message, so a retried delivery finds the
+ * document its first delivery recorded. A browser upload gets a random identifier.
+ */
+interface DocumentOrigin {
+	documentId: string
+	mailContext?: MailContext
+}
+
 /** Checks one file, stores the original in R2, records the document as processing, and starts its workflow. */
-async function acceptDocumentUpload(environment: UploadEnvironment, file: File): Promise<UploadOutcome> {
+export async function acceptDocumentUpload(
+	environment: UploadEnvironment,
+	file: File,
+	{ documentId, mailContext }: DocumentOrigin = { documentId: crypto.randomUUID() },
+): Promise<UploadOutcome> {
 	if (file.size > MAXIMUM_DOCUMENT_BYTES) {
 		return {
 			kind: "rejected",
@@ -39,26 +53,35 @@ async function acceptDocumentUpload(environment: UploadEnvironment, file: File):
 		}
 	}
 	const database = connectDatabase(environment.DATABASE)
-	const documentId = crypto.randomUUID()
 	const storageObjectKey = originalObjectKey(documentId, sourceFile)
 	await environment.DOCUMENT_STORAGE.put(storageObjectKey, content, {
 		httpMetadata: { contentType: sourceFile.mediaType },
 	})
+	let recorded: Array<{ id: string }>
 	try {
-		await database.insert(documents).values({
-			id: documentId,
-			storageObjectKey,
-			mimeType: sourceFile.mediaType,
-			byteSize: file.size,
-			status: "processing",
-		})
+		recorded = await database
+			.insert(documents)
+			.values({
+				id: documentId,
+				storageObjectKey,
+				mimeType: sourceFile.mediaType,
+				byteSize: file.size,
+				status: "processing",
+			})
+			.onConflictDoNothing()
+			.returning({ id: documents.id })
 	} catch (error) {
 		// Without its row, nothing would list or remove the stored original.
 		await environment.DOCUMENT_STORAGE.delete(storageObjectKey)
 		throw error
 	}
+	// A concurrent delivery of the same message recorded the document and started its workflow.
+	if (recorded.length === 0) return { kind: "accepted", fileName: file.name, documentId }
 	try {
-		await environment.DOCUMENT_INGESTION_WORKFLOW.create({ id: documentId, params: { documentId } })
+		await environment.DOCUMENT_INGESTION_WORKFLOW.create({
+			id: documentId,
+			params: mailContext === undefined ? { documentId } : { documentId, mailContext },
+		})
 	} catch (error) {
 		await recordDocumentStatus(database, documentId, "failed")
 		throw error

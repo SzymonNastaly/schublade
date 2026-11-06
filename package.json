@@ -36,6 +36,7 @@
 		"drizzle-zod": "^0.8.3",
 		"fast-png": "^8.0.0",
 		"jose": "^6.2.15",
+		"postal-mime": "4.1.4",
 		"react": "^19.3.1",
 		"react-dom": "^19.3.1",
 		"tailwindcss": "^4.3.4",

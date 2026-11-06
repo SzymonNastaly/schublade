@@ -1,4 +1,5 @@
 import handler from "@tanstack/react-start/server-entry"
+import { receiveInboundMail } from "./ingestion/inbound_mail"
 import { createRequestDispatcher } from "./request_dispatch"
 import { indexMissingDocumentsOnSchedule } from "./search/document_indexing"
 import type { Caller } from "./authorization/caller_authorization"
@@ -27,4 +28,7 @@ export default {
 	// Only the Cron Trigger in cloudflare.config.ts invokes this handler. No request reaches it,
 	// so no Access assertion applies.
 	scheduled: (_controller, environment) => indexMissingDocumentsOnSchedule(environment),
+	// Email Routing delivers mail sent to the ingestion address. No request reaches this handler,
+	// so the sender allowlist and DMARC take the place of the Access assertion.
+	email: (message, environment) => receiveInboundMail(message, environment),
 } satisfies ExportedHandler<Env>

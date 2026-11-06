@@ -4,6 +4,7 @@ import type { DocumentStatus } from "../ingestion/document_lifecycle"
 import type { RetrievedDocument } from "../search/document_search"
 
 const statusBadges: Record<DocumentStatus, { label: string; variant: BadgeVariant }> = {
+	awaiting_rendering: { label: "Email awaiting rendering", variant: "secondary" },
 	processing: { label: "Processing", variant: "secondary" },
 	extracting: { label: "Extracting", variant: "info" },
 	recognizing_text: { label: "Recognizing text", variant: "info" },

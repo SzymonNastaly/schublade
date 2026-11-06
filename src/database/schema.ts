@@ -15,7 +15,16 @@ const creationTime = () =>
 		.notNull()
 		.default(sql`(unixepoch())`)
 
-const documentStatuses = ["processing", "extracting", "recognizing_text", "classifying", "archived", "failed"] as const
+// An email without a usable attachment is stored as awaiting_rendering until phase 7 renders it.
+const documentStatuses = [
+	"awaiting_rendering",
+	"processing",
+	"extracting",
+	"recognizing_text",
+	"classifying",
+	"archived",
+	"failed",
+] as const
 
 const verificationReasons = ["new_taxonomy_record", "illegible_required_field", "non_archival_attachment"] as const
 

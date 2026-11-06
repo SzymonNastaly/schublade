@@ -4,7 +4,10 @@ export type DocumentStatus = (typeof documents.$inferSelect)["status"]
 
 // Ingestion moves a document forward through these states. A document without a
 // page that needs recognition skips `recognizing_text`. Any unsettled state can fail.
+// An email without a usable attachment waits in `awaiting_rendering` until phase 7 renders
+// its body into a PDF; nothing moves it on before then.
 const statusTransitions = {
+	awaiting_rendering: [],
 	processing: ["extracting", "failed"],
 	extracting: ["recognizing_text", "classifying", "failed"],
 	recognizing_text: ["classifying", "failed"],
