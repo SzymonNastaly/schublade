@@ -40,6 +40,7 @@ src/
 	database/
 		schema.ts                            The nine Drizzle tables and their drizzle-zod insert schemas
 		client.ts                            Drizzle bound to env.DATABASE, and connectDatabase for a passed binding
+		database_migrations.workerd.test.ts  Every migration applied in order to rows written under the first schema
 	archive/
 		document_listing.ts                  The document listing query with its filters, and the facet options
 		document_listing.workerd.test.ts
