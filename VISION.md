@@ -116,10 +116,10 @@ sequenceDiagram
 	Worker->>WF: Start DocumentIngestionWorkflow(documentId)
 	Worker-->>Client: Return documentId
 	WF->>Coord: Broadcast status "extracting"
-	WF->>AI: Run env.AI_RUNTIME.toMarkdown() on file
-	alt Markdown text is empty or sparse
+	WF->>AI: Run env.AI_RUNTIME.toMarkdown() and read page text with PDFium
+	alt Any page lacks readable text from both
 		WF->>Coord: Broadcast status "recognizing_text"
-		WF->>WF: Render each page to an image with PDFium
+		WF->>WF: Render each remaining page to an image with PDFium
 		WF->>AI: Run Moondream on each page image
 	end
 	WF->>Coord: Broadcast status "classifying"
@@ -132,8 +132,8 @@ sequenceDiagram
 
 The text extraction and classification pipeline executes in three stages:
 
-1. **Markdown conversion.** The workflow calls `env.AI_RUNTIME.toMarkdown()` on the file bytes. For digital PDFs, HTML files, and PDFs generated with on-device optical character recognition in applications such as QuickScan, `toMarkdown()` extracts the text structure at no inference cost.
-2. **Conditional optical character recognition fallback.** Scanned PDFs without a text layer yield fewer than 40 characters per page from `toMarkdown()`, and camera uploads arrive as raster images. A Worker has no canvas, so the workflow renders each scanned page to a grayscale PNG at 150 dots per inch with PDFium compiled to WebAssembly (`@embedpdf/pdfium`). The workflow then sends each page image to `@cf/moondream/moondream3.1-9B-A2B` in a separate call that asks for a verbatim transcription. The Moondream service returns 3-byte UTF-8 characters such as the euro sign as `U+FFFD`, while 2-byte characters such as `ä`, `ß`, and `ś` survive. Schublade restores `€` only directly beside a two-decimal amount and tells the classifier that any remaining `U+FFFD` marks an unreadable character. Camera uploads go to the model without rendering. Each page runs as its own workflow step, so a failed page retries without repeating the others.
+1. **Per-page text extraction.** For a PDF, the workflow calls `env.AI_RUNTIME.toMarkdown()` and reads each page's text layer with PDFium compiled to WebAssembly from `@embedpdf/pdfium`. For each page, `selectPageTextSources` chooses the first source that yields readable text. First, it keeps the page's `toMarkdown()` section when that section has at least 40 letters or digits, which preserves tables as Markdown at no inference cost. `toMarkdown()` returns empty page sections for tagged PDFs whose structure tree it cannot follow. On an Apache FOP train ticket, `toMarkdown()` returned only the metadata block while the text layer held 2,370 letters and digits. Second, when the `toMarkdown()` section is too short, the workflow checks PDFium's text extraction for that page. It uses that text when the page has at least 40 letters or digits and fewer than one replacement character per ten of them.
+2. **Conditional optical character recognition fallback.** Third, a PDF page that fails both text checks, or a camera upload that arrives as a raster image, goes to `@cf/moondream/moondream3.1-9B-A2B`. At most 50 pages per document may use this recognition path. A Worker has no canvas, so the workflow renders each remaining PDF page to a grayscale PNG at 150 dots per inch with PDFium. The workflow then sends each page image to `@cf/moondream/moondream3.1-9B-A2B` in a separate call that asks for a verbatim transcription. The Moondream service returns 3-byte UTF-8 characters such as the euro sign as `U+FFFD`, while 2-byte characters such as `ä`, `ß`, and `ś` survive. Schublade restores `€` only directly beside a two-decimal amount and tells the classifier that any remaining `U+FFFD` marks an unreadable character. Camera uploads go to the model without rendering. Each page runs as its own workflow step, so a failed page retries without repeating the others.
 3. **Structured classification.** The workflow calls `generateText()` with `Output.object` from the Vercel AI SDK, `workers-ai-provider`, and a strict Zod schema. The default classification model is `@cf/deepseek-ai/deepseek-v4.1-flash-1017`, chosen by the extraction evaluation on the synthetic test documents. You can override it per deployment with `classificationModel` in `schublade.deploy.json`. The prompt includes the extracted Markdown, any email header fields, your current list of senders, categories, and tags, and the household members from D1.
 
 Every inference request runs on a Workers AI model through AI Gateway, which logs, caches, and rate-limits each request. Schublade sends no document to a third-party model provider and requires no provider API key.
@@ -143,7 +143,7 @@ Every inference request runs on a Workers AI model through AI Gateway, which log
 Schublade accepts documents through three interfaces:
 
 - **Web and mobile application uploads.** You drag files into the browser window or select the document capture control on a mobile device.
-- **Inbound mail via Cloudflare Email Routing.** The Worker exports an `email(message, env)` handler and parses incoming MIME messages with `postal-mime`. To reject unsolicited mail, the handler verifies that `message.from` appears on your sender allowlist or that `message.to` matches your designated ingestion address, such as `docs+<token>@schublade.org`. When the message contains PDF or image attachments, the Worker discards inline signature graphics smaller than 15 KB. It starts a `DocumentIngestionWorkflow` for each valid attachment and supplies the email subject, sender address, and plain-text body as classification context. Some forwarded receipts, such as Apple App Store or airline confirmations, contain no file attachments. For those body-only messages, the workflow renders the HTML body into an archival PDF using Cloudflare Browser Run on `env.BROWSER_RENDERER` and archives that PDF.
+- **Inbound mail via Cloudflare Email Routing.** The Worker exports an `email(message, env)` handler and parses incoming MIME messages with `postal-mime`. Before reading the message, the handler checks that `message.to` matches your ingestion address and that `message.from` is on your sender allowlist. It then parses the header section and requires the single `From` address to equal `message.from` and Cloudflare's `dmarc=pass` result to appear for that domain. The handler trusts only the `mx.cloudflare.net` `Authentication-Results` header inside the block that Email Routing prepends between the first and second `Received` headers. Domains such as `gmail.com` publish a DMARC policy of `none`, so the allowlist alone would admit spoofed mail without that `dmarc=pass` check. When the message contains PDF or image attachments, the Worker discards inline signature graphics smaller than 15 KB. It starts a `DocumentIngestionWorkflow` for each valid attachment and supplies the email subject, sender address, and plain-text body as classification context. Redelivery of the same message adds no duplicate documents. Some forwarded receipts, such as Apple App Store or airline confirmations, contain no usable file attachments. The handler stores those messages with the status `awaiting_rendering` for HTML-to-PDF rendering with Cloudflare Browser Run on `env.BROWSER_RENDERER`.
 - **Token-authenticated `POST /api/documents/ingest`.** Automated callers cannot complete an interactive browser login on Cloudflare Access. The `/api/documents/ingest` route is listed on the Cloudflare Access bypass policy and validates an `Authorization: Bearer <token>` header against SHA-256 token digests stored in D1. You can connect iOS applications such as QuickScan through a two-step Apple Shortcut, transmit scans from network document scanners, or upload files from a command-line script.
 
 ### Why one Durable Object coordinates client state
@@ -154,7 +154,7 @@ When you open Schublade on a desktop or mobile browser, the client establishes a
 
 ## One access control layer for the UI, API tokens, and MCP
 
-Every operation in Schublade resides in `src/operations/` as a typed procedure with a Zod input schema, a required permission level, and a central authorization guard. The TanStack Start server functions, the `/api/documents/ingest` endpoint, and the `/mcp` server all invoke `executeOperation(caller, input)`.
+The Worker entry establishes a `Caller` once for every request or message. In `src/authorization/caller_authorization.ts`, the pure function `permits(caller, required)` checks the caller's permission level against the order `read < ingest < modify < administer`. A verified Cloudflare Access assertion yields a `member_session` caller with `administer` permission. A bearer token on `POST /api/documents/ingest` yields an `api_token` caller with its `AuthorizationScope`, and an admitted email yields an `inbound_mail` caller with `ingest` permission.
 
 ```ts
 type PermissionLevel = "read" | "ingest" | "modify" | "administer"
@@ -166,6 +166,11 @@ interface AuthorizationScope {
 	deniedTags?: string[]
 	allowedSenders?: string[]
 }
+
+type Caller =
+	| { kind: "member_session" }
+	| { kind: "api_token"; tokenId: string; scope: AuthorizationScope }
+	| { kind: "inbound_mail"; senderAddress: string }
 ```
 
 The four permission levels define strict operational boundaries:
@@ -175,7 +180,7 @@ The four permission levels define strict operational boundaries:
 - **`modify`** adds updating document titles, senders, categories, tags, and structured fields, and resolving verification entries.
 - **`administer`** adds deleting documents, merging sender or tag records, configuring inference models, and issuing API tokens or OAuth grants.
 
-Because `AuthorizationScope` is enforced by the central guard from the outset, Schublade supports both coarse-grained tokens and fine-grained client restrictions without modifying individual operation handlers. You can connect Claude Code, OpenClaw, or Coworkers to `/mcp` using `@cloudflare/workers-oauth-provider`. Each grant can authorize full `read` access or restrict the external client to `allowedCategories: ["Invoice", "Tax Notice"]` and `deniedTags: ["medical", "private"]`. The authorization guard adds category and sender predicates to the AI Search filter and adds every predicate, including the tag predicates, to the D1 query that joins the search candidates. A passage from a denied document never reaches the caller.
+Members issue and revoke API tokens on the **Settings** page, which requires the `administer` level. Each token is `schublade_` plus 43 random base64url characters, is shown once, and is stored in D1 only as a SHA-256 digest. D1 updates a token's last-used timestamp at most once per hour and deletes the row on revocation. Because `AuthorizationScope` pairs a permission level with category, tag, and sender filters, the same type covers API tokens and fine-grained client restrictions. You can connect Claude Code, OpenClaw, or Coworkers to `/mcp` using `@cloudflare/workers-oauth-provider`. Each grant can authorize full `read` access or restrict the external client to `allowedCategories: ["Invoice", "Tax Notice"]` and `deniedTags: ["medical", "private"]`. The authorization guard adds category and sender predicates to the AI Search filter and adds every predicate, including the tag predicates, to the D1 query that joins the search candidates. A passage from a denied document never reaches the caller.
 
 Browsers send the Cloudflare Access session cookie with cross-site requests. The Worker entry therefore returns HTTP 403 for any request other than `GET`, `HEAD`, or `OPTIONS` whose `Origin` header names another site. Requests without an `Origin` header, such as scripts and token-authenticated callers, pass this check.
 
@@ -213,7 +218,7 @@ Schublade maintains no internal password table. Executing `pnpm run provision` f
 
 1. Creates the D1 database, the R2 bucket, the AI Search instance with its four custom metadata fields, and the AI Gateway, applies the Drizzle SQL schema migrations, and records the household members.
 2. Deploys the Worker in a locked state so the public hostname rejects all requests until authentication is configured.
-3. Configures a self-hosted **Cloudflare Access** application for the Worker's `workers.dev` hostname on Cloudflare Zero Trust, which is free for up to 50 users. The script creates an allow policy for the given email addresses. It does not yet create an Access bypass rule for `/api/documents/ingest` and `/mcp`. The bypass rule for `/api/documents/ingest` arrives in Phase 3 with the token-authenticated endpoint, and the bypass rule for `/mcp` arrives in Phase 6 with the MCP server. Both routes then validate their own bearer and OAuth tokens.
+3. Configures a self-hosted **Cloudflare Access** application for the Worker's hostname on Cloudflare Zero Trust, which is free for up to 50 users. The script creates an allow policy for the given email addresses and a bypass application for `/api/documents/ingest`, which validates its own bearer tokens. Because Access path rules cover subpaths, the Worker skips Access only for the exact pathname `/api/documents/ingest` and requires Access on every subpath. The bypass application for `/mcp` arrives in Phase 6 with the MCP server, which validates its own OAuth tokens.
 4. Redeploys the Worker with the `ACCESS_TEAM_DOMAIN` and `ACCESS_AUD` parameters written to a git-ignored `schublade.deploy.json` configuration file.
 
 Every browser request to the Worker must carry a valid Cloudflare Access JSON Web Token. The Worker verifies that cryptographic signature before executing any server function or establishing an `ArchiveCoordinator` WebSocket connection. When `ACCESS_TEAM_DOMAIN` or `ACCESS_AUD` is absent, the Worker rejects every browser request rather than admitting it. Per-version preview hostnames are disabled, because the Access application does not cover them.
@@ -222,6 +227,6 @@ Every browser request to the Worker must carry a valid Cloudflare Access JSON We
 
 The `schublade.org` domain will host the planned public landing page and documentation, which introduce the project, explain the architecture, and provide deployment instructions for self-hosting.
 
-The staging deployment runs as the Worker `schublade-staging` on the account's `workers.dev` subdomain behind Cloudflare Access, rather than on `staging.schublade.org`. You choose an environment by Worker name rather than a `--mode staging` flag.
+The staging deployment runs as the Worker `schublade-staging` at `https://staging.schublade.org` behind Cloudflare Access, with its `workers.dev` hostname disabled and inbound mail routed from `documents@schublade.org`. When `--hostname` sets a custom domain, `pnpm run provision` adds the new hostname to the Access application before deploying the route change. It removes the previous hostname only after the deployment finishes. You choose an environment by Worker name rather than a `--mode staging` flag.
 
 Local development binds `SEARCH_INDEX` to a separate remote AI Search instance named `schublade-development`, so local runs never write into a deployment's index. `pnpm run provision` does not create that instance. Create it once with `cf ai-search create schublade-development` and the same four custom metadata fields: `person`, `sender`, and `category` as text, and `document_date` as datetime.

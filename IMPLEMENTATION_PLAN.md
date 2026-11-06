@@ -1,6 +1,6 @@
 # Schublade implementation plan
 
-This plan turns [VISION.md](VISION.md) into a build order. Each phase ends in a check you run against the `schublade-staging` Worker on the account's `workers.dev` subdomain behind Cloudflare Access. Do not start a phase until the check of the previous phase passes.
+This plan turns [VISION.md](VISION.md) into a build order. Each phase ends in a check you run against the `schublade-staging` Worker at `https://staging.schublade.org` behind Cloudflare Access. Do not start a phase until the check of the previous phase passes.
 
 ## Measured OCR prototype
 
@@ -57,7 +57,7 @@ Schublade uses no pull requests. Each change is one commit pushed to `main` afte
 
 The test suite stays small and fast, so it costs almost nothing on GitHub Actions or Cloudflare.
 
-- **Targets.** `pnpm check` finishes in under one minute on a laptop, and the GitHub Actions run finishes in under three minutes. With 46 tests at the end of phase 2, `pnpm check` takes about 12 seconds locally, and it took about 40 seconds on GitHub Actions at the end of phase 1. A test that pushes the suite past either target needs a reason in its commit message.
+- **Targets.** `pnpm check` finishes in under one minute on a laptop, and the GitHub Actions run finishes in under three minutes. With 69 tests at the end of phase 3, `pnpm check` takes about 13 seconds locally, and it took about 40 seconds on GitHub Actions at the end of phase 1. A test that pushes the suite past either target needs a reason in its commit message.
 - **No Cloudflare usage in tests.** `@cloudflare/vitest-plugin` simulates D1, R2, Workflows, and Durable Objects locally in Miniflare, so tests make no billed requests. The Workers AI and AI Search bindings are replaced by recorded responses.
 - **Few `workerd` tests.** The `workerd` project starts more slowly than the Node project, so it covers only the parts that need real bindings: the D1 queries with scope predicates, the workflow step sequence, and the `ArchiveCoordinator` broadcast. Everything else is a pure module tested in Node.
 - **One test per behavior.** Tests assert literal expected values from `expected_extraction.json` or written into the test. Snapshot tests and browser end-to-end tests are not part of the suite. The interface is verified by hand on staging at the end of each phase.
@@ -111,8 +111,8 @@ Tests assert against `expected_extraction.json`:
 
 ### Phase 1. Ingestion core with OCR (complete)
 
-1. The browser upload control accepts PDF, JPEG, PNG, and WebP files up to 25 MB per file and 50 MB per request. It detects each file type from the leading bytes, shows the rejection reason for any rejected file, writes accepted originals to R2, inserts a `documents` row with the status `processing`, and starts `DocumentIngestionWorkflow`.
-2. `DocumentIngestionWorkflow` runs one step per unit: it extracts text with `toMarkdown()` and checks for a text layer with PDFium, renders each page without a text layer at 150 dpi with PDFium WebAssembly and transcribes it with `@cf/moondream/moondream3.1-9B-A2B` in its own step, and stores the Markdown in R2 at `documents/<id>/content.md`.
+1. The browser upload control accepts at most 20 PDF, JPEG, PNG, and WebP files per request, up to 25 MB per file and 50 MB per request. It detects each file type from the leading bytes, shows the rejection reason for any rejected file, writes accepted originals to R2, inserts a `documents` row with the status `processing`, and starts `DocumentIngestionWorkflow`.
+2. `DocumentIngestionWorkflow` runs one step per unit. For each PDF page, it selects a text source in three tiers: first the page's `toMarkdown()` section when that section has at least 40 letters or digits, second PDFium's text extraction for the page when that text has at least 40 letters or digits and fewer than one replacement character per ten of them, and third a 150 dpi PNG rendered with PDFium WebAssembly and transcribed by `@cf/moondream/moondream3.1-9B-A2B` in its own step. Image files always go to Moondream, and the 50-page limit applies only to pages that need Moondream. The workflow stores the assembled Markdown in R2 at `documents/<id>/content.md`.
 3. The workflow reads the taxonomy and household members from D1 and classifies the document through AI Gateway with `workers-ai-provider` and the Vercel AI SDK `generateText` with `Output.object`, because `generateObject` is deprecated. The default model is `@cf/deepseek-ai/deepseek-v4.1-flash-1017`, which `classificationModel` in `schublade.deploy.json` can override per deployment. The classifier sets `person` to the member the document concerns, such as the child who is the patient on a dental invoice addressed to a parent, or to `household` when the document concerns several members or the whole household. The `documents` table holds one verification reason, and an illegible required field takes precedence when a new taxonomy record also applies. One D1 batch archives the document and writes only while the document is still in the `classifying` status.
 4. The archive page lists documents, refreshes by polling while any document is processing, and shows each original file and its Markdown.
 5. Add `pnpm evaluate:extraction` and run it over `test_fixtures/documents/`.
@@ -128,11 +128,12 @@ Tests assert against `expected_extraction.json`:
 | `gpt-oss-120b` | 74 of 80 | The model completed all 12 documents in the run before the fixture correction, with no later rerun. |
 | `Gemma 4 26B` | 70 of 80 | One document failed in the run before the fixture correction, with no later rerun. |
 
-OCR findings from the phase 1 evaluation:
+OCR and text-pipeline findings from phase 1 and phase 3:
 
 - **Euro sign restoration.** The Moondream service returns 3-byte UTF-8 characters such as the euro sign as `U+FFFD`, while `ä`, `ß`, and `ś` survive. Schublade restores `€` only directly beside a two-decimal amount and tells the classifier that any remaining `U+FFFD` marks an unreadable character.
 - **Thermal receipt photo.** Moondream read the total, date, and receipt number accurately, along with 7 of 10 item prices. Splitting the image into halves lowered accuracy to 0 of 10 item prices.
 - **Scanned hardware-store receipt.** Rendering at 200 dpi read 6 of 6 item lines compared to 5 of 6 at 150 dpi on one sample. Schublade keeps 150 dpi.
+- **Three-tier PDF page text pipeline.** Workers AI `toMarkdown()` returns empty page sections for tagged PDFs whose structure tree it cannot follow. A real emailed train ticket generated by Apache FOP as a tagged PDF 1.5 file returned only the metadata block from `toMarkdown()`. The same file with its structure tree removed converted in full, and `pdftotext` read 2,370 letters and digits from the original file. With PDFium text extraction as the second tier before Moondream, that ticket classified with the expected sender, category, title, and date without a Moondream call. `pnpm evaluate:extraction` still scores 80 of 80 across the 12 test documents with 9 Moondream calls, all on the scans and the receipt photograph.
 
 ### Phase 2. Search (complete)
 
@@ -158,13 +159,24 @@ OCR findings from the phase 1 evaluation:
 
 Measured through the local dev server, which adds a hop to the remote binding, text queries took 0.5 to 2.4 seconds with a median of about 1.7 seconds, and D1-only filtering took about 10 ms. Indexing 12 documents uploaded together took 73 to 145 seconds per item from upload to indexed, with a median of 104 seconds. After the deploy to `schublade-staging`, the 11:30 UTC run of the scheduled backfill uploaded the 3 documents archived on staging before phase 2, and all 3 were indexed by 11:32 UTC. A query for the dental invoice's IBAN on the staging index returned that document as the only result. The signed-in search page on staging has not been tried yet.
 
-### Phase 3. Tokens and inbound mail
+### Phase 3. Tokens and inbound mail (complete)
 
-1. Add API token issuance and the `/api/documents/ingest` endpoint.
-2. Add the `email()` handler with `postal-mime` and the sender allowlist.
-3. Add the Access bypass rule for `/api/documents/ingest`.
+1. Resolve every request to one of three callers: `member_session` from a verified Access assertion, `api_token` with its authorization scope, or `inbound_mail` with the sender address. One pure function checks permissions against the ordered levels `read < ingest < modify < administer`.
+2. Add API token management on the **Settings** page, which requires the `administer` level that a signed-in member holds. Members issue tokens with the `ingest` level. Each token is `schublade_` followed by 43 random base64url characters, or 256 bits, and the page shows the token once. D1 stores only the SHA-256 digest, revoking a token deletes its row, and bearer authentication writes the last-used timestamp at most once per hour.
+3. Add `POST /api/documents/ingest` and its Access bypass application. The endpoint accepts the same multipart `files` field as the browser upload with an `Authorization: Bearer <token>` header and no Access sign-in. Both uploads and inbound messages accept at most 20 files, 25 MB per file, and 50 MB per request, detect file types from their content, and refuse cross-site writes. The Worker skips Access only for the exact pathname `/api/documents/ingest`, and an Access bypass application covers that path at the edge. A missing or unknown token returns 401, `GET` returns 405, and any subpath returns 403. For example, `curl -X POST -H "Authorization: Bearer <token>" -F "files=@invoice.pdf;type=application/pdf" https://<host>/api/documents/ingest` returns JSON outcomes per file such as `{"kind":"accepted",...}`.
+4. Add the `email()` handler with `postal-mime` for the configured ingestion address, `documents@schublade.org` on staging. The handler checks the envelope recipient and sender before it parses the message. It admits a message only when the recipient is the ingestion address, the envelope sender and the single `From` address match the same allowlisted address from the Access email list, and Cloudflare's DMARC result passes. The handler trusts `Authentication-Results` from Cloudflare only inside the header block that Email Routing prepends, which runs from its own `Received` header to the next `Received` header. `gmail.com` publishes a DMARC policy of `none`, so without the DMARC check Email Routing would deliver spoofed `gmail.com` senders. PDF and image attachments enter ingestion with the email subject, sender, and plain-text body as classification context, while inline images under 15 KB are skipped. A message without a usable attachment is stored with the status `awaiting_rendering` for phase 7 HTML-to-PDF rendering, and redelivery of the same message adds nothing.
+
+To upload from QuickScan or another iOS application through an Apple Shortcut:
+
+1. Open **Settings**, issue a token with the **Ingest documents** permission, and copy the token while it is shown.
+2. Create an Apple Shortcut that receives PDFs from the Share Sheet.
+3. Add **Repeat with Each** over **Shortcut Input**.
+4. Inside the loop, add **Get Contents of URL** for `https://<host>/api/documents/ingest` with method `POST`, the header `Authorization: Bearer <token>`, and a **Form** request body that has a **File** field named `files` set to **Repeat Item**.
+5. Show the result, then share a scan to the Shortcut.
 
 **Check.** A QuickScan Shortcut upload and a forwarded invoice email both archive. The general terms attachment receives the non-archival verification reason.
+
+**Verified.** On 2026-11-06 the `schublade.org` zone moved to the account, and its two Porkbun parking `CNAME` records were deleted so Email Routing could own the apex `MX` and `TXT` records. Running `pnpm run provision --hostname staging.schublade.org --email-address documents@schublade.org` moved `schublade-staging` to `https://staging.schublade.org` behind Cloudflare Access. The script extended the Access application to the custom hostname before the deployment moved the route, then narrowed the Access application to `staging.schublade.org`. The `workers.dev` hostname is now switched off and returns 404. On staging, an invoice uploaded to `POST /api/documents/ingest` with a bearer token archived with every expected field, and the token stopped working after revocation. A real email from an allowlisted `gmail.com` address with a PDF attachment was admitted with `dmarc=pass` and archived. On that delivery, the header block that Email Routing prepended above the sender's `Received` header had the order `Received`, `ARC-Seal`, `ARC-Message-Signature`, `ARC-Authentication-Results`, `Received-SPF`, `Authentication-Results`, and `X-CF-SpamH-Score`. The Apple Shortcut steps above were not run, and the `non_archival_attachment` verification reason is tracked in [Follow-ups](#follow-ups).
 
 ### Phase 4. Pending verification
 
@@ -193,8 +205,11 @@ Add `/mcp` with `McpAgent` and `@cloudflare/workers-oauth-provider`, with the co
 
 ## Follow-ups
 
-- **Very large documents.** The workflow refuses a document with more than 50 pages without a text layer before it transcribes any page. The limit caps OCR cost per document at about 0.04 USD, and the refused document ends with the status `failed`. A workflow step output over about 1 MiB of Markdown still fails the step, and the workflow does not truncate classifier input.
+- **Very large documents.** The workflow refuses a document when more than 50 pages need Moondream before it transcribes any page. The limit caps OCR cost per document at about 0.04 USD, and the refused document ends with the status `failed`. A workflow step output over about 1 MiB of Markdown still fails the step, and the workflow does not truncate classifier input.
 - **OCR resolution and receipt item lines.** Choosing whether to render scanned pages at 200 dpi instead of 150 dpi and improving item-line transcription on thermal receipts remain open.
+- **PDF glyphs without Unicode mappings.** When PDFium extracts text from a PDF page in the second tier of the text pipeline, a glyph without a Unicode mapping can come out as a wrong letter that the replacement-character threshold cannot detect. `FPDFText_HasUnicodeMapError` could catch those pages and has not been tested yet.
 - **Tag and amount filters on text searches.** AI Search returns at most 50 chunks per query, and D1 applies the tag and amount filters to the documents in those chunks. A text query combined with a tag or amount filter therefore sees only documents among the top 50 chunks.
 - **Re-uploading index items after metadata edits.** AI Search filters on the `person`, `sender`, `category`, and `document_date` fields stored on each index item. When phase 4 lets members edit a document's person, sender, category, or date, the index item must be uploaded again.
 - **The 5,000-item backfill limit.** The backfill pages through AI Search until an empty page and stops after 100 pages, or 5,000 items. An index above 5,000 items makes the backfill fail by design.
+- **Non-archival attachment verification reason.** The `non_archival_attachment` verification reason is not implemented yet.
+- **Rate limit on the token ingestion endpoint.** `POST /api/documents/ingest` has no rate limit yet.

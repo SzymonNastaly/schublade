@@ -6,41 +6,41 @@ Schublade is for a person or a household that wants paper and PDF mail archived 
 
 ## Status
 
-Phases 0, 1, and 2 are complete and deployed to the `schublade-staging` Worker on `workers.dev` behind Cloudflare Access. You can provision an environment, upload PDF, JPEG, PNG, and WebP files, search and filter the archive, and inspect archived originals and extracted Markdown. The archive page polls while documents process. On staging, a scanned dental invoice stored in R2 and run as a workflow instance through the `cf` CLI archived in about 20 seconds with every expected field correct. After the phase 2 deployment, the scheduled backfill indexed the three existing staging documents within two minutes. A query for the dental invoice's IBAN on the staging index returned that document as the only result.
+Phases 0, 1, 2, and 3 are complete. Staging runs at `https://staging.schublade.org` behind Cloudflare Access, and its `workers.dev` hostname is off and returns HTTP 404. You can provision an environment, upload PDF, JPEG, PNG, and WebP files in the browser or through `POST /api/documents/ingest`, and forward email with attachments. You can also issue and revoke API tokens on **Settings**, search and filter the archive, and inspect originals and extracted Markdown.
 
-On the 12 synthetic test documents, the default `@cf/deepseek-ai/deepseek-v4.1-flash-1017` model matched 80 of 80 expected fields. An earlier run matched 79 of 80 fields because a supermarket receipt fixture expected `Frischemarkt Talbrück` instead of the printed legal name `Frischemarkt Talbrück GmbH`. After the fixture correction and the narrower euro-sign repair, `pnpm evaluate:extraction` matched all 12 documents in 55 seconds of wall time and cost 0.036 USD. `pnpm evaluate:search` passed 8 of 8 hybrid search and filter checks against those 12 documents.
+On staging, an invoice uploaded with a bearer token archived with every expected field, and the token stopped working after revocation. A real email from an allowlisted Gmail address with a PDF attachment passed DMARC and archived. A tagged Apache FOP train ticket that `toMarkdown` left blank extracted through the PDFium fallback and classified with no Moondream call. On the 12 synthetic test documents, `@cf/deepseek-ai/deepseek-v4.1-flash-1017` matched 80 of 80 expected fields in 55 seconds for 0.036 USD, using 9 Moondream calls across the scans and the photo. `pnpm evaluate:search` passed 8 of 8 hybrid search and filter checks against those 12 documents.
 
-API tokens and email in phase 3 and the **Pending verification** view in phase 4 are not built yet. Live WebSocket updates in phase 5, the `/mcp` server in phase 6, and mobile installation in phase 7 also remain planned. `pnpm run provision` does not yet add an Access bypass for `/api/documents/ingest` and `/mcp`. The workflow refuses a document with more than 50 pages without a text layer before it transcribes any page and sets the status to `failed`. That 50-page limit caps OCR cost at about 0.04 USD per document. A workflow step result over about 1 MiB of Markdown still fails the step, and the workflow does not truncate the classifier input. In text search, tag and amount filters see only documents in the top 50 matching chunks, and the index backfill stops at 5,000 items.
+The **Pending verification** view in phase 4, live WebSocket updates in phase 5, and the `/mcp` server in phase 6 are not built yet. Mobile installation and HTML-to-PDF email rendering in phase 7, the `non_archival_attachment` verification reason, and a rate limit on `/api/documents/ingest` also remain open. The workflow fails any PDF that needs Moondream on more than 50 pages. That 50-page limit caps OCR cost at about 0.04 USD per document. In PDFium text extraction, a glyph without a Unicode mapping can produce a wrong letter that the `U+FFFD` check does not catch. A workflow step result over about 1 MiB of Markdown still fails the step, and the workflow does not truncate classifier input. In text search, tag and amount filters see only documents in the top 50 matching chunks, and the index backfill stops at 5,000 items.
 
 ## What it does
 
 This section describes the full design, and items marked (planned) are not built yet. Schublade takes in your mail and scans, extracts structured metadata, and indexes every page for search:
 
-- **Three ways to add documents.** Upload files in the desktop browser or the installable mobile web app (planned). Browser uploads detect PDF, JPEG, PNG, and WebP from the file's leading bytes. Each request accepts up to 25 MB per file and 50 MB total, and each rejected file shows its reason. You can also forward an email or send a scan from an app such as QuickScan through a token-authenticated endpoint (planned). Schublade does not send email.
+- **Three ways to add documents.** Upload files in the desktop browser or the installable mobile web app (planned). You can also forward an email or send a scan from an app such as QuickScan through a token-authenticated endpoint. Uploads and inbound emails detect PDF, JPEG, PNG, and WebP from the file's leading bytes and accept up to 20 files, 25 MB per file, and 50 MB total. Schublade does not send email.
 - **Immediate archiving with no manual tagging.** Every document enters the archive as soon as ingestion finishes. Schublade classifies each document with a title, a document date, a sender, a category, a person, tags, and a two-sentence summary. It also extracts category-specific fields such as amount, due date, IBAN, and policy number.
 - **Non-blocking verification.** The **Pending verification** view (planned) surfaces only three cases. It lists a new sender, category, or tag that the model created, an illegible required field, or a non-archival email attachment. Each document stores one verification reason, and an illegible required field takes precedence over a new taxonomy record. Ignoring **Pending verification** never blocks archiving or search.
 - **Hybrid multilingual search and filters.** Keyword and semantic search run together across languages, and results include the best matching passage per document. An English query finds a German invoice, and exact IBANs and invoice numbers match. The search input takes focus on `/`, Cmd+K, or Ctrl+K, and facets filter by person, sender, category, tag, date range, and amount. Search state lives in the URL, so you can share a search as a link. On phones, facets fold behind a filter button. Below the `md` CSS breakpoint, the document table becomes one stacked row per document with no horizontal scrolling at 375 px.
 - **One archive for a household.** One deployment serves one household with one or more members. Cloudflare Access controls sign-in by email. Because the household is trusted, every member sees every document. Schublade assigns each document to the member it concerns, such as a child named as the patient on a parent's dental invoice, or to `household`. You can filter by person.
-- **On-Cloudflare OCR and inference.** The Worker renders scanned pages at 150 dpi with PDFium WebAssembly and transcribes them page by page with `@cf/moondream/moondream3.1-9B-A2B`. Classification runs on `@cf/deepseek-ai/deepseek-v4.1-flash-1017` by default through AI Gateway. Schublade sends no document to a third-party model provider and needs no provider API key.
-- **Low per-document cost.** `toMarkdown` extracts text from digital PDFs at no inference cost. Classification with DeepSeek V4.1 Flash costs about 0.0023 USD per document. Moondream OCR costs about 0.0008 USD per uncached scanned page.
+- **On-Cloudflare OCR and inference.** The Worker extracts digital PDF text with `toMarkdown` and PDFium WebAssembly, renders scanned pages at 150 dpi with PDFium, and transcribes them with `@cf/moondream/moondream3.1-9B-A2B`. Classification runs on `@cf/deepseek-ai/deepseek-v4.1-flash-1017` by default through AI Gateway. Schublade sends no document to a third-party model provider and needs no provider API key.
+- **Low per-document cost.** `toMarkdown` and PDFium extract text from digital PDFs at no inference cost. Classification with DeepSeek V4.1 Flash costs about 0.0023 USD per document. Moondream OCR costs about 0.0008 USD per uncached scanned page.
 - **External AI clients over MCP (planned).** Schublade has no built-in chat. External AI clients such as Claude can connect through the Model Context Protocol endpoint at `/mcp` with scoped OAuth grants.
 
 ## How it works
 
 One Cloudflare Worker runs TanStack Start to serve the interface and coordinate ingestion. The Worker bundles PDFium WebAssembly in a 2.8 MiB compressed upload and starts in 39 to 70 ms. R2 stores original files and extracted Markdown at `documents/<id>/content.md`. D1 stores relational metadata, and AI Search provides full-text and semantic search.
 
-`DocumentIngestionWorkflow` runs one step per unit of work. It extracts text with `toMarkdown`, detects pages without a text layer using PDFium, renders each scanned page in its own step, and transcribes each page with Moondream. Moondream returns 3-byte UTF-8 characters such as the euro sign as `U+FFFD`. Schublade restores `€` beside two-decimal amounts and tells the classifier that any remaining `U+FFFD` marks an unreadable character. The workflow then classifies the document with the Vercel AI SDK `generateText` function and `Output.object` through `workers-ai-provider` and AI Gateway. Finally, it archives the records in one D1 batch and uploads `<documentId>.md` with its metadata to AI Search.
+`DocumentIngestionWorkflow` runs one step per unit of work. For each PDF page, the workflow keeps `toMarkdown` text with at least 40 letters or digits, or PDFium text with at least 40 and under one `U+FFFD` replacement character per ten. PDFium reads tagged PDFs whose structure tree `toMarkdown` cannot follow, while remaining PDF pages and uploaded images render at 150 dpi in separate steps for Moondream transcription. Moondream returns 3-byte UTF-8 characters such as the euro sign as `U+FFFD`. Schublade restores `€` beside two-decimal amounts and tells the classifier that any remaining `U+FFFD` marks an unreadable character. The workflow then classifies the document with the Vercel AI SDK `generateText` function and `Output.object` through `workers-ai-provider` and AI Gateway. Finally, it archives the records in one D1 batch and uploads `<documentId>.md` with its metadata to AI Search.
 
 A Cron Trigger every 15 minutes and `POST /api/search_index` backfill archived documents that the index lacks. Text queries run a hybrid AI Search query with metadata filters, group the top 50 chunks by document, and recheck every filter in D1. Filtering without a text query runs in D1 alone.
 
-For planned email ingestion, Email Routing delivers inbound mail to the Worker, and Browser Run renders body-only HTML emails to PDF. The archive page polls today, Durable Objects are planned to push live status updates to connected clients, and Cloudflare Access controls sign-in. The Worker also rejects cross-origin write requests with HTTP 403. For the full architecture and rationale, read [VISION.md](VISION.md).
+Every request resolves to one of three callers: `member_session` from a verified Cloudflare Access assertion, `api_token` with its authorization scope, or `inbound_mail` from a verified sender address. One pure function checks the permission order `read` < `ingest` < `modify` < `administer`, and the Worker refuses cross-site write requests with HTTP 403. Cloudflare Access gates every HTTP route except the exact path `/api/documents/ingest`, where an Access bypass application exposes `POST /api/documents/ingest` for bearer tokens. Email Routing delivers inbound mail to the Worker, while HTML-to-PDF rendering with Browser Run and live status updates over Durable Objects remain planned. For the full architecture and rationale, read [VISION.md](VISION.md).
 
 ## Requirements
 
 To deploy or develop Schublade, you need these accounts and tools:
 
 - A Cloudflare account. Deployed use requires the Workers Paid plan, because scanned-page rendering needs more CPU time than the free plan's 10 ms limit per invocation. Local development works on the free plan.
-- Cloudflare Zero Trust enabled on your Cloudflare account for deployed use, which is free for up to 50 users.
+- Cloudflare Zero Trust enabled on your Cloudflare account for deployed use. The free plan covers up to 50 users.
 - Node.js and `pnpm`.
 - The `cf` command-line interface.
 
@@ -71,16 +71,41 @@ To provision Schublade on your Cloudflare account, follow these steps:
 4. Provision the Cloudflare resources and deploy the Worker:
 
 	```sh
-	pnpm run provision -- --worker-name schublade --access-email alex@example.com --household-members household.json
+	pnpm run provision -- --worker-name schublade --access-email alex@example.com --household-members household.json --hostname archive.example.com --email-address documents@example.com
 	```
 
-	Repeat `--access-email` for each email address allowed to sign in.
+	Repeat `--access-email` for each email address allowed to sign in and send mail. Omit `--hostname` to keep the `workers.dev` hostname, and omit `--email-address` to skip Email Routing.
 
-`pnpm run provision` creates or reuses the D1 database `<worker>-database`, the R2 bucket `<worker>-documents`, the authenticated AI Gateway `<worker>`, and the AI Search instance `<worker>` with the custom metadata fields `person`, `sender`, `category`, and `document_date`. It applies the Drizzle migrations remotely, inserts the household members, and deploys the Worker locked. Next, it creates a Cloudflare Access allow policy for your emails and a self-hosted Access application for the Worker's `workers.dev` hostname, then deploys again with Access enabled.
+`pnpm run provision` creates or reuses the D1 database `<worker>-database`, the R2 bucket `<worker>-documents`, the authenticated AI Gateway `<worker>`, and the AI Search instance `<worker>`. It configures the index with the custom metadata fields `person`, `sender`, `category`, and `document_date`. It applies the Drizzle migrations remotely, inserts the household members, and deploys the Worker locked. Next, it creates an Access allow policy for your emails, an Access application for the Worker hostname, and a bypass application for `/api/documents/ingest`. It then redeploys the Worker with Access enabled.
 
-The script saves your configuration in the git-ignored `schublade.deploy.json` file, so later runs of `pnpm run provision` need no flags. Rerunning the command converges and reports resources that are already present. You choose an environment by setting `--worker-name`. To override the default classification model, set `classificationModel` in `schublade.deploy.json`.
+When `--hostname` attaches a custom domain on a zone in your account, the Worker disables `workers.dev`. The script covers the new hostname in Access before the deployment moves the route and removes the old hostname afterward. When `--email-address` enables Email Routing on that address's zone, remove any conflicting parking CNAME or MX records on the zone apex first.
 
-To ship code changes after provisioning, run `pnpm run deploy`.
+The script saves your configuration in the git-ignored `schublade.deploy.json` file, so later runs of `pnpm run provision` need no flags. Reruns converge and report resources that already exist. To override the default classification model, set `classificationModel` in `schublade.deploy.json`. To ship code changes after provisioning, run `pnpm run deploy`.
+
+## Send documents by email and from scanners
+
+When you provision with `--email-address`, Email Routing delivers mail for that address to the Worker. The Worker checks the recipient and envelope sender before it parses the message. It admits a message only when the recipient matches the ingestion address, the envelope sender and the single `From` header match the same allowlisted Access email address, and `mx.cloudflare.net` reports `dmarc=pass` in the header block that Email Routing prepends before the next `Received` header. Because domains such as `gmail.com` publish a DMARC policy of `none`, Email Routing would deliver spoofed messages without that `dmarc=pass` check.
+
+The Worker ingests PDF, JPEG, PNG, and WebP attachments with the email subject, sender, and plain-text body as classification context. It skips inline images under 15 KB, stores messages without a usable attachment as `awaiting_rendering` for phase 7 HTML-to-PDF rendering, and ignores redeliveries with the same `Message-ID`.
+
+Signed-in members have the `administer` permission level and can issue and revoke API tokens on the **Settings** page. Each token has the `ingest` permission level, starts with `schublade_` followed by 43 random base64url characters, and appears once at creation. D1 stores only the token's SHA-256 digest, updates its last-used time at most once per hour, and deletes the row on revocation.
+
+`POST /api/documents/ingest` accepts the same multipart `files` field as the browser upload with an `Authorization: Bearer <token>` header and no Access sign-in. A missing or unknown token returns HTTP 401, `GET` returns HTTP 405, and any subpath returns HTTP 403. To upload a file from a terminal or scanner script, run `curl`:
+
+```sh
+curl -X POST -H "Authorization: Bearer <token>" -F "files=@invoice.pdf;type=application/pdf" https://<host>/api/documents/ingest
+```
+
+The endpoint responds with a JSON outcome per file, such as `{"kind":"accepted",...}`.
+
+To send scans from QuickScan or another iOS app, build an Apple Shortcut that posts to the ingest endpoint. These steps were not run:
+
+1. Open **Settings**, issue a token with the **Ingest documents** permission, and copy the token while it is shown.
+2. In the Apple Shortcuts app, create a Shortcut that receives PDFs from the **Share Sheet**.
+3. Add a **Repeat with Each** action over **Shortcut Input**.
+4. Inside the loop, add **Get Contents of URL** for `https://<host>/api/documents/ingest` with method **POST** and the header `Authorization: Bearer <token>`.
+5. Set **Request Body** to **Form** and add a **File** field named `files` holding **Repeat Item**.
+6. Add an action to show the result, then share a scan to the Shortcut.
 
 ## Development
 
@@ -100,13 +125,11 @@ VITE_ACCESS_DEVELOPMENT_EXEMPTION=true pnpm dev
 
 This exemption never reaches a production build.
 
-Run `pnpm check` to execute `typecheck`, `lint`, `format:check`, `knip`, and `test`. The suite runs 46 tests in about 12 seconds with Vitest 5 across two projects, Node and `workerd` through `@cloudflare/vitest-plugin`. GitHub Actions runs `pnpm check` on each push to `main` in about 40 seconds.
+Run `pnpm check` to execute `typecheck`, `lint`, `format:check`, `knip`, and `test`. The suite runs 69 tests in about 13 seconds with Vitest 5 across two projects, Node and `workerd` through `@cloudflare/vitest-plugin`. GitHub Actions runs `pnpm check` on each push to `main` in about 40 seconds.
 
 Run `pnpm run generate:test-documents` to regenerate the 12 synthetic, anonymous test documents in `test_fixtures/documents/` and their expected values in `expected_extraction.json`. The output is byte-identical on every run.
 
-To evaluate extraction accuracy against a local dev server, run `pnpm evaluate:extraction`. That command makes real, billed Workers AI calls. After the fixture correction and the narrower euro-sign repair, `pnpm evaluate:extraction` scored DeepSeek V4.1 Flash at 80 of 80 fields on all 12 documents. The batch took 55 seconds of wall time at a cost of 0.036 USD for the run. Before the fixture correction, an earlier run scored `gpt-oss-120b` at 74 of 80 and Gemma 4 26B at 70 of 80 with one failed document. That earlier three-model run cost 0.175 USD in total, and only DeepSeek V4.1 Flash had a rerun after the fixture correction.
-
-To evaluate search and filtering against a local dev server and the `schublade-development` index, run `pnpm evaluate:search`. That command makes billed AI Search calls and, if test documents are not yet archived locally, billed Workers AI calls. `pnpm evaluate:search` passed 8 of 8 checks across cross-language queries, exact IBAN lookup, and person, category, date-range, and amount filters. Indexing the 12 test documents together took 73 to 145 seconds per item, with a median of 104 seconds. Through the local dev server, text queries took 0.5 to 2.4 seconds with a 1.7-second median, and D1-only filtering took about 10 ms.
+To evaluate extraction accuracy against a local dev server, run `pnpm evaluate:extraction`. That command makes billed Workers AI calls and scored DeepSeek V4.1 Flash at 80 of 80 fields on all 12 documents in 55 seconds for 0.036 USD, with 9 Moondream calls on the scans and the photo. To evaluate search and filtering against a local dev server and the `schublade-development` index, run `pnpm evaluate:search`. That command makes billed AI Search calls and passed 8 of 8 checks across cross-language queries, exact IBAN lookup, and person, category, date-range, and amount filters.
 
 ## Further reading
 
