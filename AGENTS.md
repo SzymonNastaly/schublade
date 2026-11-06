@@ -59,7 +59,7 @@ src/
 		document_upload.workerd.test.ts
 		token_ingestion.ts                   POST /api/documents/ingest: bearer token, ingest level, then the multipart upload
 		token_ingestion_path.ts              The one path Access bypasses, shared with the provisioning script
-		inbound_mail.ts                      email() handler: recipient, DMARC, and allowlist admission, attachments, awaiting_rendering, Message-ID idempotency
+		inbound_mail.ts                      email() handler: envelope rejection before any read, sender authentication on the headers alone, a parse within limits, attachments, awaiting_rendering, Message-ID idempotency
 		inbound_mail.workerd.test.ts
 	search/                                AI Search indexing and retrieval; search_index_item.ts and search_criteria.ts are pure and tested in Node
 		search_index_item.ts                 Item name, Markdown content, and custom metadata of an indexed document

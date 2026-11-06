@@ -4,27 +4,55 @@ import { connectDatabase } from "../database/client"
 import { documents } from "../database/schema"
 import { acceptDocumentUpload } from "./document_upload"
 import { identifySourceFile } from "./source_file"
-import type { Caller } from "../authorization/caller_authorization"
 import type { MailContext } from "./classification_prompt"
 import type { UploadEnvironment, UploadOutcome } from "./document_upload"
-import type { Email, Header } from "postal-mime"
+import type { Email, PostalMimeOptions } from "postal-mime"
 
 type MailEnvironment = UploadEnvironment & Pick<Env, "INGESTION_EMAIL_ADDRESS" | "MAIL_SENDER_ALLOWLIST">
 
-type InboundMessage = Pick<ForwardableEmailMessage, "from" | "to" | "raw" | "setReject">
+type InboundMessage = Pick<ForwardableEmailMessage, "from" | "to" | "raw" | "rawSize" | "setReject">
 
 // Mail clients embed signature logos and social icons as small inline images.
 const INLINE_IMAGE_MINIMUM_BYTES = 15_000
 // The body is classification context in the workflow payload, so it is cut to a bounded length.
 const MAXIMUM_BODY_CHARACTERS = 4000
+// Email Routing accepts messages up to 25 MiB, and the handler holds the message and its decoded
+// attachments in a 128 MB isolate at once.
+const MAXIMUM_MESSAGE_BYTES = 25 * 1024 * 1024
+// Household mail nests a few levels and holds a few dozen parts. The postal-mime defaults of 256
+// levels, 10,000 parts, 2 MiB of headers, and inline messages 10 deep admit far more, and every
+// inline message/rfc822 level keeps its own copy of the nested message.
+const PARSE_LIMITS = {
+	maxNestingDepth: 32,
+	maxPartCount: 1000,
+	maxHeadersSize: 256 * 1024,
+	maxRfc822NestingDepth: 2,
+} satisfies PostalMimeOptions
 const CLOUDFLARE_AUTHENTICATION_SERVICE = "mx.cloudflare.net"
 
-type MailAdmission =
-	| { kind: "rejected"; reason: string }
-	| { kind: "admitted"; caller: Extract<Caller, { kind: "inbound_mail" }>; messageIdentifier: string }
+const UNACCEPTED_RECIPIENT = "This address does not accept documents"
+// Every sender check gives the same reason, so a forged sender cannot tell whether an envelope
+// sender is on the allowlist.
+const UNAUTHORIZED_SENDER = "This sender may not deliver documents to this archive"
 
 function normalizeAddress(address: string): string {
 	return address.trim().toLowerCase()
+}
+
+/**
+ * Rejects a delivery on what Email Routing states about it, before any byte of the message is
+ * read: the recipient, the size, and the envelope sender. A blank ingestion address accepts nothing.
+ */
+function rejectEnvelope(
+	message: InboundMessage,
+	environment: Pick<MailEnvironment, "INGESTION_EMAIL_ADDRESS" | "MAIL_SENDER_ALLOWLIST">,
+): string | undefined {
+	const ingestionAddress = normalizeAddress(environment.INGESTION_EMAIL_ADDRESS)
+	if (ingestionAddress === "" || normalizeAddress(message.to) !== ingestionAddress) return UNACCEPTED_RECIPIENT
+	if (message.rawSize > MAXIMUM_MESSAGE_BYTES) return "The message is larger than 25 MiB"
+	const allowlist = environment.MAIL_SENDER_ALLOWLIST.map(normalizeAddress)
+	if (!allowlist.includes(normalizeAddress(message.from))) return UNAUTHORIZED_SENDER
+	return undefined
 }
 
 /**
@@ -32,8 +60,10 @@ function normalizeAddress(address: string): string {
  * trusted; a sender can add others below it. DMARC authenticates the domain of the From header,
  * which is why the allowlist is checked against that address as well as the envelope sender.
  */
-function passesDmarc(headers: ReadonlyArray<Header>, fromDomain: string): boolean {
-	const authenticationResults = headers.find((header) => header.key === "authentication-results")
+function authenticatesSender(email: Email, allowlist: ReadonlyArray<string>): boolean {
+	const fromAddress = normalizeAddress(email.from?.address ?? "")
+	if (!allowlist.map(normalizeAddress).includes(fromAddress)) return false
+	const authenticationResults = email.headers.find((header) => header.key === "authentication-results")
 	if (authenticationResults === undefined) return false
 	const [serviceIdentifier = "", ...results] = authenticationResults.value
 		.replace(/\([^)]*\)/g, "")
@@ -43,38 +73,26 @@ function passesDmarc(headers: ReadonlyArray<Header>, fromDomain: string): boolea
 	const dmarcResult = results.find((result) => /^dmarc\s*=/i.test(result))
 	if (dmarcResult === undefined || !/^dmarc\s*=\s*pass\b/i.test(dmarcResult)) return false
 	const evaluatedDomain = /\bheader\.from\s*=\s*([^\s;]+)/i.exec(dmarcResult)?.[1]
-	return evaluatedDomain === undefined || evaluatedDomain.toLowerCase() === fromDomain
+	return evaluatedDomain === undefined || evaluatedDomain.toLowerCase() === fromAddress.split("@").pop()
 }
 
-/**
- * Admits a message only when it is addressed to the ingestion address and comes, DMARC
- * authenticated, from an address on the allowlist. A blank ingestion address admits nothing.
- * Authentication is checked before the allowlist, so a forged sender learns nothing about it.
- */
-function admitMessage(
-	envelope: { sender: string; recipient: string },
-	email: Email,
-	environment: Pick<MailEnvironment, "INGESTION_EMAIL_ADDRESS" | "MAIL_SENDER_ALLOWLIST">,
-): MailAdmission {
-	const ingestionAddress = normalizeAddress(environment.INGESTION_EMAIL_ADDRESS)
-	if (ingestionAddress === "" || normalizeAddress(envelope.recipient) !== ingestionAddress) {
-		return { kind: "rejected", reason: "This address does not accept documents" }
+/** The header section of a raw message, through the empty line that ends it. */
+function headerSection(raw: Uint8Array<ArrayBuffer>): Uint8Array<ArrayBuffer> {
+	for (let index = 0; index < raw.length - 1; index += 1) {
+		if (raw[index] !== 0x0a) continue
+		if (raw[index + 1] === 0x0a) return raw.subarray(0, index + 2)
+		if (raw[index + 1] === 0x0d && raw[index + 2] === 0x0a) return raw.subarray(0, index + 3)
 	}
-	const fromAddress = normalizeAddress(email.from?.address ?? "")
-	if (!passesDmarc(email.headers, fromAddress.split("@").pop() ?? "")) {
-		return { kind: "rejected", reason: "The message failed DMARC sender authentication" }
-	}
-	const allowlist = new Set(environment.MAIL_SENDER_ALLOWLIST.map(normalizeAddress))
-	if (!allowlist.has(fromAddress) || !allowlist.has(normalizeAddress(envelope.sender))) {
-		return { kind: "rejected", reason: "This sender may not deliver documents to this archive" }
-	}
-	if (email.messageId === undefined || email.messageId.trim() === "") {
-		return { kind: "rejected", reason: "The message has no Message-ID header" }
-	}
-	return {
-		kind: "admitted",
-		caller: { kind: "inbound_mail", senderAddress: fromAddress },
-		messageIdentifier: email.messageId.trim(),
+	return raw
+}
+
+/** Parses under PARSE_LIMITS and returns undefined for a message beyond them. */
+async function parseWithinLimits(content: Uint8Array<ArrayBuffer>): Promise<Email | undefined> {
+	try {
+		return await PostalMime.parse(content, PARSE_LIMITS)
+	} catch (error) {
+		if (error instanceof Error && "code" in error && String(error.code).startsWith("EMAX")) return undefined
+		throw error
 	}
 }
 
@@ -142,23 +160,39 @@ async function storeMessageForRendering(
 }
 
 /**
- * The email() handler: archives every PDF, JPEG, PNG, or WebP attachment of an admitted message
- * with the subject, sender, and plain-text body as classification context. A retried delivery
- * of a message adds no document. Storage errors propagate, so Email Routing reports the delivery
- * as failed instead of the message disappearing.
+ * The email() handler: archives every PDF, JPEG, PNG, or WebP attachment of mail from an allowed,
+ * DMARC authenticated sender with the subject, sender, and plain-text body as classification
+ * context. Only the headers are parsed before the sender is authenticated. A retried delivery of
+ * a message adds no document. Storage errors propagate, so Email Routing reports the delivery as
+ * failed instead of the message disappearing.
  */
 export async function receiveInboundMail(message: InboundMessage, environment: MailEnvironment): Promise<void> {
-	const raw = new Uint8Array(await new Response(message.raw).arrayBuffer())
-	const email = await PostalMime.parse(raw)
-	const admission = admitMessage({ sender: message.from, recipient: message.to }, email, environment)
-	if (admission.kind === "rejected") {
-		message.setReject(admission.reason)
+	const envelopeRejection = rejectEnvelope(message, environment)
+	if (envelopeRejection !== undefined) {
+		message.setReject(envelopeRejection)
 		return
 	}
+	const raw = new Uint8Array(await new Response(message.raw).arrayBuffer())
+	const headers = await parseWithinLimits(headerSection(raw))
+	if (headers === undefined || !authenticatesSender(headers, environment.MAIL_SENDER_ALLOWLIST)) {
+		message.setReject(UNAUTHORIZED_SENDER)
+		return
+	}
+	const email = await parseWithinLimits(raw)
+	if (email === undefined) {
+		message.setReject("The message is nested too deeply or has too many parts")
+		return
+	}
+	const messageIdentifier = email.messageId?.trim() ?? ""
+	if (messageIdentifier === "") {
+		message.setReject("The message has no Message-ID header")
+		return
+	}
+	const senderAddress = normalizeAddress(headers.from?.address ?? "")
 
 	const subject = email.subject?.trim() ?? ""
 	const mailContext: MailContext = {
-		senderAddress: admission.caller.senderAddress,
+		senderAddress,
 		subject,
 		bodyText: (email.text ?? "").trim().slice(0, MAXIMUM_BODY_CHARACTERS),
 	}
@@ -169,13 +203,13 @@ export async function receiveInboundMail(message: InboundMessage, environment: M
 			// The content digest keeps a different message that reuses a Message-ID from being dropped.
 			.map(async ({ attachment, index, content }) => ({
 				documentId: await deriveDocumentIdentifier(
-					admission.messageIdentifier,
+					messageIdentifier,
 					`attachment ${index} ${await sha256Hexadecimal(content)}`,
 				),
 				file: new File([content], attachment.filename ?? `attachment-${index + 1}`),
 			})),
 	)
-	const messageDocumentId = await deriveDocumentIdentifier(admission.messageIdentifier, "message")
+	const messageDocumentId = await deriveDocumentIdentifier(messageIdentifier, "message")
 	const database = connectDatabase(environment.DATABASE)
 	const recordedIdentifiers = new Set(
 		(
@@ -199,7 +233,7 @@ export async function receiveInboundMail(message: InboundMessage, environment: M
 		await storeMessageForRendering(environment, messageDocumentId, raw, subject)
 	}
 	console.log(
-		`Inbound mail ${admission.messageIdentifier} from ${admission.caller.senderAddress}`,
+		`Inbound mail ${messageIdentifier} from ${senderAddress}`,
 		JSON.stringify({ outcomes, awaitingRendering: awaitsRendering ? messageDocumentId : null }),
 	)
 }

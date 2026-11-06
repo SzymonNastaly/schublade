@@ -114,8 +114,9 @@ async function deliver(
 	envelope: { from: string; to: string } = { from: MEMBER_ADDRESS, to: INGESTION_ADDRESS },
 ): Promise<Array<string>> {
 	const rejections: Array<string> = []
+	const content = new Blob([raw])
 	await receiveInboundMail(
-		{ ...envelope, raw: new Blob([raw]).stream(), setReject: (reason) => rejections.push(reason) },
+		{ ...envelope, raw: content.stream(), rawSize: content.size, setReject: (reason) => rejections.push(reason) },
 		environment,
 	)
 	return rejections
@@ -202,9 +203,52 @@ test("receiveInboundMail stores mail without a usable attachment as awaiting ren
 	})
 })
 
-test("receiveInboundMail rejects mail from an unknown sender, to another address, or without DMARC", async () => {
+test("receiveInboundMail rejects a delivery by its envelope before reading the message", async () => {
 	const { environment } = await prepareArchive()
 	const unconfigured = (await prepareArchive("")).environment
+	async function deliverUnreadable(
+		deliveryEnvironment: typeof environment,
+		envelope: { from: string; to: string; rawSize: number },
+	): Promise<Array<string>> {
+		const rejections: Array<string> = []
+		const raw = new ReadableStream<Uint8Array>({
+			pull: () => Promise.reject(new Error("The handler read the message")),
+		})
+		await receiveInboundMail({ ...envelope, raw, setReject: (reason) => rejections.push(reason) }, deliveryEnvironment)
+		return rejections
+	}
+
+	expect({
+		wrongRecipient: await deliverUnreadable(environment, {
+			from: MEMBER_ADDRESS,
+			to: "invoices@archive.test",
+			rawSize: 2048,
+		}),
+		noIngestionAddress: await deliverUnreadable(unconfigured, {
+			from: MEMBER_ADDRESS,
+			to: INGESTION_ADDRESS,
+			rawSize: 2048,
+		}),
+		oversized: await deliverUnreadable(environment, {
+			from: MEMBER_ADDRESS,
+			to: INGESTION_ADDRESS,
+			rawSize: 26_214_401,
+		}),
+		unknownSender: await deliverUnreadable(environment, {
+			from: "stranger@example.org",
+			to: INGESTION_ADDRESS,
+			rawSize: 2048,
+		}),
+	}).toEqual({
+		wrongRecipient: ["This address does not accept documents"],
+		noIngestionAddress: ["This address does not accept documents"],
+		oversized: ["The message is larger than 25 MiB"],
+		unknownSender: ["This sender may not deliver documents to this archive"],
+	})
+})
+
+test("receiveInboundMail rejects mail whose From or DMARC result does not authenticate an allowed sender", async () => {
+	const { environment } = await prepareArchive()
 	const stranger = composeMessage({
 		from: "stranger@example.org",
 		messageId: "<offer-1@example.org>",
@@ -224,22 +268,43 @@ test("receiveInboundMail rejects mail from an unknown sender, to another address
 	})
 
 	expect({
-		unknownSender: await deliver(environment, stranger, { from: "stranger@example.org", to: INGESTION_ADDRESS }),
 		// DMARC passes for the From domain of the stranger, so the allowed envelope sender alone does not admit it.
 		allowedEnvelopeOnly: await deliver(environment, stranger),
-		wrongRecipient: await deliver(environment, forwardedInvoice, { from: MEMBER_ADDRESS, to: "invoices@archive.test" }),
 		forgedSender: await deliver(environment, forged),
-		noIngestionAddress: await deliver(unconfigured, forwardedInvoice),
 		documents: await storedDocuments(),
 		storedObjects: (await env.DOCUMENT_STORAGE.list()).objects,
 	}).toEqual({
-		unknownSender: ["This sender may not deliver documents to this archive"],
 		allowedEnvelopeOnly: ["This sender may not deliver documents to this archive"],
-		wrongRecipient: ["This address does not accept documents"],
-		forgedSender: ["The message failed DMARC sender authentication"],
-		noIngestionAddress: ["This address does not accept documents"],
+		forgedSender: ["This sender may not deliver documents to this archive"],
 		documents: [],
 		storedObjects: [],
+	})
+})
+
+test("receiveInboundMail rejects mail from an allowed sender whose parts nest beyond the parse limit", async () => {
+	const { environment } = await prepareArchive()
+	const levels = Array.from({ length: 40 }, (_, level) => level)
+	const nested = [
+		`Authentication-Results: ${PASSING_AUTHENTICATION}`,
+		`From: ${MEMBER_ADDRESS}`,
+		`To: ${INGESTION_ADDRESS}`,
+		"Subject: Verschachtelt",
+		"Message-ID: <nested-1@example.com>",
+		"MIME-Version: 1.0",
+		'Content-Type: multipart/mixed; boundary="level-0"',
+		"",
+		...levels.flatMap((level) => [
+			`--level-${level}`,
+			`Content-Type: multipart/mixed; boundary="level-${level + 1}"`,
+			"",
+		]),
+		...levels.toReversed().map((level) => `--level-${level}--`),
+		"",
+	].join("\r\n")
+
+	expect({ rejections: await deliver(environment, nested), documents: await storedDocuments() }).toEqual({
+		rejections: ["The message is nested too deeply or has too many parts"],
+		documents: [],
 	})
 })
 
