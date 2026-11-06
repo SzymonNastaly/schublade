@@ -24,6 +24,16 @@ interface MoondreamStreamEvent {
 	chunk?: MoondreamAnswer
 }
 
+// The Moondream service returns the euro sign, which UTF-8 encodes in three bytes, as
+// U+FFFD, while ä, ß, and ś usually survive. A U+FFFD directly before or after a digit,
+// optionally separated by one space, is taken for €. Every other U+FFFD stays, and the
+// classification prompt tells the model what it means.
+const REPLACEMENT_CHARACTER_BESIDE_DIGIT = /\uFFFD(?= ?\d)|(?<=\d ?)\uFFFD/gu
+
+export function restoreEuroSigns(transcription: string): string {
+	return transcription.replace(REPLACEMENT_CHARACTER_BESIDE_DIGIT, "€")
+}
+
 // The binding answers with a server-sent event stream even when `stream` is
 // false. Every chunk repeats the full answer so far, so the last chunk wins.
 export function parseMoondreamEventStream(eventStream: string): string {
@@ -76,7 +86,7 @@ export function createMoondreamRecognizer(runtime: Ai, gatewayIdentifier: string
 				} as never,
 				{ gateway: { id: gatewayIdentifier } },
 			)
-			return readMoondreamResult(result)
+			return restoreEuroSigns(await readMoondreamResult(result))
 		},
 	}
 }

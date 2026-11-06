@@ -1,5 +1,5 @@
 import { expect, test } from "vitest"
-import { parseMoondreamEventStream } from "./text_recognizer"
+import { parseMoondreamEventStream, restoreEuroSigns } from "./text_recognizer"
 
 // Shape recorded from the Workers AI binding: every chunk repeats the full answer so far.
 const recordedEventStream = [
@@ -17,4 +17,20 @@ test("parseMoondreamEventStream returns the answer of the last chunk", () => {
 	expect(parseMoondreamEventStream(`${recordedEventStream}\n\n`)).toBe(
 		"Stadtwerke Talbrück GmbH\nIBAN DE12 9701 1320 0300 4182 25",
 	)
+})
+
+test("restoreEuroSigns turns a replacement character beside a digit into a euro sign", () => {
+	expect(
+		["Gesamtbetrag 72,09 �", "� 341,00", "Preis 3,99�", "�12", "Stra�e 7, Talbr�ck", "Summe in �", "Betrag �  5"].map(
+			restoreEuroSigns,
+		),
+	).toEqual([
+		"Gesamtbetrag 72,09 €",
+		"€ 341,00",
+		"Preis 3,99€",
+		"€12",
+		"Stra�e 7, Talbr�ck",
+		"Summe in �",
+		"Betrag �  5",
+	])
 })
