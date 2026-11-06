@@ -1,11 +1,15 @@
 import { WorkflowEntrypoint } from "cloudflare:workers"
 import { NonRetryableError } from "cloudflare:workflows"
 import { z } from "zod"
+import { mailContextSchema } from "../ingestion/classification_prompt"
 import { ingestDocument } from "../ingestion/document_ingestion"
 import type { WorkflowEvent, WorkflowStep } from "cloudflare:workers"
 import type { IngestionOutcome } from "../ingestion/document_ingestion"
 
-const documentIngestionParametersSchema = z.strictObject({ documentId: z.uuid() })
+const documentIngestionParametersSchema = z.strictObject({
+	documentId: z.uuid(),
+	mailContext: mailContextSchema.optional(),
+})
 
 type DocumentIngestionParameters = z.infer<typeof documentIngestionParametersSchema>
 
@@ -15,8 +19,10 @@ export class DocumentIngestionWorkflow extends WorkflowEntrypoint<Env, DocumentI
 	override run(event: WorkflowEvent<DocumentIngestionParameters>, step: WorkflowStep): Promise<IngestionOutcome> {
 		const parameters = documentIngestionParametersSchema.safeParse(event.payload)
 		if (!parameters.success) {
-			throw new NonRetryableError(`The workflow payload must be { documentId: <uuid> }: ${parameters.error.message}`)
+			throw new NonRetryableError(
+				`The workflow payload must be { documentId: <uuid>, mailContext?: {...} }: ${parameters.error.message}`,
+			)
 		}
-		return ingestDocument(step, this.env, parameters.data.documentId)
+		return ingestDocument(step, this.env, parameters.data.documentId, parameters.data.mailContext)
 	}
 }

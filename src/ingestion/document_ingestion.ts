@@ -25,6 +25,7 @@ import type { InferInsertModel, SQL } from "drizzle-orm"
 import type { SQLiteTable } from "drizzle-orm/sqlite-core"
 import type { ArchiveDatabase } from "../database/client"
 import type { SearchIndex } from "../search/document_indexing"
+import type { MailContext } from "./classification_prompt"
 import type { DocumentClassification } from "./document_classification"
 import type { DocumentStatus } from "./document_lifecycle"
 import type { PageTranscription, TextExtraction } from "./document_text"
@@ -344,6 +345,7 @@ async function archiveIngestedDocument(
 	environment: IngestionEnvironment,
 	database: ArchiveDatabase,
 	documentId: string,
+	mailContext: MailContext | undefined,
 ): Promise<IngestionOutcome> {
 	try {
 		const extraction = await step.do("extract text", inferenceStep, async () => {
@@ -384,6 +386,7 @@ async function archiveIngestedDocument(
 				environment.CLASSIFICATION_MODEL,
 				{
 					markdown,
+					mail: mailContext,
 					senderNames: senderRecords.map((record) => record.name),
 					categoryNames: categoryRecords.map((record) => record.name),
 					tagNames: tagRecords.map((record) => record.name),
@@ -416,9 +419,10 @@ export async function ingestDocument(
 	step: IngestionStep,
 	environment: IngestionEnvironment,
 	documentId: string,
+	mailContext?: MailContext,
 ): Promise<IngestionOutcome> {
 	const database = connectDatabase(environment.DATABASE)
-	const outcome = await archiveIngestedDocument(step, environment, database, documentId)
+	const outcome = await archiveIngestedDocument(step, environment, database, documentId, mailContext)
 	await step.do("index document", recordStep, () =>
 		indexDocument(database, environment.DOCUMENT_STORAGE, environment.SEARCH_INDEX, documentId),
 	)

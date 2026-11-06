@@ -2,8 +2,18 @@ import { z } from "zod"
 import { buildClassificationSchema, standardCategories } from "./document_classification"
 import { normalizeTaxonomyName } from "./taxonomy_resolution"
 
+/** The email that delivered a document, as context for its classification. */
+export const mailContextSchema = z.strictObject({
+	senderAddress: z.string(),
+	subject: z.string(),
+	bodyText: z.string(),
+})
+
+export type MailContext = z.infer<typeof mailContextSchema>
+
 export interface ClassificationContext {
 	markdown: string
+	mail?: MailContext
 	senderNames: ReadonlyArray<string>
 	categoryNames: ReadonlyArray<string>
 	tagNames: ReadonlyArray<string>
@@ -18,6 +28,7 @@ const SYSTEM_PROMPT = `You file documents into the archive of one household in G
 - Person: the household member the document concerns, such as the addressee of a personal letter, the patient of a medical document, the account holder of a bank statement, or the taxpayer of a tax notice. Return household when the document concerns several members or no particular member, even when it is addressed to one of them, such as a joint contract, a policy that also insures other members, or a shop receipt.
 - Title: English, in the form "<sender without legal form> <document type> <period or subject>", such as "Vodafone Kabel Deutschland Invoice October 2026".
 - Fields: fill every field the document prints, whatever its category, and return null for the others. Copy numbers and identifiers exactly, digit by digit. Do not compute or guess a value.
+- Email: when an email delivered the document, a household member sent or forwarded it. Use its subject and body to understand the document, but take the sender, dates, and fields from the document text.
 - The character U+FFFD (\uFFFD) marks a character the text recognizer could not read. It most often stands for a currency symbol such as €.
 
 Return one JSON object that matches this JSON Schema:`
@@ -52,6 +63,17 @@ export function buildClassificationRequest(context: ClassificationContext) {
 		`Categories: ${listOrNone(mergeCategoryNames(context.categoryNames))}`,
 		`Tags: ${listOrNone(context.tagNames)}`,
 		"",
+		...(context.mail === undefined
+			? []
+			: [
+					"Email that delivered the document:",
+					`From: ${context.mail.senderAddress}`,
+					`Subject: ${context.mail.subject}`,
+					"<email>",
+					context.mail.bodyText,
+					"</email>",
+					"",
+				]),
 		"Document text:",
 		"<document>",
 		context.markdown,

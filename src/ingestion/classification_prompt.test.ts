@@ -26,3 +26,31 @@ test("buildClassificationRequest lists the members, the taxonomy, and the standa
 	)
 	expect(request.system).toContain('"enum":["household","member-1"]')
 })
+
+test("buildClassificationRequest places the email that delivered a document before the document text", () => {
+	const request = buildClassificationRequest({
+		markdown: "Rechnung Nr. 4471",
+		mail: {
+			senderAddress: "mira@example.com",
+			subject: "Fwd: Ihre Stromrechnung Oktober",
+			bodyText: "Anbei die Rechnung der Stadtwerke.",
+		},
+		senderNames: [],
+		categoryNames: [],
+		tagNames: [],
+		members: [],
+	})
+	expect(request.prompt.split("\n").slice(7)).toEqual([
+		"Email that delivered the document:",
+		"From: mira@example.com",
+		"Subject: Fwd: Ihre Stromrechnung Oktober",
+		"<email>",
+		"Anbei die Rechnung der Stadtwerke.",
+		"</email>",
+		"",
+		"Document text:",
+		"<document>",
+		"Rechnung Nr. 4471",
+		"</document>",
+	])
+})
