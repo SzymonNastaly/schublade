@@ -74,9 +74,12 @@ function resourceBindings(mode: string | undefined) {
 			DOCUMENT_STORAGE: bindings.r2({
 				name: deployment.documentStorageBucketName ?? resourceNames.documentStorageBucketName,
 			}),
-			// AI Search has no local simulation, so development before provisioning runs without it.
-			SEARCH_INDEX:
-				deployment.searchInstanceName !== undefined && bindings.aiSearch({ name: deployment.searchInstanceName }),
+			// AI Search has no local simulation. Local modes index into the remote development
+			// instance, so a dev server never writes into the index of a deployment.
+			SEARCH_INDEX: bindings.aiSearch({
+				name: resourceNamesFor(LOCAL_WORKER_NAME).searchInstanceName,
+				dev: { remote: true },
+			}),
 		}
 	}
 	// `cf deploy` provisions a new, empty resource for every D1 or R2 binding without an
