@@ -121,7 +121,7 @@ test("a revision naming a new sender and tag creates confirmed records and re-in
 	}).toEqual({
 		senderConfirmed: true,
 		tags: [
-			{ name: "groceries", confirmed: false },
+			{ name: "groceries", confirmed: true },
 			{ name: "household-2026", confirmed: true },
 		],
 		linkedTags: 2,
@@ -213,5 +213,41 @@ test("a backfill upload accepted after deleteDocument finished removes the item 
 	expect({ itemsAfterDeletion, itemsAfterUpload: [...items.keys()] }).toEqual({
 		itemsAfterDeletion: [],
 		itemsAfterUpload: [],
+	})
+})
+
+test("a revision naming an existing unconfirmed sender, category, and tag confirms each of them", async () => {
+	const { database, searchIndex } = await prepareReceipt()
+	await database.insert(senders).values({ name: "Werkhof", normalizedName: "werkhof" })
+	await database.insert(categories).values({ name: "Kassenbon", normalizedName: "kassenbon", expectedFields: [] })
+
+	await reviseDocument(
+		{ database, storage: env.DOCUMENT_STORAGE, searchIndex },
+		documentRevisionSchema.parse({
+			documentId: receiptId,
+			senderName: "Werkhof",
+			categoryName: "Kassenbon",
+			tagNames: ["groceries"],
+		}),
+	)
+
+	const confirmation = async (table: typeof senders | typeof categories | typeof tags) =>
+		(
+			await database.select({ name: table.name, confirmedAt: table.confirmedAt }).from(table).orderBy(asc(table.name))
+		).map(({ name, confirmedAt }) => ({ name, confirmed: confirmedAt !== null }))
+	expect({
+		senders: await confirmation(senders),
+		categories: await confirmation(categories),
+		tags: await confirmation(tags),
+	}).toEqual({
+		senders: [
+			{ name: "Frischemarkt", confirmed: false },
+			{ name: "Werkhof", confirmed: true },
+		],
+		categories: [
+			{ name: "Kassenbon", confirmed: true },
+			{ name: "Receipt", confirmed: true },
+		],
+		tags: [{ name: "groceries", confirmed: true }],
 	})
 })

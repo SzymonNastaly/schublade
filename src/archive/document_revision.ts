@@ -13,7 +13,7 @@ import { documentObjectPrefix } from "../ingestion/source_file"
 import { normalizeTaxonomyName } from "../ingestion/taxonomy_resolution"
 import { assessVerificationReason } from "../ingestion/verification_assessment"
 import { indexDocument, removeDocumentFromIndex } from "../search/document_indexing"
-import { taxonomyNameSchema } from "./taxonomy_maintenance"
+import { confirmation, taxonomyNameSchema } from "./taxonomy_maintenance"
 import type { BatchItem } from "drizzle-orm/batch"
 import type { ArchiveDatabase } from "../database/client"
 import type { ExtractedFieldKey } from "../ingestion/document_classification"
@@ -45,7 +45,8 @@ const revisedFieldsSchema = z
 /**
  * A member's revision of an archived document. Each attribute that is present replaces the
  * stored one, and a null clears it. A sender, category, or tag name that no record has creates
- * a confirmed record. `nonArchival: false` keeps a document flagged as a non-archival attachment.
+ * a confirmed record, and the name of an unconfirmed record confirms that record.
+ * `nonArchival: false` keeps a document flagged as a non-archival attachment.
  */
 export const documentRevisionSchema = z.strictObject({
 	documentId: z.uuid(),
@@ -141,7 +142,7 @@ export async function reviseDocument(
 					database
 						.insert(senders)
 						.values({ name: senderName, normalizedName: senderKey, confirmedAt })
-						.onConflictDoNothing(),
+						.onConflictDoUpdate({ target: senders.normalizedName, set: { confirmedAt: confirmation(senders) } }),
 				]),
 		...(categoryName == null || categoryKey == null
 			? []
@@ -154,13 +155,13 @@ export async function reviseDocument(
 							expectedFields: [...categoryExpectedFields],
 							confirmedAt,
 						})
-						.onConflictDoNothing(),
+						.onConflictDoUpdate({ target: categories.normalizedName, set: { confirmedAt: confirmation(categories) } }),
 				]),
 		...(tagNames ?? []).map((name) =>
 			database
 				.insert(tags)
 				.values({ name, normalizedName: normalizeTaxonomyName(name), confirmedAt })
-				.onConflictDoNothing(),
+				.onConflictDoUpdate({ target: tags.normalizedName, set: { confirmedAt: confirmation(tags) } }),
 		),
 		database
 			.update(documents)

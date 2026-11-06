@@ -64,8 +64,8 @@ export const taxonomyMergeSchema = z
 
 type TaxonomyMerge = z.infer<typeof taxonomyMergeSchema>
 
-/** Keeps the time of an earlier confirmation. */
-const confirmation = (table: (typeof taxonomyKindModels)[TaxonomyKind]["table"]) =>
+/** Confirms a record now, or keeps the time of an earlier confirmation. */
+export const confirmation = (table: (typeof taxonomyKindModels)[TaxonomyKind]["table"]) =>
 	sql`coalesce(${table.confirmedAt}, unixepoch())`
 
 /** A rename that would give the record another record's name proposes merging into that record instead. */
