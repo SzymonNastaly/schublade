@@ -19,7 +19,7 @@ VISION.md explains the architecture and IMPLEMENTATION_PLAN.md the build order. 
 8. **The Moondream binding returns an event stream.** `env.AI_RUNTIME.run()` for `@cf/moondream/moondream3.1-9B-A2B` returns server-sent events even without `stream: true`. Every `chunk.answer` repeats the full answer so far, so `parseMoondreamEventStream` keeps the last one.
 9. **Generate migrations with drizzle-kit and apply them with `cf`.** Never run `drizzle-kit push` or `drizzle-kit migrate`, and never edit an applied migration.
 10. **`cloudflare:workers` is server-only.** Import it only from server functions, the Worker entry, Workflows, and Durable Objects, never from a component.
-11. **Do not edit the human-facing documents.** README.md, VISION.md, and IMPLEMENTATION_PLAN.md are written outside coding sessions. List the changes they need in your report instead.
+11. **Edit the human-facing documents only when the user asks.** README.md, VISION.md, and IMPLEMENTATION_PLAN.md are otherwise written outside coding sessions. When a change makes one of them wrong, list the edits it needs in your report.
 
 ## Repository layout
 
@@ -37,6 +37,8 @@ src/
 		access_verification.test.ts
 		api_tokens.ts                        API token issuance, listing, revocation, and bearer authentication with hourly last-use records
 		api_tokens.workerd.test.ts
+		cross_site_writes.ts                 crossSiteWriteRejection: 403 for a write whose Origin names another site
+		cross_site_writes.test.ts
 	database/
 		schema.ts                            The nine Drizzle tables and their drizzle-zod insert schemas
 		client.ts                            Drizzle bound to env.DATABASE, and connectDatabase for a passed binding
@@ -80,7 +82,7 @@ src/
 		document_search_controls.tsx         Search input with the / and Cmd+K shortcuts, and the facet controls
 		document_list.tsx                    Stacked rows below the md breakpoint, the document table from md upward
 		archive_navigation.tsx               All documents, Pending verification with its count, and Settings
-		document_inspection.tsx              The inspection pane: summary, edit form, and the Original and Text tabs with a link that opens the file in a new tab
+		document_inspection.tsx              The inspection pane: summary, the Original and Text tabs with a link that opens the file in a new tab, then the edit form
 		document_revision_form.tsx           The inspection pane's edit form and the confirmed document deletion
 		action_confirmation.tsx              The dialog that names what an irreversible action does before it runs
 	utilities/
@@ -134,6 +136,7 @@ eslint.config.js, .prettierrc.json, knip.json, tsconfig.json
 - **AI Search has no local simulation.** Every local mode binds `SEARCH_INDEX` to the remote AI Search instance `schublade-development`, which must exist on the signed-in account with the same four custom metadata fields as a provisioned instance. A dev server therefore never writes into the index of a deployment, but the local D1 database and that shared index can disagree. Searches and uploads against it are billed.
 - **Await `SEARCH_INDEX.items` before calling it.** In development, the remote binding answers over RPC, and `env.SEARCH_INDEX.items.list()` fails with `The RPC receiver does not implement the method "list"`. `await env.SEARCH_INDEX.items` first, as `document_indexing.ts` does. A deployed Worker returns the object itself, so the await costs nothing there.
 - **AI Search facts the search relies on.** An upload under an existing item name replaces the item and keeps its identifier. A `datetime` metadata field accepts `2026-09-22T00:00:00Z`, stores milliseconds, and filters correctly with ISO 8601 strings, not with Unix seconds. While an item reindexes, its old and new chunks can both match, so results are grouped by item name. Indexing an upload took 73 to 145 seconds on the development instance when 12 arrived together, so a document archived a moment ago is not yet searchable. Every search disables the similarity cache, which would answer a repeated query without the documents indexed since.
+- **A new route needs a regenerated route tree.** Only `pnpm dev` and `pnpm build` rewrite `src/routeTree.gen.ts`, and until then `tsc` rejects the path that the new file passes to `createFileRoute`. Without a dev server, regenerate it with `node --input-type=module -e 'import { resolveConfig } from "vite"; import { tanstackStart } from "@tanstack/react-start/plugin/vite"; await resolveConfig({ configFile: false, root: process.cwd(), plugins: [tanstackStart()] }, "build")'` and commit the result with the route.
 - **URL search parameters are parsed in `parseSearchString`.** TanStack Router merges every parameter it parses into the validated search of each route, so `validateSearch` alone cannot drop an unknown or unreadable one, and the default parser reads `1.50` as a number. `src/router.tsx` therefore passes `parseSearchString` and `composeSearchString` from `search_criteria.ts`.
 - **A document is stale while its updated_at exceeds its indexed_at, or its indexed_at is null.** The index step reads updated_at before anything else, uploads, and stores that revision only while updated_at still holds it. When the revision changed during the upload, AI Search may have accepted an older upload last, so the step clears indexed_at and raises updated_at, which keeps every overlapping upload from recording its revision too. Every update raises updated_at by at least one second, so a revision written in the second of an upload still counts as stale. A write that changes nothing AI Search reads, such as recording indexed_at, sets `updatedAt` to its own column, or the backfill uploads the document again. A merge or rename marks its documents stale with `succeedingModificationTime()` instead of uploading each one.
 - **`cf dev` needs a Cloudflare login.** `AI_RUNTIME`, `BROWSER_RENDERER`, and `SEARCH_INDEX` are remote in development, so `cf dev` opens a remote preview session on the signed-in account. It deploys nothing.
