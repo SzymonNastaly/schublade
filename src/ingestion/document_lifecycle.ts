@@ -10,10 +10,10 @@ export const MAXIMUM_DOCUMENTS_PER_STATUS_REQUEST = 100
 // Ingestion moves a document forward through these states. A document without a
 // page that needs recognition skips `recognizing_text`. Any unsettled state can fail,
 // and a member can send a failed document back to `processing` under a new workflow.
-// An email without a usable attachment waits in `awaiting_rendering` until phase 7 renders
-// its body into a PDF; nothing moves it on before then.
+// An email without a usable attachment waits in `awaiting_rendering` until its workflow has
+// rendered the body into a PDF.
 const statusTransitions = {
-	awaiting_rendering: [],
+	awaiting_rendering: ["processing", "failed"],
 	processing: ["extracting", "failed"],
 	extracting: ["recognizing_text", "classifying", "failed"],
 	recognizing_text: ["classifying", "failed"],
@@ -24,7 +24,7 @@ const statusTransitions = {
 
 const documentStatuses = Object.keys(statusTransitions) as Array<DocumentStatus>
 
-const settledStatuses: ReadonlyArray<DocumentStatus> = ["awaiting_rendering", "archived", "failed"]
+const settledStatuses: ReadonlyArray<DocumentStatus> = ["archived", "failed"]
 
 /** The states a document may hold immediately before it enters `target`. */
 export function predecessorStatuses(target: DocumentStatus): Array<DocumentStatus> {

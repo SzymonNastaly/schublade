@@ -11,6 +11,9 @@ const acceptedSourceFiles: ReadonlyArray<SourceFile> = [
 	{ kind: "image", mediaType: "image/webp", extension: "webp" },
 ]
 
+/** A stored email awaiting its rendering. It is not an accepted upload. */
+export const MAIL_MEDIA_TYPE = "message/rfc822"
+
 export const acceptedMediaTypes = acceptedSourceFiles.map((sourceFile) => sourceFile.mediaType)
 
 export function parseSourceFile(mediaType: string): SourceFile | undefined {

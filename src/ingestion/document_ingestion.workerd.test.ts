@@ -8,7 +8,7 @@ import { connectToArchiveChanges } from "../archive/archive_changes"
 import { queryDocumentListing } from "../archive/document_listing"
 import { connectDatabase } from "../database/client"
 import { categories, documents, extractedFields, senders, tags } from "../database/schema"
-import { ingestDocument, retryDocumentIngestion } from "./document_ingestion"
+import { ingestDocument, retryDocumentIngestion, startWaitingMailRendering } from "./document_ingestion"
 import { contentObjectKey } from "./source_file"
 import type { WorkflowStep } from "cloudflare:workers"
 import type { SearchIndex } from "../search/document_indexing"
@@ -38,11 +38,20 @@ const recordingSearchIndex: SearchIndex = {
 	},
 }
 
+const browserRenderings: Array<{ action: string; html: string; scripts: boolean }> = []
+
 const recordedEnvironment = {
 	...env,
 	AI_RUNTIME: recordedRuntime as unknown as Ai,
 	CLASSIFICATION_MODEL: "@cf/deepseek-ai/deepseek-v4.1-flash-1017",
 	SEARCH_INDEX: recordingSearchIndex,
+	// Browser Run bills per request, so the test answers with a stored PDF.
+	BROWSER_RENDERER: {
+		quickAction: (action: string, options: { html: string; setJavaScriptEnabled: boolean }) => {
+			browserRenderings.push({ action, html: options.html, scripts: options.setJavaScriptEnabled })
+			return Promise.resolve(new Response(scannedInvoice, { headers: { "Content-Type": "application/pdf" } }))
+		},
+	} as unknown as BrowserRun,
 }
 
 // Runs each step once and passes its result through structured cloning, as Workflows persist it.
@@ -83,6 +92,7 @@ test("ingestDocument recognizes, classifies, archives, and indexes a scanned inv
 	const outcome = await ingestDocument(step, recordedEnvironment, documentId)
 
 	expect(stepNames).toEqual([
+		"render email",
 		"extract text",
 		"record status recognizing_text",
 		"recognize page 1",
@@ -246,19 +256,19 @@ test("ingestDocument records why a document failed", async () => {
 			status: "failed",
 			failureReason: "page_limit_exceeded",
 			message: "The document has 51 pages without a readable text layer, and at most 50 are transcribed",
-			stepNames: ["extract text", "record status failed"],
+			stepNames: ["render email", "extract text", "record status failed"],
 		},
 		damagedFile: {
 			status: "failed",
 			failureReason: "unreadable_file",
 			message: "PDFium could not open the document, error code 3",
-			stepNames: ["extract text", "record status failed"],
+			stepNames: ["render email", "extract text", "record status failed"],
 		},
 		serviceError: {
 			status: "failed",
 			failureReason: "processing_error",
 			message: "The conversion service is unavailable",
-			stepNames: ["extract text", "record status failed"],
+			stepNames: ["render email", "extract text", "record status failed"],
 		},
 	})
 })
@@ -314,4 +324,123 @@ test("retryDocumentIngestion leaves the document failed when its workflow cannot
 	).rejects.toThrow("The Workflows service is unavailable")
 
 	expect(await readDocument()).toEqual([{ status: "failed", failureReason: "processing_error" }])
+})
+
+const receiptMessage = [
+	"From: Mira Becker <mira@example.com>",
+	"Subject: Fwd: Your receipt from Paperlark",
+	"Message-ID: <receipt@example.com>",
+	"MIME-Version: 1.0",
+	"Content-Type: text/html; charset=utf-8",
+	"",
+	'<meta http-equiv="refresh" content="0;url=https://elsewhere.example/"><script>steal()</script>',
+	'<iframe src="https://elsewhere.example/"></iframe><p>Total 12,99 EUR</p>',
+	"",
+].join("\r\n")
+
+async function storeMessage(documentId: string, message: string) {
+	await reset()
+	searchIndexUploads.length = 0
+	browserRenderings.length = 0
+	await applyD1Migrations(env.DATABASE, inject("databaseMigrations"))
+	const storageObjectKey = `documents/${documentId}/original.eml`
+	await env.DOCUMENT_STORAGE.put(storageObjectKey, message)
+	const database = connectDatabase(env.DATABASE)
+	await database.insert(documents).values({
+		id: documentId,
+		storageObjectKey,
+		mimeType: "message/rfc822",
+		byteSize: message.length,
+		status: "awaiting_rendering",
+	})
+	return database
+}
+
+test("ingestDocument prints a stored email to a PDF, archives that, and keeps the message", async () => {
+	const documentId = "f1000000-0000-4000-8000-000000000001"
+	const database = await storeMessage(documentId, receiptMessage)
+	const { stepNames, step } = createRecordingStep()
+
+	await ingestDocument(step, recordedEnvironment, documentId)
+
+	const [document] = await database
+		.select({ status: documents.status, mimeType: documents.mimeType, storageObjectKey: documents.storageObjectKey })
+		.from(documents)
+		.where(eq(documents.id, documentId))
+	const objects = (await env.DOCUMENT_STORAGE.list({ prefix: `documents/${documentId}/` })).objects.map(
+		({ key }) => key,
+	)
+	expect({
+		firstSteps: stepNames.slice(0, 2),
+		document,
+		objects,
+		renderings: browserRenderings.map(({ action, scripts }) => ({ action, scripts })),
+		printedSubject: browserRenderings[0]?.html.includes("Fwd: Your receipt from Paperlark"),
+		printedBody: browserRenderings[0]?.html.includes("<p>Total 12,99 EUR</p>"),
+		activeMarkup: /elsewhere\.example|<script/.test(browserRenderings[0]?.html ?? ""),
+	}).toEqual({
+		firstSteps: ["render email", "extract text"],
+		document: {
+			status: "archived",
+			mimeType: "application/pdf",
+			storageObjectKey: `documents/${documentId}/original.pdf`,
+		},
+		objects: [
+			`documents/${documentId}/content.md`,
+			`documents/${documentId}/original.eml`,
+			`documents/${documentId}/original.pdf`,
+		],
+		renderings: [{ action: "pdf", scripts: false }],
+		printedSubject: true,
+		printedBody: true,
+		activeMarkup: false,
+	})
+})
+
+test("ingestDocument records an email without a body as unreadable and renders nothing", async () => {
+	const documentId = "f1000000-0000-4000-8000-000000000002"
+	const database = await storeMessage(documentId, "From: mira@example.com\r\nSubject: Empty\r\n\r\n")
+	const { step } = createRecordingStep()
+
+	await expect(ingestDocument(step, recordedEnvironment, documentId)).rejects.toThrow(
+		"The message has no body to render",
+	)
+
+	const [document] = await database
+		.select({ status: documents.status, failureReason: documents.failureReason })
+		.from(documents)
+		.where(eq(documents.id, documentId))
+	expect({ document, renderings: browserRenderings.length }).toEqual({
+		document: { status: "failed", failureReason: "unreadable_file" },
+		renderings: 0,
+	})
+})
+
+test("retryDocumentIngestion refuses a message that is still awaiting rendering", async () => {
+	const documentId = "f1000000-0000-4000-8000-000000000004"
+	await storeMessage(documentId, receiptMessage)
+
+	await expect(retryDocumentIngestion(env, documentId)).rejects.toThrow(
+		`Document ${documentId} has not failed, so it cannot be retried`,
+	)
+})
+
+test("startWaitingMailRendering starts each waiting message under its own identifier, and one that cannot start stays waiting", async () => {
+	const documentId = "f1000000-0000-4000-8000-000000000003"
+	const database = await storeMessage(documentId, receiptMessage)
+	const started: Array<unknown> = []
+	const accepting = { create: (options: unknown) => Promise.resolve(started.push(options)) }
+	const refusing = { create: () => Promise.reject(new Error("instance already exists")) }
+	const warning = vi.spyOn(console, "warn").mockImplementation(() => undefined)
+
+	await startWaitingMailRendering({ ...env, DOCUMENT_INGESTION_WORKFLOW: accepting as unknown as Workflow })
+	await startWaitingMailRendering({ ...env, DOCUMENT_INGESTION_WORKFLOW: refusing as unknown as Workflow })
+
+	const [document] = await database.select({ status: documents.status }).from(documents)
+	expect({ started, status: document?.status, warnings: warning.mock.calls.length }).toEqual({
+		started: [{ id: documentId, params: { documentId } }],
+		status: "awaiting_rendering",
+		warnings: 1,
+	})
+	warning.mockRestore()
 })

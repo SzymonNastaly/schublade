@@ -18,7 +18,9 @@ import { createMoondreamRecognizer } from "../inference/text_recognizer"
 import { findStandardCategory } from "./document_classification"
 import { assembleDocumentMarkdown, recognitionLimitViolation, selectPageTextSources } from "./document_text"
 import { predecessorStatuses } from "./document_lifecycle"
-import { contentObjectKey, parseSourceFile } from "./source_file"
+import { composePrintableMail, mailContextOf, parseMailWithinLimits } from "./mail_message"
+import { printMail } from "./mail_rendering"
+import { MAIL_MEDIA_TYPE, contentObjectKey, originalObjectKey, parseSourceFile } from "./source_file"
 import { resolveTaxonomyName } from "./taxonomy_resolution"
 import { assessVerificationReason } from "./verification_assessment"
 import type { WorkflowStep, WorkflowStepConfig } from "cloudflare:workers"
@@ -40,6 +42,7 @@ type IngestionEnvironment = Pick<
 	| "DOCUMENT_STORAGE"
 	| "AI_RUNTIME"
 	| "AI_GATEWAY_IDENTIFIER"
+	| "BROWSER_RENDERER"
 	| "CLASSIFICATION_MODEL"
 > & { SEARCH_INDEX: SearchIndex }
 
@@ -58,7 +61,15 @@ type TextExtractionOutcome =
 	| { kind: "extracted"; extraction: TextExtraction }
 	| { kind: "refused"; failureReason: DocumentFailureReason; explanation: string }
 
+type MailRenderingOutcome =
+	| { kind: "not_mail" }
+	| { kind: "rendered"; mailContext: MailContext }
+	| { kind: "refused"; failureReason: DocumentFailureReason; explanation: string }
+
 const RECOGNITION_DOTS_PER_INCH = 150
+
+// Each scheduled run starts at most this many messages, as one mail message starts at most 20 documents.
+const MAXIMUM_MAIL_RENDERING_STARTS = 20
 
 const inferenceStep: WorkflowStepConfig = {
 	retries: { limit: 3, delay: "10 seconds", backoff: "exponential" },
@@ -125,6 +136,26 @@ export async function startDocumentIngestion(
 }
 
 /**
+ * Starts the messages that arrived before Schublade could render mail. Each runs under the
+ * identifier of its document, so a message whose workflow is already running is refused.
+ */
+export async function startWaitingMailRendering(
+	environment: Pick<Env, "DATABASE" | "DOCUMENT_INGESTION_WORKFLOW">,
+): Promise<void> {
+	const waiting = await connectDatabase(environment.DATABASE)
+		.select({ id: documents.id })
+		.from(documents)
+		.where(eq(documents.status, "awaiting_rendering"))
+		.limit(MAXIMUM_MAIL_RENDERING_STARTS)
+	const starts = waiting.map(({ id }) =>
+		environment.DOCUMENT_INGESTION_WORKFLOW.create({ id, params: { documentId: id } }).catch((error: unknown) => {
+			console.warn(`The rendering of message ${id} did not start`, error)
+		}),
+	)
+	await Promise.all(starts)
+}
+
+/**
  * Sends a failed document through ingestion again. The conditional update lets only one of two
  * concurrent retries through, so a double click cannot start two runs. The first run took the
  * document's identifier as its instance identifier, so this one needs a new identifier.
@@ -136,7 +167,7 @@ export async function retryDocumentIngestion(
 	const reclaimed = await connectDatabase(environment.DATABASE)
 		.update(documents)
 		.set({ status: "processing", failureReason: null })
-		.where(and(eq(documents.id, documentId), inArray(documents.status, predecessorStatuses("processing"))))
+		.where(and(eq(documents.id, documentId), eq(documents.status, "failed")))
 		.returning({ id: documents.id })
 	if (reclaimed.length === 0) throw new Error(`Document ${documentId} has not failed, so it cannot be retried`)
 	await startDocumentIngestion(environment, { id: crypto.randomUUID(), params: { documentId } })
@@ -157,6 +188,50 @@ async function readOriginal(
 	const object = await storage.get(document.storageObjectKey)
 	if (!object) throw new NonRetryableError(`Document ${documentId} has no original at ${document.storageObjectKey}`)
 	return { sourceFile, bytes: new Uint8Array(await object.arrayBuffer()) }
+}
+
+/**
+ * Prints a stored email to the PDF that the rest of ingestion reads, and keeps the message beside
+ * it. The context comes from the message, so a message that the Cron Trigger started has it too.
+ * Every other document passes through.
+ */
+async function renderStoredMail(
+	environment: IngestionEnvironment,
+	database: ArchiveDatabase,
+	documentId: string,
+): Promise<MailRenderingOutcome> {
+	const [document] = await database
+		.select({ storageObjectKey: documents.storageObjectKey, mimeType: documents.mimeType })
+		.from(documents)
+		.where(eq(documents.id, documentId))
+	if (document?.mimeType !== MAIL_MEDIA_TYPE) return { kind: "not_mail" }
+	const stored = await environment.DOCUMENT_STORAGE.get(document.storageObjectKey)
+	if (!stored) throw new NonRetryableError(`Message ${documentId} has no object at ${document.storageObjectKey}`)
+	const email = await parseMailWithinLimits(new Uint8Array(await stored.arrayBuffer()), {
+		attachmentEncoding: "base64",
+	})
+	const html = email && composePrintableMail(email)
+	if (!email || html === undefined) {
+		return { kind: "refused", failureReason: "unreadable_file", explanation: "The message has no body to render" }
+	}
+	const content = await printMail(environment.BROWSER_RENDERER, html)
+	const sourceFile = parseSourceFile("application/pdf")
+	if (!sourceFile) throw new NonRetryableError("PDF is not an accepted source file")
+	const storageObjectKey = originalObjectKey(documentId, sourceFile)
+	await environment.DOCUMENT_STORAGE.put(storageObjectKey, content, {
+		httpMetadata: { contentType: sourceFile.mediaType },
+	})
+	await database
+		.update(documents)
+		.set({ storageObjectKey, mimeType: sourceFile.mediaType, byteSize: content.byteLength, status: "processing" })
+		.where(
+			and(
+				eq(documents.id, documentId),
+				inArray(documents.status, [...predecessorStatuses("processing"), "processing"]),
+			),
+		)
+	await announceArchiveChange(environment)
+	return { kind: "rendered", mailContext: mailContextOf(email, email.from?.address ?? "") }
 }
 
 async function extractText(
@@ -407,10 +482,19 @@ async function archiveIngestedDocument(
 	environment: IngestionEnvironment,
 	database: ArchiveDatabase,
 	documentId: string,
-	mailContext: MailContext | undefined,
+	deliveredMailContext: MailContext | undefined,
 ): Promise<IngestionOutcome> {
 	let failureReason: DocumentFailureReason = "processing_error"
 	try {
+		const rendering = await step.do("render email", inferenceStep, () =>
+			renderStoredMail(environment, database, documentId),
+		)
+		if (rendering.kind === "refused") {
+			failureReason = rendering.failureReason
+			throw new Error(rendering.explanation)
+		}
+		const mailContext = rendering.kind === "rendered" ? rendering.mailContext : deliveredMailContext
+
 		const textExtraction = await step.do("extract text", inferenceStep, async () => {
 			await recordDocumentStatus(environment, documentId, { status: "extracting" })
 			const { sourceFile, bytes } = await readOriginal(database, environment.DOCUMENT_STORAGE, documentId)

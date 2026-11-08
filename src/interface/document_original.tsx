@@ -1,14 +1,14 @@
 import { Link, Text } from "@cloudflare/kumo"
+import { MAIL_MEDIA_TYPE } from "../ingestion/source_file"
 import { PdfPageBox, documentBoxFrame } from "./pdf_page_box"
 import type { ListedDocument } from "../archive/document_listing"
 
 /** The original file of a document in its box, with a link to the file, or the reason there is no file yet. */
-export function DocumentOriginal({ document }: { document: Pick<ListedDocument, "id" | "status" | "mimeType"> }) {
-	if (document.status === "awaiting_rendering") {
+export function DocumentOriginal({ document }: { document: Pick<ListedDocument, "id" | "mimeType"> }) {
+	if (document.mimeType === MAIL_MEDIA_TYPE) {
 		return (
 			<Text variant="secondary">
-				This email has no PDF or image attachment. Schublade stores the message and will archive it once it can render
-				the email as a PDF.
+				This email has no PDF or image attachment, and Schublade has not rendered it as a PDF yet.
 			</Text>
 		)
 	}

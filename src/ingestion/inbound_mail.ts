@@ -1,12 +1,13 @@
 import { inArray } from "drizzle-orm"
-import PostalMime, { addressParser } from "postal-mime"
+import { addressParser } from "postal-mime"
 import { connectDatabase } from "../database/client"
 import { documents } from "../database/schema"
+import { startDocumentIngestion } from "./document_ingestion"
 import { MAXIMUM_FILES_PER_SUBMISSION, acceptDocumentUpload } from "./document_upload"
-import { identifySourceFile } from "./source_file"
-import type { MailContext } from "./classification_prompt"
+import { mailContextOf, parseMailWithinLimits } from "./mail_message"
+import { MAIL_MEDIA_TYPE, identifySourceFile } from "./source_file"
 import type { UploadEnvironment, UploadOutcome } from "./document_upload"
-import type { Email, Header, PostalMimeOptions } from "postal-mime"
+import type { Header } from "postal-mime"
 
 type MailEnvironment = UploadEnvironment & Pick<Env, "INGESTION_EMAIL_ADDRESS" | "MAIL_SENDER_ALLOWLIST">
 
@@ -14,20 +15,9 @@ type InboundMessage = Pick<ForwardableEmailMessage, "from" | "to" | "raw" | "raw
 
 // Mail clients embed signature logos and social icons as small inline images.
 const INLINE_IMAGE_MINIMUM_BYTES = 15_000
-// The body is classification context in the workflow payload, so it is cut to a bounded length.
-const MAXIMUM_BODY_CHARACTERS = 4000
 // Email Routing accepts messages up to 25 MiB, and the handler holds the message and its decoded
 // attachments in a 128 MB isolate at once.
 const MAXIMUM_MESSAGE_BYTES = 25 * 1024 * 1024
-// Household mail nests a few levels and holds a few dozen parts. The postal-mime defaults of 256
-// levels, 10,000 parts, 2 MiB of headers, and inline messages 10 deep admit far more, and every
-// inline message/rfc822 level keeps its own copy of the nested message.
-const PARSE_LIMITS = {
-	maxNestingDepth: 32,
-	maxPartCount: 1000,
-	maxHeadersSize: 256 * 1024,
-	maxRfc822NestingDepth: 2,
-} satisfies PostalMimeOptions
 const CLOUDFLARE_AUTHENTICATION_SERVICE = "mx.cloudflare.net"
 const LOGGED_HEADER_COUNT = 12
 
@@ -147,16 +137,6 @@ function headerSection(raw: Uint8Array<ArrayBuffer>): Uint8Array<ArrayBuffer> {
 	return raw
 }
 
-/** Parses under PARSE_LIMITS and returns undefined for a message beyond them. */
-async function parseWithinLimits(content: Uint8Array<ArrayBuffer>): Promise<Email | undefined> {
-	try {
-		return await PostalMime.parse(content, PARSE_LIMITS)
-	} catch (error) {
-		if (error instanceof Error && "code" in error && String(error.code).startsWith("EMAX")) return undefined
-		throw error
-	}
-}
-
 async function sha256Hexadecimal(content: Uint8Array<ArrayBuffer>): Promise<string> {
 	const digest = await crypto.subtle.digest("SHA-256", content)
 	return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("")
@@ -195,10 +175,7 @@ function isSignatureGraphic(disposition: string | null, content: Uint8Array): bo
 	)
 }
 
-/**
- * Stores a message without a usable attachment as a document awaiting rendering, so phase 7 can
- * render its body into a PDF instead of the message being lost.
- */
+/** Stores a message without a usable attachment as a document whose workflow renders its body into a PDF. */
 async function storeMessageForRendering(
 	environment: MailEnvironment,
 	documentId: string,
@@ -206,14 +183,14 @@ async function storeMessageForRendering(
 	subject: string,
 ): Promise<void> {
 	const storageObjectKey = `documents/${documentId}/original.eml`
-	await environment.DOCUMENT_STORAGE.put(storageObjectKey, raw, { httpMetadata: { contentType: "message/rfc822" } })
+	await environment.DOCUMENT_STORAGE.put(storageObjectKey, raw, { httpMetadata: { contentType: MAIL_MEDIA_TYPE } })
 	await connectDatabase(environment.DATABASE)
 		.insert(documents)
 		.values({
 			id: documentId,
 			title: subject === "" ? null : subject,
 			storageObjectKey,
-			mimeType: "message/rfc822",
+			mimeType: MAIL_MEDIA_TYPE,
 			byteSize: raw.byteLength,
 			status: "awaiting_rendering",
 		})
@@ -234,7 +211,7 @@ export async function receiveInboundMail(message: InboundMessage, environment: M
 		return
 	}
 	const raw = new Uint8Array(await new Response(message.raw).arrayBuffer())
-	const headers = (await parseWithinLimits(headerSection(raw)))?.headers ?? []
+	const headers = (await parseMailWithinLimits(headerSection(raw)))?.headers ?? []
 	const dmarcResult = cloudflareDmarcResult(headers)
 	const admitted = authenticatesSender(headers, dmarcResult, message.from)
 	console.log("Inbound mail header layout", JSON.stringify(describeHeaderLayout(headers, dmarcResult, admitted)))
@@ -242,7 +219,7 @@ export async function receiveInboundMail(message: InboundMessage, environment: M
 		message.setReject(UNAUTHORIZED_SENDER)
 		return
 	}
-	const email = await parseWithinLimits(raw)
+	const email = await parseMailWithinLimits(raw)
 	if (email === undefined) {
 		message.setReject("The message is nested too deeply or has too many parts")
 		return
@@ -254,12 +231,7 @@ export async function receiveInboundMail(message: InboundMessage, environment: M
 	}
 	const senderAddress = normalizeAddress(message.from)
 
-	const subject = email.subject?.trim() ?? ""
-	const mailContext: MailContext = {
-		senderAddress,
-		subject,
-		bodyText: (email.text ?? "").trim().slice(0, MAXIMUM_BODY_CHARACTERS),
-	}
+	const mailContext = mailContextOf(email, senderAddress)
 	const documentAttachments = email.attachments
 		.map((attachment, index) => ({ attachment, index, content: attachmentBytes(attachment.content) }))
 		.filter(({ attachment, content }) => !isSignatureGraphic(attachment.disposition, content))
@@ -301,7 +273,13 @@ export async function receiveInboundMail(message: InboundMessage, environment: M
 	}
 	const awaitsRendering = outcomes.every((outcome) => outcome.kind === "rejected")
 	if (awaitsRendering && !recordedIdentifiers.has(messageDocumentId)) {
-		await storeMessageForRendering(environment, messageDocumentId, raw, subject)
+		await storeMessageForRendering(environment, messageDocumentId, raw, mailContext.subject)
+		// A refused start records the document as failed, where a member can retry it. The message is
+		// stored, so the delivery succeeded.
+		await startDocumentIngestion(environment, {
+			id: messageDocumentId,
+			params: { documentId: messageDocumentId },
+		}).catch((error: unknown) => console.warn(`The rendering of message ${messageDocumentId} did not start`, error))
 	}
 	console.log(
 		`Inbound mail ${messageIdentifier} from ${senderAddress}`,

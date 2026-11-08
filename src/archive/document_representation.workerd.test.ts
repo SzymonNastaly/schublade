@@ -41,6 +41,28 @@ test("a PDF that cannot be rendered has no thumbnail", async () => {
 	await response.body?.cancel()
 })
 
+test("an email not yet rendered has no thumbnail", async () => {
+	await applyD1Migrations(env.DATABASE, inject("databaseMigrations"))
+	const documentId = "9e3b5c7d-1f4a-4b8a-d2e6-5a0c8f3b1d94"
+	const storageObjectKey = `documents/${documentId}/original.eml`
+	await env.DOCUMENT_STORAGE.put(storageObjectKey, "Subject: Receipt")
+	await connectDatabase(env.DATABASE).insert(documents).values({
+		id: documentId,
+		storageObjectKey,
+		mimeType: "message/rfc822",
+		byteSize: 16,
+		status: "awaiting_rendering",
+	})
+
+	const response = await serveDocumentRepresentation(env, { documentId, representation: "thumbnail" })
+
+	expect({ status: response.status, cached: response.headers.get("Cache-Control") }).toEqual({
+		status: 404,
+		cached: null,
+	})
+	await response.body?.cancel()
+})
+
 test("serveDocumentRepresentation forbids type sniffing and scripts on an original", async () => {
 	await applyD1Migrations(env.DATABASE, inject("databaseMigrations"))
 	const documentId = "6b0e2f4a-8c1d-4e57-a9b3-2d7f5c0e8a61"

@@ -1,4 +1,5 @@
 import handler from "@tanstack/react-start/server-entry"
+import { startWaitingMailRendering } from "./ingestion/document_ingestion"
 import { receiveInboundMail } from "./ingestion/inbound_mail"
 import { createRequestDispatcher } from "./request_dispatch"
 import { indexMissingDocumentsOnSchedule } from "./search/document_indexing"
@@ -27,7 +28,9 @@ export default {
 	fetch: (request, environment, context) => dispatchRequest(request, environment, context),
 	// Only the Cron Trigger in cloudflare.config.ts invokes this handler. No request reaches it,
 	// so no Access assertion applies.
-	scheduled: (_controller, environment) => indexMissingDocumentsOnSchedule(environment),
+	scheduled: async (_controller, environment) => {
+		await Promise.all([indexMissingDocumentsOnSchedule(environment), startWaitingMailRendering(environment)])
+	},
 	// Email Routing delivers mail sent to the ingestion address. No request reaches this handler,
 	// so the sender allowlist and DMARC take the place of the Access assertion.
 	email: (message, environment) => receiveInboundMail(message, environment),

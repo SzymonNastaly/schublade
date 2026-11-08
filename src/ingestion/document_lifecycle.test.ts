@@ -12,12 +12,12 @@ test("predecessorStatuses lists the states a document may leave for the target",
 		extracting: ["processing"],
 		classifying: ["extracting", "recognizing_text"],
 		archived: ["classifying"],
-		failed: ["processing", "extracting", "recognizing_text", "classifying"],
-		processing: ["failed"],
+		failed: ["awaiting_rendering", "processing", "extracting", "recognizing_text", "classifying"],
+		processing: ["awaiting_rendering", "failed"],
 	})
 })
 
-test("isSettledStatus holds only for archived, failed, and awaiting_rendering documents", () => {
+test("isSettledStatus holds only for archived and failed documents", () => {
 	const statuses = [
 		"awaiting_rendering",
 		"processing",
@@ -27,5 +27,5 @@ test("isSettledStatus holds only for archived, failed, and awaiting_rendering do
 		"archived",
 		"failed",
 	] as const
-	expect(statuses.filter(isSettledStatus)).toEqual(["awaiting_rendering", "archived", "failed"])
+	expect(statuses.filter(isSettledStatus)).toEqual(["archived", "failed"])
 })

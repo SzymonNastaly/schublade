@@ -19,7 +19,7 @@ const creationTime = () =>
 // that a member creates, confirms, renames, or merges into is confirmed.
 const confirmationTime = () => integer("confirmed_at", { mode: "timestamp" })
 
-// An email without a usable attachment is stored as awaiting_rendering until phase 7 renders it.
+// An email without a usable attachment is stored as awaiting_rendering until its workflow renders it.
 const documentStatuses = [
 	"awaiting_rendering",
 	"processing",

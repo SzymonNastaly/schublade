@@ -3,7 +3,7 @@ import { z } from "zod"
 import { connectDatabase } from "../database/client"
 import { documents } from "../database/schema"
 import { rasterizePage } from "../inference/page_rasterizer"
-import { contentObjectKey, thumbnailObjectKey } from "../ingestion/source_file"
+import { MAIL_MEDIA_TYPE, contentObjectKey, thumbnailObjectKey } from "../ingestion/source_file"
 
 type RepresentationEnvironment = Pick<Env, "DATABASE" | "DOCUMENT_STORAGE">
 
@@ -53,7 +53,8 @@ async function serveThumbnail(environment: RepresentationEnvironment, documentId
 	if (stored) return storedObjectResponse(stored, THUMBNAIL_CACHE_CONTROL)
 	const document = await readOriginalRecord(environment, documentId)
 	const original = document && (await environment.DOCUMENT_STORAGE.get(document.storageObjectKey))
-	if (!document || !original) return notFound()
+	// A message has no picture, and the row asks again once it is a PDF.
+	if (!document || !original || document.mimeType === MAIL_MEDIA_TYPE) return notFound()
 	if (document.mimeType !== "application/pdf") return storedObjectResponse(original, THUMBNAIL_CACHE_CONTROL)
 	try {
 		const { pngBytes } = await rasterizePage(new Uint8Array(await original.arrayBuffer()), 0, THUMBNAIL_DOTS_PER_INCH)

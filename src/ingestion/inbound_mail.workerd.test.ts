@@ -234,8 +234,23 @@ test("receiveInboundMail stores mail without a usable attachment as awaiting ren
 			},
 		],
 		storedMessage: receipt,
-		workflowInstances: [],
+		workflowInstances: [{ id: document?.id, params: { documentId: document?.id } }],
 	})
+})
+
+test("receiveInboundMail accepts a stored message whose workflow is refused and records it as failed for a retry", async () => {
+	const { environment } = await prepareArchive()
+	const refusing = { create: () => Promise.reject(new Error("instance already exists")) }
+	const warning = vi.spyOn(console, "warn").mockImplementation(() => undefined)
+
+	const rejections = await deliver(
+		{ ...environment, DOCUMENT_INGESTION_WORKFLOW: refusing as unknown as Workflow },
+		composeMessage({ ...paymentRequest, messageId: "<redelivered-after-deletion@example.com>" }),
+	)
+
+	const [document] = await storedDocuments()
+	expect({ rejections, status: document?.status }).toEqual({ rejections: [], status: "failed" })
+	warning.mockRestore()
 })
 
 test("receiveInboundMail rejects a delivery by its envelope before reading the message", async () => {

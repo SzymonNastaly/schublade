@@ -2,7 +2,7 @@ import type { BadgeVariant } from "@cloudflare/kumo"
 import type { DocumentFailureReason, DocumentStatus } from "../ingestion/document_lifecycle"
 
 export const documentStatusBadges: Record<DocumentStatus, { label: string; variant: BadgeVariant }> = {
-	awaiting_rendering: { label: "Email awaiting rendering", variant: "secondary" },
+	awaiting_rendering: { label: "Rendering email", variant: "secondary" },
 	processing: { label: "Processing", variant: "secondary" },
 	extracting: { label: "Extracting", variant: "info" },
 	recognizing_text: { label: "Recognizing text", variant: "info" },
