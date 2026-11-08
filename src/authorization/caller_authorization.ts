@@ -5,6 +5,7 @@ const permissionLevels = ["read", "ingest", "modify", "administer"] as const
 
 export type PermissionLevel = (typeof permissionLevels)[number]
 
+/** The lists hold record identifiers, so renaming a record leaves a scope intact. */
 export const authorizationScopeSchema = z.strictObject({
 	level: z.enum(permissionLevels),
 	allowedCategories: z.array(z.string()).optional(),
@@ -20,6 +21,8 @@ export type Caller =
 	/** A household member signed in through Cloudflare Access. */
 	| { kind: "member_session" }
 	| { kind: "api_token"; tokenId: string; scope: AuthorizationScope }
+	/** A client that a household member authorized through the consent page of /mcp. */
+	| { kind: "oauth_grant"; scope: AuthorizationScope }
 	/** Mail from an allowed sender to the ingestion address. */
 	| { kind: "inbound_mail"; senderAddress: string }
 
@@ -29,6 +32,7 @@ function grantedLevel(caller: Caller): PermissionLevel {
 		case "member_session":
 			return "administer"
 		case "api_token":
+		case "oauth_grant":
 			return caller.scope.level
 		case "inbound_mail":
 			return "ingest"
@@ -50,6 +54,7 @@ const operationLevels = {
 	deleteDocument: "administer",
 	deleteTaxonomyRecord: "administer",
 	administerApiTokens: "administer",
+	administerAuthorizationGrants: "administer",
 } as const satisfies Record<string, PermissionLevel>
 
 type ArchiveOperation = keyof typeof operationLevels

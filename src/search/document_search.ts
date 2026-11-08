@@ -1,6 +1,7 @@
 import { queryDocumentListing } from "../archive/document_listing"
 import { SEARCH_RESULT_LIMIT, rankPassages, searchIndexFilter } from "./search_criteria"
 import type { ListedDocument } from "../archive/document_listing"
+import type { AuthorizationScope } from "../authorization/caller_authorization"
 import type { ArchiveDatabase } from "../database/client"
 import type { SearchIndex } from "./document_indexing"
 import type { SearchCriteria } from "./search_criteria"
@@ -22,7 +23,7 @@ export interface RetrievedDocument extends ListedDocument {
 export async function searchDocuments(
 	database: ArchiveDatabase,
 	searchIndex: SearchIndex,
-	{ query, ...filters }: SearchCriteria,
+	{ query, ...filters }: SearchCriteria & { authorizationScope?: AuthorizationScope },
 ): Promise<Array<RetrievedDocument>> {
 	if (query === undefined || query === "") {
 		const listing = await queryDocumentListing(database, filters)

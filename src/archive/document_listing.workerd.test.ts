@@ -1,8 +1,9 @@
-import { applyD1Migrations, env } from "cloudflare:test"
+import { applyD1Migrations, env, reset } from "cloudflare:test"
 import { expect, inject, test } from "vitest"
 import { connectDatabase } from "../database/client"
 import { categories, documentTags, documents, householdMembers, senders, tags } from "../database/schema"
 import { queryArchiveFacets, queryDocumentListing, queryDocumentStatuses } from "./document_listing"
+import type { AuthorizationScope } from "../authorization/caller_authorization"
 
 test("queryDocumentListing filtered by a person lists only archived documents", async () => {
 	await applyD1Migrations(env.DATABASE, inject("databaseMigrations"))
@@ -159,4 +160,113 @@ test("queryArchiveFacets counts only the archived documents of each value", asyn
 		category: countOf(facets.categories, categoryId),
 		tag: countOf(facets.tags, tagId),
 	}).toEqual({ member: 1, household: 1, sender: 2, senderWithoutArchivedDocuments: 0, category: 1, tag: 1 })
+})
+
+const invoiceCategory = "b1000000-0000-4000-8000-000000000001"
+const medicalCategory = "b1000000-0000-4000-8000-000000000002"
+const werkhofSender = "c1000000-0000-4000-8000-000000000001"
+const nordkabelSender = "c1000000-0000-4000-8000-000000000002"
+const taxTag = "d1000000-0000-4000-8000-000000000001"
+const privateTag = "d1000000-0000-4000-8000-000000000002"
+const taxInvoice = "e1000000-0000-4000-8000-000000000001"
+const privateInvoice = "e1000000-0000-4000-8000-000000000002"
+const untaggedInvoice = "e1000000-0000-4000-8000-000000000003"
+const nordkabelInvoice = "e1000000-0000-4000-8000-000000000004"
+const medicalLetter = "e1000000-0000-4000-8000-000000000005"
+const invoiceInIngestion = "e1000000-0000-4000-8000-000000000006"
+
+async function prepareScopedArchive() {
+	await reset()
+	await applyD1Migrations(env.DATABASE, inject("databaseMigrations"))
+	const database = connectDatabase(env.DATABASE)
+	await database.insert(categories).values([
+		{ id: invoiceCategory, name: "Invoice", normalizedName: "invoice", expectedFields: [] },
+		{ id: medicalCategory, name: "Medical", normalizedName: "medical", expectedFields: [] },
+	])
+	await database.insert(senders).values([
+		{ id: werkhofSender, name: "Werkhof", normalizedName: "werkhof" },
+		{ id: nordkabelSender, name: "Nordkabel", normalizedName: "nordkabel" },
+	])
+	await database.insert(tags).values([
+		{ id: taxTag, name: "tax-2026", normalizedName: "tax-2026" },
+		{ id: privateTag, name: "private", normalizedName: "private" },
+	])
+	const documentOf = (id: string, categoryId: string, senderId: string, status: "archived" | "classifying") => ({
+		id,
+		storageObjectKey: `documents/${id}/original.pdf`,
+		mimeType: "application/pdf",
+		byteSize: 1024,
+		status,
+		categoryId,
+		senderId,
+	})
+	await database
+		.insert(documents)
+		.values([
+			documentOf(taxInvoice, invoiceCategory, werkhofSender, "archived"),
+			documentOf(privateInvoice, invoiceCategory, werkhofSender, "archived"),
+			documentOf(untaggedInvoice, invoiceCategory, werkhofSender, "archived"),
+			documentOf(nordkabelInvoice, invoiceCategory, nordkabelSender, "archived"),
+			documentOf(medicalLetter, medicalCategory, werkhofSender, "archived"),
+			documentOf(invoiceInIngestion, invoiceCategory, werkhofSender, "classifying"),
+		])
+	await database.insert(documentTags).values([
+		{ documentId: taxInvoice, tagId: taxTag },
+		{ documentId: privateInvoice, tagId: taxTag },
+		{ documentId: privateInvoice, tagId: privateTag },
+	])
+	return database
+}
+
+test("an authorization scope admits only archived documents that satisfy every list it holds", async () => {
+	const database = await prepareScopedArchive()
+	const admitted = async (authorizationScope: AuthorizationScope) =>
+		(await queryDocumentListing(database, { authorizationScope })).map((document) => document.id).sort()
+
+	expect({
+		everything: await admitted({ level: "read" }),
+		category: await admitted({ level: "read", allowedCategories: [invoiceCategory] }),
+		sender: await admitted({ level: "read", allowedSenders: [nordkabelSender] }),
+		tag: await admitted({ level: "read", allowedTags: [taxTag] }),
+		denied: await admitted({ level: "read", deniedTags: [privateTag] }),
+		combined: await admitted({
+			level: "read",
+			allowedCategories: [invoiceCategory],
+			allowedSenders: [werkhofSender],
+			deniedTags: [privateTag],
+		}),
+		emptyList: await admitted({ level: "read", allowedCategories: [] }),
+	}).toEqual({
+		everything: [taxInvoice, privateInvoice, untaggedInvoice, nordkabelInvoice, medicalLetter],
+		category: [taxInvoice, privateInvoice, untaggedInvoice, nordkabelInvoice],
+		sender: [nordkabelInvoice],
+		tag: [taxInvoice, privateInvoice],
+		denied: [taxInvoice, untaggedInvoice, nordkabelInvoice, medicalLetter],
+		combined: [taxInvoice, untaggedInvoice],
+		emptyList: [],
+	})
+})
+
+test("queryArchiveFacets counts only what an authorization scope admits", async () => {
+	const database = await prepareScopedArchive()
+
+	const facets = await queryArchiveFacets(database, {
+		level: "read",
+		allowedCategories: [invoiceCategory],
+		deniedTags: [privateTag],
+	})
+
+	const countsOf = (options: Array<{ name: string; documentCount: number }>) =>
+		Object.fromEntries(options.map((option) => [option.name, option.documentCount]))
+	expect({
+		categories: countsOf(facets.categories),
+		senders: countsOf(facets.senders),
+		tags: countsOf(facets.tags),
+		household: facets.householdDocumentCount,
+	}).toEqual({
+		categories: { Invoice: 3, Medical: 0 },
+		senders: { Nordkabel: 1, Werkhof: 2 },
+		tags: { private: 0, "tax-2026": 1 },
+		household: 3,
+	})
 })

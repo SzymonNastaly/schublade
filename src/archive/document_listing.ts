@@ -1,4 +1,19 @@
-import { and, asc, count, desc, eq, exists, gte, inArray, isNotNull, isNull, lte, or, sql } from "drizzle-orm"
+import {
+	and,
+	asc,
+	count,
+	desc,
+	eq,
+	exists,
+	gte,
+	inArray,
+	isNotNull,
+	isNull,
+	lte,
+	notExists,
+	or,
+	sql,
+} from "drizzle-orm"
 import {
 	categories,
 	documentTags,
@@ -11,6 +26,7 @@ import {
 import { effectiveVerificationReason } from "../ingestion/verification_assessment"
 import { HOUSEHOLD_PERSON } from "../search/search_index_item"
 import type { SQL } from "drizzle-orm"
+import type { AuthorizationScope } from "../authorization/caller_authorization"
 import type { ArchiveDatabase } from "../database/client"
 import type { DocumentFailureReason, DocumentStatus } from "../ingestion/document_lifecycle"
 import type { VerificationReason } from "../ingestion/verification_assessment"
@@ -40,8 +56,38 @@ export interface ListedDocument {
 	fields: Array<ListedField>
 }
 
-/** Restricts a listing to the given documents and to every filter of the criteria. The query text plays no part. */
-export type ListingCriteria = Omit<SearchCriteria, "query"> & { documentIds?: Array<string> }
+/**
+ * Restricts a listing to the given documents and to every filter of the criteria. The query text
+ * plays no part. A scope limits the listing to what an authorized client may read.
+ */
+export type ListingCriteria = Omit<SearchCriteria, "query"> & {
+	documentIds?: Array<string>
+	authorizationScope?: AuthorizationScope
+}
+
+/**
+ * The documents a scope admits. Only archived documents qualify, because a document in ingestion
+ * holds its extracted text before classification assigns the category, sender, and tags that a
+ * scope reads. A document must satisfy every list the scope holds.
+ */
+function authorizationScopeConditions(
+	database: ArchiveDatabase,
+	scope: AuthorizationScope | undefined,
+): Array<SQL | undefined> {
+	if (scope === undefined) return []
+	const linksToTags = (tagIds: Array<string>) =>
+		database
+			.select({ documentId: documentTags.documentId })
+			.from(documentTags)
+			.where(and(eq(documentTags.documentId, documents.id), inArray(documentTags.tagId, tagIds)))
+	return [
+		eq(documents.status, "archived"),
+		scope.allowedCategories === undefined ? undefined : inArray(documents.categoryId, scope.allowedCategories),
+		scope.allowedSenders === undefined ? undefined : inArray(documents.senderId, scope.allowedSenders),
+		scope.allowedTags === undefined ? undefined : exists(linksToTags(scope.allowedTags)),
+		scope.deniedTags === undefined ? undefined : notExists(linksToTags(scope.deniedTags)),
+	]
+}
 
 function listingConditions(database: ArchiveDatabase, criteria: ListingCriteria): Array<SQL | undefined> {
 	const amountBounds = [
@@ -49,6 +95,7 @@ function listingConditions(database: ArchiveDatabase, criteria: ListingCriteria)
 		criteria.maximumAmount === undefined ? undefined : lte(extractedFields.valueNumber, criteria.maximumAmount),
 	]
 	return [
+		...authorizationScopeConditions(database, criteria.authorizationScope),
 		criteria.documentIds === undefined ? undefined : inArray(documents.id, criteria.documentIds),
 		// Classification assigns the person as it archives a document. An unclassified document
 		// has none yet, so it belongs to no person, not even to the whole household.
@@ -224,8 +271,15 @@ export interface ArchiveFacets {
 	tags: Array<FacetOption>
 }
 
-export async function queryArchiveFacets(database: ArchiveDatabase): Promise<ArchiveFacets> {
-	const isArchived = eq(documents.status, "archived")
+/** Each count covers the archived documents that the scope admits, or all of them without a scope. */
+export async function queryArchiveFacets(
+	database: ArchiveDatabase,
+	authorizationScope?: AuthorizationScope,
+): Promise<ArchiveFacets> {
+	const isArchived = and(
+		eq(documents.status, "archived"),
+		...authorizationScopeConditions(database, authorizationScope),
+	)
 	const documentCount = count(documents.id)
 	const [memberRows, householdDocumentCount, senderRows, categoryRows, tagRows] = await Promise.all([
 		database

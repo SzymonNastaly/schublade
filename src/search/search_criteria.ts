@@ -1,5 +1,6 @@
 import { z } from "zod"
 import { HOUSEHOLD_PERSON, documentIdOfItemName, searchIndexDateTime } from "./search_index_item"
+import type { AuthorizationScope } from "../authorization/caller_authorization"
 
 const MAXIMUM_QUERY_LENGTH = 500
 
@@ -60,20 +61,29 @@ export function composeSearchString(search: Record<string, unknown>): string {
 	return searchString === "" ? "" : `?${searchString}`
 }
 
+/** A chosen value, or else the values a scope allows. D1 rejects a chosen value outside the scope afterwards. */
+function metadataRestriction(chosen: string | undefined, allowed: Array<string> | undefined) {
+	return chosen ?? (allowed === undefined ? undefined : { $in: allowed })
+}
+
 /**
  * The criteria AI Search applies before it ranks, so the top results come from the filtered
  * set. Each metadata field holds one value, so tags cannot be filtered here, and amounts live
  * in extracted_fields.
  */
-export function searchIndexFilter(criteria: SearchCriteria): VectorizeVectorMetadataFilter | undefined {
+export function searchIndexFilter(
+	criteria: SearchCriteria & { authorizationScope?: AuthorizationScope },
+): VectorizeVectorMetadataFilter | undefined {
+	const sender = metadataRestriction(criteria.sender, criteria.authorizationScope?.allowedSenders)
+	const category = metadataRestriction(criteria.category, criteria.authorizationScope?.allowedCategories)
 	const documentDateRange = {
 		...(criteria.earliestDocumentDate !== undefined && { $gte: searchIndexDateTime(criteria.earliestDocumentDate) }),
 		...(criteria.latestDocumentDate !== undefined && { $lte: searchIndexDateTime(criteria.latestDocumentDate) }),
 	}
 	const filter: VectorizeVectorMetadataFilter = {
 		...(criteria.person !== undefined && { person: criteria.person }),
-		...(criteria.sender !== undefined && { sender: criteria.sender }),
-		...(criteria.category !== undefined && { category: criteria.category }),
+		...(sender !== undefined && { sender }),
+		...(category !== undefined && { category }),
 		...(Object.keys(documentDateRange).length > 0 && { document_date: documentDateRange }),
 	}
 	return Object.keys(filter).length > 0 ? filter : undefined

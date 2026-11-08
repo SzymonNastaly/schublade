@@ -65,6 +65,19 @@ test("searchIndexFilter sends person, sender, category, and date range to AI Sea
 	expect(searchIndexFilter({ tag: tagId, minimumAmount: 50 })).toBeUndefined()
 })
 
+test("searchIndexFilter limits AI Search to the senders and categories of a scope, and a chosen value takes their place", () => {
+	const authorizationScope = { level: "read" as const, allowedCategories: [categoryId], allowedSenders: [senderId] }
+
+	expect(searchIndexFilter({ authorizationScope })).toEqual({
+		sender: { $in: [senderId] },
+		category: { $in: [categoryId] },
+	})
+	expect(searchIndexFilter({ authorizationScope, category: tagId })).toEqual({
+		sender: { $in: [senderId] },
+		category: tagId,
+	})
+})
+
 test("rankPassages keeps the best chunk of each document and excerpts it around the query", () => {
 	const chunk = (key: string, score: number, text: string) => ({ id: key, type: "text", score, text, item: { key } })
 	const dentalInvoiceId = "7d0e4f52-9a1b-4c3d-8e2f-1a2b3c4d5e6f"
