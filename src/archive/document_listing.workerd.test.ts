@@ -1,8 +1,8 @@
 import { applyD1Migrations, env } from "cloudflare:test"
 import { expect, inject, test } from "vitest"
 import { connectDatabase } from "../database/client"
-import { documents, householdMembers, senders } from "../database/schema"
-import { queryDocumentListing, queryDocumentStatuses } from "./document_listing"
+import { categories, documentTags, documents, householdMembers, senders, tags } from "../database/schema"
+import { queryArchiveFacets, queryDocumentListing, queryDocumentStatuses } from "./document_listing"
 
 test("queryDocumentListing filtered by a person lists only archived documents", async () => {
 	await applyD1Migrations(env.DATABASE, inject("databaseMigrations"))
@@ -102,4 +102,61 @@ test("queryDocumentStatuses reports the given documents with their failure reaso
 		{ documentId: settledId, title: "Plain Receipt", status: "archived", failureReason: null, needsReview: false },
 		{ documentId: failedId, title: null, status: "failed", failureReason: "page_limit_exceeded", needsReview: false },
 	])
+})
+
+test("queryArchiveFacets counts only the archived documents of each value", async () => {
+	await applyD1Migrations(env.DATABASE, inject("databaseMigrations"))
+	const database = connectDatabase(env.DATABASE)
+	await database.delete(documents)
+	const memberId = "d1000000-0000-4000-8000-000000000001"
+	const senderId = "d2000000-0000-4000-8000-000000000001"
+	const senderWithoutArchivedDocumentsId = "d2000000-0000-4000-8000-000000000002"
+	const categoryId = "d3000000-0000-4000-8000-000000000001"
+	const tagId = "d4000000-0000-4000-8000-000000000001"
+	await database.insert(householdMembers).values({ id: memberId, displayName: "Ida Berg", addresseeNames: [] })
+	await database.insert(senders).values([
+		{ id: senderId, name: "Nordkabel", normalizedName: "nordkabel" },
+		{ id: senderWithoutArchivedDocumentsId, name: "Stadtwerk", normalizedName: "stadtwerk" },
+	])
+	await database
+		.insert(categories)
+		.values({ id: categoryId, name: "Rechnung", normalizedName: "rechnung", expectedFields: ["amount"] })
+	await database.insert(tags).values({ id: tagId, name: "tax-2026", normalizedName: "tax-2026" })
+	const documentOf = (id: string, status: "archived" | "classifying") => ({
+		id,
+		storageObjectKey: `documents/${id}/original.pdf`,
+		mimeType: "application/pdf",
+		byteSize: 1024,
+		status,
+	})
+	const taggedDocumentId = "d5000000-0000-4000-8000-000000000001"
+	const unfinishedDocumentId = "d5000000-0000-4000-8000-000000000003"
+	await database.insert(documents).values([
+		{ ...documentOf(taggedDocumentId, "archived"), personMemberId: memberId, senderId, categoryId },
+		{ ...documentOf("d5000000-0000-4000-8000-000000000002", "archived"), senderId },
+		{
+			...documentOf(unfinishedDocumentId, "classifying"),
+			personMemberId: memberId,
+			senderId: senderWithoutArchivedDocumentsId,
+			categoryId,
+		},
+		documentOf("d5000000-0000-4000-8000-000000000004", "classifying"),
+	])
+	await database.insert(documentTags).values([
+		{ documentId: taggedDocumentId, tagId },
+		{ documentId: unfinishedDocumentId, tagId },
+	])
+
+	const facets = await queryArchiveFacets(database)
+
+	const countOf = (options: Array<{ id: string; documentCount: number }>, id: string) =>
+		options.find((option) => option.id === id)?.documentCount
+	expect({
+		member: countOf(facets.members, memberId),
+		household: facets.householdDocumentCount,
+		sender: countOf(facets.senders, senderId),
+		senderWithoutArchivedDocuments: countOf(facets.senders, senderWithoutArchivedDocumentsId),
+		category: countOf(facets.categories, categoryId),
+		tag: countOf(facets.tags, tagId),
+	}).toEqual({ member: 1, household: 1, sender: 2, senderWithoutArchivedDocuments: 0, category: 1, tag: 1 })
 })

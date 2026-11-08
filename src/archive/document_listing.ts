@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, exists, gte, inArray, isNotNull, isNull, lte, or, sql } from "drizzle-orm"
+import { and, asc, count, desc, eq, exists, gte, inArray, isNotNull, isNull, lte, or, sql } from "drizzle-orm"
 import {
 	categories,
 	documentTags,
@@ -207,31 +207,64 @@ export async function queryDocumentStatuses(
 	}))
 }
 
-interface FacetOption {
+export interface FacetOption {
 	id: string
 	name: string
+	/** How many archived documents hold this value. */
+	documentCount: number
 }
 
 /** The household members, senders, categories, and tags that the filter controls offer. */
 export interface ArchiveFacets {
 	members: Array<FacetOption>
+	/** How many archived documents concern the whole household. */
+	householdDocumentCount: number
 	senders: Array<FacetOption>
 	categories: Array<FacetOption & { expectedFields: Array<string> }>
 	tags: Array<FacetOption>
 }
 
 export async function queryArchiveFacets(database: ArchiveDatabase): Promise<ArchiveFacets> {
-	const [memberRows, senderRows, categoryRows, tagRows] = await Promise.all([
+	const isArchived = eq(documents.status, "archived")
+	const documentCount = count(documents.id)
+	const [memberRows, householdDocumentCount, senderRows, categoryRows, tagRows] = await Promise.all([
 		database
-			.select({ id: householdMembers.id, name: householdMembers.displayName })
+			.select({ id: householdMembers.id, name: householdMembers.displayName, documentCount })
 			.from(householdMembers)
+			.leftJoin(documents, and(eq(documents.personMemberId, householdMembers.id), isArchived))
+			.groupBy(householdMembers.id)
 			.orderBy(asc(householdMembers.displayName)),
-		database.select({ id: senders.id, name: senders.name }).from(senders).orderBy(asc(senders.name)),
+		database.$count(documents, and(isArchived, isNull(documents.personMemberId))),
 		database
-			.select({ id: categories.id, name: categories.name, expectedFields: categories.expectedFields })
+			.select({ id: senders.id, name: senders.name, documentCount })
+			.from(senders)
+			.leftJoin(documents, and(eq(documents.senderId, senders.id), isArchived))
+			.groupBy(senders.id)
+			.orderBy(asc(senders.name)),
+		database
+			.select({
+				id: categories.id,
+				name: categories.name,
+				expectedFields: categories.expectedFields,
+				documentCount,
+			})
 			.from(categories)
+			.leftJoin(documents, and(eq(documents.categoryId, categories.id), isArchived))
+			.groupBy(categories.id)
 			.orderBy(asc(categories.name)),
-		database.select({ id: tags.id, name: tags.name }).from(tags).orderBy(asc(tags.name)),
+		database
+			.select({ id: tags.id, name: tags.name, documentCount })
+			.from(tags)
+			.leftJoin(documentTags, eq(documentTags.tagId, tags.id))
+			.leftJoin(documents, and(eq(documents.id, documentTags.documentId), isArchived))
+			.groupBy(tags.id)
+			.orderBy(asc(tags.name)),
 	])
-	return { members: memberRows, senders: senderRows, categories: categoryRows, tags: tagRows }
+	return {
+		members: memberRows,
+		householdDocumentCount,
+		senders: senderRows,
+		categories: categoryRows,
+		tags: tagRows,
+	}
 }

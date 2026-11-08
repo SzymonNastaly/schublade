@@ -22,7 +22,7 @@ import type { VerificationDocument, VerificationItem } from "../archive/verifica
 import type { RequiredFieldKey } from "../ingestion/verification_assessment"
 import type { ReactNode } from "react"
 
-const kindPresentations: Record<TaxonomyKind, { label: string; facet: keyof Omit<ArchiveFacets, "members"> }> = {
+const kindPresentations: Record<TaxonomyKind, { label: string; facet: "senders" | "categories" | "tags" }> = {
 	sender: { label: "sender", facet: "senders" },
 	category: { label: "category", facet: "categories" },
 	tag: { label: "tag", facet: "tags" },

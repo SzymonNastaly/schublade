@@ -3,10 +3,11 @@ import { documentDetailRows, offeredFieldKeys } from "./document_detail_presenta
 import type { ArchiveFacets, ListedDocument } from "../archive/document_listing"
 
 const facets: ArchiveFacets = {
-	members: [{ id: "member-1", name: "Maja" }],
-	senders: [{ id: "sender-1", name: "Nordkabel" }],
-	categories: [{ id: "category-1", name: "Rechnung", expectedFields: ["amount", "due_date"] }],
-	tags: [{ id: "tag-1", name: "tax-2026" }],
+	members: [{ id: "member-1", name: "Maja", documentCount: 1 }],
+	householdDocumentCount: 0,
+	senders: [{ id: "sender-1", name: "Nordkabel", documentCount: 1 }],
+	categories: [{ id: "category-1", name: "Rechnung", expectedFields: ["amount", "due_date"], documentCount: 1 }],
+	tags: [{ id: "tag-1", name: "tax-2026", documentCount: 1 }],
 }
 
 const archivedDocument: ListedDocument = {
