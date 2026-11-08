@@ -60,17 +60,27 @@ function embedInlineImages(html: string, attachments: ReadonlyArray<Attachment>)
 	})
 }
 
-function printableHeader(email: Email): string {
-	const sender = email.from?.address ?? email.from?.name
-	const rows: Array<[string, string | undefined]> = [
-		["Subject", email.subject],
-		["From", sender],
-		["Date", email.date],
+function printedHeaderRows(email: Email): Array<{ label: string; value: string }> {
+	const rows = [
+		{ label: "Subject", value: email.subject },
+		{ label: "From", value: email.from?.address ?? email.from?.name },
+		{ label: "Date", value: email.date },
 	]
-	const printedRows = rows
-		.filter(([, value]) => value !== undefined && value !== "")
-		.map(([label, value]) => `<div><b>${label}:</b> ${escapeMarkup(value ?? "")}</div>`)
+	return rows.flatMap(({ label, value }) => (value === undefined || value === "" ? [] : [{ label, value }]))
+}
+
+function printableHeader(email: Email): string {
+	const printedRows = printedHeaderRows(email).map(
+		({ label, value }) => `<div><b>${label}:</b> ${escapeMarkup(value)}</div>`,
+	)
 	return `<div style="font:12px/1.5 sans-serif;color:#000;margin-bottom:16px;padding-bottom:8px;border-bottom:1px solid #999">${printedRows.join("")}</div>`
+}
+
+/** The words of the header above a printed message, which the message itself did not say. */
+export function printedHeaderText(email: Email): string {
+	return printedHeaderRows(email)
+		.map(({ label, value }) => `${label}: ${value}`)
+		.join("\n")
 }
 
 /**

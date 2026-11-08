@@ -2,6 +2,7 @@ import { applyD1Migrations, env, reset } from "cloudflare:test"
 import { eq } from "drizzle-orm"
 import { expect, inject, test, vi } from "vitest"
 import scannedInvoice from "../../test_fixtures/documents/electricity_invoice_scanned.pdf"
+import digitalInvoice from "../../test_fixtures/documents/telecommunication_invoice_digital.pdf"
 import expectedExtraction from "../../test_fixtures/documents/expected_extraction.json"
 import recording from "../../test_fixtures/inference_recordings/electricity_invoice_scanned.json"
 import { connectToArchiveChanges } from "../archive/archive_changes"
@@ -395,6 +396,38 @@ test("ingestDocument prints a stored email to a PDF, archives that, and keeps th
 		printedBody: true,
 		activeMarkup: false,
 	})
+})
+
+test("ingestDocument reads a printed email from its text layer, without the conversion, and gives the classifier the body once", async () => {
+	const documentId = "f1000000-0000-4000-8000-000000000005"
+	await storeMessage(documentId, receiptMessage)
+	const classificationRequests: Array<string> = []
+	const { step } = createRecordingStep()
+
+	await ingestDocument(
+		step,
+		{
+			...recordedEnvironment,
+			AI_RUNTIME: {
+				toMarkdown: () => Promise.reject(new Error("A printed email needs no conversion")),
+				run: (_model: string, inputs: unknown) => {
+					classificationRequests.push(JSON.stringify(inputs))
+					return Promise.resolve(recording.classificationResponse)
+				},
+			} as unknown as Ai,
+			BROWSER_RENDERER: {
+				quickAction: () =>
+					Promise.resolve(new Response(digitalInvoice, { headers: { "Content-Type": "application/pdf" } })),
+			} as unknown as BrowserRun,
+		},
+		documentId,
+	)
+
+	const content = await (await env.DOCUMENT_STORAGE.get(contentObjectKey(documentId)))?.text()
+	expect({
+		invoiceNumberInText: content?.includes("NK-2026-1048-3391"),
+		emptyEmailBody: classificationRequests[0]?.includes("<email>\\n\\n</email>"),
+	}).toEqual({ invoiceNumberInText: true, emptyEmailBody: true })
 })
 
 test("ingestDocument records an email without a body as unreadable and renders nothing", async () => {

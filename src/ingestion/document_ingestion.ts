@@ -16,9 +16,14 @@ import { indexDocument } from "../search/document_indexing"
 import { UnopenablePdfError, inspectPages, rasterizePage } from "../inference/page_rasterizer"
 import { createMoondreamRecognizer } from "../inference/text_recognizer"
 import { findStandardCategory } from "./document_classification"
-import { assembleDocumentMarkdown, recognitionLimitViolation, selectPageTextSources } from "./document_text"
+import {
+	assembleDocumentMarkdown,
+	recognitionLimitViolation,
+	selectPageTextSources,
+	selectPrintedMailTextSources,
+} from "./document_text"
 import { predecessorStatuses } from "./document_lifecycle"
-import { composePrintableMail, mailContextOf, parseMailWithinLimits } from "./mail_message"
+import { composePrintableMail, mailContextOf, parseMailWithinLimits, printedHeaderText } from "./mail_message"
 import { printMail } from "./mail_rendering"
 import { MAIL_MEDIA_TYPE, contentObjectKey, originalObjectKey, parseSourceFile } from "./source_file"
 import { resolveTaxonomyName } from "./taxonomy_resolution"
@@ -32,7 +37,7 @@ import type { SearchIndex } from "../search/document_indexing"
 import type { MailContext } from "./classification_prompt"
 import type { DocumentClassification } from "./document_classification"
 import type { DocumentFailureReason, DocumentStatus } from "./document_lifecycle"
-import type { PageTranscription, TextExtraction } from "./document_text"
+import type { PageTextSource, PageTranscription, TextExtraction } from "./document_text"
 import type { SourceFile } from "./source_file"
 
 type IngestionEnvironment = Pick<
@@ -63,7 +68,7 @@ type TextExtractionOutcome =
 
 type MailRenderingOutcome =
 	| { kind: "not_mail" }
-	| { kind: "rendered"; mailContext: MailContext }
+	| { kind: "rendered"; mailContext: MailContext; printedHeaderText: string }
 	| { kind: "refused"; failureReason: DocumentFailureReason; explanation: string }
 
 const RECOGNITION_DOTS_PER_INCH = 150
@@ -231,13 +236,25 @@ async function renderStoredMail(
 			),
 		)
 	await announceArchiveChange(environment)
-	return { kind: "rendered", mailContext: mailContextOf(email, email.from?.address ?? "") }
+	return {
+		kind: "rendered",
+		// The body is the document here, so the classifier reads it once, as the document text.
+		mailContext: { ...mailContextOf(email, email.from?.address ?? ""), bodyText: "" },
+		printedHeaderText: printedHeaderText(email),
+	}
+}
+
+function extractionOutcome(convertedMarkdown: string, pages: Array<PageTextSource>): TextExtractionOutcome {
+	const limitViolation = recognitionLimitViolation(pages)
+	if (limitViolation) return { kind: "refused", failureReason: "page_limit_exceeded", explanation: limitViolation }
+	return { kind: "extracted", extraction: { convertedMarkdown, pages } }
 }
 
 async function extractText(
 	environment: IngestionEnvironment,
 	sourceFile: SourceFile,
 	bytes: Uint8Array<ArrayBuffer>,
+	mailHeaderText: string | undefined,
 ): Promise<TextExtractionOutcome> {
 	if (sourceFile.kind === "image") {
 		return { kind: "extracted", extraction: { convertedMarkdown: "", pages: [{ kind: "recognition", pageIndex: 0 }] } }
@@ -250,15 +267,13 @@ async function extractText(
 		if (!(error instanceof UnopenablePdfError)) throw error
 		return { kind: "refused", failureReason: "unreadable_file", explanation: error.message }
 	}
+	if (mailHeaderText !== undefined) return extractionOutcome("", selectPrintedMailTextSources(pages, mailHeaderText))
 	const conversion = await environment.AI_RUNTIME.toMarkdown(
 		{ name: `original.${sourceFile.extension}`, blob: new Blob([bytes], { type: sourceFile.mediaType }) },
 		{ gateway: { id: environment.AI_GATEWAY_IDENTIFIER }, conversionOptions: { pdf: { metadata: false } } },
 	)
 	if (conversion.format === "error") throw new Error(`Markdown conversion failed: ${conversion.error}`)
-	const pageTextSources = selectPageTextSources(pages, conversion.data)
-	const limitViolation = recognitionLimitViolation(pageTextSources)
-	if (limitViolation) return { kind: "refused", failureReason: "page_limit_exceeded", explanation: limitViolation }
-	return { kind: "extracted", extraction: { convertedMarkdown: conversion.data, pages: pageTextSources } }
+	return extractionOutcome(conversion.data, selectPageTextSources(pages, conversion.data))
 }
 
 async function recognizePage(
@@ -498,7 +513,12 @@ async function archiveIngestedDocument(
 		const textExtraction = await step.do("extract text", inferenceStep, async () => {
 			await recordDocumentStatus(environment, documentId, { status: "extracting" })
 			const { sourceFile, bytes } = await readOriginal(database, environment.DOCUMENT_STORAGE, documentId)
-			return extractText(environment, sourceFile, bytes)
+			return extractText(
+				environment,
+				sourceFile,
+				bytes,
+				rendering.kind === "rendered" ? rendering.printedHeaderText : undefined,
+			)
 		})
 		if (textExtraction.kind === "refused") {
 			failureReason = textExtraction.failureReason

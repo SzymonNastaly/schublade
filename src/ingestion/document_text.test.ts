@@ -1,5 +1,10 @@
 import { expect, test } from "vitest"
-import { assembleDocumentMarkdown, recognitionLimitViolation, selectPageTextSources } from "./document_text"
+import {
+	assembleDocumentMarkdown,
+	recognitionLimitViolation,
+	selectPageTextSources,
+	selectPrintedMailTextSources,
+} from "./document_text"
 
 test("recognitionLimitViolation transcribes up to 50 pages and refuses a 51st, counting only transcribed pages", () => {
 	const pages = (recognizedPageCount: number) => [
@@ -36,6 +41,48 @@ test("selectPageTextSources reads a page from its text layer when its converted 
 			pageIndex: 1,
 			text: "Fahrkarte Hamburg Hbf – Berlin Hbf\nHinfahrt am 14.11.2026, Auftragsnummer Q7K2M9\nPreis 59,90 €",
 		},
+	])
+})
+
+test("selectPageTextSources reads a page from its text layer when its converted section holds under 90% of it", () => {
+	const printedHeader = "Subject: Fwd: Your receipt from Paperlark\nFrom: mira@example.com\n"
+	const receiptBody = "Paperlark GmbH, order 4821, three notebooks, total 12,99 EUR, paid by card\n".repeat(2)
+	const matchingText = "Rechnung Nordkabel Kommunikation GmbH, Rechnungsnummer NK-2026-1048-3391"
+	expect(
+		selectPageTextSources(
+			[
+				{ pageIndex: 0, textCharacterCount: 214, text: printedHeader + receiptBody },
+				{ pageIndex: 1, textCharacterCount: 72, text: matchingText },
+			],
+			`# original.pdf\n## Contents\n### Page 1\n\n${printedHeader}\n### Page 2\n\n${matchingText}\n`,
+		),
+	).toEqual([
+		{ kind: "text_layer", pageIndex: 0, text: printedHeader + receiptBody },
+		{ kind: "converted", pageIndex: 1 },
+	])
+})
+
+test("selectPrintedMailTextSources reads every page from the text layer unless the message adds under 40 letters or digits", () => {
+	const printedHeader = "Subject: Your receipt from Paperlark\nFrom: mira@example.com\nDate: 2026-11-08T16:50:51.000Z"
+	const body = "Paperlark GmbH, order 4821, total 12,99 EUR"
+	expect([
+		selectPrintedMailTextSources(
+			[
+				{ pageIndex: 0, textCharacterCount: 132, text: `${printedHeader}\n${body}` },
+				{ pageIndex: 1, textCharacterCount: 6, text: "Thanks" },
+			],
+			printedHeader,
+		),
+		selectPrintedMailTextSources(
+			[{ pageIndex: 0, textCharacterCount: 96, text: `${printedHeader}\nHallo` }],
+			printedHeader,
+		),
+	]).toEqual([
+		[
+			{ kind: "text_layer", pageIndex: 0, text: `${printedHeader}\n${body}` },
+			{ kind: "text_layer", pageIndex: 1, text: "Thanks" },
+		],
+		[{ kind: "recognition", pageIndex: 0 }],
 	])
 })
 
