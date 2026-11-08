@@ -4,7 +4,7 @@ Schublade is a self-hosted document archive that runs on your own Cloudflare acc
 
 Paperless-ngx inspired Schublade, and Fayaz Ahmed's [Coworkers](https://github.com/fayazara/coworkers) repository informed its runtime selection. Paperless-ngx relies on a stateful Python server, Redis, PostgreSQL, and manually maintained regular expression rules. Schublade instead uses serverless Cloudflare components and language models to classify and index every file.
 
-Phases 0 to 4 and a later interface revision are built. `ArchiveCoordinator` in Phase 5, the `/mcp` server in Phase 6, and both HTML email rendering on Browser Run and the installable mobile layout in Phase 7 are planned. Each section that describes a planned part says so. See [`IMPLEMENTATION_PLAN.md`](IMPLEMENTATION_PLAN.md) for the build order.
+Phases 0 to 5 and an interface revision after Phase 4 are built. The `/mcp` server in Phase 6, and both HTML email rendering on Browser Run and the installable mobile layout in Phase 7, are planned. Each section that describes a planned part says so. See [`IMPLEMENTATION_PLAN.md`](IMPLEMENTATION_PLAN.md) for the build order.
 
 ## Why automatic archiving replaces an inbox queue
 
@@ -44,7 +44,7 @@ Schublade omits three features by design:
 
 ## How the Cloudflare components fit together
 
-One Cloudflare Worker runs the entire system. It serves the TanStack Start web application, the `/api/documents/ingest` endpoint, the inbound mail handler, and `DocumentIngestionWorkflow`. The `/mcp` server and the `ArchiveCoordinator` Durable Object are planned for the same Worker.
+One Cloudflare Worker runs the entire system. It serves the TanStack Start web application, the `/api/documents/ingest` endpoint, the inbound mail handler, `DocumentIngestionWorkflow`, and the `ArchiveCoordinator` Durable Object. The `/mcp` server is planned for the same Worker.
 
 ```mermaid
 flowchart LR
@@ -56,7 +56,7 @@ flowchart LR
 	WF --> Browser["Browser Run\nHTML email to PDF"]
 	WF --> D1["D1 Database\nStructured metadata"]
 	WF --> Search["Cloudflare AI Search\nHybrid BM25 and Vectorize"]
-	WF --> Coord["ArchiveCoordinator Durable Object\nWebSocket state synchronization"]
+	WF --> Coord["ArchiveCoordinator Durable Object\nWebSocket change announcements"]
 	Coord --> UI["Desktop and Mobile Clients"]
 	MCP["External Clients\nClaude, OpenClaw, Coworkers"] --> Worker
 ```
@@ -117,22 +117,25 @@ sequenceDiagram
 	Worker->>DB: Insert document row with status "processing"
 	Worker->>WF: Start DocumentIngestionWorkflow(documentId)
 	Worker-->>Client: Return documentId
-	WF->>Coord: Broadcast status "extracting"
+	WF->>DB: Record status "extracting"
+	WF->>Coord: Announce the change
 	WF->>AI: Run env.AI_RUNTIME.toMarkdown() and read page text with PDFium
 	alt Any page lacks readable text from both
-		WF->>Coord: Broadcast status "recognizing_text"
+		WF->>DB: Record status "recognizing_text"
+		WF->>Coord: Announce the change
 		WF->>WF: Render each remaining page to an image with PDFium
 		WF->>AI: Run Moondream on each page image
 	end
-	WF->>Coord: Broadcast status "classifying"
+	WF->>DB: Record status "classifying"
+	WF->>Coord: Announce the change
 	WF->>DB: Read existing senders, categories, tags, and household members
 	WF->>AI: Run generateText() with Output.object, taxonomy, and Markdown
-	WF->>DB: Write metadata, extracted_fields, and verification flags to D1
+	WF->>DB: Write metadata, extracted_fields, verification flags, and status "archived" to D1
+	WF->>Coord: Announce the change
 	WF->>DB: Upload enriched Markdown to env.SEARCH_INDEX.items.upload()
-	WF->>Coord: Broadcast status "archived"
 ```
 
-Until Phase 5 adds `ArchiveCoordinator`, the `useDocumentStatusUpdates` hook polls the `retrieveDocumentStatuses` server function every 2 seconds instead of receiving the broadcasts. The upload tray and the archive page both read status through that hook, so Phase 5 replaces only how updates arrive.
+An announcement holds no status, so every browser reads the new status from D1. [Why one Durable Object coordinates client state](#why-one-durable-object-coordinates-client-state) explains the reason.
 
 The text extraction and classification pipeline executes in three stages:
 
@@ -152,9 +155,11 @@ Schublade accepts documents through three interfaces:
 
 ### Why one Durable Object coordinates client state
 
-D1 and Workflows manage persistence and background execution, so Schublade requires only one Durable Object class for client synchronization. That class is `ArchiveCoordinator`, which is planned for Phase 5 and uses Cloudflare's `agents` SDK.
+D1 and Workflows manage persistence and background execution, so Schublade requires only one Durable Object class for client synchronization. That class is `ArchiveCoordinator`, which uses the `Lifecycle` and `WebSockets` capabilities of Cloudflare's `agents` SDK. It stores nothing, because D1 holds every document and status.
 
-When you open Schublade on a desktop or mobile browser, the client establishes a WebSocket connection to `ArchiveCoordinator` using `useAgent`. As `DocumentIngestionWorkflow` transitions a document through `extracting`, `recognizing_text`, `classifying`, and `archived`, the workflow notifies `ArchiveCoordinator` over Durable Object RPC. `ArchiveCoordinator` then broadcasts the state transition to every connected client. Newly uploaded documents transition from a processing indicator into their final archive row without page reloads or HTTP polling.
+When you open Schublade on a desktop or mobile browser, the tab opens one WebSocket connection to `/api/archive_changes` through `AgentClient`. As `DocumentIngestionWorkflow` moves a document through `extracting`, `recognizing_text`, `classifying`, and `archived`, the workflow writes each status to D1 and then calls `ArchiveCoordinator` over Durable Object RPC. `ArchiveCoordinator` sends the fixed text `archive_changed` to every open socket, and each browser reads D1 again. A new document moves from a status badge to its final archive row without a page reload or HTTP polling.
+
+The message means only "read again", so a reordered message changes nothing. A lost message leaves a browser behind only until the next message, a reconnection, or a reload, and every reconnection counts as a change. A browser combines the messages of one second into one read, because documents uploaded together announce their steps moments apart. The archive page does not repeat a text search on a change, because each repeat would be a billed AI Search query and a new document needs minutes to reach the index. The upload tray also rechecks each unfinished document every 20 seconds, so a watched row never depends on the next message.
 
 ## One access control layer for the UI, API tokens, and MCP
 
@@ -186,7 +191,7 @@ The four permission levels define strict operational boundaries:
 
 Members issue and revoke API tokens on the **Settings** page, which requires the `administer` level. Each token is `schublade_` plus 43 random base64url characters, is shown once, and is stored in D1 only as a SHA-256 digest. D1 updates a token's last-used timestamp at most once per hour and deletes the row on revocation. Because `AuthorizationScope` pairs a permission level with category, tag, and sender filters, the same type covers API tokens today and will cover fine-grained client restrictions. OAuth grants for `/mcp` are planned for Phase 6, when you will connect Claude Code, OpenClaw, or Coworkers through `@cloudflare/workers-oauth-provider`. Each grant will either authorize full `read` access or restrict the external client to `allowedCategories: ["Invoice", "Tax Notice"]` and `deniedTags: ["medical", "private"]`. The planned authorization guard will add category and sender predicates to the AI Search filter and will add every predicate, including the tag predicates, to the D1 query that joins the search candidates. Once that guard is in place, a passage from a denied document will never reach the caller.
 
-Browsers send the Cloudflare Access session cookie with cross-site requests. The Worker entry therefore returns HTTP 403 for any request other than `GET`, `HEAD`, or `OPTIONS` whose `Origin` header names another site. Requests without an `Origin` header, such as scripts and token-authenticated callers, pass this check.
+Browsers send the Cloudflare Access session cookie with cross-site requests, and the same-origin policy does not restrict WebSocket upgrades. The Worker entry therefore returns HTTP 403 for any request other than `GET`, `HEAD`, or `OPTIONS`, and for any WebSocket upgrade, whose `Origin` header names another site. Requests without an `Origin` header, such as scripts and token-authenticated callers, pass this check.
 
 ## How a household shares one archive
 
@@ -210,12 +215,10 @@ The interface as built uses one responsive layout across desktop and phone viewp
 - **Document details.** The details read as plain text and list only filled-in values. Sender, category, person, and tag values link to the archive filtered by that value. **Edit details** opens the form for the title, document date, sender, category, person, tags, and the extracted fields that the category uses or that hold a value. **Delete document** appears only in that form and asks for confirmation. A small **Show extracted text** link sits at the very end of the details. After you delete a document on its page, the browser returns to the previous page, or to the archive when there is no previous page. The address of a deleted or unknown document shows "This document does not exist".
 - **Pending verification.** The page is an overview with one compact row per entry. **Review** opens `/verification/review`, which shows one entry at a time beside its document, with a position such as `2 of 13` and a **Skip** link. Resolving an entry moves to the next one. **Confirm new senders** opens a dialog that lists every new sender with its document count, so you can untick any that look wrong and confirm the rest at once. The dialog leaves out a sender named `Unknown`, because the classifier invents that name for unreadable documents. Deletions and merges ask for confirmation first.
 - **Upload tray.** A tray follows each browser upload through processing and stays open as you move between pages. A finished row links to its document. A failed row shows a plain reason with **Retry** and **Delete**. Email and scanner arrivals do not enter the tray, and their failures appear in **Pending verification**.
+- **Live updates.** The archive page follows new documents and status changes without a reload, in every open browser. The document page and **Pending verification** read the archive when you open them and do not follow later changes.
 - **Settings.** The **Settings** page issues an `ingest` token that it shows once, and lists and revokes tokens. Authorized MCP clients on **Settings** are planned for Phase 6.
 
-The planned Phase 5 and Phase 7 work adds realtime updates and mobile controls:
-
-- **Realtime updates in Phase 5.** `ArchiveCoordinator` will push status changes over a WebSocket and replace the 2-second polling inside `useDocumentStatusUpdates`.
-- **Installable mobile layout in Phase 7.** A Web App Manifest will let you install Schublade on a home screen. Phase 7 will also add a fixed bottom action bar on phones with search, **Pending verification**, and an **Upload document** control. That control will open the camera, photo library, or file selector.
+The planned Phase 7 work adds an installable mobile layout. A Web App Manifest will let you install Schublade on a home screen. Phase 7 will also add a fixed bottom action bar on phones with search, **Pending verification**, and an **Upload document** control. That control will open the camera, photo library, or file selector.
 
 ## Self-hosting and deployment model
 
