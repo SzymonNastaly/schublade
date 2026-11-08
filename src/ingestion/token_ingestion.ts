@@ -3,7 +3,10 @@ import { permits } from "../authorization/caller_authorization"
 import { connectDatabase } from "../database/client"
 import { receiveDocumentUploads } from "./document_upload"
 
-type TokenIngestionEnvironment = Pick<Env, "DATABASE" | "DOCUMENT_STORAGE" | "DOCUMENT_INGESTION_WORKFLOW">
+type TokenIngestionEnvironment = Pick<
+	Env,
+	"ARCHIVE_COORDINATOR" | "DATABASE" | "DOCUMENT_STORAGE" | "DOCUMENT_INGESTION_WORKFLOW"
+>
 
 /**
  * Accepts the same multipart files as the browser upload from a caller with an ingest token.

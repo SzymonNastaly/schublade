@@ -4,7 +4,10 @@ import { startDocumentIngestion } from "./document_ingestion"
 import { identifySourceFile, originalObjectKey } from "./source_file"
 import type { MailContext } from "./classification_prompt"
 
-export type UploadEnvironment = Pick<Env, "DATABASE" | "DOCUMENT_STORAGE" | "DOCUMENT_INGESTION_WORKFLOW">
+export type UploadEnvironment = Pick<
+	Env,
+	"ARCHIVE_COORDINATOR" | "DATABASE" | "DOCUMENT_STORAGE" | "DOCUMENT_INGESTION_WORKFLOW"
+>
 
 // A Worker isolate has 128 MB of memory. Text extraction holds an original three times at once,
 // in the R2 read, the Blob for Markdown conversion, and the PDFium heap, so 25 MB per file

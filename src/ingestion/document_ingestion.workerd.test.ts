@@ -1,9 +1,10 @@
 import { applyD1Migrations, env, reset } from "cloudflare:test"
 import { eq } from "drizzle-orm"
-import { expect, inject, test } from "vitest"
+import { expect, inject, test, vi } from "vitest"
 import scannedInvoice from "../../test_fixtures/documents/electricity_invoice_scanned.pdf"
 import expectedExtraction from "../../test_fixtures/documents/expected_extraction.json"
 import recording from "../../test_fixtures/inference_recordings/electricity_invoice_scanned.json"
+import { connectToArchiveChanges } from "../archive/archive_changes"
 import { queryDocumentListing } from "../archive/document_listing"
 import { connectDatabase } from "../database/client"
 import { categories, documents, extractedFields, senders, tags } from "../database/schema"
@@ -154,6 +155,26 @@ test("ingestDocument recognizes, classifies, archives, and indexes a scanned inv
 		},
 	])
 	expect(searchIndexUploads[0]?.content.endsWith(`${markdown?.trim()}\n`)).toBe(true)
+})
+
+test("a browser open during ingestion hears each status the workflow records", async () => {
+	const documentId = "2a6e4d0c-7f93-4b5a-8c14-5d3f9e0b6a32"
+	await storeScannedInvoice(documentId)
+	const { webSocket } = await connectToArchiveChanges(
+		env,
+		new Request("https://archive.test/api/archive_changes", { headers: { Upgrade: "websocket" } }),
+	)
+	webSocket?.accept()
+	let announcements = 0
+	webSocket?.addEventListener("message", () => {
+		announcements += 1
+	})
+
+	await ingestDocument(createRecordingStep().step, recordedEnvironment, documentId)
+
+	// extracting, recognizing_text, classifying, and archived
+	await vi.waitFor(() => expect(announcements).toBe(4))
+	webSocket?.close()
 })
 
 test("ingestDocument writes nothing when the document leaves classifying before the archive step", async () => {

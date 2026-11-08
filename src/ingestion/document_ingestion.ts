@@ -1,5 +1,6 @@
 import { NonRetryableError } from "cloudflare:workflows"
 import { and, asc, eq, exists, getTableColumns, inArray, sql } from "drizzle-orm"
+import { announceArchiveChange } from "../archive/archive_changes"
 import { connectDatabase } from "../database/client"
 import {
 	categories,
@@ -34,10 +35,17 @@ import type { SourceFile } from "./source_file"
 
 type IngestionEnvironment = Pick<
 	Env,
-	"DATABASE" | "DOCUMENT_STORAGE" | "AI_RUNTIME" | "AI_GATEWAY_IDENTIFIER" | "CLASSIFICATION_MODEL"
+	| "ARCHIVE_COORDINATOR"
+	| "DATABASE"
+	| "DOCUMENT_STORAGE"
+	| "AI_RUNTIME"
+	| "AI_GATEWAY_IDENTIFIER"
+	| "CLASSIFICATION_MODEL"
 > & { SEARCH_INDEX: SearchIndex }
 
-type IngestionStartEnvironment = Pick<Env, "DATABASE" | "DOCUMENT_INGESTION_WORKFLOW">
+type StatusRecordEnvironment = Pick<Env, "ARCHIVE_COORDINATOR" | "DATABASE">
+
+type IngestionStartEnvironment = StatusRecordEnvironment & Pick<Env, "DOCUMENT_INGESTION_WORKFLOW">
 
 type IngestionStep = Pick<WorkflowStep, "do">
 
@@ -72,27 +80,32 @@ export interface IngestionOutcome {
 /**
  * Moves a document along the status machine in document_lifecycle.ts. The update applies
  * only from a permitted predecessor, so a retried step that already moved the document
- * succeeds without a change, and an illegal move stops the workflow.
+ * succeeds without a change, and an illegal move stops the workflow. A retried step announces
+ * again, because its first attempt may have stopped before announcing.
  */
 async function recordDocumentStatus(
-	database: ArchiveDatabase,
+	environment: StatusRecordEnvironment,
 	documentId: string,
 	change: DocumentStatusChange,
 ): Promise<void> {
+	const database = connectDatabase(environment.DATABASE)
 	const moved = await database
 		.update(documents)
 		.set(change)
 		.where(and(eq(documents.id, documentId), inArray(documents.status, predecessorStatuses(change.status))))
 		.returning({ id: documents.id })
-	if (moved.length > 0) return
-	const [document] = await database
-		.select({ status: documents.status })
-		.from(documents)
-		.where(eq(documents.id, documentId))
-	if (document?.status === change.status) return
-	throw new NonRetryableError(
-		`Document ${documentId} cannot enter ${change.status} from ${document?.status ?? "no record"}`,
-	)
+	if (moved.length === 0) {
+		const [document] = await database
+			.select({ status: documents.status })
+			.from(documents)
+			.where(eq(documents.id, documentId))
+		if (document?.status !== change.status) {
+			throw new NonRetryableError(
+				`Document ${documentId} cannot enter ${change.status} from ${document?.status ?? "no record"}`,
+			)
+		}
+	}
+	await announceArchiveChange(environment)
 }
 
 /** Starts the workflow of a document recorded as processing. A document that cannot start is failed, so a member can retry it. */
@@ -103,7 +116,7 @@ export async function startDocumentIngestion(
 	try {
 		await environment.DOCUMENT_INGESTION_WORKFLOW.create(instance)
 	} catch (error) {
-		await recordDocumentStatus(connectDatabase(environment.DATABASE), instance.params.documentId, {
+		await recordDocumentStatus(environment, instance.params.documentId, {
 			status: "failed",
 			failureReason: "processing_error",
 		})
@@ -399,7 +412,7 @@ async function archiveIngestedDocument(
 	let failureReason: DocumentFailureReason = "processing_error"
 	try {
 		const textExtraction = await step.do("extract text", inferenceStep, async () => {
-			await recordDocumentStatus(database, documentId, { status: "extracting" })
+			await recordDocumentStatus(environment, documentId, { status: "extracting" })
 			const { sourceFile, bytes } = await readOriginal(database, environment.DOCUMENT_STORAGE, documentId)
 			return extractText(environment, sourceFile, bytes)
 		})
@@ -413,7 +426,7 @@ async function archiveIngestedDocument(
 		const recognitionPages = extraction.pages.filter((page) => page.kind === "recognition")
 		if (recognitionPages.length > 0) {
 			await step.do("record status recognizing_text", recordStep, () =>
-				recordDocumentStatus(database, documentId, { status: "recognizing_text" }),
+				recordDocumentStatus(environment, documentId, { status: "recognizing_text" }),
 			)
 			for (const { pageIndex } of recognitionPages) {
 				// Each page is its own step, so a failed page retries without repeating the others.
@@ -432,7 +445,7 @@ async function archiveIngestedDocument(
 		})
 
 		await step.do("record status classifying", recordStep, () =>
-			recordDocumentStatus(database, documentId, { status: "classifying" }),
+			recordDocumentStatus(environment, documentId, { status: "classifying" }),
 		)
 		const result = await step.do("classify document", inferenceStep, async () => {
 			const { senderRecords, categoryRecords, tagRecords, members } = await readTaxonomy(database)
@@ -451,9 +464,10 @@ async function archiveIngestedDocument(
 			)
 		})
 
-		await step.do("archive document", recordStep, () =>
-			archiveDocument(database, documentId, result.classification, extraction.pages.length),
-		)
+		await step.do("archive document", recordStep, async () => {
+			await archiveDocument(database, documentId, result.classification, extraction.pages.length)
+			await announceArchiveChange(environment)
+		})
 		return {
 			documentId,
 			recognizedPageCount: transcriptions.length,
@@ -463,7 +477,7 @@ async function archiveIngestedDocument(
 		}
 	} catch (error) {
 		await step.do("record status failed", recordStep, () =>
-			recordDocumentStatus(database, documentId, { status: "failed", failureReason }),
+			recordDocumentStatus(environment, documentId, { status: "failed", failureReason }),
 		)
 		throw error
 	}

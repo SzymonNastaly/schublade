@@ -1,13 +1,12 @@
 import { Button, Empty, LayerCard, Text } from "@cloudflare/kumo"
 import { FilesIcon, MagnifyingGlassIcon, UploadSimpleIcon } from "@phosphor-icons/react"
 import { createFileRoute, useRouter, useRouterState } from "@tanstack/react-router"
-import { useEffect, useRef } from "react"
-import { isSettledStatus } from "../ingestion/document_lifecycle"
+import { useRef } from "react"
 import { acceptedMediaTypes } from "../ingestion/source_file"
 import { ArchiveNavigation } from "../interface/archive_navigation"
 import { DocumentList } from "../interface/document_list"
 import { DocumentSearchControls } from "../interface/document_search_controls"
-import { useDocumentStatusUpdates } from "../interface/document_status_updates"
+import { useArchiveChanges } from "../interface/document_status_updates"
 import { useDocumentUploads } from "../interface/upload_tray"
 import { parseSearchParameters } from "../search/search_criteria"
 import { listArchiveFacets, retrieveDocuments } from "../utilities/server_functions"
@@ -54,13 +53,13 @@ function ArchiveOverview() {
 	const criteria = Route.useSearch()
 	const navigate = Route.useNavigate()
 	const router = useRouter()
-	const searching = useRouterState({ select: (state) => state.status === "pending" })
-	const statusUpdates = useDocumentStatusUpdates(
-		documents.filter((document) => !isSettledStatus(document.status)).map((document) => document.id),
-	)
-	useEffect(() => {
-		if (statusUpdates.length > 0) void router.invalidate()
-	}, [statusUpdates, router])
+	// A reload after an archive change keeps the address, so only a changed search shows the indicator.
+	const searching = useRouterState({ select: (state) => state.location.href !== state.resolvedLocation?.href })
+	useArchiveChanges(() => {
+		// A new document takes minutes to reach the index, so a text search would repeat a billed
+		// query for nothing. The latest location also covers a search that is still loading.
+		if (router.latestLocation.search.query === undefined) void router.invalidate()
+	})
 	const changeCriteria = (changes: Partial<SearchCriteria>) =>
 		void navigate({
 			search: (previous) =>

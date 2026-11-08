@@ -24,6 +24,7 @@ export default defineConfig({
 					cloudflareTest({
 						// Tests never reach Workers AI, Browser Run, or AI Search, which bill per request.
 						remoteBindings: false,
+						main: "./src/durable_objects/archive_coordinator.ts",
 						miniflare: {
 							compatibilityDate: "2026-11-01",
 							compatibilityFlags: ["nodejs_compat"],
@@ -33,6 +34,7 @@ export default defineConfig({
 							],
 							d1Databases: ["DATABASE"],
 							r2Buckets: ["DOCUMENT_STORAGE"],
+							durableObjects: { ARCHIVE_COORDINATOR: { className: "ArchiveCoordinator", useSQLite: true } },
 						},
 					}),
 				],

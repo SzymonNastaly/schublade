@@ -1,5 +1,6 @@
+import { ARCHIVE_CHANGES_PATH, connectToArchiveChanges } from "./archive/archive_changes"
 import { requireAccess } from "./authentication/access_verification"
-import { crossSiteWriteRejection } from "./authentication/cross_site_writes"
+import { crossSiteRequestRejection } from "./authentication/cross_site_requests"
 import { receiveTokenIngestion } from "./ingestion/token_ingestion"
 import { TOKEN_INGESTION_PATH } from "./ingestion/token_ingestion_path"
 import type { Caller } from "./authorization/caller_authorization"
@@ -8,22 +9,31 @@ type ApplicationHandler = (request: Request, caller: Caller) => Response | Promi
 
 type DispatchEnvironment = Pick<
 	Env,
-	"ACCESS_TEAM_DOMAIN" | "ACCESS_AUD" | "DATABASE" | "DOCUMENT_STORAGE" | "DOCUMENT_INGESTION_WORKFLOW"
+	| "ACCESS_TEAM_DOMAIN"
+	| "ACCESS_AUD"
+	| "ARCHIVE_COORDINATOR"
+	| "DATABASE"
+	| "DOCUMENT_STORAGE"
+	| "DOCUMENT_INGESTION_WORKFLOW"
 >
 
 /**
- * Routes every request of the Worker entry. Cross-site writes are refused first. Exactly the token
- * ingestion path authenticates a bearer token instead of an Access assertion; every other path,
- * including its subpaths, stays behind Access.
+ * Routes every request of the Worker entry. Cross-site writes and WebSocket upgrades are refused
+ * first. Exactly the token ingestion path authenticates a bearer token instead of an Access
+ * assertion; every other path, including its subpaths and the archive changes socket, stays behind Access.
  */
 export function createRequestDispatcher(serveApplication: ApplicationHandler, developmentExemption: boolean) {
-	const serveWithinAccess = requireAccess(serveApplication)
 	return (request: Request, environment: DispatchEnvironment): Response | Promise<Response> => {
-		const rejection = crossSiteWriteRejection(request)
+		const rejection = crossSiteRequestRejection(request)
 		if (rejection) return rejection
-		if (new URL(request.url).pathname === TOKEN_INGESTION_PATH) return receiveTokenIngestion(environment, request)
+		const { pathname } = new URL(request.url)
+		if (pathname === TOKEN_INGESTION_PATH) return receiveTokenIngestion(environment, request)
+		const serveMember: ApplicationHandler = (memberRequest, caller) =>
+			pathname === ARCHIVE_CHANGES_PATH
+				? connectToArchiveChanges(environment, memberRequest)
+				: serveApplication(memberRequest, caller)
 		return developmentExemption
-			? serveApplication(request, { kind: "member_session" })
-			: serveWithinAccess(request, environment)
+			? serveMember(request, { kind: "member_session" })
+			: requireAccess(serveMember)(request, environment)
 	}
 }

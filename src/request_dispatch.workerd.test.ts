@@ -112,3 +112,19 @@ test("every other path requires an Access assertion even with a valid token, and
 		{ status: 403, body: "Cross-site request refused: https://elsewhere.example" },
 	])
 })
+
+test("the archive changes socket needs an Access assertion", async () => {
+	const { environment } = await prepareArchive()
+	const upgrade = () => new Request("https://archive.test/api/archive_changes", { headers: { Upgrade: "websocket" } })
+
+	const refused = await dispatch(upgrade(), environment)
+	const admitted = await createRequestDispatcher(() => new Response("archive application"), true)(
+		upgrade(),
+		environment,
+	)
+
+	expect(await outcome(refused)).toEqual({ status: 403, body: "Access denied: assertion_missing" })
+	expect(admitted.status).toBe(101)
+	admitted.webSocket?.accept()
+	admitted.webSocket?.close()
+})

@@ -26,7 +26,7 @@ VISION.md explains the architecture and IMPLEMENTATION_PLAN.md the build order. 
 ```text
 src/
 	server.ts                              Worker entry: request dispatch with the caller as TanStack Start request context; the scheduled backfill; the email handler; the Workflow and Durable Object classes
-	request_dispatch.ts                    Cross-site write refusal, then bearer tokens for exactly /api/documents/ingest and Access for every other path
+	request_dispatch.ts                    Cross-site refusal, then bearer tokens for exactly /api/documents/ingest, Access for every other path, and the archive changes socket behind it
 	request_dispatch.workerd.test.ts
 	ambient_declarations.d.ts              Types for import.meta.env, the PDFium WebAssembly import, and PDF fixture imports
 	authorization/
@@ -37,13 +37,15 @@ src/
 		access_verification.test.ts
 		api_tokens.ts                        API token issuance, listing, revocation, and bearer authentication with hourly last-use records
 		api_tokens.workerd.test.ts
-		cross_site_writes.ts                 crossSiteWriteRejection: 403 for a write whose Origin names another site
-		cross_site_writes.test.ts
+		cross_site_requests.ts               crossSiteRequestRejection: 403 for a write or WebSocket upgrade whose Origin names another site
+		cross_site_requests.test.ts
 	database/
 		schema.ts                            The nine Drizzle tables and their drizzle-zod insert schemas
 		client.ts                            Drizzle bound to env.DATABASE, and connectDatabase for a passed binding
 		database_migrations.workerd.test.ts  Every migration applied in order to rows written under the first schema
 	archive/
+		archive_changes.ts                   The socket path, the connection to the household's coordinator, and the announcement that tells open browsers to read the archive again
+		archive_changes.workerd.test.ts
 		document_listing.ts                  The document listing query with its filters, the facet options with their archived document counts, and the status records of given documents
 		document_listing.workerd.test.ts
 		document_representation.ts           The original file, the extracted Markdown, or a first-page thumbnail rendered on first request, served with nosniff and a sandbox policy
@@ -86,6 +88,7 @@ src/
 		document_thumbnail.tsx               A small picture of the first page, or a file icon when there is none
 		document_formatting.ts               Dates, amounts, periods, and IBANs as readers expect them, in one fixed locale so server and browser render the same text
 		document_formatting.test.ts
+		page_load_failure.tsx                What a page shows when its loader failed; it recovers on the next announcement
 		archive_navigation.tsx               All documents, Pending verification with its count, and Settings
 		document_original.tsx                The original file in the document box, or the awaiting_rendering message, and the Open original link
 		pdf_page_box.tsx                     PDF.js in a box of constant size: sideways pages below md, stacked pages from md upward, only pages near the visible one drawn
@@ -95,7 +98,7 @@ src/
 		document_revision_form.tsx           The details' edit form and the confirmed document deletion
 		action_confirmation.tsx              The dialog that names what an irreversible action does before it runs
 		document_status_presentation.ts      Status badge labels and the plain sentence for each failure reason
-		document_status_updates.ts           useDocumentStatusUpdates, the only code that knows how status updates arrive
+		document_status_updates.ts           The tab's one socket, useArchiveChanges, and useDocumentStatusUpdates, the only code that knows how updates arrive
 		tracked_uploads.ts                   The union of tracked upload rows and its reducer
 		tracked_uploads.test.ts
 		upload_tray.tsx                      Upload context provider, the tray, and the Retry and Delete controls of a failed document
@@ -122,7 +125,7 @@ src/
 	workflows/
 		document_ingestion_workflow.ts       DocumentIngestionWorkflow, which passes its env to ingestDocument
 	durable_objects/
-		archive_coordinator.ts               ArchiveCoordinator stub, implemented in phase 5
+		archive_coordinator.ts               ArchiveCoordinator: holds the WebSockets of open browsers and passes one signal to them
 	inference/
 		page_rasterizer.ts                   PDFium WebAssembly: page text extraction and page rendering to PNG
 		page_rasterizer.workerd.test.ts
@@ -173,7 +176,10 @@ eslint.config.js, .prettierrc.json, knip.json, tsconfig.json
 - **One local database identifier.** Local development simulates D1 under `00000000-0000-4000-8000-000000000000`. The constant lives in `cloudflare.config.ts` and in the `database:migrate:local` script. Change both together.
 - **`cf d1` takes database UUIDs.** Names and binding names are rejected. `--local` without `--persist-to .cloudflare/state` writes to a directory the dev server never reads. Query the local database with `cf d1 raw <DATABASE_ID> --local --persist-to .cloudflare/state --sql "..."`.
 - **Import PDFium as `@embedpdf/pdfium/pdfium.wasm?module`.** Workers cannot compile WebAssembly at runtime. The `?module` suffix makes both the Vite plugin and the Vitest plugin load a compiled module. Without it, the test runner treats the file as a WebAssembly ES module and fails on its `env` imports.
-- **The workerd test project does not read `cloudflare.config.ts`.** It declares its compatibility date, flags, module rules, and any bindings in `vitest.config.ts`. Keep its compatibility date equal to the one in `cloudflare.config.ts`.
+- **The workerd test project does not read `cloudflare.config.ts`.** It declares its compatibility date, flags, module rules, and any bindings in `vitest.config.ts`. Keep its compatibility date equal to the one in `cloudflare.config.ts`. Its `main` is `archive_coordinator.ts`, so tests reach a real `ARCHIVE_COORDINATOR`.
+- **A message on the archive changes socket means only "read again".** `ArchiveCoordinator` stores nothing and sends one fixed text. A browser reads D1 after every message and every reconnection, so a reordered announcement changes nothing, and a lost one leaves a browser behind only until the next one or a reload. A tray row rechecks every 20 seconds as well. A write that other browsers should see calls `announceArchiveChange` after it commits. The upload itself does not, because the workflow's first step announces moments later. An email stored as `awaiting_rendering` has no workflow, so it appears only after the next announcement or a reload.
+- **The archive page does not repeat a text search on a change.** Its announcement listener skips `router.invalidate()` while `query` is set, because each repeat would be a billed AI Search query and a new document needs minutes to reach the index anyway.
+- **A failed background reload replaces the page.** When a loader rejects during `router.invalidate()`, TanStack Router swaps the page for its error component, even though the old data was on screen. `defaultErrorComponent` in `src/router.tsx` is `PageLoadFailure`, which reloads on the next announcement. Without it, the framework's own error screen stays until a full page load.
 - **`pnpm run deploy`, not `pnpm deploy`.** The second is a pnpm built-in.
 - **`pnpm run provision` converges.** It finds each resource by name, applies pending migrations, and inserts missing household members without changing existing ones. It deploys only while the live Worker lacks a binding value from `parameterBindingValues` or the requested custom hostname, so ship code changes with `pnpm run deploy`. It touches only the Access policies and applications named `schublade <workerName>` and `schublade <workerName>: token ingestion`, and with `--email-address` it enables Email Routing on that address's zone. Enabling rewrites the zone's MX and SPF records, so the step stops and names the apex MX records Email Routing did not create; `--replace-mail-records`, which is not saved, lets it replace them. Apart from that consent, it never deletes.
 - **knip exceptions.** knip ignores the IBM Plex packages, which the generator reads by file path, and `@types/emscripten`, which the `@embedpdf/pdfium` declarations reference. An export that a later phase will import carries a `/** @public */` tag. Remove the tag when the export gains a caller.
