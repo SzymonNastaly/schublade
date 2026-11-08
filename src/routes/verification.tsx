@@ -53,7 +53,7 @@ function PendingVerificationPage() {
 				<Empty
 					icon={<SealCheckIcon size={32} />}
 					title="Nothing awaits verification"
-					description="Every document is archived and searchable. New senders, unreadable fields, and attachments appear here."
+					description="Every document is archived and searchable. New senders, unreadable fields, attachments, and failed documents appear here."
 				/>
 			) : (
 				<>

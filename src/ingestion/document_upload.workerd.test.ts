@@ -57,7 +57,7 @@ test("receiveDocumentUploads identifies each file by its content and rejects an 
 				{
 					kind: "rejected",
 					fileName: "IMG_0001.heic",
-					reason: "The content of the file is not one of application/pdf, image/jpeg, image/png, image/webp",
+					reason: "Only PDF, JPEG, PNG, and WebP files can be archived.",
 				},
 			],
 		},
@@ -86,13 +86,18 @@ test("receiveDocumentUploads rejects an oversized file and reports a failed one 
 	)
 
 	const storedDocuments = await connectDatabase(env.DATABASE)
-		.select({ id: documents.id, mimeType: documents.mimeType, status: documents.status })
+		.select({
+			id: documents.id,
+			mimeType: documents.mimeType,
+			status: documents.status,
+			failureReason: documents.failureReason,
+		})
 		.from(documents)
 		.orderBy(documents.mimeType)
 	expect({
 		status: response.status,
 		body: await response.json(),
-		storedDocuments: storedDocuments.map(({ mimeType, status }) => ({ mimeType, status })),
+		storedDocuments: storedDocuments.map(({ id: _id, ...document }) => document),
 	}).toEqual({
 		status: 200,
 		body: {
@@ -107,8 +112,8 @@ test("receiveDocumentUploads rejects an oversized file and reports a failed one 
 			],
 		},
 		storedDocuments: [
-			{ mimeType: "image/jpeg", status: "processing" },
-			{ mimeType: "image/png", status: "failed" },
+			{ mimeType: "image/jpeg", status: "processing", failureReason: null },
+			{ mimeType: "image/png", status: "failed", failureReason: "processing_error" },
 		],
 	})
 })

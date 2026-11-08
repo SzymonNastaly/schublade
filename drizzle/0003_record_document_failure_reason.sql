@@ -1,0 +1,1 @@
+ALTER TABLE `documents` ADD `failure_reason` text;

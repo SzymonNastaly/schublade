@@ -218,3 +218,52 @@ test("listVerificationItems lists one tag on 150 documents and 121 unconfirmed r
 		},
 	})
 })
+
+test("listVerificationItems and the count include each failed document, whose missing reason reads as a processing error", async () => {
+	const database = await prepareArchive()
+	const countBeforeFailures = await countVerificationItems(database)
+	const failed = { mimeType: "image/png", byteSize: 1024, status: "failed" as const }
+	const damagedId = "6b1f3d82-7c5e-4a90-b2d4-9e8a7c6f5d31"
+	const legacyId = "d9e2c7a4-3f18-4b6d-9a05-1c7e4b8f2a63"
+	await database.insert(documents).values([
+		{
+			...failed,
+			id: damagedId,
+			storageObjectKey: `documents/${damagedId}/original.png`,
+			failureReason: "unreadable_file",
+			createdAt: createdOn(6),
+		},
+		{ ...failed, id: legacyId, storageObjectKey: `documents/${legacyId}/original.png`, createdAt: createdOn(5) },
+	])
+
+	const items = await listVerificationItems(database)
+
+	const failedDocument = (id: string) => ({
+		id,
+		status: "failed",
+		mimeType: "image/png",
+		title: null,
+		documentDate: null,
+		senderName: null,
+	})
+	expect({
+		firstEntries: items.slice(0, 2),
+		count: (await countVerificationItems(database)) - countBeforeFailures,
+	}).toEqual({
+		firstEntries: [
+			{
+				reason: "failed_ingestion",
+				createdAt: createdOn(6),
+				document: failedDocument(damagedId),
+				failureReason: "unreadable_file",
+			},
+			{
+				reason: "failed_ingestion",
+				createdAt: createdOn(5),
+				document: failedDocument(legacyId),
+				failureReason: "processing_error",
+			},
+		],
+		count: 2,
+	})
+})

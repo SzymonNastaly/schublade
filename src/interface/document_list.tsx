@@ -1,19 +1,9 @@
 import { Badge, Table, Text } from "@cloudflare/kumo"
 import { Link } from "@tanstack/react-router"
 import { formatAmount, formatDocumentDate } from "./document_formatting"
-import type { BadgeVariant } from "@cloudflare/kumo"
+import { documentStatusBadges } from "./document_status_presentation"
 import type { DocumentStatus } from "../ingestion/document_lifecycle"
 import type { RetrievedDocument } from "../search/document_search"
-
-const statusBadges: Record<DocumentStatus, { label: string; variant: BadgeVariant }> = {
-	awaiting_rendering: { label: "Email awaiting rendering", variant: "secondary" },
-	processing: { label: "Processing", variant: "secondary" },
-	extracting: { label: "Extracting", variant: "info" },
-	recognizing_text: { label: "Recognizing text", variant: "info" },
-	classifying: { label: "Classifying", variant: "info" },
-	archived: { label: "Archived", variant: "success" },
-	failed: { label: "Failed", variant: "error" },
-}
 
 function primaryAmount(document: RetrievedDocument): string {
 	const amount = document.fields.find((field) => field.fieldKey === "amount")?.value
@@ -33,7 +23,7 @@ function dateLabel(document: RetrievedDocument): string {
 
 function UnfinishedStatus({ status }: { status: DocumentStatus }) {
 	if (status === "archived") return null
-	return <Badge variant={statusBadges[status].variant}>{statusBadges[status].label}</Badge>
+	return <Badge variant={documentStatusBadges[status].variant}>{documentStatusBadges[status].label}</Badge>
 }
 
 /** A stacked row per document below the md breakpoint, and a table from md upward. Every row opens its document. */

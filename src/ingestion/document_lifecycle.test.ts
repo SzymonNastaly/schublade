@@ -13,7 +13,7 @@ test("predecessorStatuses lists the states a document may leave for the target",
 		classifying: ["extracting", "recognizing_text"],
 		archived: ["classifying"],
 		failed: ["processing", "extracting", "recognizing_text", "classifying"],
-		processing: [],
+		processing: ["failed"],
 	})
 })
 

@@ -12,7 +12,7 @@ import {
 } from "../database/schema"
 import { classifyDocument } from "../inference/document_classifier"
 import { indexDocument } from "../search/document_indexing"
-import { inspectPages, rasterizePage } from "../inference/page_rasterizer"
+import { UnopenablePdfError, inspectPages, rasterizePage } from "../inference/page_rasterizer"
 import { createMoondreamRecognizer } from "../inference/text_recognizer"
 import { findStandardCategory } from "./document_classification"
 import { assembleDocumentMarkdown, recognitionLimitViolation, selectPageTextSources } from "./document_text"
@@ -24,10 +24,11 @@ import type { WorkflowStep, WorkflowStepConfig } from "cloudflare:workers"
 import type { InferInsertModel, SQL } from "drizzle-orm"
 import type { SQLiteTable } from "drizzle-orm/sqlite-core"
 import type { ArchiveDatabase } from "../database/client"
+import type { PageInspection } from "../inference/page_rasterizer"
 import type { SearchIndex } from "../search/document_indexing"
 import type { MailContext } from "./classification_prompt"
 import type { DocumentClassification } from "./document_classification"
-import type { DocumentStatus } from "./document_lifecycle"
+import type { DocumentFailureReason, DocumentStatus } from "./document_lifecycle"
 import type { PageTranscription, TextExtraction } from "./document_text"
 import type { SourceFile } from "./source_file"
 
@@ -36,7 +37,18 @@ type IngestionEnvironment = Pick<
 	"DATABASE" | "DOCUMENT_STORAGE" | "AI_RUNTIME" | "AI_GATEWAY_IDENTIFIER" | "CLASSIFICATION_MODEL"
 > & { SEARCH_INDEX: SearchIndex }
 
+type IngestionStartEnvironment = Pick<Env, "DATABASE" | "DOCUMENT_INGESTION_WORKFLOW">
+
 type IngestionStep = Pick<WorkflowStep, "do">
+
+type DocumentStatusChange =
+	{ status: Exclude<DocumentStatus, "failed"> } | { status: "failed"; failureReason: DocumentFailureReason }
+
+// A refusal is a step result, so its reason survives the step boundary, which does not promise
+// to keep the class of a thrown error.
+type TextExtractionOutcome =
+	| { kind: "extracted"; extraction: TextExtraction }
+	| { kind: "refused"; failureReason: DocumentFailureReason; explanation: string }
 
 const RECOGNITION_DOTS_PER_INCH = 150
 
@@ -62,23 +74,59 @@ export interface IngestionOutcome {
  * only from a permitted predecessor, so a retried step that already moved the document
  * succeeds without a change, and an illegal move stops the workflow.
  */
-export async function recordDocumentStatus(
+async function recordDocumentStatus(
 	database: ArchiveDatabase,
 	documentId: string,
-	status: DocumentStatus,
+	change: DocumentStatusChange,
 ): Promise<void> {
 	const moved = await database
 		.update(documents)
-		.set({ status })
-		.where(and(eq(documents.id, documentId), inArray(documents.status, predecessorStatuses(status))))
+		.set(change)
+		.where(and(eq(documents.id, documentId), inArray(documents.status, predecessorStatuses(change.status))))
 		.returning({ id: documents.id })
 	if (moved.length > 0) return
 	const [document] = await database
 		.select({ status: documents.status })
 		.from(documents)
 		.where(eq(documents.id, documentId))
-	if (document?.status === status) return
-	throw new NonRetryableError(`Document ${documentId} cannot enter ${status} from ${document?.status ?? "no record"}`)
+	if (document?.status === change.status) return
+	throw new NonRetryableError(
+		`Document ${documentId} cannot enter ${change.status} from ${document?.status ?? "no record"}`,
+	)
+}
+
+/** Starts the workflow of a document recorded as processing. A document that cannot start is failed, so a member can retry it. */
+export async function startDocumentIngestion(
+	environment: IngestionStartEnvironment,
+	instance: { id: string; params: { documentId: string; mailContext?: MailContext } },
+): Promise<void> {
+	try {
+		await environment.DOCUMENT_INGESTION_WORKFLOW.create(instance)
+	} catch (error) {
+		await recordDocumentStatus(connectDatabase(environment.DATABASE), instance.params.documentId, {
+			status: "failed",
+			failureReason: "processing_error",
+		})
+		throw error
+	}
+}
+
+/**
+ * Sends a failed document through ingestion again. The conditional update lets only one of two
+ * concurrent retries through, so a double click cannot start two runs. The first run took the
+ * document's identifier as its instance identifier, so this one needs a new identifier.
+ */
+export async function retryDocumentIngestion(
+	environment: IngestionStartEnvironment,
+	documentId: string,
+): Promise<void> {
+	const reclaimed = await connectDatabase(environment.DATABASE)
+		.update(documents)
+		.set({ status: "processing", failureReason: null })
+		.where(and(eq(documents.id, documentId), inArray(documents.status, predecessorStatuses("processing"))))
+		.returning({ id: documents.id })
+	if (reclaimed.length === 0) throw new Error(`Document ${documentId} has not failed, so it cannot be retried`)
+	await startDocumentIngestion(environment, { id: crypto.randomUUID(), params: { documentId } })
 }
 
 async function readOriginal(
@@ -102,20 +150,27 @@ async function extractText(
 	environment: IngestionEnvironment,
 	sourceFile: SourceFile,
 	bytes: Uint8Array<ArrayBuffer>,
-): Promise<TextExtraction> {
-	if (sourceFile.kind === "image") return { convertedMarkdown: "", pages: [{ kind: "recognition", pageIndex: 0 }] }
-	const [conversion, pages] = await Promise.all([
-		environment.AI_RUNTIME.toMarkdown(
-			{ name: `original.${sourceFile.extension}`, blob: new Blob([bytes], { type: sourceFile.mediaType }) },
-			{ gateway: { id: environment.AI_GATEWAY_IDENTIFIER }, conversionOptions: { pdf: { metadata: false } } },
-		),
-		inspectPages(bytes),
-	])
+): Promise<TextExtractionOutcome> {
+	if (sourceFile.kind === "image") {
+		return { kind: "extracted", extraction: { convertedMarkdown: "", pages: [{ kind: "recognition", pageIndex: 0 }] } }
+	}
+	// PDFium runs first, so a file it cannot open is refused before the billed conversion.
+	let pages: Array<PageInspection>
+	try {
+		pages = await inspectPages(bytes)
+	} catch (error) {
+		if (!(error instanceof UnopenablePdfError)) throw error
+		return { kind: "refused", failureReason: "unreadable_file", explanation: error.message }
+	}
+	const conversion = await environment.AI_RUNTIME.toMarkdown(
+		{ name: `original.${sourceFile.extension}`, blob: new Blob([bytes], { type: sourceFile.mediaType }) },
+		{ gateway: { id: environment.AI_GATEWAY_IDENTIFIER }, conversionOptions: { pdf: { metadata: false } } },
+	)
 	if (conversion.format === "error") throw new Error(`Markdown conversion failed: ${conversion.error}`)
 	const pageTextSources = selectPageTextSources(pages, conversion.data)
 	const limitViolation = recognitionLimitViolation(pageTextSources)
-	if (limitViolation) throw new NonRetryableError(limitViolation)
-	return { convertedMarkdown: conversion.data, pages: pageTextSources }
+	if (limitViolation) return { kind: "refused", failureReason: "page_limit_exceeded", explanation: limitViolation }
+	return { kind: "extracted", extraction: { convertedMarkdown: conversion.data, pages: pageTextSources } }
 }
 
 async function recognizePage(
@@ -341,18 +396,24 @@ async function archiveIngestedDocument(
 	documentId: string,
 	mailContext: MailContext | undefined,
 ): Promise<IngestionOutcome> {
+	let failureReason: DocumentFailureReason = "processing_error"
 	try {
-		const extraction = await step.do("extract text", inferenceStep, async () => {
-			await recordDocumentStatus(database, documentId, "extracting")
+		const textExtraction = await step.do("extract text", inferenceStep, async () => {
+			await recordDocumentStatus(database, documentId, { status: "extracting" })
 			const { sourceFile, bytes } = await readOriginal(database, environment.DOCUMENT_STORAGE, documentId)
 			return extractText(environment, sourceFile, bytes)
 		})
+		if (textExtraction.kind === "refused") {
+			failureReason = textExtraction.failureReason
+			throw new Error(textExtraction.explanation)
+		}
+		const { extraction } = textExtraction
 
 		const transcriptions: Array<PageTranscription> = []
 		const recognitionPages = extraction.pages.filter((page) => page.kind === "recognition")
 		if (recognitionPages.length > 0) {
 			await step.do("record status recognizing_text", recordStep, () =>
-				recordDocumentStatus(database, documentId, "recognizing_text"),
+				recordDocumentStatus(database, documentId, { status: "recognizing_text" }),
 			)
 			for (const { pageIndex } of recognitionPages) {
 				// Each page is its own step, so a failed page retries without repeating the others.
@@ -371,7 +432,7 @@ async function archiveIngestedDocument(
 		})
 
 		await step.do("record status classifying", recordStep, () =>
-			recordDocumentStatus(database, documentId, "classifying"),
+			recordDocumentStatus(database, documentId, { status: "classifying" }),
 		)
 		const result = await step.do("classify document", inferenceStep, async () => {
 			const { senderRecords, categoryRecords, tagRecords, members } = await readTaxonomy(database)
@@ -401,7 +462,9 @@ async function archiveIngestedDocument(
 			classificationOutputTokens: result.outputTokens,
 		}
 	} catch (error) {
-		await step.do("record status failed", recordStep, () => recordDocumentStatus(database, documentId, "failed"))
+		await step.do("record status failed", recordStep, () =>
+			recordDocumentStatus(database, documentId, { status: "failed", failureReason }),
+		)
 		throw error
 	}
 }

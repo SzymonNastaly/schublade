@@ -3,7 +3,7 @@ import { categories, documentTags, documents, extractedFields, senders, tags } f
 import { illegibleRequiredFields } from "../ingestion/verification_assessment"
 import { taxonomyKindModels, taxonomyKinds } from "./taxonomy_maintenance"
 import type { ArchiveDatabase } from "../database/client"
-import type { DocumentStatus } from "../ingestion/document_lifecycle"
+import type { DocumentFailureReason, DocumentStatus } from "../ingestion/document_lifecycle"
 import type { RequiredFieldKey } from "../ingestion/verification_assessment"
 import type { TaxonomyKind } from "./taxonomy_maintenance"
 
@@ -33,9 +33,11 @@ export type VerificationItem = { createdAt: Date } & (
 			illegibleFields: Array<{ fieldKey: RequiredFieldKey; value: string | number | null }>
 	  }
 	| { reason: "non_archival_attachment"; document: VerificationDocument }
+	| { reason: "failed_ingestion"; document: VerificationDocument; failureReason: DocumentFailureReason }
 )
 
 const flaggedDocument = and(isNotNull(documents.verificationReason), eq(documents.status, "archived"))
+const failedDocument = eq(documents.status, "failed")
 
 async function readUnconfirmedRecords(database: ArchiveDatabase) {
 	const recordsByKind = await Promise.all(
@@ -98,7 +100,7 @@ async function readReferringDocuments(database: ArchiveDatabase) {
 
 /** The entries of the Pending verification view, newest first. */
 export async function listVerificationItems(database: ArchiveDatabase): Promise<Array<VerificationItem>> {
-	const [records, referringDocuments, flaggedDocuments, fieldRows] = await Promise.all([
+	const [records, referringDocuments, flaggedDocuments, failedDocuments, fieldRows] = await Promise.all([
 		readUnconfirmedRecords(database),
 		readReferringDocuments(database),
 		database
@@ -112,6 +114,15 @@ export async function listVerificationItems(database: ArchiveDatabase): Promise<
 			.leftJoin(senders, eq(documents.senderId, senders.id))
 			.leftJoin(categories, eq(documents.categoryId, categories.id))
 			.where(flaggedDocument),
+		database
+			.select({
+				...referringDocumentColumns,
+				failureReason: documents.failureReason,
+				createdAt: documents.createdAt,
+			})
+			.from(documents)
+			.leftJoin(senders, eq(documents.senderId, senders.id))
+			.where(failedDocument),
 		database
 			.select({
 				documentId: extractedFields.documentId,
@@ -148,7 +159,14 @@ export async function listVerificationItems(database: ArchiveDatabase): Promise<
 			return { reason, createdAt, document, illegibleFields }
 		},
 	)
-	return [...recordItems, ...documentItems].sort(
+	const failedItems = failedDocuments.map(({ failureReason, createdAt, ...document }): VerificationItem => ({
+		reason: "failed_ingestion",
+		createdAt,
+		document,
+		// A document that failed before failure reasons were recorded has none.
+		failureReason: failureReason ?? "processing_error",
+	}))
+	return [...recordItems, ...documentItems, ...failedItems].sort(
 		(first, second) => second.createdAt.getTime() - first.createdAt.getTime(),
 	)
 }
@@ -161,6 +179,7 @@ export async function countVerificationItems(database: ArchiveDatabase): Promise
 			return database.$count(table, isNull(table.confirmedAt))
 		}),
 		database.$count(documents, flaggedDocument),
+		database.$count(documents, failedDocument),
 	])
 	return counts.reduce((total, count) => total + count, 0)
 }

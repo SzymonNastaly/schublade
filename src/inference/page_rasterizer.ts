@@ -44,6 +44,9 @@ function loadLibrary(): Promise<PdfiumLibrary> {
 	return libraryPromise
 }
 
+/** PDFium refused the file itself, as it does for a damaged or password-protected PDF. */
+export class UnopenablePdfError extends Error {}
+
 async function withDocument<TResult>(
 	pdfBytes: Uint8Array,
 	operate: (library: PdfiumLibrary, documentHandle: number) => TResult,
@@ -55,7 +58,7 @@ async function withDocument<TResult>(
 	const documentHandle = library.FPDF_LoadMemDocument(bufferPointer, pdfBytes.length, "")
 	try {
 		if (!documentHandle) {
-			throw new Error(`PDFium could not open the document, error code ${library.FPDF_GetLastError()}`)
+			throw new UnopenablePdfError(`PDFium could not open the document, error code ${library.FPDF_GetLastError()}`)
 		}
 		return operate(library, documentHandle)
 	} finally {

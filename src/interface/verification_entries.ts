@@ -1,4 +1,5 @@
 import { normalizeTaxonomyName } from "../ingestion/taxonomy_resolution"
+import { documentFailureSentences } from "./document_status_presentation"
 import type { BadgeVariant } from "@cloudflare/kumo"
 import type { VerificationDocument, VerificationItem } from "../archive/verification_items"
 import type { RequiredFieldKey } from "../ingestion/verification_assessment"
@@ -45,6 +46,12 @@ export function summarizeVerificationEntry(item: VerificationItem): Verification
 				badge: { label: "Non-archival attachment", variant: "secondary" },
 				subject: item.document.title ?? "Untitled document",
 				note: "Looks like boilerplate",
+			}
+		case "failed_ingestion":
+			return {
+				badge: { label: "Failed", variant: "error" },
+				subject: item.document.title ?? "Untitled document",
+				note: documentFailureSentences[item.failureReason],
 			}
 	}
 }

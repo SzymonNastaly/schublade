@@ -23,8 +23,10 @@ vi.spyOn(reactStart, "createServerFn").mockImplementation((...parameters) => com
 const {
 	countPendingVerificationItems,
 	retrieveDocument,
+	retrieveDocumentStatuses,
 	retrieveVerificationItems,
 	submitDocumentDeletion,
+	submitDocumentIngestionRetry,
 	submitDocumentRevision,
 	submitTaxonomyConfirmation,
 	submitTaxonomyConfirmations,
@@ -73,7 +75,9 @@ test("each server function of Pending verification and the document page refuses
 		retrieveVerificationItems: [retrieveVerificationItems, undefined, token("read"), undefined],
 		countPendingVerificationItems: [countPendingVerificationItems, undefined, token("read"), undefined],
 		retrieveDocument: [retrieveDocument, undefined, token("read"), { documentId }],
+		retrieveDocumentStatuses: [retrieveDocumentStatuses, undefined, token("read"), { documentIds: [documentId] }],
 		submitDocumentRevision: [submitDocumentRevision, token("ingest"), token("modify"), { documentId }],
+		submitDocumentIngestionRetry: [submitDocumentIngestionRetry, token("ingest"), token("modify"), { documentId }],
 		submitTaxonomyConfirmation: [submitTaxonomyConfirmation, token("ingest"), token("modify"), record],
 		submitTaxonomyConfirmations: [
 			submitTaxonomyConfirmations,
@@ -104,9 +108,14 @@ test("each server function of Pending verification and the document page refuses
 		retrieveVerificationItems: { below: "This action requires the read permission", at: [] },
 		countPendingVerificationItems: { below: "This action requires the read permission", at: 0 },
 		retrieveDocument: { below: "This action requires the read permission", at: null },
+		retrieveDocumentStatuses: { below: "This action requires the read permission", at: [] },
 		submitDocumentRevision: {
 			below: "This action requires the modify permission",
 			at: `Document ${documentId} does not exist`,
+		},
+		submitDocumentIngestionRetry: {
+			below: "This action requires the modify permission",
+			at: `Document ${documentId} has not failed, so it cannot be retried`,
 		},
 		submitTaxonomyConfirmation: {
 			below: "This action requires the modify permission",

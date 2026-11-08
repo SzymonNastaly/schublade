@@ -1,5 +1,6 @@
 import { HeadContent, Scripts, createRootRoute } from "@tanstack/react-router"
 import applicationStylesheet from "../styles.css?url"
+import { DocumentUploadsProvider, UploadTray } from "../interface/upload_tray"
 import { countPendingVerificationItems } from "../utilities/server_functions"
 import type { ReactNode } from "react"
 
@@ -25,7 +26,10 @@ function RootDocument({ children }: { children: ReactNode }) {
 				<HeadContent />
 			</head>
 			<body className="bg-kumo-base text-kumo-default antialiased">
-				{children}
+				<DocumentUploadsProvider>
+					{children}
+					<UploadTray />
+				</DocumentUploadsProvider>
 				<Scripts />
 			</body>
 		</html>

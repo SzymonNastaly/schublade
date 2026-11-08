@@ -13,6 +13,8 @@ import {
 } from "../utilities/server_functions"
 import { ActionConfirmation, documentDeletionDescription, touchSized } from "./action_confirmation"
 import { formatDocumentDate } from "./document_formatting"
+import { documentFailureSentences } from "./document_status_presentation"
+import { FailedDocumentActions } from "./upload_tray"
 import { requiredFieldLabels, summarizeVerificationEntry } from "./verification_entries"
 import type { ArchiveFacets } from "../archive/document_listing"
 import type { TaxonomyKind } from "../archive/taxonomy_maintenance"
@@ -356,6 +358,23 @@ function NonArchivalEntry({ item }: { item: Extract<VerificationItem, { reason: 
 	)
 }
 
+function FailedIngestionEntry({ item }: { item: Extract<VerificationItem, { reason: "failed_ingestion" }> }) {
+	return (
+		<EntryCard
+			heading={
+				<>
+					<EntryBadge item={item} />
+					<DocumentLink document={item.document} />
+				</>
+			}
+			error={null}
+		>
+			<Text variant="secondary">{documentFailureSentences[item.failureReason]}</Text>
+			<FailedDocumentActions documentId={item.document.id} title={item.document.title} />
+		</EntryCard>
+	)
+}
+
 export function VerificationEntryControls({ item, facets }: { item: VerificationItem; facets: ArchiveFacets }) {
 	switch (item.reason) {
 		case "new_taxonomy_record":
@@ -364,5 +383,7 @@ export function VerificationEntryControls({ item, facets }: { item: Verification
 			return <IllegibleFieldEntry item={item} />
 		case "non_archival_attachment":
 			return <NonArchivalEntry item={item} />
+		case "failed_ingestion":
+			return <FailedIngestionEntry item={item} />
 	}
 }

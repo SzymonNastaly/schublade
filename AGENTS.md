@@ -44,7 +44,7 @@ src/
 		client.ts                            Drizzle bound to env.DATABASE, and connectDatabase for a passed binding
 		database_migrations.workerd.test.ts  Every migration applied in order to rows written under the first schema
 	archive/
-		document_listing.ts                  The document listing query with its filters, and the facet options
+		document_listing.ts                  The document listing query with its filters, the facet options, and the status records of given documents
 		document_listing.workerd.test.ts
 		document_representation.ts           The original file or the extracted Markdown, served with nosniff and a sandbox policy
 		document_representation.workerd.test.ts
@@ -62,7 +62,7 @@ src/
 		classification_prompt.ts             Classification prompt with the taxonomy, the members, the schema, and the email that delivered a document
 		taxonomy_resolution.ts               Name normalization and matching against sender, category, and tag rows
 		verification_assessment.ts           Illegible required fields and the precedence of the three verification reasons
-		document_ingestion.ts                The workflow steps and their D1 and R2 writes
+		document_ingestion.ts                The workflow steps and their D1 and R2 writes, the workflow start, and the retry of a failed document
 		document_ingestion.workerd.test.ts   Step order with recorded Workers AI responses
 		document_upload.ts                   Multipart uploads: size limits and 20 files per request, then per file identification, R2 write, row, and workflow start
 		document_upload.workerd.test.ts
@@ -91,6 +91,11 @@ src/
 		document_detail_presentation.test.ts
 		document_revision_form.tsx           The details' edit form and the confirmed document deletion
 		action_confirmation.tsx              The dialog that names what an irreversible action does before it runs
+		document_status_presentation.ts      Status badge labels and the plain sentence for each failure reason
+		document_status_updates.ts           useDocumentStatusUpdates, the only code that knows how status updates arrive
+		tracked_uploads.ts                   The union of tracked upload rows and its reducer
+		tracked_uploads.test.ts
+		upload_tray.tsx                      Upload context provider, the tray, and the Retry and Delete controls of a failed document
 		verification_entries.ts              Pure functions over the Pending verification union: entry key, list summary, new sender selection, and the review position
 		verification_entries.test.ts
 		verification_entry_controls.tsx      What one entry asks and the controls that resolve it; deletions and merges ask first; each document links to its page
@@ -99,7 +104,7 @@ src/
 		server_functions.ts                  TanStack Start server functions, each refused below its level by authorizeOperation
 		server_functions.workerd.test.ts     Each server function run through TanStack Start's server path with callers below and at its level
 	routes/
-		__root.tsx                           HTML document shell, and the Pending verification count for the navigation
+		__root.tsx                           HTML document shell, the upload provider and tray, and the Pending verification count for the navigation
 		index.tsx                            Archive page: search controls, document list, and upload control
 		settings.tsx                         Settings page: issue an ingest token shown once, list and revoke tokens
 		verification.tsx                     Pending verification overview: Review and Confirm new senders, and one compact row per entry that opens its review

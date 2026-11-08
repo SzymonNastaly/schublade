@@ -1,6 +1,5 @@
 import { Button, Empty, LayerCard, Text } from "@cloudflare/kumo"
 import { FilesIcon, MagnifyingGlassIcon, UploadSimpleIcon } from "@phosphor-icons/react"
-import { useMutation } from "@tanstack/react-query"
 import { createFileRoute, useRouter, useRouterState } from "@tanstack/react-router"
 import { useEffect, useRef } from "react"
 import { isSettledStatus } from "../ingestion/document_lifecycle"
@@ -8,9 +7,10 @@ import { acceptedMediaTypes } from "../ingestion/source_file"
 import { ArchiveNavigation } from "../interface/archive_navigation"
 import { DocumentList } from "../interface/document_list"
 import { DocumentSearchControls } from "../interface/document_search_controls"
+import { useDocumentStatusUpdates } from "../interface/document_status_updates"
+import { useDocumentUploads } from "../interface/upload_tray"
 import { parseSearchParameters } from "../search/search_criteria"
 import { listArchiveFacets, retrieveDocuments } from "../utilities/server_functions"
-import type { UploadOutcome } from "../ingestion/document_upload"
 import type { SearchCriteria } from "../search/search_criteria"
 
 export const Route = createFileRoute("/")({
@@ -24,30 +24,11 @@ export const Route = createFileRoute("/")({
 	component: ArchiveOverview,
 })
 
-const DOCUMENT_LISTING_REFRESH_MILLISECONDS = 2000
-
-async function uploadDocuments(files: Array<File>): Promise<Array<UploadOutcome>> {
-	const formData = new FormData()
-	for (const file of files) formData.append("files", file)
-	const response = await fetch("/api/documents", { method: "POST", body: formData })
-	if (!response.ok) {
-		const failure = await response.json<{ error?: string }>().catch(() => ({ error: undefined }))
-		throw new Error(failure.error ?? `The upload failed with status ${response.status}`)
-	}
-	const { outcomes } = await response.json<{ outcomes: Array<UploadOutcome> }>()
-	return outcomes
-}
-
 function UploadControl() {
-	const router = useRouter()
+	const { start } = useDocumentUploads()
 	const fileInput = useRef<HTMLInputElement>(null)
-	const upload = useMutation({
-		mutationFn: uploadDocuments,
-		onSettled: () => router.invalidate(),
-	})
-	const unarchivedOutcomes = upload.data?.filter((outcome) => outcome.kind !== "accepted") ?? []
 	return (
-		<div className="flex flex-col items-end gap-2">
+		<>
 			<input
 				ref={fileInput}
 				type="file"
@@ -58,24 +39,13 @@ function UploadControl() {
 					// Clearing the input empties its live FileList, so the files are copied first.
 					const files = [...(event.target.files ?? [])]
 					event.target.value = ""
-					if (files.length > 0) upload.mutate(files)
+					if (files.length > 0) start(files)
 				}}
 			/>
-			<Button
-				variant="primary"
-				icon={UploadSimpleIcon}
-				loading={upload.isPending}
-				onClick={() => fileInput.current?.click()}
-			>
+			<Button variant="primary" icon={UploadSimpleIcon} onClick={() => fileInput.current?.click()}>
 				Upload documents
 			</Button>
-			{upload.isError && <Text variant="error">{upload.error.message}</Text>}
-			{unarchivedOutcomes.map((outcome, index) => (
-				<Text key={index} variant="error">
-					{outcome.fileName}: {outcome.reason}
-				</Text>
-			))}
-		</div>
+		</>
 	)
 }
 
@@ -85,12 +55,12 @@ function ArchiveOverview() {
 	const navigate = Route.useNavigate()
 	const router = useRouter()
 	const searching = useRouterState({ select: (state) => state.status === "pending" })
-	const hasUnsettledDocument = documents.some((document) => !isSettledStatus(document.status))
+	const statusUpdates = useDocumentStatusUpdates(
+		documents.filter((document) => !isSettledStatus(document.status)).map((document) => document.id),
+	)
 	useEffect(() => {
-		if (!hasUnsettledDocument) return
-		const timer = setInterval(() => void router.invalidate(), DOCUMENT_LISTING_REFRESH_MILLISECONDS)
-		return () => clearInterval(timer)
-	}, [hasUnsettledDocument, router])
+		if (statusUpdates.length > 0) void router.invalidate()
+	}, [statusUpdates, router])
 	const changeCriteria = (changes: Partial<SearchCriteria>) =>
 		void navigate({
 			search: (previous) =>

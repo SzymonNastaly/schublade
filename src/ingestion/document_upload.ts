@@ -1,7 +1,7 @@
 import { connectDatabase } from "../database/client"
 import { documents } from "../database/schema"
-import { recordDocumentStatus } from "./document_ingestion"
-import { acceptedMediaTypes, identifySourceFile, originalObjectKey } from "./source_file"
+import { startDocumentIngestion } from "./document_ingestion"
+import { identifySourceFile, originalObjectKey } from "./source_file"
 import type { MailContext } from "./classification_prompt"
 
 export type UploadEnvironment = Pick<Env, "DATABASE" | "DOCUMENT_STORAGE" | "DOCUMENT_INGESTION_WORKFLOW">
@@ -52,7 +52,7 @@ export async function acceptDocumentUpload(
 		return {
 			kind: "rejected",
 			fileName: file.name,
-			reason: `The content of the file is not one of ${acceptedMediaTypes.join(", ")}`,
+			reason: "Only PDF, JPEG, PNG, and WebP files can be archived.",
 		}
 	}
 	const database = connectDatabase(environment.DATABASE)
@@ -80,15 +80,10 @@ export async function acceptDocumentUpload(
 	}
 	// A concurrent delivery of the same message recorded the document and started its workflow.
 	if (recorded.length === 0) return { kind: "accepted", fileName: file.name, documentId }
-	try {
-		await environment.DOCUMENT_INGESTION_WORKFLOW.create({
-			id: documentId,
-			params: mailContext === undefined ? { documentId } : { documentId, mailContext },
-		})
-	} catch (error) {
-		await recordDocumentStatus(database, documentId, "failed")
-		throw error
-	}
+	await startDocumentIngestion(environment, {
+		id: documentId,
+		params: mailContext === undefined ? { documentId } : { documentId, mailContext },
+	})
 	return { kind: "accepted", fileName: file.name, documentId }
 }
 

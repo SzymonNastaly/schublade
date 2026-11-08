@@ -40,6 +40,8 @@ export const succeedingModificationTime = () => sql`max(unixepoch(), updated_at 
 // store only the two reasons that belong to the document itself. See verification_assessment.ts.
 const verificationReasons = ["illegible_required_field", "non_archival_attachment"] as const
 
+const documentFailureReasons = ["unreadable_file", "page_limit_exceeded", "processing_error"] as const
+
 const extractedFieldTypes = ["text", "number", "date"] as const
 
 export const householdMembers = sqliteTable("household_members", {
@@ -107,6 +109,8 @@ export const documents = sqliteTable(
 		pageCount: integer("page_count"),
 		status: text("status", { enum: documentStatuses }).notNull().default("processing"),
 		verificationReason: text("verification_reason", { enum: verificationReasons }),
+		// Null unless the status is failed.
+		failureReason: text("failure_reason", { enum: documentFailureReasons }),
 		createdAt: creationTime(),
 		updatedAt: integer("updated_at", { mode: "timestamp" })
 			.notNull()

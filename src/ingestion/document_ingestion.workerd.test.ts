@@ -7,7 +7,7 @@ import recording from "../../test_fixtures/inference_recordings/electricity_invo
 import { queryDocumentListing } from "../archive/document_listing"
 import { connectDatabase } from "../database/client"
 import { categories, documents, extractedFields, senders, tags } from "../database/schema"
-import { ingestDocument } from "./document_ingestion"
+import { ingestDocument, retryDocumentIngestion } from "./document_ingestion"
 import { contentObjectKey } from "./source_file"
 import type { WorkflowStep } from "cloudflare:workers"
 import type { SearchIndex } from "../search/document_indexing"
@@ -57,18 +57,18 @@ function createRecordingStep(beforeStep: (name: string) => Promise<void> = () =>
 	return { stepNames, step: step as unknown as Pick<WorkflowStep, "do"> }
 }
 
-async function storeScannedInvoice(documentId: string) {
+async function storeScannedInvoice(documentId: string, original: Uint8Array | ArrayBuffer = scannedInvoice) {
 	await reset()
 	searchIndexUploads.length = 0
 	await applyD1Migrations(env.DATABASE, inject("databaseMigrations"))
 	const database = connectDatabase(env.DATABASE)
 	const storageObjectKey = `documents/${documentId}/original.pdf`
-	await env.DOCUMENT_STORAGE.put(storageObjectKey, scannedInvoice)
+	await env.DOCUMENT_STORAGE.put(storageObjectKey, original)
 	await database.insert(documents).values({
 		id: documentId,
 		storageObjectKey,
 		mimeType: "application/pdf",
-		byteSize: scannedInvoice.byteLength,
+		byteSize: original.byteLength,
 		status: "processing",
 	})
 	return database
@@ -186,4 +186,111 @@ test("ingestDocument writes nothing when the document leaves classifying before 
 		categories: [],
 		tags: [],
 	})
+})
+
+// PDFium rebuilds the missing cross-reference table, so these objects are a valid file of blank pages.
+function blankPdf(pageCount: number): Uint8Array {
+	const pageObjects = Array.from(
+		{ length: pageCount },
+		(_, index) => `${index + 3} 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] >>\nendobj\n`,
+	)
+	const kids = pageObjects.map((_, index) => `${index + 3} 0 R`).join(" ")
+	return new TextEncoder().encode(
+		`%PDF-1.4\n1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n2 0 obj\n<< /Type /Pages /Count ${pageCount} /Kids [${kids}] >>\nendobj\n${pageObjects.join("")}trailer\n<< /Root 1 0 R >>\n%%EOF\n`,
+	)
+}
+
+test("ingestDocument records why a document failed", async () => {
+	const documentId = "7d2e9b41-6c3a-4f18-b5d7-2a8c1e4f9b03"
+	const failureAfter = async (original: Uint8Array | ArrayBuffer, runtime: unknown) => {
+		const database = await storeScannedInvoice(documentId, original)
+		const { stepNames, step } = createRecordingStep()
+		const message = await ingestDocument(step, { ...recordedEnvironment, AI_RUNTIME: runtime as Ai }, documentId).catch(
+			(error: Error) => error.message,
+		)
+		const [document] = await database
+			.select({ status: documents.status, failureReason: documents.failureReason })
+			.from(documents)
+		return { ...document, message, stepNames }
+	}
+	const emptyConversion = { toMarkdown: () => Promise.resolve({ format: "markdown", data: "" }) }
+	const unavailableConversion = { toMarkdown: () => Promise.reject(new Error("The conversion service is unavailable")) }
+
+	expect({
+		longScan: await failureAfter(blankPdf(51), emptyConversion),
+		damagedFile: await failureAfter(new TextEncoder().encode("%PDF-1.7\nnot a document"), unavailableConversion),
+		serviceError: await failureAfter(scannedInvoice, unavailableConversion),
+	}).toEqual({
+		longScan: {
+			status: "failed",
+			failureReason: "page_limit_exceeded",
+			message: "The document has 51 pages without a readable text layer, and at most 50 are transcribed",
+			stepNames: ["extract text", "record status failed"],
+		},
+		damagedFile: {
+			status: "failed",
+			failureReason: "unreadable_file",
+			message: "PDFium could not open the document, error code 3",
+			stepNames: ["extract text", "record status failed"],
+		},
+		serviceError: {
+			status: "failed",
+			failureReason: "processing_error",
+			message: "The conversion service is unavailable",
+			stepNames: ["extract text", "record status failed"],
+		},
+	})
+})
+
+const failedDocumentId = "c4a81f6e-9d37-4b52-8e10-6f3b7d2a5c98"
+
+async function storeFailedDocument() {
+	const database = await storeScannedInvoice(failedDocumentId)
+	await database
+		.update(documents)
+		.set({ status: "failed", failureReason: "processing_error" })
+		.where(eq(documents.id, failedDocumentId))
+	const readDocument = () =>
+		database.select({ status: documents.status, failureReason: documents.failureReason }).from(documents)
+	return { readDocument }
+}
+
+test("retryDocumentIngestion lets one of two retries through and starts one workflow under a new identifier", async () => {
+	const { readDocument } = await storeFailedDocument()
+	const instances: Array<{ id: string; params: unknown }> = []
+	const workflow = {
+		create: (instance: { id: string; params: unknown }) => {
+			instances.push(instance)
+			return Promise.resolve()
+		},
+	}
+	const environment = { ...env, DOCUMENT_INGESTION_WORKFLOW: workflow as unknown as Workflow }
+
+	const attempts = await Promise.allSettled([
+		retryDocumentIngestion(environment, failedDocumentId),
+		retryDocumentIngestion(environment, failedDocumentId),
+	])
+
+	expect({
+		refusals: attempts.flatMap((attempt) => (attempt.status === "rejected" ? [(attempt.reason as Error).message] : [])),
+		documents: await readDocument(),
+		parameters: instances.map((instance) => instance.params),
+		instanceIdentifierIsNew: instances.every((instance) => instance.id !== failedDocumentId),
+	}).toEqual({
+		refusals: [`Document ${failedDocumentId} has not failed, so it cannot be retried`],
+		documents: [{ status: "processing", failureReason: null }],
+		parameters: [{ documentId: failedDocumentId }],
+		instanceIdentifierIsNew: true,
+	})
+})
+
+test("retryDocumentIngestion leaves the document failed when its workflow cannot start", async () => {
+	const { readDocument } = await storeFailedDocument()
+	const workflow = { create: () => Promise.reject(new Error("The Workflows service is unavailable")) }
+
+	await expect(
+		retryDocumentIngestion({ ...env, DOCUMENT_INGESTION_WORKFLOW: workflow as unknown as Workflow }, failedDocumentId),
+	).rejects.toThrow("The Workflows service is unavailable")
+
+	expect(await readDocument()).toEqual([{ status: "failed", failureReason: "processing_error" }])
 })

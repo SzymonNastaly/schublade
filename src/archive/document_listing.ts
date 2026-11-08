@@ -12,7 +12,7 @@ import { effectiveVerificationReason } from "../ingestion/verification_assessmen
 import { HOUSEHOLD_PERSON } from "../search/search_index_item"
 import type { SQL } from "drizzle-orm"
 import type { ArchiveDatabase } from "../database/client"
-import type { DocumentStatus } from "../ingestion/document_lifecycle"
+import type { DocumentFailureReason, DocumentStatus } from "../ingestion/document_lifecycle"
 import type { VerificationReason } from "../ingestion/verification_assessment"
 import type { SearchCriteria } from "../search/search_criteria"
 
@@ -173,6 +173,37 @@ export async function queryDocumentListing(
 		verificationReason: effectiveVerificationReason(storedVerificationReason, unconfirmed),
 		tagNames: tagRows.filter((tag) => tag.documentId === row.id).map((tag) => tag.name),
 		fields: fieldsByDocument.get(row.id) ?? [],
+	}))
+}
+
+export interface DocumentStatusRecord {
+	documentId: string
+	title: string | null
+	status: DocumentStatus
+	failureReason: DocumentFailureReason | null
+	needsReview: boolean
+}
+
+export async function queryDocumentStatuses(
+	database: ArchiveDatabase,
+	documentIds: Array<string>,
+): Promise<Array<DocumentStatusRecord>> {
+	const rows = await database
+		.select({
+			documentId: documents.id,
+			title: documents.title,
+			status: documents.status,
+			failureReason: documents.failureReason,
+			storedVerificationReason: documents.verificationReason,
+			refersToUnconfirmedRecord: refersToUnconfirmedRecord(database),
+		})
+		.from(documents)
+		.leftJoin(senders, eq(documents.senderId, senders.id))
+		.leftJoin(categories, eq(documents.categoryId, categories.id))
+		.where(inArray(documents.id, documentIds))
+	return rows.map(({ storedVerificationReason, refersToUnconfirmedRecord: unconfirmed, ...row }) => ({
+		...row,
+		needsReview: effectiveVerificationReason(storedVerificationReason, unconfirmed) !== null,
 	}))
 }
 

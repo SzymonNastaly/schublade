@@ -1,7 +1,7 @@
 import { createServerFn } from "@tanstack/react-start"
 import { env } from "cloudflare:workers"
 import { z } from "zod"
-import { queryArchiveFacets, queryDocumentListing } from "../archive/document_listing"
+import { queryArchiveFacets, queryDocumentListing, queryDocumentStatuses } from "../archive/document_listing"
 import { deleteDocument, documentRevisionSchema, reviseDocument } from "../archive/document_revision"
 import {
 	confirmTaxonomyRecord,
@@ -18,6 +18,8 @@ import { countVerificationItems, listVerificationItems } from "../archive/verifi
 import { apiTokenIssuanceSchema, issueApiToken, listApiTokens, revokeApiToken } from "../authentication/api_tokens"
 import { authorizeOperation } from "../authorization/caller_authorization"
 import { database } from "../database/client"
+import { retryDocumentIngestion } from "../ingestion/document_ingestion"
+import { MAXIMUM_DOCUMENTS_PER_STATUS_REQUEST } from "../ingestion/document_lifecycle"
 import { searchCriteriaSchema } from "../search/search_criteria"
 import { searchDocuments } from "../search/document_search"
 
@@ -33,6 +35,13 @@ export const retrieveDocument = createServerFn({ method: "GET" })
 	.handler(async ({ context, data }) => {
 		authorizeOperation(context, "readArchive")
 		return (await queryDocumentListing(database, { documentIds: [data.documentId] }))[0] ?? null
+	})
+
+export const retrieveDocumentStatuses = createServerFn({ method: "GET" })
+	.validator(z.strictObject({ documentIds: z.array(z.uuid()).min(1).max(MAXIMUM_DOCUMENTS_PER_STATUS_REQUEST) }))
+	.handler(({ context, data }) => {
+		authorizeOperation(context, "readArchive")
+		return queryDocumentStatuses(database, data.documentIds)
 	})
 
 export const listArchiveFacets = createServerFn({ method: "GET" }).handler(({ context }) => {
@@ -83,6 +92,13 @@ export const submitDocumentDeletion = createServerFn({ method: "POST" })
 	.handler(({ context, data }) => {
 		authorizeOperation(context, "deleteDocument")
 		return deleteDocument(archiveEnvironment(), data.documentId)
+	})
+
+export const submitDocumentIngestionRetry = createServerFn({ method: "POST" })
+	.validator(z.strictObject({ documentId: z.uuid() }))
+	.handler(({ context, data }) => {
+		authorizeOperation(context, "retryDocumentIngestion")
+		return retryDocumentIngestion(env, data.documentId)
 	})
 
 export const submitTaxonomyConfirmation = createServerFn({ method: "POST" })
