@@ -185,7 +185,7 @@ interface FacetOption {
 export interface ArchiveFacets {
 	members: Array<FacetOption>
 	senders: Array<FacetOption>
-	categories: Array<FacetOption>
+	categories: Array<FacetOption & { expectedFields: Array<string> }>
 	tags: Array<FacetOption>
 }
 
@@ -196,7 +196,10 @@ export async function queryArchiveFacets(database: ArchiveDatabase): Promise<Arc
 			.from(householdMembers)
 			.orderBy(asc(householdMembers.displayName)),
 		database.select({ id: senders.id, name: senders.name }).from(senders).orderBy(asc(senders.name)),
-		database.select({ id: categories.id, name: categories.name }).from(categories).orderBy(asc(categories.name)),
+		database
+			.select({ id: categories.id, name: categories.name, expectedFields: categories.expectedFields })
+			.from(categories)
+			.orderBy(asc(categories.name)),
 		database.select({ id: tags.id, name: tags.name }).from(tags).orderBy(asc(tags.name)),
 	])
 	return { members: memberRows, senders: senderRows, categories: categoryRows, tags: tagRows }

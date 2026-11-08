@@ -81,11 +81,15 @@ src/
 	interface/
 		document_search_controls.tsx         Search input with the / and Cmd+K shortcuts, and the facet controls
 		document_list.tsx                    Stacked rows below the md breakpoint, the document table from md upward; every row links to its document page
-		document_formatting.ts               Dates and amounts in one fixed locale, so server and browser render the same text
+		document_formatting.ts               Dates, amounts, periods, and IBANs as readers expect them, in one fixed locale so server and browser render the same text
 		document_formatting.test.ts
 		archive_navigation.tsx               All documents, Pending verification with its count, and Settings
-		document_inspection.tsx              The inspection pane: summary, the Original and Text tabs with a link that opens the file in a new tab, then the edit form
-		document_revision_form.tsx           The inspection pane's edit form and the confirmed document deletion
+		document_original.tsx                The original file in the document box, or the awaiting_rendering message, and the Open original link
+		pdf_page_box.tsx                     PDF.js in a box of constant size: sideways pages below md, stacked pages from md upward, only pages near the visible one drawn
+		document_details.tsx                 The document's details: reading or editing, the Pending verification banner, and Show extracted text
+		document_detail_presentation.ts      Extracted field labels, the rows of the reading state, and the fields the form offers
+		document_detail_presentation.test.ts
+		document_revision_form.tsx           The details' edit form and the confirmed document deletion
 		action_confirmation.tsx              The dialog that names what an irreversible action does before it runs
 	utilities/
 		server_functions.ts                  TanStack Start server functions, each refused below its level by authorizeOperation
@@ -95,7 +99,7 @@ src/
 		index.tsx                            Archive page: search controls, document list, and upload control
 		settings.tsx                         Settings page: issue an ingest token shown once, list and revoke tokens
 		verification.tsx                     Pending verification: one-action buttons per entry; deletions and merges ask first; each document links to its page
-		documents.$documentId.tsx            Document page: the inspection pane of one document; after a deletion, the previous page or the archive
+		documents.$documentId.tsx            Document page: title, summary, the original beside its details, then the navigation; after a deletion, the previous page or the archive
 		api/documents.ts                     GET searches or lists documents by the searchCriteriaSchema parameters, POST accepts multipart uploads in fields named files
 		api/documents.$documentId.$representation.ts   GET the original file or the extracted Markdown
 		api/search_index.ts                  POST indexes archived documents that AI Search lacks and reports failedDocuments; repeat while it indexes some
@@ -145,6 +149,7 @@ eslint.config.js, .prettierrc.json, knip.json, tsconfig.json
 - **Local development runs as `schublade-development`.** The remote preview of a Worker that shares a deployed name sits behind that deployment's Access application and fails without a service token. `cloudflare.config.ts` therefore names the Worker `schublade-development` in every local mode, and `pnpm evaluate:extraction` addresses the local Workflow under that name. Never provision an environment with that worker name.
 - **Local development does not run the Cron Trigger.** Every 15 minutes a deployed Worker runs the scheduled backfill, which uploads up to 100 archived documents that AI Search lacks, failed to index, or holds a stale revision of, and logs one `Scheduled search indexing:` line. To run it once on a dev server, request `http://localhost:3000/cdn-cgi/local/scheduled?format=json`. It lists and uploads into the billed development instance.
 - **Only `/api/documents/ingest` skips Access.** `request_dispatch.ts` compares the exact pathname. Access bypasses that path through the application "schublade <worker>: token ingestion", and its subpaths inherit the bypass, so the Worker keeps them behind `requireAccess`. Never widen the comparison to a prefix; `request_dispatch.workerd.test.ts` fails when you do.
+- **PDF.js stays on `pdfjs-dist` 6.5.438, legacy build.** The standard build hung while drawing in iOS Safari. Version 6 needs both `workerSrc` and `rendererSrc`, and it decodes CCITT, JBIG2, and JPX images, the usual encodings of scans, only through the WebAssembly files that `BundledDecoderFactory` in `pdf_page_box.tsx` serves. Without them those images draw blank and nothing fails.
 - **`vi.mock` fails in the workerd test project.** Vitest's module mocker calls `AsyncLocalStorage.disable()`, which workerd does not implement. Spy on a module export with `vi.spyOn` and import the module under test afterwards, as `server_functions.workerd.test.ts` does.
 - **Server functions read the caller through a cast.** The Worker entry passes `{ caller }` to `handler.fetch` as request context, and TanStack Start delivers it to server functions at run time, but types their `context` as undefined. `authorizeOperation` in `caller_authorization.ts` reads it and refuses a request without a caller.
 - **Cloudflare's results live in the block Email Routing prepends.** On the first live delivery, from Gmail to staging, Email Routing prepended Received, ARC-Seal, ARC-Message-Signature, ARC-Authentication-Results, Received-SPF, Authentication-Results, and X-CF-SpamH-Score above Gmail's own Received header. Every relay prepends, so a sender's headers always sit below that second Received header. `inbound_mail.ts` therefore requires a Received header first, takes the block up to the next Received header, and rejects a message without one. It trusts only the one Authentication-Results header from `mx.cloudflare.net` inside the block and ignores every Authentication-Results header below it. The one From mailbox must equal the envelope sender. Every delivery the handler reads logs one `Inbound mail header layout` line with the names of its first 12 headers, the position and authserv-id of each Authentication-Results and ARC-Authentication-Results header, the trusted dmarc result unless it names a mailbox, and whether the delivery was admitted. Email Routing delivers mail from domains whose DMARC policy is `none`, such as gmail.com, so the allowlist means nothing without the `dmarc=pass` check.

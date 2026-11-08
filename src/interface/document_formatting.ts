@@ -11,3 +11,18 @@ export function formatDocumentDate(isoDate: string): string {
 export function formatAmount(amount: number, currency: string | undefined): string {
 	return currency === undefined ? amountFormat.format(amount) : `${amountFormat.format(amount)} ${currency}`
 }
+
+const periodUnits = { Y: "year", M: "month", W: "week", D: "day" } as const
+
+/** An ISO 8601 period such as P3M as 3 months, or unchanged when it has any other form. */
+export function formatPeriod(period: string): string {
+	const match = /^P(?<count>\d+)(?<unit>[YMWD])$/.exec(period)
+	if (match?.groups === undefined) return period
+	const { count, unit } = match.groups as { count: string; unit: keyof typeof periodUnits }
+	return `${count} ${periodUnits[unit]}${count === "1" ? "" : "s"}`
+}
+
+/** An IBAN in groups of four characters, as it is printed on paper. */
+export function formatIban(iban: string): string {
+	return iban.replace(/\s+/g, "").replace(/(.{4})(?=.)/g, "$1 ")
+}

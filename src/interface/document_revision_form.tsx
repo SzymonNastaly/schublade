@@ -1,31 +1,14 @@
-import { Banner, Button, Input, Select, TagInput, Text } from "@cloudflare/kumo"
+import { Button, Input, Select, TagInput, Text } from "@cloudflare/kumo"
 import { FloppyDiskIcon, TrashIcon } from "@phosphor-icons/react"
 import { useMutation } from "@tanstack/react-query"
-import { Link, useRouter } from "@tanstack/react-router"
+import { useRouter } from "@tanstack/react-router"
 import { useId, useState } from "react"
 import { extractedFieldKeys, extractedFieldTypes } from "../ingestion/document_classification"
 import { submitDocumentDeletion, submitDocumentRevision } from "../utilities/server_functions"
 import { ActionConfirmation, documentDeletionDescription } from "./action_confirmation"
+import { fieldLabels, offeredFieldKeys } from "./document_detail_presentation"
 import type { ArchiveFacets, ListedDocument } from "../archive/document_listing"
 import type { ExtractedFieldKey } from "../ingestion/document_classification"
-import type { VerificationReason } from "../ingestion/verification_assessment"
-
-const fieldLabels: Record<ExtractedFieldKey, string> = {
-	amount: "Amount",
-	currency: "Currency",
-	due_date: "Due date",
-	iban: "IBAN",
-	invoice_number: "Invoice number",
-	policy_number: "Policy number",
-	renewal_date: "Renewal date",
-	cancellation_period: "Cancellation period",
-}
-
-const verificationPrompts: Record<VerificationReason, string> = {
-	new_taxonomy_record: "The classifier created a sender, category, or tag for this document.",
-	illegible_required_field: "The document date or the amount could not be read. Enter it below.",
-	non_archival_attachment: "The classifier read this file as boilerplate, such as general terms.",
-}
 
 const HOUSEHOLD_OPTION = "household"
 
@@ -108,27 +91,28 @@ interface DocumentRevisionFormProperties {
 	document: ListedDocument
 	facets: ArchiveFacets
 	onDeleted: () => void
+	/** Runs after a saved revision has reloaded, and on Cancel. */
+	onConcluded: () => void
 }
 
-/** The editable metadata and fields of the inspection pane, with any pending verification prompt. */
-export function DocumentRevisionForm({ document, facets, onDeleted }: DocumentRevisionFormProperties) {
+/** The editable metadata and fields of a document. It starts from the stored values each time it mounts. */
+export function DocumentRevisionForm({ document, facets, onDeleted, onConcluded }: DocumentRevisionFormProperties) {
 	const router = useRouter()
 	const listIdentifier = useId()
-	const [initial, setInitial] = useState(() => initialValues(document))
+	const [initial] = useState(() => initialValues(document))
 	const [values, setValues] = useState(initial)
 	const revision = useMutation({
 		mutationFn: (revised: RevisionValues) =>
 			submitDocumentRevision({ data: revisionOf(document.id, initial, revised) }),
-		onSuccess: (_result, revised) => {
-			setInitial(revised)
-			void router.invalidate()
+		onSuccess: async () => {
+			await router.invalidate()
+			onConcluded()
 		},
 	})
 	const change = (changes: Partial<RevisionValues>) => setValues({ ...values, ...changes })
 	const changeField = (fieldKey: ExtractedFieldKey, text: string) =>
 		setValues({ ...values, fields: { ...values.fields, [fieldKey]: text } })
 	const unchanged = Object.keys(revisionOf(document.id, initial, values)).length === 1
-	if (document.status !== "archived") return null
 	return (
 		<form
 			className="flex flex-col gap-4"
@@ -137,44 +121,30 @@ export function DocumentRevisionForm({ document, facets, onDeleted }: DocumentRe
 				if (!unchanged) revision.mutate(values)
 			}}
 		>
-			{document.verificationReason !== null && (
-				<Banner
-					variant="alert"
-					title="Pending verification"
-					description={
-						<span>
-							{verificationPrompts[document.verificationReason]}{" "}
-							<Link to="/verification" className="underline">
-								Open Pending verification
-							</Link>
-						</span>
-					}
-				/>
-			)}
-			<div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+			<div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
 				<Input
 					label="Title"
-					className="w-full min-w-0"
+					className="w-full min-w-0 max-md:h-11"
 					value={values.title}
 					onChange={(event) => change({ title: event.target.value })}
 				/>
 				<Input
 					label="Document date"
 					type="date"
-					className="w-full min-w-0"
+					className="w-full min-w-0 max-md:h-11"
 					value={values.documentDate}
 					onChange={(event) => change({ documentDate: event.target.value })}
 				/>
 				<Input
 					label="Sender"
-					className="w-full min-w-0"
+					className="w-full min-w-0 max-md:h-11"
 					list={`${listIdentifier}-senders`}
 					value={values.senderName}
 					onChange={(event) => change({ senderName: event.target.value })}
 				/>
 				<Input
 					label="Category"
-					className="w-full min-w-0"
+					className="w-full min-w-0 max-md:h-11"
 					list={`${listIdentifier}-categories`}
 					value={values.categoryName}
 					onChange={(event) => change({ categoryName: event.target.value })}
@@ -182,7 +152,7 @@ export function DocumentRevisionForm({ document, facets, onDeleted }: DocumentRe
 				{facets.members.length > 0 && (
 					<Select<string>
 						label="Person"
-						className="w-full"
+						className="w-full max-md:h-11"
 						value={values.person}
 						onValueChange={(person) => change({ person: person ?? HOUSEHOLD_OPTION })}
 						items={[
@@ -193,16 +163,16 @@ export function DocumentRevisionForm({ document, facets, onDeleted }: DocumentRe
 				)}
 				<TagInput
 					label="Tags"
-					className="w-full min-w-0"
+					className="w-full min-w-0 max-md:min-h-11"
 					maxValues={5}
 					value={values.tagNames}
 					onValueChange={(tagNames) => change({ tagNames })}
 				/>
-				{extractedFieldKeys.map((fieldKey) => (
+				{offeredFieldKeys(values.categoryName, facets.categories, [initial.fields, values.fields]).map((fieldKey) => (
 					<Input
 						key={fieldKey}
 						label={fieldLabels[fieldKey]}
-						className="w-full min-w-0"
+						className="w-full min-w-0 max-md:h-11"
 						type={{ number: "number", date: "date", text: "text" }[extractedFieldTypes[fieldKey]]}
 						inputMode={extractedFieldTypes[fieldKey] === "number" ? "decimal" : undefined}
 						step={extractedFieldTypes[fieldKey] === "number" ? 0.01 : undefined}
@@ -222,17 +192,22 @@ export function DocumentRevisionForm({ document, facets, onDeleted }: DocumentRe
 				))}
 			</datalist>
 			{revision.isError && <Text variant="error">{revision.error.message}</Text>}
-			<div className="flex flex-col gap-2 md:flex-row md:justify-between">
-				<Button
-					type="submit"
-					variant="primary"
-					icon={FloppyDiskIcon}
-					className="w-full max-md:h-11 md:w-auto"
-					disabled={unchanged}
-					loading={revision.isPending}
-				>
-					Save changes
-				</Button>
+			<div className="flex flex-col gap-2 md:flex-row md:flex-wrap md:justify-between">
+				<div className="flex flex-col gap-2 md:flex-row">
+					<Button
+						type="submit"
+						variant="primary"
+						icon={FloppyDiskIcon}
+						className="w-full max-md:h-11 md:w-auto"
+						disabled={unchanged}
+						loading={revision.isPending}
+					>
+						Save changes
+					</Button>
+					<Button variant="secondary" className="w-full max-md:h-11 md:w-auto" onClick={onConcluded}>
+						Cancel
+					</Button>
+				</div>
 				<DocumentDeletion document={document} onDeleted={onDeleted} />
 			</div>
 		</form>
