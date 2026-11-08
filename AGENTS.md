@@ -46,7 +46,7 @@ src/
 	archive/
 		document_listing.ts                  The document listing query with its filters, the facet options, and the status records of given documents
 		document_listing.workerd.test.ts
-		document_representation.ts           The original file or the extracted Markdown, served with nosniff and a sandbox policy
+		document_representation.ts           The original file, the extracted Markdown, or a first-page thumbnail rendered on first request, served with nosniff and a sandbox policy
 		document_representation.workerd.test.ts
 		verification_items.ts                The Pending verification entries as one union by reason, and their count
 		verification_items.workerd.test.ts
@@ -81,6 +81,7 @@ src/
 	interface/
 		document_search_controls.tsx         Search input with the / and Cmd+K shortcuts, and the facet controls
 		document_list.tsx                    Stacked rows below the md breakpoint, the document table from md upward; every row links to its document page
+		document_thumbnail.tsx               A small picture of the first page, or a file icon when there is none
 		document_formatting.ts               Dates, amounts, periods, and IBANs as readers expect them, in one fixed locale so server and browser render the same text
 		document_formatting.test.ts
 		archive_navigation.tsx               All documents, Pending verification with its count, and Settings

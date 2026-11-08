@@ -4,8 +4,14 @@ import { Link, createFileRoute } from "@tanstack/react-router"
 import { useState } from "react"
 import { touchSized } from "../interface/action_confirmation"
 import { ArchiveNavigation } from "../interface/archive_navigation"
+import { DocumentThumbnail } from "../interface/document_thumbnail"
 import { NewSenderConfirmation } from "../interface/new_sender_confirmation"
-import { selectNewSenders, summarizeVerificationEntry, verificationEntryKey } from "../interface/verification_entries"
+import {
+	reviewedDocument,
+	selectNewSenders,
+	summarizeVerificationEntry,
+	verificationEntryKey,
+} from "../interface/verification_entries"
 import { retrieveVerificationItems } from "../utilities/server_functions"
 import type { VerificationItem } from "../archive/verification_items"
 
@@ -16,16 +22,20 @@ export const Route = createFileRoute("/verification")({
 
 function EntryRow({ item }: { item: VerificationItem }) {
 	const { badge, subject, note } = summarizeVerificationEntry(item)
+	const document = reviewedDocument(item)
 	return (
 		<li>
 			<Link
 				to="/verification/review"
 				search={{ entry: verificationEntryKey(item) }}
-				className="flex min-h-11 w-full min-w-0 flex-wrap items-center gap-x-3 gap-y-1 rounded-lg px-2 py-2 hover:bg-kumo-tint active:bg-kumo-tint"
+				className="flex min-h-11 w-full min-w-0 items-center gap-3 rounded-lg px-2 py-2 hover:bg-kumo-tint active:bg-kumo-tint"
 			>
-				<Badge variant={badge.variant}>{badge.label}</Badge>
-				<span className="min-w-0 font-medium wrap-anywhere">{subject}</span>
-				<span className="text-sm text-kumo-subtle">{note}</span>
+				{document !== undefined && <DocumentThumbnail documentId={document.id} className="h-[58px] w-[42px]" />}
+				<span className="flex min-w-0 flex-1 flex-wrap items-center gap-x-3 gap-y-1">
+					<Badge variant={badge.variant}>{badge.label}</Badge>
+					<span className="min-w-0 font-medium wrap-anywhere">{subject}</span>
+					<span className="text-sm text-kumo-subtle">{note}</span>
+				</span>
 			</Link>
 		</li>
 	)

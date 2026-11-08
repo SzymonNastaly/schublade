@@ -49,3 +49,7 @@ export function originalObjectKey(documentId: string, sourceFile: SourceFile): s
 export function contentObjectKey(documentId: string): string {
 	return `${documentObjectPrefix(documentId)}content.md`
 }
+
+export function thumbnailObjectKey(documentId: string): string {
+	return `${documentObjectPrefix(documentId)}thumbnail.png`
+}

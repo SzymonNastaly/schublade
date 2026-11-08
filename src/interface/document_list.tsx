@@ -2,6 +2,7 @@ import { Badge, Table, Text } from "@cloudflare/kumo"
 import { Link } from "@tanstack/react-router"
 import { formatAmount, formatDocumentDate } from "./document_formatting"
 import { documentStatusBadges } from "./document_status_presentation"
+import { DocumentThumbnail } from "./document_thumbnail"
 import type { DocumentStatus } from "../ingestion/document_lifecycle"
 import type { RetrievedDocument } from "../search/document_search"
 
@@ -36,26 +37,29 @@ export function DocumentList({ documents }: { documents: Array<RetrievedDocument
 						<Link
 							to="/documents/$documentId"
 							params={{ documentId: document.id }}
-							className="flex w-full min-w-0 flex-col gap-1 rounded-lg px-2 py-3 text-left active:bg-kumo-tint"
+							className="flex w-full min-w-0 items-start gap-3 rounded-lg px-2 py-3 text-left active:bg-kumo-tint"
 						>
-							<span className="flex items-start justify-between gap-2">
-								<span className="min-w-0 font-medium break-words">{document.title ?? "Untitled document"}</span>
-								<UnfinishedStatus status={document.status} />
+							<DocumentThumbnail documentId={document.id} className="h-[58px] w-[42px]" />
+							<span className="flex min-w-0 flex-1 flex-col gap-1">
+								<span className="flex items-start justify-between gap-2">
+									<span className="min-w-0 font-medium break-words">{document.title ?? "Untitled document"}</span>
+									<UnfinishedStatus status={document.status} />
+								</span>
+								<span className="flex flex-wrap gap-x-3 gap-y-0.5 text-sm text-kumo-subtle">
+									{[document.senderName, dateLabel(document), personLabel(document), primaryAmount(document)]
+										.filter((detail) => detail !== null && detail !== "")
+										.map((detail, index) => (
+											<span key={index} className="min-w-0 break-words tabular-nums">
+												{detail}
+											</span>
+										))}
+								</span>
+								{document.matchingPassage !== null && (
+									<Text variant="secondary" size="sm" as="span">
+										<span className="line-clamp-3 break-words">{document.matchingPassage}</span>
+									</Text>
+								)}
 							</span>
-							<span className="flex flex-wrap gap-x-3 gap-y-0.5 text-sm text-kumo-subtle">
-								{[document.senderName, dateLabel(document), personLabel(document), primaryAmount(document)]
-									.filter((detail) => detail !== null && detail !== "")
-									.map((detail, index) => (
-										<span key={index} className="min-w-0 break-words tabular-nums">
-											{detail}
-										</span>
-									))}
-							</span>
-							{document.matchingPassage !== null && (
-								<Text variant="secondary" size="sm" as="span">
-									<span className="line-clamp-3 break-words">{document.matchingPassage}</span>
-								</Text>
-							)}
 						</Link>
 					</li>
 				))}
@@ -64,6 +68,9 @@ export function DocumentList({ documents }: { documents: Array<RetrievedDocument
 				<Table>
 					<Table.Header>
 						<Table.Row>
+							<Table.Head>
+								<span className="sr-only">Preview</span>
+							</Table.Head>
 							<Table.Head>Date</Table.Head>
 							<Table.Head>Sender</Table.Head>
 							<Table.Head>Title</Table.Head>
@@ -75,6 +82,9 @@ export function DocumentList({ documents }: { documents: Array<RetrievedDocument
 					<Table.Body>
 						{documents.map((document) => (
 							<Table.Row key={document.id} className="relative cursor-pointer hover:bg-kumo-tint">
+								<Table.Cell>
+									<DocumentThumbnail documentId={document.id} className="block h-[38px] w-[28px]" />
+								</Table.Cell>
 								<Table.Cell className="whitespace-nowrap tabular-nums">{dateLabel(document)}</Table.Cell>
 								<Table.Cell>{document.senderName}</Table.Cell>
 								<Table.Cell>
