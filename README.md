@@ -4,22 +4,6 @@ Schublade is an open-source, self-hosted document archive that runs on your own 
 
 Schublade is for a person or a household that wants paper and PDF mail archived and searchable without manual tagging. If you are comfortable with a terminal and a Cloudflare account, you can run your own archive without managing servers.
 
-## Status
-
-Phases 0, 1, 2, 3, and 4 are complete. Staging runs at `https://staging.schublade.org` behind Cloudflare Access, and its `workers.dev` hostname is off and returns HTTP 404. You can provision an environment, upload PDF, JPEG, PNG, and WebP files in the browser or through `POST /api/documents/ingest`, and forward email with attachments. In the web interface, you can issue and revoke API tokens on **Settings**, search and filter the archive, inspect and edit documents, and resolve items on **Pending verification**. You can also view any document on its own page at `/documents/<id>` and open the file in a new tab with the **Open original** link.
-
-On staging, an invoice uploaded with a bearer token archived with every expected field, and the token stopped working after revocation. A real email from an allowlisted Gmail address with a PDF attachment passed DMARC and archived. A tagged Apache FOP train ticket that `toMarkdown` left blank extracted through the PDFium fallback and classified with no Moondream call. Migrations `0001` and `0002` applied on staging, where they confirmed standard categories, cleared stored `new_taxonomy_record` reasons, and set `indexed_at` on every archived document. A household member signed in through Cloudflare Access on a phone and opened **Pending verification** on staging. The view listed 6 entries. On the 12 synthetic test documents, `pnpm evaluate:extraction` with `@cf/deepseek-ai/deepseek-v4.1-flash-1017` scored 91 of 92 expected fields in its latest runs, including 12 of 12 on the non-archival flag. `pnpm evaluate:search` passed 8 of 8 hybrid search and filter checks against those 12 documents. In local checks, merging a sender removed the old sender from the search index, and deleting a document removed its files, rows, and search item. At a 375 px width, local checks also verified the document page, its PDF preview, and the not-found page after deletion. The document page has not been checked on staging or on a phone.
-
-Live WebSocket updates in phase 5, the `/mcp` server in phase 6, and mobile installation and HTML-to-PDF email rendering in phase 7 are not built yet. A rate limit on `/api/documents/ingest` and a check of the **Pending verification** actions on staging also remain open. The current build has these limits and known issues:
-
-- The workflow fails any PDF that needs Moondream on more than 50 pages. That 50-page limit caps OCR cost at about 0.04 USD per document.
-- In PDFium text extraction, a glyph without a Unicode mapping can produce a wrong letter that the `U+FFFD` check does not catch.
-- A workflow step result over about 1 MiB of Markdown still fails the step, and the workflow does not truncate classifier input.
-- When a document has no readable text, the classifier invents a sender such as `Unknown` because the classification output schema requires a sender name. A confirmed sender record no longer appears in **Pending verification**. If you confirm the invented sender record, later unreadable documents that the classifier files under that sender do not appear there for review. Delete or merge the record instead.
-- In text search, tag and amount filters see only documents in the top 50 matching chunks, and the index backfill stops at 5,000 items.
-- A category merge reads moved documents just before its D1 batch, so an overlapping edit can be reassessed from older fields.
-- Two concurrent deletions of the same document can report an AI Search error on one call, and a rerun converges.
-
 ## What it does
 
 This section describes the full design, and items marked (planned) are not built yet. Schublade takes in your mail and scans, extracts structured metadata, and indexes every page for search:
