@@ -22,9 +22,11 @@ const compiled = <TBuilder extends object>(builder: TBuilder): TBuilder =>
 vi.spyOn(reactStart, "createServerFn").mockImplementation((...parameters) => compiled(createServerFn(...parameters)))
 const {
 	countPendingVerificationItems,
+	listAuthorizedClientRecords,
 	retrieveDocument,
 	retrieveDocumentStatuses,
 	retrieveVerificationItems,
+	revokeAuthorizedClientRecord,
 	submitDocumentDeletion,
 	submitDocumentIngestionRetry,
 	submitDocumentRevision,
@@ -94,6 +96,13 @@ test("each server function of Pending verification and the document page refuses
 		],
 		submitDocumentDeletion: [submitDocumentDeletion, token("modify"), token("administer"), { documentId }],
 		submitTaxonomyDeletion: [submitTaxonomyDeletion, token("modify"), { kind: "member_session" }, record],
+		listAuthorizedClientRecords: [listAuthorizedClientRecords, token("modify"), { kind: "member_session" }, undefined],
+		revokeAuthorizedClientRecord: [
+			revokeAuthorizedClientRecord,
+			token("modify"),
+			{ kind: "member_session" },
+			{ grantId: recordId },
+		],
 	} as const
 
 	const outcomes: Record<string, { below: unknown; at: unknown }> = {}
@@ -132,5 +141,7 @@ test("each server function of Pending verification and the document page refuses
 		},
 		submitDocumentDeletion: { below: "This action requires the administer permission", at: undefined },
 		submitTaxonomyDeletion: { below: "This action requires the administer permission", at: undefined },
+		listAuthorizedClientRecords: { below: "This action requires the administer permission", at: [] },
+		revokeAuthorizedClientRecord: { below: "This action requires the administer permission", at: undefined },
 	})
 })

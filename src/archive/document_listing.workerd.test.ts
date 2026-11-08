@@ -1,4 +1,5 @@
 import { applyD1Migrations, env, reset } from "cloudflare:test"
+import { eq } from "drizzle-orm"
 import { expect, inject, test } from "vitest"
 import { connectDatabase } from "../database/client"
 import { categories, documentTags, documents, householdMembers, senders, tags } from "../database/schema"
@@ -245,6 +246,28 @@ test("an authorization scope admits only archived documents that satisfy every l
 		combined: [taxInvoice, untaggedInvoice],
 		emptyList: [],
 	})
+})
+
+test("a scope whose denied tag no longer exists admits nothing, in the statement that reads the documents", async () => {
+	const database = await prepareScopedArchive()
+	await database.delete(tags).where(eq(tags.id, privateTag))
+
+	const listing = await queryDocumentListing(database, {
+		authorizationScope: { level: "read", deniedTags: [privateTag] },
+	})
+
+	expect(listing).toEqual([])
+})
+
+test("a scope may hold more records than D1 allows bound parameters", async () => {
+	const database = await prepareScopedArchive()
+	const manyCategories = Array.from({ length: 150 }, (_, index) => `unknown-category-${index}`)
+
+	const listing = await queryDocumentListing(database, {
+		authorizationScope: { level: "read", allowedCategories: [...manyCategories, medicalCategory] },
+	})
+
+	expect(listing.map((document) => document.id)).toEqual([medicalLetter])
 })
 
 test("queryArchiveFacets counts only what an authorization scope admits", async () => {

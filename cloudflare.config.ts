@@ -20,6 +20,7 @@ const deploymentParametersSchema = z.strictObject({
 	databaseIdentifier: z.uuid().optional(),
 	documentStorageBucketName: z.string().min(1).optional(),
 	searchInstanceName: z.string().min(1).optional(),
+	authorizationStateNamespaceIdentifier: z.string().min(1).optional(),
 	aiGatewayIdentifier: z.string().min(1).optional(),
 	workerHostname: z.hostname().optional(),
 	classificationModel: z.string().min(1).optional(),
@@ -69,6 +70,7 @@ export function resourceNamesFor(workerName: string) {
 		databaseName: `${workerName}-database`,
 		documentStorageBucketName: `${workerName}-documents`,
 		searchInstanceName: workerName,
+		authorizationStateNamespaceTitle: `${workerName}-authorization-state`,
 		aiGatewayIdentifier: workerName,
 	}
 }
@@ -102,14 +104,22 @@ function resourceBindings(mode: string | undefined) {
 				name: resourceNamesFor(LOCAL_WORKER_NAME).searchInstanceName,
 				dev: { remote: true },
 			}),
+			// @cloudflare/workers-oauth-provider reads its grants and tokens from this binding name.
+			OAUTH_KV: bindings.kv(),
 		}
 	}
-	// `cf deploy` provisions a new, empty resource for every D1 or R2 binding without an
+	// `cf deploy` provisions a new, empty resource for every D1, R2, or KV binding without an
 	// identifier and never records it, so a build without the identifiers must not start.
-	const { databaseIdentifier, documentStorageBucketName, searchInstanceName } = deployment
-	if (databaseIdentifier === undefined || documentStorageBucketName === undefined || searchInstanceName === undefined) {
+	const { databaseIdentifier, documentStorageBucketName, searchInstanceName, authorizationStateNamespaceIdentifier } =
+		deployment
+	if (
+		databaseIdentifier === undefined ||
+		documentStorageBucketName === undefined ||
+		searchInstanceName === undefined ||
+		authorizationStateNamespaceIdentifier === undefined
+	) {
 		throw new Error(
-			`${DEPLOYMENT_PARAMETERS_FILE} does not name the D1 database, the R2 bucket, and the AI Search instance. ` +
+			`${DEPLOYMENT_PARAMETERS_FILE} does not name the D1 database, the R2 bucket, the AI Search instance, and the KV namespace of the OAuth grants. ` +
 				"Run `pnpm run provision` before building or deploying.",
 		)
 	}
@@ -117,6 +127,7 @@ function resourceBindings(mode: string | undefined) {
 		DATABASE: bindings.d1({ name: resourceNames.databaseName, id: databaseIdentifier }),
 		DOCUMENT_STORAGE: bindings.r2({ name: documentStorageBucketName }),
 		SEARCH_INDEX: bindings.aiSearch({ name: searchInstanceName }),
+		OAUTH_KV: bindings.kv({ id: authorizationStateNamespaceIdentifier }),
 	}
 }
 

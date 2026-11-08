@@ -34,6 +34,7 @@ export default defineConfig({
 							],
 							d1Databases: ["DATABASE"],
 							r2Buckets: ["DOCUMENT_STORAGE"],
+							kvNamespaces: ["OAUTH_KV"],
 							durableObjects: { ARCHIVE_COORDINATOR: { className: "ArchiveCoordinator", useSQLite: true } },
 						},
 					}),

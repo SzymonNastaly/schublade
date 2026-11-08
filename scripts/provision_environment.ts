@@ -28,12 +28,14 @@ import {
 	writeDeploymentParameters,
 } from "../cloudflare.config.ts"
 import { searchIndexMetadataFields } from "../src/search/search_index_item.ts"
+import { MODEL_CONTEXT_PROTOCOL_PATH } from "../src/model_context_protocol/authorization_server_paths.ts"
 import {
 	ACCESS_SESSION_DURATION,
 	accessApplicationBody,
 	accessProtectedHostnames,
 	bypassPolicyBody,
 	mailRecordsBlockingEmailRouting,
+	modelContextProtocolDestinations,
 	routesAddressToWorker,
 	tokenIngestionDestination,
 	zoneNameCandidates,
@@ -253,6 +255,16 @@ async function ensureBucket(bucketName: string): Promise<StepReport> {
 	}
 	await runCloudflare(["r2", "buckets", "create-by-name", bucketName])
 	return { outcome: "created" }
+}
+
+const keyValueNamespaceSchema = z.object({ id: z.string(), title: z.string() })
+
+async function ensureKeyValueNamespace(title: string): Promise<StepReport & { namespaceIdentifier: string }> {
+	const namespaces = await listCloudflareResources(keyValueNamespaceSchema, ["kv", "namespaces", "list"])
+	const existing = namespaces.find((namespace) => namespace.title === title)
+	if (existing) return { outcome: "already present", namespaceIdentifier: existing.id }
+	const created = await queryCloudflare(keyValueNamespaceSchema, ["kv", "namespaces", "create", "--title", title])
+	return { outcome: "created", namespaceIdentifier: created.id }
 }
 
 async function ensureGateway(gatewayIdentifier: string): Promise<StepReport> {
@@ -729,11 +741,17 @@ async function main(): Promise<void> {
 		`Inspect the instance with \`pnpm exec cf ai-search get ${names.searchInstanceName}\`, ${RERUN}.`,
 		() => ensureSearchInstance(names.searchInstanceName, names.aiGatewayIdentifier),
 	)
+	const { namespaceIdentifier: authorizationStateNamespaceIdentifier } = await performStep(
+		`KV namespace ${names.authorizationStateNamespaceTitle}`,
+		`Confirm that \`pnpm exec cf kv namespaces list\` succeeds, ${RERUN}.`,
+		() => ensureKeyValueNamespace(names.authorizationStateNamespaceTitle),
+	)
 	parameters = {
 		...parameters,
 		databaseIdentifier,
 		documentStorageBucketName: names.documentStorageBucketName,
 		searchInstanceName: names.searchInstanceName,
+		authorizationStateNamespaceIdentifier,
 		aiGatewayIdentifier: names.aiGatewayIdentifier,
 	}
 	writeDeploymentParameters(parameters)
@@ -812,6 +830,22 @@ async function main(): Promise<void> {
 		() =>
 			ensureAccessApplication(tokenIngestionName, [tokenIngestionDestination(primaryHostname)], bypassPolicyIdentifier),
 	)
+	const modelContextProtocolName = `schublade ${workerName}: model context protocol`
+	const { policyIdentifier: modelContextProtocolPolicyIdentifier } = await performStep(
+		`Access policy "${modelContextProtocolName}"`,
+		`Inspect the policy under Zero Trust, Access, Policies, ${RERUN}.`,
+		() => ensureBypassPolicy(modelContextProtocolName),
+	)
+	await performStep(
+		`Access application "${modelContextProtocolName}"`,
+		`Inspect the application under Zero Trust, Access, Applications, ${RERUN}.`,
+		() =>
+			ensureAccessApplication(
+				modelContextProtocolName,
+				modelContextProtocolDestinations(primaryHostname),
+				modelContextProtocolPolicyIdentifier,
+			),
+	)
 
 	const emailZone =
 		ingestionEmailAddress === undefined
@@ -854,6 +888,7 @@ async function main(): Promise<void> {
 	console.log(
 		`Scanners and Shortcuts upload to https://${tokenIngestionDestination(primaryHostname)} with an API token.`,
 	)
+	console.log(`MCP clients connect to https://${primaryHostname}${MODEL_CONTEXT_PROTOCOL_PATH}.`)
 	if (ingestionEmailAddress !== undefined) {
 		console.log(`Mail from ${accessEmails.join(" or ")} to ${ingestionEmailAddress} is archived.`)
 	}

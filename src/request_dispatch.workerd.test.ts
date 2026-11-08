@@ -1,4 +1,4 @@
-import { applyD1Migrations, env, reset } from "cloudflare:test"
+import { applyD1Migrations, createExecutionContext, env, reset } from "cloudflare:test"
 import { eq } from "drizzle-orm"
 import { expect, inject, test } from "vitest"
 import scannedInvoice from "../test_fixtures/documents/electricity_invoice_scanned.pdf"
@@ -7,7 +7,10 @@ import { connectDatabase } from "./database/client"
 import { apiTokens, documents } from "./database/schema"
 import { createRequestDispatcher } from "./request_dispatch"
 
-const dispatch = createRequestDispatcher(() => new Response("archive application"), false)
+const context = createExecutionContext()
+const dispatchWithAccess = createRequestDispatcher(() => new Response("archive application"), false)
+const dispatch = (request: Request, environment: Parameters<typeof dispatchWithAccess>[1]) =>
+	dispatchWithAccess(request, environment, context)
 
 async function prepareArchive() {
 	await reset()
@@ -98,6 +101,11 @@ test("every other path requires an Access assertion even with a valid token, and
 		await dispatch(uploadRequest("/api/documents/ingest/", bearer), environment),
 		await dispatch(uploadRequest("/api/documents/ingestion", bearer), environment),
 		await dispatch(new Request("https://archive.test/settings", { headers: bearer }), environment),
+		await dispatch(new Request("https://archive.test/authorize", { headers: bearer }), environment),
+		await dispatch(uploadRequest("/mcp/", bearer), environment),
+		await dispatch(uploadRequest("/mcp/tools", bearer), environment),
+		await dispatch(uploadRequest("/oauth/token/refresh", bearer), environment),
+		await dispatch(new Request("https://archive.test/.well-known/oauth-protected-resource"), environment),
 		await dispatch(
 			uploadRequest("/api/documents/ingest", { ...bearer, Origin: "https://elsewhere.example" }),
 			environment,
@@ -105,10 +113,7 @@ test("every other path requires an Access assertion even with a valid token, and
 	]
 
 	expect(await Promise.all(responses.map(outcome))).toEqual([
-		{ status: 403, body: "Access denied: assertion_missing" },
-		{ status: 403, body: "Access denied: assertion_missing" },
-		{ status: 403, body: "Access denied: assertion_missing" },
-		{ status: 403, body: "Access denied: assertion_missing" },
+		...Array.from({ length: 9 }, () => ({ status: 403, body: "Access denied: assertion_missing" })),
 		{ status: 403, body: "Cross-site request refused: https://elsewhere.example" },
 	])
 })
@@ -121,6 +126,7 @@ test("the archive changes socket needs an Access assertion", async () => {
 	const admitted = await createRequestDispatcher(() => new Response("archive application"), true)(
 		upgrade(),
 		environment,
+		context,
 	)
 
 	expect(await outcome(refused)).toEqual({ status: 403, body: "Access denied: assertion_missing" })

@@ -25,7 +25,7 @@ import {
 } from "../database/schema"
 import { effectiveVerificationReason } from "../ingestion/verification_assessment"
 import { HOUSEHOLD_PERSON } from "../search/search_index_item"
-import type { SQL } from "drizzle-orm"
+import type { Column, SQL } from "drizzle-orm"
 import type { AuthorizationScope } from "../authorization/caller_authorization"
 import type { ArchiveDatabase } from "../database/client"
 import type { DocumentFailureReason, DocumentStatus } from "../ingestion/document_lifecycle"
@@ -65,6 +65,21 @@ export type ListingCriteria = Omit<SearchCriteria, "query"> & {
 	authorizationScope?: AuthorizationScope
 }
 
+/** One bound parameter however long the list is, because D1 allows 100 per query. */
+function isListed(column: Column, identifiers: Array<string>): SQL {
+	return sql`${column} IN (SELECT value FROM json_each(${JSON.stringify(identifiers)}))`
+}
+
+/**
+ * A merge deletes the tag it folds away and moves that tag's links to another tag in one batch.
+ * Asking in the statement that reads the documents means no merge can slip in between and end the
+ * denial without anyone deciding that, so such a scope admits nothing.
+ */
+function everyTagExists(tagIds: Array<string>): SQL {
+	const distinctTagIds = [...new Set(tagIds)]
+	return sql`(SELECT count(*) FROM ${tags} WHERE ${isListed(tags.id, distinctTagIds)}) = ${distinctTagIds.length}`
+}
+
 /**
  * The documents a scope admits. Only archived documents qualify, because a document in ingestion
  * holds its extracted text before classification assigns the category, sender, and tags that a
@@ -79,13 +94,15 @@ function authorizationScopeConditions(
 		database
 			.select({ documentId: documentTags.documentId })
 			.from(documentTags)
-			.where(and(eq(documentTags.documentId, documents.id), inArray(documentTags.tagId, tagIds)))
+			.where(and(eq(documentTags.documentId, documents.id), isListed(documentTags.tagId, tagIds)))
 	return [
 		eq(documents.status, "archived"),
-		scope.allowedCategories === undefined ? undefined : inArray(documents.categoryId, scope.allowedCategories),
-		scope.allowedSenders === undefined ? undefined : inArray(documents.senderId, scope.allowedSenders),
+		scope.allowedCategories === undefined ? undefined : isListed(documents.categoryId, scope.allowedCategories),
+		scope.allowedSenders === undefined ? undefined : isListed(documents.senderId, scope.allowedSenders),
 		scope.allowedTags === undefined ? undefined : exists(linksToTags(scope.allowedTags)),
-		scope.deniedTags === undefined ? undefined : notExists(linksToTags(scope.deniedTags)),
+		scope.deniedTags === undefined
+			? undefined
+			: and(everyTagExists(scope.deniedTags), notExists(linksToTags(scope.deniedTags))),
 	]
 }
 

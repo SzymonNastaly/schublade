@@ -20,6 +20,7 @@ import { authorizeOperation } from "../authorization/caller_authorization"
 import { database } from "../database/client"
 import { retryDocumentIngestion } from "../ingestion/document_ingestion"
 import { MAXIMUM_DOCUMENTS_PER_STATUS_REQUEST } from "../ingestion/document_lifecycle"
+import { listAuthorizedClients, revokeAuthorizedClient } from "../model_context_protocol/authorization_grants"
 import { searchCriteriaSchema } from "../search/search_criteria"
 import { searchDocuments } from "../search/document_search"
 
@@ -66,6 +67,18 @@ export const revokeApiTokenRecord = createServerFn({ method: "POST" })
 	.handler(({ context, data }) => {
 		authorizeOperation(context, "administerApiTokens")
 		return revokeApiToken(database, data.tokenId)
+	})
+
+export const listAuthorizedClientRecords = createServerFn({ method: "GET" }).handler(({ context }) => {
+	authorizeOperation(context, "administerAuthorizationGrants")
+	return listAuthorizedClients(database)
+})
+
+export const revokeAuthorizedClientRecord = createServerFn({ method: "POST" })
+	.validator(z.strictObject({ grantId: z.uuid() }))
+	.handler(({ context, data }) => {
+		authorizeOperation(context, "administerAuthorizationGrants")
+		return revokeAuthorizedClient(database, data.grantId)
 	})
 
 export const retrieveVerificationItems = createServerFn({ method: "GET" }).handler(({ context }) => {

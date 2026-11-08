@@ -24,7 +24,7 @@ const dispatchRequest = createRequestDispatcher(
 )
 
 export default {
-	fetch: (request, environment) => dispatchRequest(request, environment),
+	fetch: (request, environment, context) => dispatchRequest(request, environment, context),
 	// Only the Cron Trigger in cloudflare.config.ts invokes this handler. No request reaches it,
 	// so no Access assertion applies.
 	scheduled: (_controller, environment) => indexMissingDocumentsOnSchedule(environment),

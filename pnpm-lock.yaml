@@ -11,9 +11,15 @@ importers:
       '@cloudflare/kumo':
         specifier: ^2.17.0
         version: 2.17.0(@date-fns/tz@1.5.0)(@phosphor-icons/react@2.1.10(react-dom@19.3.1(react@19.3.1))(react@19.3.1))(@types/react@19.3.0)(date-fns@4.4.0)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)(zod@4.6.7)
+      '@cloudflare/workers-oauth-provider':
+        specifier: 1.2.4
+        version: 1.2.4
       '@embedpdf/pdfium':
         specifier: ^2.15.1
         version: 2.15.1
+      '@modelcontextprotocol/server':
+        specifier: 2.4.0
+        version: 2.4.0
       '@phosphor-icons/react':
         specifier: ^2.1.10
         version: 2.1.10(react-dom@19.3.1(react@19.3.1))(react@19.3.1)
@@ -31,7 +37,7 @@ importers:
         version: 1.169.4(esbuild@0.28.2)(react-dom@19.3.1(react@19.3.1))(react@19.3.1)(rolldown@1.2.16)(vite@8.3.6(@types/node@24.19.2)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.15)(yaml@2.9.1))
       agents:
         specifier: 0.33.0
-        version: 0.33.0(@ai-sdk/provider@4.0.36)(@babel/core@7.29.13)(@babel/runtime@8.1.0)(@modelcontextprotocol/client@2.4.0)(ai@7.0.163(zod@4.6.7))(react@19.3.1)(rolldown@1.2.16)(vite@8.3.6(@types/node@24.19.2)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.15)(yaml@2.9.1))(zod@4.6.7)
+        version: 0.33.0(@ai-sdk/provider@4.0.36)(@babel/core@7.29.13)(@babel/runtime@8.1.0)(@modelcontextprotocol/client@2.4.0)(@modelcontextprotocol/server@2.4.0)(ai@7.0.163(zod@4.6.7))(react@19.3.1)(rolldown@1.2.16)(vite@8.3.6(@types/node@24.19.2)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.15)(yaml@2.9.1))(zod@4.6.7)
       ai:
         specifier: ^7.0.163
         version: 7.0.163(zod@4.6.7)
@@ -434,6 +440,9 @@ packages:
     engines: {node: '>=16'}
     cpu: [x64]
     os: [win32]
+
+  '@cloudflare/workers-oauth-provider@1.2.4':
+    resolution: {integrity: sha512-ayo6Z8DBHdAxwDpplFU8BrEoxoSn6wNo+E7ypTENRHUOc8R89A8/+nZ+a8pMZjjXzF0JXfpYXhw/7qqG+DC18Q==}
 
   '@cspotcode/source-map-support@0.8.1':
     resolution: {integrity: sha512-IchNf6dN4tHoMFIn/7OE8LWZ19Y6q/67Bmf6vnGREv8RSbBVb9LPJxEcnwrcwX6ixSvaiGoomAUvu4YSxXrVgw==}
@@ -1182,6 +1191,10 @@ packages:
 
   '@modelcontextprotocol/core@2.4.0':
     resolution: {integrity: sha512-z8QBKqdfXLPzkLQuG4xp8hrVEMm1PZ1IgxMN2sMbJiFiAKOWXnAzogXn2W4aqIBlP1ea6U5yiqVquvUNM1Cj6Q==}
+    engines: {node: '>=20'}
+
+  '@modelcontextprotocol/server@2.4.0':
+    resolution: {integrity: sha512-rgR9yxSaAJ+bcsi/XroT/S2AfPiIWloXAnrdfYSCms9ivVju0ishu/wW0J21Ho6+ZOR1r7RyeRbjiRuF87ix5Q==}
     engines: {node: '>=20'}
 
   '@napi-rs/canvas-android-arm64@1.1.0':
@@ -4064,6 +4077,8 @@ snapshots:
   '@cloudflare/workerd-windows-64@1.20261104.1':
     optional: true
 
+  '@cloudflare/workers-oauth-provider@1.2.4': {}
+
   '@cspotcode/source-map-support@0.8.1':
     dependencies:
       '@jridgewell/trace-mapping': 0.3.9
@@ -4563,6 +4578,11 @@ snapshots:
 
   '@modelcontextprotocol/core@2.4.0':
     dependencies:
+      zod: 4.6.7
+
+  '@modelcontextprotocol/server@2.4.0':
+    dependencies:
+      '@modelcontextprotocol/core': 2.4.0
       zod: 4.6.7
 
   '@napi-rs/canvas-android-arm64@1.1.0':
@@ -5432,7 +5452,7 @@ snapshots:
 
   acorn@8.19.0: {}
 
-  agents@0.33.0(@ai-sdk/provider@4.0.36)(@babel/core@7.29.13)(@babel/runtime@8.1.0)(@modelcontextprotocol/client@2.4.0)(ai@7.0.163(zod@4.6.7))(react@19.3.1)(rolldown@1.2.16)(vite@8.3.6(@types/node@24.19.2)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.15)(yaml@2.9.1))(zod@4.6.7):
+  agents@0.33.0(@ai-sdk/provider@4.0.36)(@babel/core@7.29.13)(@babel/runtime@8.1.0)(@modelcontextprotocol/client@2.4.0)(@modelcontextprotocol/server@2.4.0)(ai@7.0.163(zod@4.6.7))(react@19.3.1)(rolldown@1.2.16)(vite@8.3.6(@types/node@24.19.2)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.15)(yaml@2.9.1))(zod@4.6.7):
     dependencies:
       '@babel/plugin-proposal-decorators': 8.0.2(@babel/core@7.29.13)
       '@cfworker/json-schema': 4.1.6
@@ -5449,6 +5469,7 @@ snapshots:
       zod: 4.6.7
     optionalDependencies:
       '@ai-sdk/provider': 4.0.36
+      '@modelcontextprotocol/server': 2.4.0
       ai: 7.0.163(zod@4.6.7)
       react: 19.3.1
       vite: 8.3.6(@types/node@24.19.2)(esbuild@0.28.2)(jiti@2.7.0)(tsx@4.23.15)(yaml@2.9.1)

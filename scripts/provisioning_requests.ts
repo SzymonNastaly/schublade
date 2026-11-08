@@ -4,6 +4,7 @@
  */
 
 import { TOKEN_INGESTION_PATH } from "../src/ingestion/token_ingestion_path.ts"
+import { ACCESS_BYPASS_DESTINATIONS } from "../src/model_context_protocol/authorization_server_paths.ts"
 
 export const ACCESS_SESSION_DURATION = "720h"
 
@@ -38,13 +39,17 @@ export function accessApplicationBody(name: string, destinationUris: Array<strin
 	}
 }
 
-/** Bypass lets requests to the ingestion path reach the Worker, which checks their bearer tokens. */
+/** Bypass lets requests to these paths reach the Worker, which checks their bearer tokens. */
 export function bypassPolicyBody(name: string) {
 	return { name, decision: "bypass", include: [{ everyone: {} }] }
 }
 
 export function tokenIngestionDestination(hostname: string): string {
 	return `${hostname}${TOKEN_INGESTION_PATH}`
+}
+
+export function modelContextProtocolDestinations(hostname: string): Array<string> {
+	return ACCESS_BYPASS_DESTINATIONS.map((path) => `${hostname}${path}`)
 }
 
 interface EmailRoutingRule {

@@ -2,6 +2,7 @@ import { expect, test } from "vitest"
 import {
 	accessProtectedHostnames,
 	mailRecordsBlockingEmailRouting,
+	modelContextProtocolDestinations,
 	routesAddressToWorker,
 	zoneNameCandidates,
 } from "./provisioning_requests"
@@ -83,4 +84,13 @@ test("mailRecordsBlockingEmailRouting names the apex MX records Email Routing di
 		withPermission: [],
 		onlyEmailRouting: [],
 	})
+})
+
+test("modelContextProtocolDestinations lists every path a client reaches without an Access session, and not the consent page", () => {
+	expect(modelContextProtocolDestinations("staging.example.org")).toEqual([
+		"staging.example.org/mcp",
+		"staging.example.org/oauth/token",
+		"staging.example.org/oauth/register",
+		"staging.example.org/.well-known/oauth-*",
+	])
 })
