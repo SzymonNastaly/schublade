@@ -4,6 +4,7 @@ import { useMutation } from "@tanstack/react-query"
 import { createFileRoute, useRouter } from "@tanstack/react-router"
 import { useState } from "react"
 import { ArchiveNavigation } from "../interface/archive_navigation"
+import { formatTimestamp } from "../interface/document_formatting"
 import { issueApiTokenRecord, listApiTokenRecords, revokeApiTokenRecord } from "../utilities/server_functions"
 import type { ApiTokenListing } from "../authentication/api_tokens"
 
@@ -20,7 +21,7 @@ const levelLabels: Record<ApiTokenListing["level"], string> = {
 }
 
 function formatTime(time: Date | null): string {
-	return time === null ? "Never" : time.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })
+	return time === null ? "Never" : formatTimestamp(time)
 }
 
 function TokenIssuance() {

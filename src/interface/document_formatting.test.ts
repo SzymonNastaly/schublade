@@ -1,5 +1,5 @@
 import { expect, test } from "vitest"
-import { formatAmount, formatDocumentDate, formatIban, formatPeriod } from "./document_formatting"
+import { formatAmount, formatDocumentDate, formatIban, formatPeriod, formatTimestamp } from "./document_formatting"
 
 test("a calendar date keeps its day in every time zone", () => {
 	expect(formatDocumentDate("2026-10-05")).toBe("5 Oct 2026")
@@ -22,4 +22,8 @@ test("an ISO 8601 period reads as words", () => {
 
 test("an IBAN is grouped in fours", () => {
 	expect(formatIban("DE65960512400220417090")).toBe("DE65 9605 1240 0220 4170 90")
+})
+
+test("formatTimestamp names one time zone, so the server and the browser render the same text", () => {
+	expect(formatTimestamp(new Date("2026-11-08T12:56:30Z"))).toBe("8 Nov 2026, 12:56 UTC")
 })
