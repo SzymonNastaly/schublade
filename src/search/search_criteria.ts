@@ -41,10 +41,13 @@ export function parseSearchParameters(parameters: Record<string, unknown>): Sear
 
 /**
  * Reads a URL search string. Each value is text, whereas the router default parses each value
- * as JSON and turns a query such as 1.50 or 1e3 into a number.
+ * as JSON and turns a query such as 1.50 or 1e3 into a number. The router keeps only what this
+ * returns, so the entry that the Pending verification review opens passes through as well.
  */
-export function parseSearchString(searchString: string): SearchCriteria {
-	return parseSearchParameters(Object.fromEntries(new URLSearchParams(searchString)))
+export function parseSearchString(searchString: string): SearchCriteria & { entry?: string } {
+	const parameters = Object.fromEntries(new URLSearchParams(searchString))
+	const { entry } = parameters
+	return { ...parseSearchParameters(parameters), ...(entry !== undefined && entry !== "" && { entry }) }
 }
 
 /** Writes each defined value as text, so parseSearchString reads it back unchanged. */

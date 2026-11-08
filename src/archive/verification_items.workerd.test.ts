@@ -87,6 +87,8 @@ test("listVerificationItems gives each unconfirmed record with its documents and
 				createdAt: createdOn(4),
 				document: {
 					id: termsId,
+					status: "archived",
+					mimeType: "application/pdf",
 					title: "Nordkabel General Terms",
 					documentDate: "2026-07-01",
 					senderName: "Nordkabel",
@@ -95,7 +97,14 @@ test("listVerificationItems gives each unconfirmed record with its documents and
 			{
 				reason: "illegible_required_field",
 				createdAt: createdOn(3),
-				document: { id: receiptId, title: "Werkhof Receipt", documentDate: null, senderName: null },
+				document: {
+					id: receiptId,
+					status: "archived",
+					mimeType: "application/pdf",
+					title: "Werkhof Receipt",
+					documentDate: null,
+					senderName: null,
+				},
 				illegibleFields: [
 					{ fieldKey: "document_date", value: null },
 					{ fieldKey: "amount", value: 75.49 },
@@ -108,6 +117,8 @@ test("listVerificationItems gives each unconfirmed record with its documents and
 				documents: [
 					{
 						id: policyId,
+						status: "archived",
+						mimeType: "application/pdf",
 						title: "Allianz Household Insurance Policy",
 						documentDate: "2026-07-01",
 						senderName: "Allianz SE",
@@ -168,6 +179,7 @@ test("listVerificationItems lists one tag on 150 documents and 121 unconfirmed r
 
 	const items = await listVerificationItems(database)
 
+	const receiptPhotograph = { status: "archived", mimeType: "image/jpeg", documentDate: null }
 	const recordEntry = (name: string) =>
 		items.find(
 			(item): item is Extract<VerificationItem, { reason: "new_taxonomy_record" }> =>
@@ -191,14 +203,14 @@ test("listVerificationItems lists one tag on 150 documents and 121 unconfirmed r
 			createdAt: createdOn(2),
 			record: { kind: "sender", id: senderIds[0], name: "Sender 0" },
 			documents: [
-				{ id: documentIds[0], title: "Receipt 0", documentDate: null, senderName: "Sender 0" },
-				{ id: documentIds[120], title: "Receipt 120", documentDate: null, senderName: "Sender 0" },
+				{ ...receiptPhotograph, id: documentIds[0], title: "Receipt 0", senderName: "Sender 0" },
+				{ ...receiptPhotograph, id: documentIds[120], title: "Receipt 120", senderName: "Sender 0" },
 			],
 		},
 		seventhReceipt: {
 			reason: "illegible_required_field",
 			createdAt: createdOn(3),
-			document: { id: documentIds[7], title: "Receipt 7", documentDate: null, senderName: "Sender 7" },
+			document: { ...receiptPhotograph, id: documentIds[7], title: "Receipt 7", senderName: "Sender 7" },
 			illegibleFields: [
 				{ fieldKey: "document_date", value: null },
 				{ fieldKey: "amount", value: 7 },

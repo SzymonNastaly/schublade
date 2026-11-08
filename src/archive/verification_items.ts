@@ -3,11 +3,14 @@ import { categories, documentTags, documents, extractedFields, senders, tags } f
 import { illegibleRequiredFields } from "../ingestion/verification_assessment"
 import { taxonomyKindModels, taxonomyKinds } from "./taxonomy_maintenance"
 import type { ArchiveDatabase } from "../database/client"
+import type { DocumentStatus } from "../ingestion/document_lifecycle"
 import type { RequiredFieldKey } from "../ingestion/verification_assessment"
 import type { TaxonomyKind } from "./taxonomy_maintenance"
 
 export interface VerificationDocument {
 	id: string
+	status: DocumentStatus
+	mimeType: string
 	title: string | null
 	documentDate: string | null
 	senderName: string | null
@@ -50,6 +53,8 @@ async function readUnconfirmedRecords(database: ArchiveDatabase) {
 
 const referringDocumentColumns = {
 	id: documents.id,
+	status: documents.status,
+	mimeType: documents.mimeType,
 	title: documents.title,
 	documentDate: documents.documentDate,
 	senderName: senders.name,

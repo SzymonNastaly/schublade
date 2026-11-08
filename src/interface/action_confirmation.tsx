@@ -7,7 +7,7 @@ import type { ComponentProps, ReactNode } from "react"
 type ButtonVariant = ComponentProps<typeof Button>["variant"]
 
 // Full width and 44 pixels high below md, where a finger operates them.
-const touchSized = "w-full max-md:h-11 md:w-auto"
+export const touchSized = "w-full max-md:h-11 md:w-auto"
 
 interface ActionConfirmationProperties {
 	/** The label of the button that opens the dialog. */

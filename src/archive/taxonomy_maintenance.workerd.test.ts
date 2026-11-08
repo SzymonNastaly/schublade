@@ -6,7 +6,12 @@ import { categories, documentTags, documents, extractedFields, senders, tags } f
 import { contentObjectKey } from "../ingestion/source_file"
 import { indexDocument, indexMissingDocuments } from "../search/document_indexing"
 import { createInMemorySearchIndex } from "../search/in_memory_search_index"
-import { deleteTaxonomyRecord, mergeTaxonomyRecords, renameTaxonomyRecord } from "./taxonomy_maintenance"
+import {
+	confirmTaxonomyRecords,
+	deleteTaxonomyRecord,
+	mergeTaxonomyRecords,
+	renameTaxonomyRecord,
+} from "./taxonomy_maintenance"
 import { listVerificationItems } from "./verification_items"
 
 const insurerAlias = { id: "0a6f2c41-9d3e-4b58-8a71-5e2d9c0b4f13", name: "Allianz Versicherungs-AG" }
@@ -54,6 +59,42 @@ async function prepareArchive() {
 	index.uploadedItemNames.length = 0
 	return { database, ...index }
 }
+
+test("confirmTaxonomyRecords confirms more records than D1 binds in one statement, keeps earlier confirmations, and leaves documents alone", async () => {
+	const { database, searchIndex, uploadedItemNames } = await prepareArchive()
+	const senderIds = Array.from(
+		{ length: 150 },
+		(_, index) => `5e2d0000-0000-4000-8000-${String(index).padStart(12, "0")}`,
+	)
+	const [firstInsertion, ...laterInsertions] = senderIds.map((id, index) =>
+		database.insert(senders).values({ id, name: `Sender ${index}`, normalizedName: `sender ${index}` }),
+	)
+	if (firstInsertion) await database.batch([firstInsertion, ...laterInsertions])
+	const absentSenderId = "6f3e1111-1111-4111-8111-111111111111"
+	const recordIds = [...senderIds, insurerAlias.id, insurer.id, absentSenderId]
+
+	const confirmedCount = await confirmTaxonomyRecords(database, { kind: "sender", recordIds })
+	const repeatedCount = await confirmTaxonomyRecords(database, { kind: "sender", recordIds })
+	const report = await indexMissingDocuments(database, env.DOCUMENT_STORAGE, searchIndex)
+
+	expect({
+		confirmedCount,
+		repeatedCount,
+		unconfirmed: (await listVerificationItems(database)).map((item) =>
+			item.reason === "new_taxonomy_record" ? item.record.name : item.document.id,
+		),
+		insurerConfirmedAt: (await database.select().from(senders).where(eq(senders.id, insurer.id)))[0]?.confirmedAt,
+		reindexed: uploadedItemNames,
+		report,
+	}).toEqual({
+		confirmedCount: 151,
+		repeatedCount: 0,
+		unconfirmed: ["steuer"],
+		insurerConfirmedAt: new Date("2026-10-01T00:00:00Z"),
+		reindexed: [],
+		report: { indexedDocumentIds: [], failedDocuments: [], remainingDocumentCount: 0 },
+	})
+})
 
 test("a merge moves every document and tag link to the target, and the backfill re-indexes only those documents", async () => {
 	const { database, items, uploadedItemNames, searchIndex } = await prepareArchive()
@@ -228,6 +269,8 @@ test("a category merge flags a moved receipt without an amount when the target c
 				createdAt: expect.any(Date),
 				document: {
 					id: statementId,
+					status: "archived",
+					mimeType: "application/pdf",
 					title: "Allianz Premium Statement 2026",
 					documentDate: "2026-10-31",
 					senderName: "Allianz SE",

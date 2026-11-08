@@ -3,7 +3,7 @@ import { PdfPageBox, documentBoxFrame } from "./pdf_page_box"
 import type { ListedDocument } from "../archive/document_listing"
 
 /** The original file of a document in its box, with a link to the file, or the reason there is no file yet. */
-export function DocumentOriginal({ document }: { document: ListedDocument }) {
+export function DocumentOriginal({ document }: { document: Pick<ListedDocument, "id" | "status" | "mimeType"> }) {
 	if (document.status === "awaiting_rendering") {
 		return (
 			<Text variant="secondary">

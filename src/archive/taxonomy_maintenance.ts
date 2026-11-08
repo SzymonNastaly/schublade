@@ -56,6 +56,13 @@ export const taxonomyRecordSchema = z.strictObject({ kind: z.enum(taxonomyKinds)
 
 type TaxonomyRecordReference = z.infer<typeof taxonomyRecordSchema>
 
+export const taxonomyRecordsSchema = z.strictObject({
+	kind: z.enum(taxonomyKinds),
+	recordIds: z.array(z.uuid()).min(1),
+})
+
+const MAXIMUM_BOUND_IDENTIFIERS = 100
+
 export const taxonomyRenameSchema = taxonomyRecordSchema.extend({ name: taxonomyNameSchema })
 
 export const taxonomyMergeSchema = z
@@ -84,6 +91,37 @@ export async function confirmTaxonomyRecord(
 		.where(eq(table.id, recordId))
 		.returning({ id: table.id })
 	if (confirmed.length === 0) throw new Error(`The ${kind} ${recordId} does not exist`)
+}
+
+/**
+ * A member's confirmation of several records at once, in one D1 batch whose statements each bind
+ * at most 100 identifiers. A record already confirmed or no longer present changes nothing, and
+ * the result counts only the records this call confirmed.
+ */
+export async function confirmTaxonomyRecords(
+	database: ArchiveDatabase,
+	{ kind, recordIds }: z.infer<typeof taxonomyRecordsSchema>,
+): Promise<number> {
+	const { table } = taxonomyKindModels[kind]
+	const [firstStatement, ...laterStatements] = Array.from(
+		{ length: Math.ceil(recordIds.length / MAXIMUM_BOUND_IDENTIFIERS) },
+		(_, chunk) =>
+			database
+				.update(table)
+				.set({ confirmedAt: confirmation(table) })
+				.where(
+					and(
+						inArray(
+							table.id,
+							recordIds.slice(chunk * MAXIMUM_BOUND_IDENTIFIERS, (chunk + 1) * MAXIMUM_BOUND_IDENTIFIERS),
+						),
+						isNull(table.confirmedAt),
+					),
+				)
+				.returning({ id: table.id }),
+	)
+	if (firstStatement === undefined) return 0
+	return (await database.batch([firstStatement, ...laterStatements])).flat().length
 }
 
 /**
