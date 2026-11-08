@@ -39,3 +39,34 @@ test("queryDocumentListing filtered by a person lists only archived documents", 
 		household: ["a1000000-0000-4000-8000-000000000003"],
 	})
 })
+
+test("queryDocumentListing lists a document without a date first, then the newest document date", async () => {
+	await applyD1Migrations(env.DATABASE, inject("databaseMigrations"))
+	const database = connectDatabase(env.DATABASE)
+	const memberId = "3f8a0b2c-4d5e-4f60-9b7c-8d9e0f1a2b3c"
+	await database.insert(householdMembers).values({ id: memberId, displayName: "Lena Becker", addresseeNames: [] })
+	const documentOf = (id: string, documentDate: string | null) => ({
+		id,
+		storageObjectKey: `documents/${id}/original.pdf`,
+		mimeType: "application/pdf",
+		byteSize: 1024,
+		status: "archived" as const,
+		personMemberId: memberId,
+		documentDate,
+	})
+	await database
+		.insert(documents)
+		.values([
+			documentOf("b1000000-0000-4000-8000-000000000001", "2026-03-12"),
+			documentOf("b1000000-0000-4000-8000-000000000002", null),
+			documentOf("b1000000-0000-4000-8000-000000000003", "2026-10-31"),
+		])
+
+	const listing = await queryDocumentListing(database, { person: memberId })
+
+	expect(listing.map((document) => document.id)).toEqual([
+		"b1000000-0000-4000-8000-000000000002",
+		"b1000000-0000-4000-8000-000000000003",
+		"b1000000-0000-4000-8000-000000000001",
+	])
+})

@@ -2,11 +2,10 @@ import { Button, Empty, LayerCard, Text } from "@cloudflare/kumo"
 import { FilesIcon, MagnifyingGlassIcon, UploadSimpleIcon } from "@phosphor-icons/react"
 import { useMutation } from "@tanstack/react-query"
 import { createFileRoute, useRouter, useRouterState } from "@tanstack/react-router"
-import { useEffect, useRef, useState } from "react"
+import { useEffect, useRef } from "react"
 import { isSettledStatus } from "../ingestion/document_lifecycle"
 import { acceptedMediaTypes } from "../ingestion/source_file"
 import { ArchiveNavigation } from "../interface/archive_navigation"
-import { DocumentInspection } from "../interface/document_inspection"
 import { DocumentList } from "../interface/document_list"
 import { DocumentSearchControls } from "../interface/document_search_controls"
 import { parseSearchParameters } from "../search/search_criteria"
@@ -85,7 +84,6 @@ function ArchiveOverview() {
 	const navigate = Route.useNavigate()
 	const router = useRouter()
 	const searching = useRouterState({ select: (state) => state.status === "pending" })
-	const [selectedDocumentId, setSelectedDocumentId] = useState<string>()
 	const hasUnsettledDocument = documents.some((document) => !isSettledStatus(document.status))
 	useEffect(() => {
 		if (!hasUnsettledDocument) return
@@ -103,7 +101,6 @@ function ArchiveOverview() {
 			replace: true,
 		})
 	const filtered = Object.keys(criteria).length > 0
-	const selectedDocument = documents.find((document) => document.id === selectedDocumentId)
 	return (
 		<main className="mx-auto flex max-w-6xl flex-col gap-6 px-4 py-6 md:px-6 md:py-12">
 			<div className="flex flex-wrap items-center justify-between gap-4">
@@ -140,22 +137,10 @@ function ArchiveOverview() {
 							/>
 						)
 					) : (
-						<DocumentList
-							documents={documents}
-							selectedDocumentId={selectedDocumentId}
-							onSelect={setSelectedDocumentId}
-						/>
+						<DocumentList documents={documents} />
 					)}
 				</LayerCard.Primary>
 			</LayerCard>
-			{selectedDocument && (
-				<DocumentInspection
-					key={selectedDocument.id}
-					document={selectedDocument}
-					facets={facets}
-					onDeleted={() => setSelectedDocumentId(undefined)}
-				/>
-			)}
 		</main>
 	)
 }

@@ -80,7 +80,9 @@ src/
 		in_memory_search_index.ts            A SearchIndex for workerd tests that keeps items in memory
 	interface/
 		document_search_controls.tsx         Search input with the / and Cmd+K shortcuts, and the facet controls
-		document_list.tsx                    Stacked rows below the md breakpoint, the document table from md upward
+		document_list.tsx                    Stacked rows below the md breakpoint, the document table from md upward; every row links to its document page
+		document_formatting.ts               Dates and amounts in one fixed locale, so server and browser render the same text
+		document_formatting.test.ts
 		archive_navigation.tsx               All documents, Pending verification with its count, and Settings
 		document_inspection.tsx              The inspection pane: summary, the Original and Text tabs with a link that opens the file in a new tab, then the edit form
 		document_revision_form.tsx           The inspection pane's edit form and the confirmed document deletion
@@ -90,7 +92,7 @@ src/
 		server_functions.workerd.test.ts     Each server function run through TanStack Start's server path with callers below and at its level
 	routes/
 		__root.tsx                           HTML document shell, and the Pending verification count for the navigation
-		index.tsx                            Archive page: search controls, document list, upload control, and inspection pane
+		index.tsx                            Archive page: search controls, document list, and upload control
 		settings.tsx                         Settings page: issue an ingest token shown once, list and revoke tokens
 		verification.tsx                     Pending verification: one-action buttons per entry; deletions and merges ask first; each document links to its page
 		documents.$documentId.tsx            Document page: the inspection pane of one document; after a deletion, the previous page or the archive

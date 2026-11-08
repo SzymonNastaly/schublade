@@ -133,7 +133,13 @@ export async function queryDocumentListing(
 			.leftJoin(categories, eq(documents.categoryId, categories.id))
 			.leftJoin(householdMembers, eq(documents.personMemberId, householdMembers.id))
 			.where(and(...listingConditions(database, criteria)))
-			.orderBy(desc(documents.createdAt), desc(documents.id)),
+			// A document without a date is still in processing or needs one supplied, so it stays on top.
+			.orderBy(
+				desc(isNull(documents.documentDate)),
+				desc(documents.documentDate),
+				desc(documents.createdAt),
+				desc(documents.id),
+			),
 		database
 			.select({
 				documentId: extractedFields.documentId,
