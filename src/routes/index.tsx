@@ -1,13 +1,11 @@
 import { Button, Empty, LayerCard, Text } from "@cloudflare/kumo"
 import { FilesIcon, MagnifyingGlassIcon, UploadSimpleIcon } from "@phosphor-icons/react"
 import { createFileRoute, useRouter, useRouterState } from "@tanstack/react-router"
-import { useRef } from "react"
-import { acceptedMediaTypes } from "../ingestion/source_file"
 import { ArchiveNavigation } from "../interface/archive_navigation"
+import { DocumentFilePicker } from "../interface/document_file_picker"
 import { DocumentList } from "../interface/document_list"
 import { DocumentSearchControls } from "../interface/document_search_controls"
 import { useArchiveChanges } from "../interface/document_status_updates"
-import { useDocumentUploads } from "../interface/upload_tray"
 import { parseSearchParameters } from "../search/search_criteria"
 import { listArchiveFacets, retrieveDocuments } from "../utilities/server_functions"
 import type { SearchCriteria } from "../search/search_criteria"
@@ -22,31 +20,6 @@ export const Route = createFileRoute("/")({
 	},
 	component: ArchiveOverview,
 })
-
-function UploadControl() {
-	const { start } = useDocumentUploads()
-	const fileInput = useRef<HTMLInputElement>(null)
-	return (
-		<>
-			<input
-				ref={fileInput}
-				type="file"
-				multiple
-				hidden
-				accept={acceptedMediaTypes.join(",")}
-				onChange={(event) => {
-					// Clearing the input empties its live FileList, so the files are copied first.
-					const files = [...(event.target.files ?? [])]
-					event.target.value = ""
-					if (files.length > 0) start(files)
-				}}
-			/>
-			<Button variant="primary" icon={UploadSimpleIcon} onClick={() => fileInput.current?.click()}>
-				Upload documents
-			</Button>
-		</>
-	)
-}
 
 function ArchiveOverview() {
 	const { documents, facets } = Route.useLoaderData()
@@ -79,7 +52,16 @@ function ArchiveOverview() {
 				</Text>
 				<div className="flex flex-wrap items-start gap-2">
 					<ArchiveNavigation />
-					<UploadControl />
+					{/* Phones upload from the action bar at the bottom of the screen. */}
+					<div className="max-md:hidden">
+						<DocumentFilePicker>
+							{(open) => (
+								<Button variant="primary" icon={UploadSimpleIcon} onClick={open}>
+									Upload documents
+								</Button>
+							)}
+						</DocumentFilePicker>
+					</div>
 				</div>
 			</div>
 			<DocumentSearchControls criteria={criteria} facets={facets} searching={searching} onChange={changeCriteria} />

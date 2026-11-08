@@ -206,7 +206,7 @@ export function UploadTray() {
 			<div aria-hidden className="h-[50vh] md:hidden" />
 			<section
 				aria-label="Uploads"
-				className="fixed inset-x-0 bottom-0 flex max-h-[50vh] flex-col border-t border-kumo-hairline bg-kumo-elevated pb-[env(safe-area-inset-bottom)] shadow-lg md:inset-x-auto md:right-4 md:bottom-4 md:max-h-[60vh] md:w-[360px] md:rounded-lg md:border md:pb-0"
+				className="fixed inset-x-0 bottom-[calc(3.5rem+env(safe-area-inset-bottom))] flex max-h-[50vh] flex-col border-t border-kumo-hairline bg-kumo-elevated shadow-lg md:inset-x-auto md:right-4 md:bottom-4 md:max-h-[60vh] md:w-[360px] md:rounded-lg md:border"
 			>
 				<header className="flex items-center justify-between gap-2 border-b border-kumo-hairline py-1 pr-2 pl-4">
 					<h2 className="font-medium">Uploads</h2>

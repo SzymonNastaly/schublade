@@ -2,6 +2,7 @@ import { Button, Combobox, Input, InputGroup, Loader, Popover } from "@cloudflar
 import { CaretDownIcon, FunnelIcon, MagnifyingGlassIcon, XIcon } from "@phosphor-icons/react"
 import { useEffect, useRef, useState } from "react"
 import { activeFilters, personOptions } from "./active_filter_presentation"
+import { ARCHIVE_SEARCH_INPUT_IDENTIFIER } from "./phone_action_bar"
 import type { ReactNode } from "react"
 import type { ArchiveFacets, FacetOption } from "../archive/document_listing"
 import type { SearchCriteria } from "../search/search_criteria"
@@ -59,6 +60,7 @@ function SearchInput({ query, searching, onChange }: { query: string; searching:
 			</InputGroup.Addon>
 			<InputGroup.Input
 				ref={input}
+				id={ARCHIVE_SEARCH_INPUT_IDENTIFIER}
 				type="search"
 				aria-label="Search documents"
 				placeholder="Search documents"
