@@ -34,6 +34,8 @@ export async function searchDocuments(
 		ai_search_options: {
 			retrieval: {
 				retrieval_type: "hybrid",
+				// A misread term in a recognized page must not exclude the rest of a query.
+				keyword_match_mode: "or",
 				max_num_results: MAXIMUM_CANDIDATE_CHUNKS,
 				filters: searchIndexFilter(filters),
 			},
