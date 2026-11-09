@@ -14,7 +14,7 @@ import {
 import { classifyDocument } from "../inference/document_classifier"
 import { indexDocument } from "../search/document_indexing"
 import { UnopenablePdfError, inspectPages, rasterizePage } from "../inference/page_rasterizer"
-import { createMoondreamRecognizer, normalizeRecognitionImage } from "../inference/text_recognizer"
+import { countDistinctWords, createMoondreamRecognizer, normalizeRecognitionImage } from "../inference/text_recognizer"
 import { findStandardCategory } from "./document_classification"
 import {
 	assembleDocumentMarkdown,
@@ -34,6 +34,7 @@ import type { SQLiteTable } from "drizzle-orm/sqlite-core"
 import type { ArchiveDatabase } from "../database/client"
 import type { QuarterTurns } from "../database/schema"
 import type { PageInspection } from "../inference/page_rasterizer"
+import type { TextRecognition } from "../inference/text_recognizer"
 import type { SearchIndex } from "../search/document_indexing"
 import type { MailContext } from "./classification_prompt"
 import type { DocumentClassification } from "./document_classification"
@@ -78,6 +79,8 @@ type MailRenderingOutcome =
 	| { kind: "refused"; failureReason: DocumentFailureReason; explanation: string }
 
 const RECOGNITION_DOTS_PER_INCH = 150
+
+const QUARTER_TURNS: ReadonlyArray<QuarterTurns> = [0, 1, 2, 3]
 
 // Each scheduled run starts at most this many messages, as one mail message starts at most 20 documents.
 const MAXIMUM_MAIL_RENDERING_STARTS = 20
@@ -177,11 +180,7 @@ export async function retryDocumentIngestion(
 ): Promise<void> {
 	const reclaimed = await connectDatabase(environment.DATABASE)
 		.update(documents)
-		.set({
-			status: "processing",
-			failureReason: null,
-			recognitionQuarterTurns: sql`case when ${documents.failureReason} = 'unreadable_page' then (${documents.recognitionQuarterTurns} + 1) % 4 else ${documents.recognitionQuarterTurns} end`,
-		})
+		.set({ status: "processing", failureReason: null })
 		.where(and(eq(documents.id, documentId), eq(documents.status, "failed")))
 		.returning({ id: documents.id })
 	if (reclaimed.length === 0) throw new Error(`Document ${documentId} has not failed, so it cannot be retried`)
@@ -290,12 +289,12 @@ async function extractText(
 	return extractionOutcome(conversion.data, selectPageTextSources(pages, conversion.data))
 }
 
-async function recognizePage(
+async function readPage(
 	environment: IngestionEnvironment,
-	original: { sourceFile: SourceFile; bytes: Uint8Array<ArrayBuffer>; quarterTurns: QuarterTurns },
+	{ sourceFile, bytes }: { sourceFile: SourceFile; bytes: Uint8Array<ArrayBuffer> },
 	pageIndex: number,
-): Promise<PageRecognitionOutcome> {
-	const { sourceFile, bytes, quarterTurns } = original
+	quarterTurns: QuarterTurns,
+): Promise<TextRecognition> {
 	const image =
 		sourceFile.kind === "image"
 			? await normalizeRecognitionImage(environment.IMAGE_TRANSFORMER, bytes, quarterTurns)
@@ -303,16 +302,59 @@ async function recognizePage(
 					mediaType: "image/png" as const,
 					bytes: (await rasterizePage(bytes, pageIndex, RECOGNITION_DOTS_PER_INCH, quarterTurns)).pngBytes,
 				}
-	const recognizer = createMoondreamRecognizer(environment.AI_RUNTIME, environment.AI_GATEWAY_IDENTIFIER)
-	const recognition = await recognizer.transcribe(image)
-	if (recognition.kind === "token_limit_reached") {
+	return createMoondreamRecognizer(environment.AI_RUNTIME, environment.AI_GATEWAY_IDENTIFIER).transcribe(image)
+}
+
+/**
+ * Reads a page at the document's recorded rotation. A page that never finishes is usually turned,
+ * so it is read at the other three rotations, and the reading with the most distinct words wins.
+ * The winning rotation is recorded, so the later pages cost one reading each.
+ */
+async function recognizePage(
+	step: IngestionStep,
+	environment: IngestionEnvironment,
+	database: ArchiveDatabase,
+	documentId: string,
+	pageIndex: number,
+): Promise<PageRecognitionOutcome> {
+	const pageNumber = pageIndex + 1
+	const readStoredOriginal = () => readOriginal(database, environment.DOCUMENT_STORAGE, documentId)
+	const { quarterTurns, recognition } = await step.do(`recognize page ${pageNumber}`, inferenceStep, async () => {
+		const original = await readStoredOriginal()
+		const recordedTurns = original.quarterTurns
+		return { quarterTurns: recordedTurns, recognition: await readPage(environment, original, pageIndex, recordedTurns) }
+	})
+	if (recognition.kind === "transcribed") {
+		return { kind: "recognized", transcription: { pageIndex, text: recognition.text } }
+	}
+
+	const readings = await Promise.all(
+		QUARTER_TURNS.filter((turns) => turns !== quarterTurns).map(async (candidate) => ({
+			candidate,
+			reading: await step.do(`recognize page ${pageNumber} turned ${candidate * 90} degrees`, inferenceStep, async () =>
+				readPage(environment, await readStoredOriginal(), pageIndex, candidate),
+			),
+		})),
+	)
+	let best: { quarterTurns: QuarterTurns; text: string; distinctWords: number } | undefined
+	for (const { candidate, reading } of readings) {
+		if (reading.kind !== "transcribed") continue
+		const distinctWords = countDistinctWords(reading.text)
+		if (distinctWords > (best?.distinctWords ?? 0))
+			best = { quarterTurns: candidate, text: reading.text, distinctWords }
+	}
+	if (best === undefined) {
 		return {
 			kind: "refused",
 			failureReason: "unreadable_page",
-			explanation: `Page ${pageIndex + 1} did not finish within the token limit`,
+			explanation: `Page ${pageNumber} did not finish within the token limit at any rotation`,
 		}
 	}
-	return { kind: "recognized", transcription: { pageIndex, text: recognition.text } }
+	const { quarterTurns: winningTurns, text } = best
+	await step.do(`record rotation of page ${pageNumber}`, recordStep, async () => {
+		await database.update(documents).set({ recognitionQuarterTurns: winningTurns }).where(eq(documents.id, documentId))
+	})
+	return { kind: "recognized", transcription: { pageIndex, text } }
 }
 
 async function readTaxonomy(database: ArchiveDatabase) {
@@ -556,9 +598,7 @@ async function archiveIngestedDocument(
 			)
 			for (const { pageIndex } of recognitionPages) {
 				// Each page is its own step, so a failed page retries without repeating the others.
-				const recognition = await step.do(`recognize page ${pageIndex + 1}`, inferenceStep, async () =>
-					recognizePage(environment, await readOriginal(database, environment.DOCUMENT_STORAGE, documentId), pageIndex),
-				)
+				const recognition = await recognizePage(step, environment, database, documentId, pageIndex)
 				if (recognition.kind === "refused") {
 					failureReason = recognition.failureReason
 					throw new Error(recognition.explanation)

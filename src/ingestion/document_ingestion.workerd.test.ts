@@ -56,13 +56,19 @@ const recordedEnvironment = {
 }
 
 // Runs each step once and passes its result through structured cloning, as Workflows persist it.
+// Steps started together run in the order they started, so a test can script their responses.
 function createRecordingStep(beforeStep: (name: string) => Promise<void> = () => Promise.resolve()) {
 	const stepNames: Array<string> = []
+	let previousStep: Promise<unknown> = Promise.resolve()
 	const step = {
-		async do(name: string, _configuration: unknown, callback: () => Promise<unknown>) {
+		do(name: string, _configuration: unknown, callback: () => Promise<unknown>) {
 			stepNames.push(name)
-			await beforeStep(name)
-			return structuredClone(await callback())
+			const result = previousStep.then(async () => {
+				await beforeStep(name)
+				return structuredClone<unknown>(await callback())
+			})
+			previousStep = result.catch(() => undefined)
+			return result
 		},
 	}
 	return { stepNames, step: step as unknown as Pick<WorkflowStep, "do"> }
@@ -221,10 +227,10 @@ test("ingestDocument writes nothing when the document leaves classifying before 
 })
 
 // PDFium rebuilds the missing cross-reference table, so these objects are a valid file of blank pages.
-function blankPdf(pageCount: number): Uint8Array {
+function blankPdf(pageCount: number, mediaBox = "0 0 100 100"): Uint8Array {
 	const pageObjects = Array.from(
 		{ length: pageCount },
-		(_, index) => `${index + 3} 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] >>\nendobj\n`,
+		(_, index) => `${index + 3} 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [${mediaBox}] >>\nendobj\n`,
 	)
 	const kids = pageObjects.map((_, index) => `${index + 3} 0 R`).join(" ")
 	return new TextEncoder().encode(
@@ -283,13 +289,7 @@ async function storeFailedDocument() {
 		.set({ status: "failed", failureReason: "processing_error" })
 		.where(eq(documents.id, failedDocumentId))
 	const readDocument = () =>
-		database
-			.select({
-				status: documents.status,
-				failureReason: documents.failureReason,
-				quarterTurns: documents.recognitionQuarterTurns,
-			})
-			.from(documents)
+		database.select({ status: documents.status, failureReason: documents.failureReason }).from(documents)
 	return { readDocument }
 }
 
@@ -316,7 +316,7 @@ test("retryDocumentIngestion lets one of two retries through and starts one work
 		instanceIdentifierIsNew: instances.every((instance) => instance.id !== failedDocumentId),
 	}).toEqual({
 		refusals: [`Document ${failedDocumentId} has not failed, so it cannot be retried`],
-		documents: [{ status: "processing", failureReason: null, quarterTurns: 0 }],
+		documents: [{ status: "processing", failureReason: null }],
 		parameters: [{ documentId: failedDocumentId }],
 		instanceIdentifierIsNew: true,
 	})
@@ -330,7 +330,7 @@ test("retryDocumentIngestion leaves the document failed when its workflow cannot
 		retryDocumentIngestion({ ...env, DOCUMENT_INGESTION_WORKFLOW: workflow as unknown as Workflow }, failedDocumentId),
 	).rejects.toThrow("The Workflows service is unavailable")
 
-	expect(await readDocument()).toEqual([{ status: "failed", failureReason: "processing_error", quarterTurns: 0 }])
+	expect(await readDocument()).toEqual([{ status: "failed", failureReason: "processing_error" }])
 })
 
 const receiptMessage = [
@@ -447,71 +447,103 @@ function pngDimensions(dataUri: string) {
 	return { width: view.getUint32(16), height: view.getUint32(20) }
 }
 
-test("a page that reaches the token limit fails its document, and a retry reads the page a quarter turn further", async () => {
+function recognitionRuntime(answers: Array<{ answer: string; finishReason: string }>) {
+	const requests: Array<{ image: string; tokenLimit: number; skipsCache: boolean }> = []
+	const runtime = {
+		toMarkdown: () => Promise.resolve({ format: "markdown", data: "" }),
+		run: (
+			model: string,
+			inputs: { image: string; max_tokens: number },
+			options: { gateway: { skipCache: boolean } },
+		) => {
+			if (model !== "@cf/moondream/moondream3.1-9B-A2B") return Promise.resolve(recording.classificationResponse)
+			const { answer, finishReason } = answers[requests.length] ?? { answer: "", finishReason: "stop" }
+			requests.push({ image: inputs.image, tokenLimit: inputs.max_tokens, skipsCache: options.gateway.skipCache })
+			return Promise.resolve(recognitionEventStream(answer, finishReason))
+		},
+	} as unknown as Ai
+	return { requests, runtime }
+}
+
+const stoppedAtTokenLimit = { answer: "Seite Seite Seite", finishReason: "length" }
+const finishedWith = (answer: string) => ({ answer, finishReason: "stop" })
+
+test("a page that stops at the token limit is read at the other rotations, and the reading with the most distinct words turns the later pages", async () => {
 	const documentId = "a1000000-0000-4000-8000-000000000001"
-	const database = await storeScannedInvoice(documentId)
-	const recognitionRequests: Array<{ image: string; tokenLimit: number; skipsCache: boolean }> = []
-	const runtimeFinishingWith = (finishReason: string) =>
-		({
-			toMarkdown: recordedRuntime.toMarkdown,
-			run: (
-				model: string,
-				inputs: { image: string; max_tokens: number },
-				options: { gateway: { skipCache: boolean } },
-			) => {
-				if (model !== "@cf/moondream/moondream3.1-9B-A2B") return Promise.resolve(recording.classificationResponse)
-				recognitionRequests.push({
-					image: inputs.image,
-					tokenLimit: inputs.max_tokens,
-					skipsCache: options.gateway.skipCache,
-				})
-				return Promise.resolve(recognitionEventStream("Seite Seite Seite", finishReason))
-			},
-		}) as unknown as Ai
+	const database = await storeScannedInvoice(documentId, blankPdf(2, "0 0 100 200"))
+	const { requests, runtime } = recognitionRuntime([
+		stoppedAtTokenLimit,
+		finishedWith("Seite Seite Seite Seite Seite Seite Seite"),
+		stoppedAtTokenLimit,
+		finishedWith("Eine lange und lesbare Seite"),
+		finishedWith("Zweite Seite"),
+	])
 	const { stepNames, step } = createRecordingStep()
 
-	const message = await ingestDocument(
-		step,
-		{ ...recordedEnvironment, AI_RUNTIME: runtimeFinishingWith("length") },
-		documentId,
-	).catch((error: Error) => error.message)
-	const [failedDocument] = await database
-		.select({ status: documents.status, failureReason: documents.failureReason })
+	await ingestDocument(step, { ...recordedEnvironment, AI_RUNTIME: runtime }, documentId)
+
+	const [document] = await database
+		.select({ status: documents.status, quarterTurns: documents.recognitionQuarterTurns })
 		.from(documents)
-	await retryDocumentIngestion(
-		{ ...env, DOCUMENT_INGESTION_WORKFLOW: { create: () => Promise.resolve() } as unknown as Workflow },
-		documentId,
-	)
-	await ingestDocument(
-		createRecordingStep().step,
-		{ ...recordedEnvironment, AI_RUNTIME: runtimeFinishingWith("stop") },
-		documentId,
+	const content = await (await env.DOCUMENT_STORAGE.get(contentObjectKey(documentId)))?.text()
+	expect({
+		document,
+		content,
+		recognitionSteps: stepNames.filter((name) => name.includes(" page ") || name.includes("rotation")),
+		pages: requests.map(({ image }) => pngDimensions(image)),
+	}).toEqual({
+		document: { status: "archived", quarterTurns: 3 },
+		content: "## Page 1\n\nEine lange und lesbare Seite\n\n## Page 2\n\nZweite Seite",
+		recognitionSteps: [
+			"recognize page 1",
+			"recognize page 1 turned 90 degrees",
+			"recognize page 1 turned 180 degrees",
+			"recognize page 1 turned 270 degrees",
+			"record rotation of page 1",
+			"recognize page 2",
+		],
+		pages: [
+			{ width: 208, height: 417 },
+			{ width: 417, height: 208 },
+			{ width: 208, height: 417 },
+			{ width: 417, height: 208 },
+			{ width: 417, height: 208 },
+		],
+	})
+})
+
+test("a page that stops at the token limit at every rotation fails its document before classification", async () => {
+	const documentId = "a1000000-0000-4000-8000-000000000003"
+	const database = await storeScannedInvoice(documentId, blankPdf(1))
+	const { requests, runtime } = recognitionRuntime(Array.from({ length: 4 }, () => stoppedAtTokenLimit))
+	const { stepNames, step } = createRecordingStep()
+
+	const message = await ingestDocument(step, { ...recordedEnvironment, AI_RUNTIME: runtime }, documentId).catch(
+		(error: Error) => error.message,
 	)
 
+	const [document] = await database
+		.select({ status: documents.status, failureReason: documents.failureReason })
+		.from(documents)
 	expect({
 		message,
-		failedDocument,
+		document,
 		stepNames,
-		pages: recognitionRequests.map(({ image }) => pngDimensions(image)),
-		requests: recognitionRequests.map(({ tokenLimit, skipsCache }) => ({ tokenLimit, skipsCache })),
+		requests: requests.map(({ tokenLimit, skipsCache }) => ({ tokenLimit, skipsCache })),
 	}).toEqual({
-		message: "Page 1 did not finish within the token limit",
-		failedDocument: { status: "failed", failureReason: "unreadable_page" },
+		message: "Page 1 did not finish within the token limit at any rotation",
+		document: { status: "failed", failureReason: "unreadable_page" },
 		stepNames: [
 			"render email",
 			"extract text",
 			"record status recognizing_text",
 			"recognize page 1",
+			"recognize page 1 turned 90 degrees",
+			"recognize page 1 turned 180 degrees",
+			"recognize page 1 turned 270 degrees",
 			"record status failed",
 		],
-		pages: [
-			{ width: 1240, height: 1754 },
-			{ width: 1754, height: 1240 },
-		],
-		requests: [
-			{ tokenLimit: 2048, skipsCache: true },
-			{ tokenLimit: 2048, skipsCache: true },
-		],
+		requests: Array.from({ length: 4 }, () => ({ tokenLimit: 2048, skipsCache: true })),
 	})
 })
 

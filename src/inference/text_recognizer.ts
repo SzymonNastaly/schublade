@@ -18,6 +18,20 @@ interface RecognizableImage {
 
 export type TextRecognition = { kind: "transcribed"; text: string } | { kind: "token_limit_reached" }
 
+const WORD_SEGMENTER = new Intl.Segmenter(undefined, { granularity: "word" })
+
+/**
+ * Compares readings of one page at different rotations. A wrong rotation can yield as many
+ * characters as the right one, but it repeats itself. Segmenting works in scripts without spaces.
+ */
+export function countDistinctWords(text: string): number {
+	const words = new Set<string>()
+	for (const { segment, isWordLike } of WORD_SEGMENTER.segment(text.toLowerCase())) {
+		if (isWordLike) words.add(segment)
+	}
+	return words.size
+}
+
 interface TextRecognizer {
 	transcribe: (image: RecognizableImage) => Promise<TextRecognition>
 }
@@ -46,23 +60,32 @@ export function restoreEuroSigns(transcription: string): string {
 }
 
 // The binding answers with a server-sent event stream even when `stream` is
-// false. Every chunk repeats the full answer so far, so the last chunk wins.
-export function parseMoondreamEventStream(eventStream: string): TextRecognition {
+// false. Every chunk repeats the full answer so far, so the last chunk wins. A page at the token
+// limit streams megabytes, so the stream is read line by line and only the latest event is kept.
+export async function parseMoondreamEventStream(eventStream: ReadableStream<Uint8Array>): Promise<TextRecognition> {
 	let answer: string | undefined
 	let finishReason: string | null | undefined
-	for (const line of eventStream.split("\n")) {
-		if (!line.startsWith("data: ")) continue
+	const readLine = (line: string) => {
+		if (!line.startsWith("data: ")) return
 		const payload = line.slice("data: ".length).trim()
-		if (payload === "[DONE]") continue
+		if (payload === "[DONE]") return
 		let event: MoondreamStreamEvent
 		try {
 			event = JSON.parse(payload) as MoondreamStreamEvent
 		} catch {
-			continue
+			return
 		}
 		if (typeof event.chunk?.answer === "string") answer = event.chunk.answer
 		if (event.chunk?.finish_reason) finishReason = event.chunk.finish_reason
 	}
+	const decoder = new TextDecoder()
+	let partialLine = ""
+	for await (const bytes of eventStream) {
+		const lines = (partialLine + decoder.decode(bytes, { stream: true })).split("\n")
+		partialLine = lines.pop() ?? ""
+		lines.forEach(readLine)
+	}
+	readLine(partialLine + decoder.decode())
 	if (answer === undefined) throw new Error("Moondream returned no answer")
 	return finishReason === "length" ? { kind: "token_limit_reached" } : { kind: "transcribed", text: answer.trim() }
 }
@@ -113,7 +136,7 @@ export function createMoondreamRecognizer(runtime: Ai, gatewayIdentifier: string
 				} as never,
 				{ gateway: { id: gatewayIdentifier, skipCache: true } },
 			)
-			const recognition = parseMoondreamEventStream(await new Response(result as ReadableStream).text())
+			const recognition = await parseMoondreamEventStream(result as ReadableStream<Uint8Array>)
 			return recognition.kind === "transcribed"
 				? { kind: "transcribed", text: restoreEuroSigns(recognition.text) }
 				: recognition

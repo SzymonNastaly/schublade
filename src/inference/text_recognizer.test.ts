@@ -13,21 +13,32 @@ const recordedEventStream = [
 	"data: [DONE]",
 ].join("\n\n")
 
-test("parseMoondreamEventStream returns the answer of the last chunk", () => {
-	expect(parseMoondreamEventStream(`${recordedEventStream}\n\n`)).toEqual({
+function streamOf(...pieces: Array<string>) {
+	return new ReadableStream<Uint8Array>({
+		start(controller) {
+			for (const piece of pieces) controller.enqueue(new TextEncoder().encode(piece))
+			controller.close()
+		},
+	})
+}
+
+test("parseMoondreamEventStream returns the answer of the last chunk, even when a line spans two reads", async () => {
+	await expect(
+		parseMoondreamEventStream(streamOf(recordedEventStream.slice(0, 300), `${recordedEventStream.slice(300)}\n\n`)),
+	).resolves.toEqual({
 		kind: "transcribed",
 		text: "Stadtwerke Talbrück GmbH\nIBAN DE12 9701 1320 0300 4182 25",
 	})
 })
 
-test("parseMoondreamEventStream reports a reading that stopped at the token limit", () => {
+test("parseMoondreamEventStream reports a reading that stopped at the token limit", async () => {
 	const eventStream = [
 		'data: {"chunk":{"answer":"Seite Seite","caption":null,"finish_reason":""},"index":0}',
 		'data: {"chunk":{"answer":"Seite Seite Seite","caption":null,"finish_reason":"length"},"index":1}',
 		"data: [DONE]",
 	].join("\n\n")
 
-	expect(parseMoondreamEventStream(eventStream)).toEqual({ kind: "token_limit_reached" })
+	await expect(parseMoondreamEventStream(streamOf(eventStream))).resolves.toEqual({ kind: "token_limit_reached" })
 })
 
 test("restoreEuroSigns turns a replacement character beside a monetary amount into a euro sign", () => {
