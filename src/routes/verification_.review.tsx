@@ -50,12 +50,12 @@ function ReviewedEntry({ item, facets }: { item: VerificationItem; facets: Archi
 	if (document === undefined) return <div className="max-w-[420px]">{controls}</div>
 	return (
 		<div className="flex flex-wrap items-start gap-6">
-			<div className="min-w-0 flex-[3_1_480px] max-md:max-h-72 max-md:overflow-hidden">
+			<div className="min-w-0 flex-[3_1_380px] max-md:max-h-72 max-md:overflow-hidden">
 				<ListFrame>
 					<DocumentOriginal document={document} />
 				</ListFrame>
 			</div>
-			<div className="flex min-w-0 flex-[2_1_320px] flex-col gap-3">
+			<div className="flex min-w-0 flex-[2_1_280px] flex-col gap-3">
 				{controls}
 				<Link
 					to="/documents/$documentId"

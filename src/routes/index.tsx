@@ -74,7 +74,7 @@ function ArchiveOverview() {
 								: `${documentCountLabel(documents.length)} ${documents.length === 1 ? "matches" : "match"} “${criteria.query}”.`
 						}
 					/>
-					<div className="md:hidden">
+					<div className="lg:hidden">
 						<ActionButton
 							variant="secondary"
 							icon={FunnelIcon}
@@ -86,7 +86,7 @@ function ArchiveOverview() {
 					</div>
 				</div>
 				{filtersShown && (
-					<div className="flex flex-col gap-3.5 md:hidden">
+					<div className="flex flex-col gap-3.5 md:grid md:grid-cols-2 md:items-start lg:hidden">
 						<ArchiveFilterPanels {...filterControls} />
 					</div>
 				)}

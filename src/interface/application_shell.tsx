@@ -13,14 +13,44 @@ import type { ReactNode } from "react"
 const TAB_HEIGHT = 42
 
 const sectionTabs = [
-	{ section: "documents", to: "/", label: "All documents", width: 184, highlight: "#a6d3fa" },
-	{ section: "verification", to: "/verification", label: "Pending verification", width: 258, highlight: "#ffc878" },
-	{ section: "settings", to: "/settings", label: "Settings", width: 130, highlight: "#cde582" },
+	{
+		section: "documents",
+		to: "/",
+		label: "All documents",
+		compactLabel: "All documents",
+		width: 184,
+		compactWidth: 150,
+		widthClasses: "w-[150px] lg:w-[184px]",
+		highlight: "#a6d3fa",
+	},
+	{
+		section: "verification",
+		to: "/verification",
+		label: "Pending verification",
+		compactLabel: "Pending",
+		width: 258,
+		compactWidth: 168,
+		widthClasses: "w-[168px] lg:w-[258px]",
+		highlight: "#ffc878",
+	},
+	{
+		section: "settings",
+		to: "/settings",
+		label: "Settings",
+		compactLabel: "Settings",
+		width: 130,
+		compactWidth: 116,
+		widthClasses: "w-[116px] lg:w-[130px]",
+		highlight: "#cde582",
+	},
 ] as const satisfies ReadonlyArray<{
 	section: ArchiveSection
 	to: string
 	label: string
+	compactLabel: string
 	width: number
+	compactWidth: number
+	widthClasses: string
 	highlight: string
 }>
 
@@ -36,39 +66,57 @@ function tabOutline(width: number): string {
 	return `M0 ${height} C9 ${height} 13 36 17 24 C21 10 27 2 40 2 H${width - 40} C${width - 27} 2 ${width - 21} 10 ${width - 17} 24 C${width - 13} 36 ${width - 9} ${height} ${width} ${height}`
 }
 
+function TabShape({
+	tab,
+	width,
+	active,
+	visibility,
+}: {
+	tab: (typeof sectionTabs)[number]
+	width: number
+	active: boolean
+	visibility: string
+}) {
+	const gradientIdentifier = `section-tab-${tab.section}-${width}`
+	return (
+		<svg
+			aria-hidden
+			width={width}
+			height={TAB_HEIGHT}
+			viewBox={`0 0 ${width} ${TAB_HEIGHT}`}
+			className={`absolute inset-0 ${visibility}`}
+		>
+			<defs>
+				<linearGradient id={gradientIdentifier} x1="0" y1="0" x2="0" y2="1">
+					<stop offset="0" stopColor={tab.highlight} />
+					<stop offset="1" stopColor={`var(--color-${tab.section})`} />
+				</linearGradient>
+			</defs>
+			<path
+				d={tabOutline(width)}
+				fill={`url(#${gradientIdentifier})`}
+				stroke={active ? "#ffffff" : "#0e2a52"}
+				strokeOpacity={active ? 0.9 : 0.35}
+				strokeWidth={1.4}
+			/>
+		</svg>
+	)
+}
+
 function SectionTab({ tab, active }: { tab: (typeof sectionTabs)[number]; active: boolean }) {
 	const pendingVerificationCount = useLoaderData({ from: "__root__" })
-	const gradientIdentifier = `section-tab-${tab.section}`
 	return (
 		<Link
 			to={tab.to}
 			aria-current={active ? "page" : undefined}
 			activeOptions={{ exact: true, includeSearch: false }}
-			style={{ width: tab.width, height: TAB_HEIGHT }}
-			className={`relative flex items-center justify-center gap-2 font-bold text-on-accent ${active ? "" : "translate-y-1.5"}`}
+			style={{ height: TAB_HEIGHT }}
+			className={`relative flex items-center justify-center gap-2 font-bold text-on-accent ${tab.widthClasses} ${active ? "" : "translate-y-1.5"}`}
 		>
-			<svg
-				aria-hidden
-				width={tab.width}
-				height={TAB_HEIGHT}
-				viewBox={`0 0 ${tab.width} ${TAB_HEIGHT}`}
-				className="absolute inset-0"
-			>
-				<defs>
-					<linearGradient id={gradientIdentifier} x1="0" y1="0" x2="0" y2="1">
-						<stop offset="0" stopColor={tab.highlight} />
-						<stop offset="1" stopColor={`var(--color-${tab.section})`} />
-					</linearGradient>
-				</defs>
-				<path
-					d={tabOutline(tab.width)}
-					fill={`url(#${gradientIdentifier})`}
-					stroke={active ? "#ffffff" : "#0e2a52"}
-					strokeOpacity={active ? 0.9 : 0.35}
-					strokeWidth={1.4}
-				/>
-			</svg>
-			<span className="relative">{tab.label}</span>
+			<TabShape tab={tab} width={tab.compactWidth} active={active} visibility="lg:hidden" />
+			<TabShape tab={tab} width={tab.width} active={active} visibility="max-lg:hidden" />
+			<span className="relative lg:hidden">{tab.compactLabel}</span>
+			<span className="relative max-lg:hidden">{tab.label}</span>
 			{tab.section === "verification" && pendingVerificationCount > 0 && (
 				<span className="relative inline-flex h-5 min-w-[22px] items-center justify-center rounded-badge bg-surface px-1.5 text-fine font-bold text-verification-badge-text">
 					{pendingVerificationCount}
@@ -81,7 +129,7 @@ function SectionTab({ tab, active }: { tab: (typeof sectionTabs)[number]; active
 function ApplicationHeader({ section }: { section: ArchiveSection }) {
 	return (
 		<header className="overflow-hidden bg-application-header">
-			<div className="flex min-h-15 flex-wrap items-center justify-between gap-x-9 gap-y-1.5 px-3 py-2 md:min-h-[98px] md:items-end md:justify-start md:px-5 md:pt-2.5 md:pb-0">
+			<div className="flex min-h-15 flex-wrap items-center justify-between gap-x-4 gap-y-1.5 px-3 py-2 md:min-h-[76px] md:items-end md:justify-start md:px-5 md:pt-2.5 md:pb-0 lg:min-h-[98px] lg:gap-x-9">
 				<ApplicationLogo />
 				<nav aria-label="Archive sections" className="flex flex-wrap items-end gap-0.5 max-md:hidden">
 					{sectionTabs.map((tab) => (

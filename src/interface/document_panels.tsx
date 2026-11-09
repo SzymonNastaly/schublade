@@ -43,7 +43,7 @@ function PendingVerificationLink({
 export function PhoneVerificationNotice({ document }: { document: ListedDocument }) {
 	if (document.verificationReason === null) return null
 	return (
-		<div className="flex items-center justify-between gap-2.5 rounded-tr-panel rounded-b-field border border-verification-border bg-verification-surface px-3 py-2 text-verification-badge-text md:hidden">
+		<div className="flex items-center justify-between gap-2.5 rounded-tr-panel rounded-b-field border border-verification-border bg-verification-surface px-3 py-2 text-verification-badge-text lg:hidden">
 			<span>
 				<strong>Pending verification.</strong> {verificationPrompts[document.verificationReason]}
 			</span>
@@ -73,7 +73,7 @@ export function DocumentPanels({ document, sender, senderDocuments, onEdit, onDe
 	return (
 		<>
 			{document.verificationReason !== null && (
-				<div className="max-md:hidden">
+				<div className="max-lg:hidden">
 					<SectionPanel section="verification" heading="Pending verification" tinted>
 						<div className="flex flex-col items-start gap-2.5 p-3">
 							<p>{verificationPrompts[document.verificationReason]}</p>

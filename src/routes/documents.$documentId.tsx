@@ -70,7 +70,7 @@ function DocumentWorkspace() {
 					)}
 				</BreadcrumbTrail>
 				<PageColumns
-					panelsFollowOnPhone
+					panelsFollowContent
 					panels={
 						<DocumentPanels
 							document={document}

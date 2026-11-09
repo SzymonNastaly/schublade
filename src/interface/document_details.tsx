@@ -77,7 +77,7 @@ function ExtractedText({ documentId }: { documentId: string }) {
 /** The original file and the extracted text, one at a time. */
 export function DocumentSources({ document }: { document: ListedDocument }) {
 	return (
-		<div className="min-w-0 flex-[3_1_480px]">
+		<div className="min-w-0 flex-[3_1_380px]">
 			<ContentTabs
 				tabs={[
 					{
@@ -103,7 +103,7 @@ interface DocumentDetailsProperties {
 /** The details of a document as a table, or the form that revises them. */
 export function DocumentDetails({ document, facets, editing, onEditingConcluded }: DocumentDetailsProperties) {
 	return (
-		<section aria-label="Details" className="flex min-w-0 flex-[2_1_320px] flex-col gap-3">
+		<section aria-label="Details" className="flex min-w-0 flex-[2_1_280px] flex-col gap-3">
 			<SectionHeading>Details</SectionHeading>
 			{editing ? (
 				<DocumentRevisionForm document={document} facets={facets} onConcluded={onEditingConcluded} />

@@ -5,7 +5,7 @@ const WORDMARK_OUTLINE =
 
 function DrawerEmblem() {
 	return (
-		<svg aria-hidden viewBox="0 0 72 64" fill="none" className="h-[39px] w-11 md:h-[60px] md:w-[68px]">
+		<svg aria-hidden viewBox="0 0 72 64" fill="none" className="h-[39px] w-11 lg:h-[60px] lg:w-[68px]">
 			<g stroke="#0b2447" strokeLinejoin="round">
 				<path d="M6 34 L14 24 H52 L60 34 Z" fill="#c46f10" strokeWidth="2.4" />
 				<path d="M21 36 L24 8 L50 11 L47 36 Z" fill="#ffffff" strokeWidth="2.2" />
@@ -23,14 +23,14 @@ export function ApplicationLogo() {
 		<Link
 			to="/"
 			aria-label="Schublade, all documents"
-			className="flex items-center gap-2 text-on-header md:gap-2.5 md:pb-2.5"
+			className="flex items-center gap-2 text-on-header md:pb-2 lg:gap-2.5 lg:pb-2.5"
 		>
 			<DrawerEmblem />
 			<span className="flex flex-col gap-1">
-				<svg aria-hidden viewBox="3 20 442 62" fill="currentColor" className="h-[22px] w-auto md:h-8">
+				<svg aria-hidden viewBox="3 20 442 62" fill="currentColor" className="h-[22px] w-auto lg:h-8">
 					<path d={WORDMARK_OUTLINE} />
 				</svg>
-				<span className="hidden border-t-2 border-dotted border-on-header/65 pt-1 text-[10px] font-bold tracking-[1.4px] text-header-caption md:block">
+				<span className="hidden border-t-2 border-dotted border-on-header/65 pt-1 text-[10px] font-bold tracking-[1.4px] text-header-caption lg:block">
 					LETTERS · INVOICES · RECEIPTS
 				</span>
 			</span>

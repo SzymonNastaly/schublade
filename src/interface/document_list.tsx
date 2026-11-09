@@ -46,7 +46,7 @@ function MatchingPassage({ document }: { document: RetrievedDocument }) {
 export function DocumentList({ documents }: { documents: Array<RetrievedDocument> }) {
 	return (
 		<>
-			<ul className="flex flex-col md:hidden">
+			<ul className="flex flex-col @xl:hidden">
 				{documents.map((document) => (
 					<li key={document.id}>
 						<Link
@@ -72,7 +72,7 @@ export function DocumentList({ documents }: { documents: Array<RetrievedDocument
 					</li>
 				))}
 			</ul>
-			<table className="w-full table-fixed border-collapse max-md:hidden">
+			<table className="hidden w-full table-fixed border-collapse @xl:table">
 				<thead>
 					<tr className="border-b border-table-rule text-left text-fine text-caption">
 						<th className="w-[13px]" />
@@ -80,8 +80,8 @@ export function DocumentList({ documents }: { documents: Array<RetrievedDocument
 							<span className="sr-only">Preview</span>
 						</th>
 						<th className="py-2 pr-3 font-bold">Document</th>
-						<th className="w-[132px] py-2 pr-3 font-bold">Category</th>
-						<th className="w-[142px] py-2 pr-3 font-bold">Person</th>
+						<th className="hidden w-[132px] py-2 pr-3 font-bold @2xl:table-cell">Category</th>
+						<th className="hidden w-[142px] py-2 pr-3 font-bold @4xl:table-cell">Person</th>
 						<th className="w-[108px] py-2 pr-3 font-bold">Date</th>
 						<th className="w-[104px] py-2 pr-3.5 text-right font-bold">Amount</th>
 					</tr>
@@ -109,13 +109,15 @@ export function DocumentList({ documents }: { documents: Array<RetrievedDocument
 									</Link>
 									<span className="flex flex-wrap items-center gap-2 text-fine text-caption">
 										{document.senderName !== null && <span>from {document.senderName}</span>}
+										<span className="@4xl:hidden">{personLabel(document)}</span>
+										<span className="@2xl:hidden">{document.categoryName}</span>
 										<DocumentStateBadge document={document} />
 									</span>
 									<MatchingPassage document={document} />
 								</span>
 							</td>
-							<td className="py-2 pr-3 break-words">{document.categoryName}</td>
-							<td className="py-2 pr-3 break-words">{personLabel(document)}</td>
+							<td className="hidden py-2 pr-3 break-words @2xl:table-cell">{document.categoryName}</td>
+							<td className="hidden py-2 pr-3 break-words @4xl:table-cell">{personLabel(document)}</td>
 							<td className="py-2 pr-3 whitespace-nowrap tabular-nums">{dateLabel(document)}</td>
 							<td className="py-2 pr-3.5 text-right whitespace-nowrap tabular-nums">{primaryAmount(document)}</td>
 						</tr>

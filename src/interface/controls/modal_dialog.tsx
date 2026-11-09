@@ -30,7 +30,7 @@ export function ModalDialog({
 				<Dialog.Backdrop className="fixed inset-0 bg-dialog-backdrop" />
 				<Dialog.Popup
 					role={alert ? "alertdialog" : "dialog"}
-					className="fixed inset-x-0 bottom-0 max-h-[85dvh] overflow-y-auto rounded-tr-panel bg-surface pb-[env(safe-area-inset-bottom)] shadow-dialog md:inset-x-auto md:top-44 md:bottom-auto md:left-1/2 md:w-full md:max-w-[480px] md:-translate-x-1/2 md:rounded-b-field md:pb-0"
+					className="fixed inset-x-0 bottom-0 max-h-[85dvh] overflow-y-auto rounded-tr-panel bg-surface pb-[env(safe-area-inset-bottom)] shadow-dialog md:inset-x-auto md:top-44 md:bottom-auto md:left-1/2 md:max-h-[calc(100dvh-13rem)] md:w-full md:max-w-[480px] md:-translate-x-1/2 md:rounded-b-field md:pb-0"
 				>
 					<Dialog.Title className={`px-3.5 py-2.5 text-sm font-bold ${panelHeadingClasses(section)}`}>
 						{title}

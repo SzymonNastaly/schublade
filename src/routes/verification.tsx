@@ -121,7 +121,7 @@ function PendingVerificationPage() {
 							)}
 						</div>
 						<div>
-							<div className="md:hidden">
+							<div className="lg:hidden">
 								<FilterTabs label="Show entries for">
 									{filterOptions.map((option) => (
 										<FilterTab

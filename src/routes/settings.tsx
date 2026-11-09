@@ -46,11 +46,11 @@ const levelLabels: Record<ApiTokenListing["level"], string> = {
 }
 
 const headerCell = "py-2 pr-3 text-left font-bold first:pl-3.5"
-const bodyCell = "py-1.5 pr-3 first:pl-3.5 max-md:py-0.5 max-md:pl-3.5 max-md:text-fine max-md:text-caption"
+const bodyCell = "py-1.5 pr-3 first:pl-3.5 @max-2xl:py-0.5 @max-2xl:pl-3.5 @max-2xl:text-fine @max-2xl:text-caption"
 const primaryBodyCell =
-	"py-1.5 pr-3 font-bold wrap-anywhere first:pl-3.5 max-md:py-0.5 max-md:pl-3.5 max-md:text-body max-md:text-foreground"
-const bodyRow = "border-b border-dotted border-row-rule max-md:flex max-md:flex-col max-md:py-2.5"
-const actionCell = "py-1.5 pr-3.5 md:text-right max-md:pt-2 max-md:pl-3.5"
+	"py-1.5 pr-3 font-bold wrap-anywhere first:pl-3.5 @max-2xl:py-0.5 @max-2xl:pl-3.5 @max-2xl:text-body @max-2xl:text-foreground"
+const bodyRow = "border-b border-dotted border-row-rule @max-2xl:flex @max-2xl:flex-col @max-2xl:py-2.5"
+const actionCell = "py-1.5 pr-3.5 @2xl:text-right @max-2xl:pt-2 @max-2xl:pl-3.5"
 
 function formatTime(time: Date | null): string {
 	return time === null ? "Never" : formatTimestamp(time)
@@ -60,8 +60,8 @@ function formatTime(time: Date | null): string {
 function RecordTable({ headings, children }: { headings: Array<string>; children: ReactNode }) {
 	return (
 		<ListFrame>
-			<table className="w-full border-collapse max-md:block">
-				<thead className="max-md:hidden">
+			<table className="w-full border-collapse @max-2xl:block">
+				<thead className="@max-2xl:hidden">
 					<tr className="border-b border-table-rule text-fine text-caption">
 						{headings.map((heading) => (
 							<th key={heading} className={headerCell}>
@@ -71,14 +71,14 @@ function RecordTable({ headings, children }: { headings: Array<string>; children
 						<th />
 					</tr>
 				</thead>
-				<tbody className="max-md:block">{children}</tbody>
+				<tbody className="@max-2xl:block">{children}</tbody>
 			</table>
 		</ListFrame>
 	)
 }
 
 function PhoneCaption({ children }: { children: string }) {
-	return <span className="md:hidden">{children} </span>
+	return <span className="@2xl:hidden">{children} </span>
 }
 
 function TokenIssuance() {
