@@ -51,3 +51,33 @@ export function activeFilters(criteria: SearchCriteria, facets: ArchiveFacets): 
 		return value === undefined ? [] : [{ criterion, label: filterLabel(criterion, value, facets) }]
 	})
 }
+
+const COLLAPSED_OPTION_COUNT = 6
+
+interface FacetPanelState {
+	expanded: boolean
+	searchText: string
+	selected: string | undefined
+}
+
+/**
+ * The options a panel lists, those with the most documents first. A collapsed panel keeps the
+ * selected option in view even when it would not have made the cut.
+ */
+export function visibleFacetOptions(
+	options: ReadonlyArray<FacetOption>,
+	{ expanded, searchText, selected }: FacetPanelState,
+): { visible: Array<FacetOption>; collapsible: boolean } {
+	const ranked = [...options].sort(
+		(first, second) => second.documentCount - first.documentCount || first.name.localeCompare(second.name),
+	)
+	const collapsible = ranked.length > COLLAPSED_OPTION_COUNT
+	if (expanded) {
+		const needle = searchText.trim().toLocaleLowerCase()
+		return { visible: ranked.filter((option) => option.name.toLocaleLowerCase().includes(needle)), collapsible }
+	}
+	const leading = ranked.slice(0, COLLAPSED_OPTION_COUNT)
+	const selectedOption = ranked.find((option) => option.id === selected)
+	const selectedIsHidden = selectedOption !== undefined && !leading.includes(selectedOption)
+	return { visible: selectedIsHidden ? [...leading, selectedOption] : leading, collapsible }
+}

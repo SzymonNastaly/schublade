@@ -1,7 +1,7 @@
 import { normalizeTaxonomyName } from "../ingestion/taxonomy_resolution"
 import { documentFailureSentences } from "./document_status_presentation"
-import type { BadgeVariant } from "@cloudflare/kumo"
 import type { VerificationDocument, VerificationItem } from "../archive/verification_items"
+import type { BadgeTone } from "./controls/status_badge"
 import type { RequiredFieldKey } from "../ingestion/verification_assessment"
 
 /** Identifies an entry across reloads of the list, so a review keeps its place as entries resolve. */
@@ -20,7 +20,7 @@ export const requiredFieldLabels: Record<RequiredFieldKey, string> = {
 }
 
 interface VerificationEntrySummary {
-	badge: { label: string; variant: BadgeVariant }
+	badge: { label: string; tone: BadgeTone }
 	subject: string
 	note: string
 }
@@ -29,13 +29,13 @@ export function summarizeVerificationEntry(item: VerificationItem): Verification
 	switch (item.reason) {
 		case "new_taxonomy_record":
 			return {
-				badge: { label: `New ${item.record.kind}`, variant: "info" },
+				badge: { label: `New ${item.record.kind}`, tone: "verification" },
 				subject: item.record.name,
 				note: documentCountLabel(item.documents.length),
 			}
 		case "illegible_required_field":
 			return {
-				badge: { label: "Unreadable field", variant: "warning" },
+				badge: { label: "Unreadable field", tone: "verification" },
 				subject: item.document.title ?? "Untitled document",
 				note: item.illegibleFields
 					.map(({ fieldKey, value }) => `${requiredFieldLabels[fieldKey]} is ${value === null ? "missing" : "unclear"}`)
@@ -43,13 +43,13 @@ export function summarizeVerificationEntry(item: VerificationItem): Verification
 			}
 		case "non_archival_attachment":
 			return {
-				badge: { label: "Non-archival attachment", variant: "secondary" },
+				badge: { label: "Non-archival attachment", tone: "verification" },
 				subject: item.document.title ?? "Untitled document",
 				note: "Looks like boilerplate",
 			}
 		case "failed_ingestion":
 			return {
-				badge: { label: "Failed", variant: "error" },
+				badge: { label: "Failed", tone: "failure" },
 				subject: item.document.title ?? "Untitled document",
 				note: documentFailureSentences[item.failureReason],
 			}

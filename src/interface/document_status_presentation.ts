@@ -1,14 +1,14 @@
-import type { BadgeVariant } from "@cloudflare/kumo"
 import type { DocumentFailureReason, DocumentStatus } from "../ingestion/document_lifecycle"
+import type { BadgeTone } from "./controls/status_badge"
 
-export const documentStatusBadges: Record<DocumentStatus, { label: string; variant: BadgeVariant }> = {
-	awaiting_rendering: { label: "Rendering email", variant: "secondary" },
-	processing: { label: "Processing", variant: "secondary" },
-	extracting: { label: "Extracting", variant: "info" },
-	recognizing_text: { label: "Recognizing text", variant: "info" },
-	classifying: { label: "Classifying", variant: "info" },
-	archived: { label: "Archived", variant: "success" },
-	failed: { label: "Failed", variant: "error" },
+export const documentStatusBadges: Record<DocumentStatus, { label: string; tone: BadgeTone }> = {
+	awaiting_rendering: { label: "Rendering email", tone: "neutral" },
+	processing: { label: "Processing", tone: "neutral" },
+	extracting: { label: "Extracting", tone: "processing" },
+	recognizing_text: { label: "Recognizing text", tone: "processing" },
+	classifying: { label: "Classifying", tone: "processing" },
+	archived: { label: "Archived", tone: "success" },
+	failed: { label: "Failed", tone: "failure" },
 }
 
 export const documentFailureSentences: Record<DocumentFailureReason, string> = {

@@ -4,10 +4,10 @@ import { useState } from "react"
 /** A small picture of the document's first page, or a file icon when there is none. */
 export function DocumentThumbnail({ documentId, className }: { documentId: string; className: string }) {
 	const [unavailable, setUnavailable] = useState(false)
-	const frame = `${className} flex-none rounded border border-kumo-hairline`
+	const frame = `${className} flex-none rounded-xs border border-outline shadow-thumbnail`
 	if (unavailable) {
 		return (
-			<span className={`${frame} flex items-center justify-center bg-kumo-tint text-kumo-subtle`}>
+			<span className={`${frame} flex items-center justify-center bg-table-label text-caption`}>
 				<FileIcon size={16} />
 			</span>
 		)
@@ -17,7 +17,7 @@ export function DocumentThumbnail({ documentId, className }: { documentId: strin
 			src={`/api/documents/${documentId}/thumbnail`}
 			alt=""
 			loading="lazy"
-			className={`${frame} bg-white object-cover object-top`}
+			className={`${frame} bg-surface object-cover object-top`}
 			// An image that failed during server rendering has already fired its error before hydration.
 			ref={(image) => {
 				if (image?.complete && image.naturalWidth === 0) setUnavailable(true)

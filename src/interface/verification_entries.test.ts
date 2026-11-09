@@ -106,7 +106,7 @@ test("an unreadable field entry notes each field as missing when it has no value
 	}
 
 	expect(summarizeVerificationEntry(item)).toEqual({
-		badge: { label: "Unreadable field", variant: "warning" },
+		badge: { label: "Unreadable field", tone: "verification" },
 		subject: "Untitled document",
 		note: "Document date is missing · Amount is unclear",
 	})

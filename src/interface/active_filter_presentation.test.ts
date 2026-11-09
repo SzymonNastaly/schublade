@@ -1,5 +1,5 @@
 import { expect, test } from "vitest"
-import { activeFilters } from "./active_filter_presentation"
+import { activeFilters, visibleFacetOptions } from "./active_filter_presentation"
 import type { ArchiveFacets } from "../archive/document_listing"
 
 const facets: ArchiveFacets = {
@@ -46,4 +46,24 @@ test("a filter on a value no facet holds stays removable", () => {
 	expect(activeFilters({ sender: "sender-absent" }, facets)).toEqual([
 		{ criterion: "sender", label: "Sender: Not found" },
 	])
+})
+
+test("a collapsed facet panel lists the fullest options and keeps the selected one in view", () => {
+	const options = ["A", "B", "C", "D", "E", "F", "G", "H"].map((name, index) => ({
+		id: name,
+		name,
+		documentCount: 8 - index,
+	}))
+	const { visible, collapsible } = visibleFacetOptions(options, { expanded: false, searchText: "", selected: "H" })
+	expect(visible.map((option) => option.name)).toEqual(["A", "B", "C", "D", "E", "F", "H"])
+	expect(collapsible).toBe(true)
+})
+
+test("an expanded facet panel lists every option whose name holds the search text", () => {
+	const options = [
+		{ id: "1", name: "Stadtwerke Talbrück", documentCount: 2 },
+		{ id: "2", name: "Mühlbach Bank", documentCount: 5 },
+	]
+	const { visible } = visibleFacetOptions(options, { expanded: true, searchText: "talb", selected: undefined })
+	expect(visible.map((option) => option.name)).toEqual(["Stadtwerke Talbrück"])
 })

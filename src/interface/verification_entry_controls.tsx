@@ -1,4 +1,4 @@
-import { Badge, Banner, Button, Input, LayerCard, Select, Text } from "@cloudflare/kumo"
+import { Banner, Button, Input, LayerCard, Select, Text } from "@cloudflare/kumo"
 import { CaretRightIcon, CheckIcon, GitMergeIcon, PencilSimpleIcon, TrashIcon } from "@phosphor-icons/react"
 import { useMutation } from "@tanstack/react-query"
 import { Link, useRouter } from "@tanstack/react-router"
@@ -12,6 +12,7 @@ import {
 	submitTaxonomyRename,
 } from "../utilities/server_functions"
 import { ActionConfirmation, documentDeletionDescription, touchSized } from "./action_confirmation"
+import { StatusBadge } from "./controls/status_badge"
 import { formatDocumentDate } from "./document_formatting"
 import { documentFailureSentences } from "./document_status_presentation"
 import { FailedDocumentActions } from "./upload_tray"
@@ -64,8 +65,8 @@ function DocumentLink({ document }: { document: VerificationDocument }) {
 }
 
 function EntryBadge({ item }: { item: VerificationItem }) {
-	const { label, variant } = summarizeVerificationEntry(item).badge
-	return <Badge variant={variant}>{label}</Badge>
+	const { label, tone } = summarizeVerificationEntry(item).badge
+	return <StatusBadge tone={tone}>{label}</StatusBadge>
 }
 
 function EntryCard({ heading, children, error }: { heading: ReactNode; children: ReactNode; error: Error | null }) {

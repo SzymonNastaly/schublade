@@ -1,9 +1,8 @@
-import { Badge, Table, Text } from "@cloudflare/kumo"
 import { Link } from "@tanstack/react-router"
+import { StatusBadge } from "./controls/status_badge"
 import { formatAmount, formatDocumentDate } from "./document_formatting"
 import { documentStatusBadges } from "./document_status_presentation"
 import { DocumentThumbnail } from "./document_thumbnail"
-import type { DocumentStatus } from "../ingestion/document_lifecycle"
 import type { RetrievedDocument } from "../search/document_search"
 
 function primaryAmount(document: RetrievedDocument): string {
@@ -22,98 +21,107 @@ function dateLabel(document: RetrievedDocument): string {
 	return document.documentDate === null ? "" : formatDocumentDate(document.documentDate)
 }
 
-function UnfinishedStatus({ status }: { status: DocumentStatus }) {
-	if (status === "archived") return null
-	return <Badge variant={documentStatusBadges[status].variant}>{documentStatusBadges[status].label}</Badge>
+/** Orange asks for the member's attention, blue is still at work, and red has failed. */
+function rowEdgeColour(document: RetrievedDocument): string {
+	if (document.status === "failed") return "bg-failure"
+	if (document.status !== "archived") return "bg-documents"
+	return document.verificationReason === null ? "bg-row-edge" : "bg-verification"
+}
+
+function DocumentStateBadge({ document }: { document: RetrievedDocument }) {
+	if (document.status !== "archived") {
+		const badge = documentStatusBadges[document.status]
+		return <StatusBadge tone={badge.tone}>{badge.label}</StatusBadge>
+	}
+	if (document.verificationReason === null) return null
+	return <StatusBadge tone="verification">Pending verification</StatusBadge>
+}
+
+function MatchingPassage({ document }: { document: RetrievedDocument }) {
+	if (document.matchingPassage === null) return null
+	return <span className="line-clamp-2 text-fine break-words text-caption">{document.matchingPassage}</span>
 }
 
 /** A stacked row per document below the md breakpoint, and a table from md upward. Every row opens its document. */
 export function DocumentList({ documents }: { documents: Array<RetrievedDocument> }) {
 	return (
 		<>
-			<ul className="-mx-2 flex flex-col md:hidden">
+			<ul className="flex flex-col md:hidden">
 				{documents.map((document) => (
 					<li key={document.id}>
 						<Link
 							to="/documents/$documentId"
 							params={{ documentId: document.id }}
-							className="flex w-full min-w-0 items-start gap-3 rounded-lg px-2 py-3 text-left active:bg-kumo-tint"
+							className="flex items-stretch gap-2.5 border-b border-dotted border-row-rule py-2.5 pr-3 pl-1.5"
 						>
-							<DocumentThumbnail documentId={document.id} className="h-[58px] w-[42px]" />
-							<span className="flex min-w-0 flex-1 flex-col gap-1">
-								<span className="flex items-start justify-between gap-2">
-									<span className="min-w-0 font-medium break-words">{document.title ?? "Untitled document"}</span>
-									<UnfinishedStatus status={document.status} />
+							<span className={`w-[5px] flex-none rounded-[3px] ${rowEdgeColour(document)}`} />
+							<DocumentThumbnail documentId={document.id} className="h-12 w-9 self-start" />
+							<span className="flex min-w-0 flex-1 flex-col gap-0.5">
+								<span className="text-sm font-bold break-words text-link">{document.title ?? "Untitled document"}</span>
+								<span className="text-fine break-words text-caption">{document.senderName}</span>
+								<span className="flex justify-between gap-2 text-fine text-caption">
+									<span>{[dateLabel(document), personLabel(document)].filter(Boolean).join(" · ")}</span>
+									<span className="font-bold whitespace-nowrap text-foreground">{primaryAmount(document)}</span>
 								</span>
-								<span className="flex flex-wrap gap-x-3 gap-y-0.5 text-sm text-kumo-subtle">
-									{[document.senderName, dateLabel(document), personLabel(document), primaryAmount(document)]
-										.filter((detail) => detail !== null && detail !== "")
-										.map((detail, index) => (
-											<span key={index} className="min-w-0 break-words tabular-nums">
-												{detail}
-											</span>
-										))}
+								<span>
+									<DocumentStateBadge document={document} />
 								</span>
-								{document.matchingPassage !== null && (
-									<Text variant="secondary" size="sm" as="span">
-										<span className="line-clamp-3 break-words">{document.matchingPassage}</span>
-									</Text>
-								)}
+								<MatchingPassage document={document} />
 							</span>
 						</Link>
 					</li>
 				))}
 			</ul>
-			<div className="hidden md:block">
-				<Table>
-					<Table.Header>
-						<Table.Row>
-							<Table.Head>
-								<span className="sr-only">Preview</span>
-							</Table.Head>
-							<Table.Head>Date</Table.Head>
-							<Table.Head>Sender</Table.Head>
-							<Table.Head>Title</Table.Head>
-							<Table.Head>Person</Table.Head>
-							<Table.Head>Category</Table.Head>
-							<Table.Head>Amount</Table.Head>
-						</Table.Row>
-					</Table.Header>
-					<Table.Body>
-						{documents.map((document) => (
-							<Table.Row key={document.id} className="relative cursor-pointer hover:bg-kumo-tint">
-								<Table.Cell>
-									<DocumentThumbnail documentId={document.id} className="block h-[38px] w-[28px]" />
-								</Table.Cell>
-								<Table.Cell className="whitespace-nowrap tabular-nums">{dateLabel(document)}</Table.Cell>
-								<Table.Cell>{document.senderName}</Table.Cell>
-								<Table.Cell>
-									<span className="flex flex-col gap-1">
-										<span className="flex items-center gap-2">
-											<Link
-												to="/documents/$documentId"
-												params={{ documentId: document.id }}
-												className="after:absolute after:inset-0"
-											>
-												{document.title ?? "Untitled document"}
-											</Link>
-											<UnfinishedStatus status={document.status} />
-										</span>
-										{document.matchingPassage !== null && (
-											<Text variant="secondary" size="sm" as="span">
-												<span className="line-clamp-2">{document.matchingPassage}</span>
-											</Text>
-										)}
+			<table className="w-full table-fixed border-collapse max-md:hidden">
+				<thead>
+					<tr className="border-b border-table-rule text-left text-fine text-caption">
+						<th className="w-[13px]" />
+						<th className="w-[52px]">
+							<span className="sr-only">Preview</span>
+						</th>
+						<th className="py-2 pr-3 font-bold">Document</th>
+						<th className="w-[132px] py-2 pr-3 font-bold">Category</th>
+						<th className="w-[142px] py-2 pr-3 font-bold">Person</th>
+						<th className="w-[108px] py-2 pr-3 font-bold">Date</th>
+						<th className="w-[104px] py-2 pr-3.5 text-right font-bold">Amount</th>
+					</tr>
+				</thead>
+				<tbody>
+					{documents.map((document) => (
+						<tr
+							key={document.id}
+							className="relative cursor-pointer border-b border-dotted border-row-rule hover:bg-row-hover"
+						>
+							<td className="py-2 pl-2">
+								<span className={`block h-11 w-[5px] rounded-[3px] ${rowEdgeColour(document)}`} />
+							</td>
+							<td className="py-2 pl-1.5">
+								<DocumentThumbnail documentId={document.id} className="block h-[46px] w-[34px]" />
+							</td>
+							<td className="py-2 pr-3">
+								<span className="flex min-w-0 flex-col gap-0.5">
+									<Link
+										to="/documents/$documentId"
+										params={{ documentId: document.id }}
+										className="text-[13.5px] font-bold break-words text-link after:absolute after:inset-0"
+									>
+										{document.title ?? "Untitled document"}
+									</Link>
+									<span className="flex flex-wrap items-center gap-2 text-fine text-caption">
+										{document.senderName !== null && <span>from {document.senderName}</span>}
+										<DocumentStateBadge document={document} />
 									</span>
-								</Table.Cell>
-								<Table.Cell>{personLabel(document)}</Table.Cell>
-								<Table.Cell>{document.categoryName}</Table.Cell>
-								<Table.Cell className="text-right whitespace-nowrap tabular-nums">{primaryAmount(document)}</Table.Cell>
-							</Table.Row>
-						))}
-					</Table.Body>
-				</Table>
-			</div>
+									<MatchingPassage document={document} />
+								</span>
+							</td>
+							<td className="py-2 pr-3 break-words">{document.categoryName}</td>
+							<td className="py-2 pr-3 break-words">{personLabel(document)}</td>
+							<td className="py-2 pr-3 whitespace-nowrap tabular-nums">{dateLabel(document)}</td>
+							<td className="py-2 pr-3.5 text-right whitespace-nowrap tabular-nums">{primaryAmount(document)}</td>
+						</tr>
+					))}
+				</tbody>
+			</table>
 		</>
 	)
 }

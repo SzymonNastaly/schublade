@@ -1,4 +1,4 @@
-import { Badge, Button, Text } from "@cloudflare/kumo"
+import { Button, Text } from "@cloudflare/kumo"
 import { ArrowClockwiseIcon, TrashIcon, XIcon } from "@phosphor-icons/react"
 import { useMutation } from "@tanstack/react-query"
 import { Link, useRouter } from "@tanstack/react-router"
@@ -6,6 +6,7 @@ import { createContext, useContext, useEffect, useReducer } from "react"
 import { isSettledStatus } from "../ingestion/document_lifecycle"
 import { submitDocumentDeletion, submitDocumentIngestionRetry } from "../utilities/server_functions"
 import { ActionConfirmation, documentDeletionDescription } from "./action_confirmation"
+import { StatusBadge } from "./controls/status_badge"
 import { documentFailureSentences, documentStatusBadges } from "./document_status_presentation"
 import { useDocumentStatusUpdates } from "./document_status_updates"
 import { isFinishedUpload, reduceTrackedUploads, unfinishedDocumentIds } from "./tracked_uploads"
@@ -153,7 +154,7 @@ function TrackedDocumentRow({ upload }: { upload: Extract<TrackedUpload, { stage
 			)
 		case "failed":
 			return (
-				<RowFrame name={name} trailing={<Badge variant={badge.variant}>{badge.label}</Badge>}>
+				<RowFrame name={name} trailing={<StatusBadge tone={badge.tone}>{badge.label}</StatusBadge>}>
 					<Text variant="secondary" size="sm">
 						{documentFailureSentences[upload.failureReason ?? "processing_error"]}
 					</Text>
@@ -161,7 +162,7 @@ function TrackedDocumentRow({ upload }: { upload: Extract<TrackedUpload, { stage
 				</RowFrame>
 			)
 		default:
-			return <RowFrame name={name} trailing={<Badge variant={badge.variant}>{badge.label}</Badge>} />
+			return <RowFrame name={name} trailing={<StatusBadge tone={badge.tone}>{badge.label}</StatusBadge>} />
 	}
 }
 
@@ -169,7 +170,7 @@ function UploadRow({ upload }: { upload: TrackedUpload }) {
 	const { dispatch } = useDocumentUploads()
 	switch (upload.stage) {
 		case "uploading":
-			return <RowFrame name={upload.fileName} trailing={<Badge variant="secondary">Uploading</Badge>} />
+			return <RowFrame name={upload.fileName} trailing={<StatusBadge tone="neutral">Uploading</StatusBadge>} />
 		case "refused":
 			return (
 				<RowFrame

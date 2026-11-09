@@ -1,8 +1,9 @@
-import { Badge, Button, Empty, Text } from "@cloudflare/kumo"
+import { Button, Empty, Text } from "@cloudflare/kumo"
 import { SealCheckIcon } from "@phosphor-icons/react"
 import { Link, createFileRoute } from "@tanstack/react-router"
 import { useState } from "react"
 import { touchSized } from "../interface/action_confirmation"
+import { StatusBadge } from "../interface/controls/status_badge"
 import { DocumentThumbnail } from "../interface/document_thumbnail"
 import { NewSenderConfirmation } from "../interface/new_sender_confirmation"
 import {
@@ -31,7 +32,7 @@ function EntryRow({ item }: { item: VerificationItem }) {
 			>
 				{document !== undefined && <DocumentThumbnail documentId={document.id} className="h-[58px] w-[42px]" />}
 				<span className="flex min-w-0 flex-1 flex-wrap items-center gap-x-3 gap-y-1">
-					<Badge variant={badge.variant}>{badge.label}</Badge>
+					<StatusBadge tone={badge.tone}>{badge.label}</StatusBadge>
 					<span className="min-w-0 font-medium wrap-anywhere">{subject}</span>
 					<span className="text-sm text-kumo-subtle">{note}</span>
 				</span>
