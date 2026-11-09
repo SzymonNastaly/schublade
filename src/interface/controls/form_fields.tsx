@@ -24,10 +24,7 @@ interface SelectionFieldProperties extends Omit<SelectHTMLAttributes<HTMLSelectE
 	placeholder?: string
 }
 
-/**
- * A native select, so a phone offers its own picker and a keyboard can type ahead.
- * @public
- */
+/** A native select, so a phone offers its own picker and a keyboard can type ahead. */
 export function SelectionField({ label, options, placeholder, ...select }: SelectionFieldProperties) {
 	return (
 		<label className={fieldLabelClasses}>
@@ -44,7 +41,6 @@ export function SelectionField({ label, options, placeholder, ...select }: Selec
 	)
 }
 
-/** @public */
 export function FailureMessage({ children }: { children: ReactNode }) {
 	return (
 		<p role="alert" className="text-failure-text">

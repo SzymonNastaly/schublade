@@ -1,26 +1,23 @@
-import { Button, Dialog, Text } from "@cloudflare/kumo"
 import { useMutation } from "@tanstack/react-query"
 import { useState } from "react"
-import type { Icon } from "@phosphor-icons/react"
+import { ActionButton } from "./controls/action_button"
+import { FailureMessage } from "./controls/form_fields"
+import { ModalDialog } from "./controls/modal_dialog"
+import type { ArchiveSection } from "./archive_sections"
 import type { ComponentProps, ReactNode } from "react"
-
-type ButtonVariant = ComponentProps<typeof Button>["variant"]
 
 // Full width and 44 pixels high below md, where a finger operates them.
 export const touchSized = "w-full max-md:h-11 md:w-auto"
 
 interface ActionConfirmationProperties {
-	/** The label of the button that opens the dialog. */
-	label: ReactNode
-	icon: Icon
-	variant: ButtonVariant
-	disabled?: boolean
-	className?: string
+	/** The control that opens the dialog. */
+	trigger: (open: () => void) => ReactNode
+	section?: ArchiveSection
 	title: string
 	/** What the action does, named so the member can decide before anything changes. */
 	description: ReactNode
 	confirmationLabel: string
-	confirmationVariant: ButtonVariant
+	confirmationVariant: ComponentProps<typeof ActionButton>["variant"]
 	action: () => Promise<unknown>
 	onCompleted: () => unknown
 }
@@ -30,13 +27,10 @@ export function documentDeletionDescription(title: string | null): string {
 	return `Schublade deletes the original file, the extracted text, the search entry, and every field of “${title ?? "Untitled document"}”. You cannot undo this.`
 }
 
-/** A button for an action that cannot be undone, which runs the action only after the member confirms it in a dialog. */
+/** A control for an action that cannot be undone, which runs the action only after the member confirms it in a dialog. */
 export function ActionConfirmation({
-	label,
-	icon,
-	variant,
-	disabled,
-	className = touchSized,
+	trigger,
+	section = "documents",
 	title,
 	description,
 	confirmationLabel,
@@ -53,29 +47,24 @@ export function ActionConfirmation({
 		},
 	})
 	return (
-		<Dialog.Root role="alertdialog" open={open} onOpenChange={setOpen}>
-			<Button variant={variant} icon={icon} className={className} disabled={disabled} onClick={() => setOpen(true)}>
-				{label}
-			</Button>
-			<Dialog size="base" className="flex flex-col gap-4 p-6">
-				<Dialog.Title className="text-lg font-semibold">{title}</Dialog.Title>
-				<Dialog.Description className="text-kumo-subtle">{description}</Dialog.Description>
-				{mutation.isError && <Text variant="error">{mutation.error.message}</Text>}
+		<>
+			{trigger(() => setOpen(true))}
+			<ModalDialog open={open} onOpenChange={setOpen} section={section} title={title} description={description} alert>
+				{mutation.isError && <FailureMessage>{mutation.error.message}</FailureMessage>}
 				<div className="flex flex-col-reverse gap-2 md:flex-row md:justify-end">
-					<Button variant="secondary" className={touchSized} onClick={() => setOpen(false)}>
+					<ActionButton variant="secondary" stretchOnPhone onClick={() => setOpen(false)}>
 						Cancel
-					</Button>
-					<Button
+					</ActionButton>
+					<ActionButton
 						variant={confirmationVariant}
-						icon={icon}
-						className={touchSized}
-						loading={mutation.isPending}
+						stretchOnPhone
+						pending={mutation.isPending}
 						onClick={() => mutation.mutate()}
 					>
 						{confirmationLabel}
-					</Button>
+					</ActionButton>
 				</div>
-			</Dialog>
-		</Dialog.Root>
+			</ModalDialog>
+		</>
 	)
 }

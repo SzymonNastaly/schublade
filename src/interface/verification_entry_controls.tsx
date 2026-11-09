@@ -102,11 +102,17 @@ function MergeConfirmation({
 	const targetName = target?.name ?? ""
 	return (
 		<ActionConfirmation
-			label={label}
-			icon={GitMergeIcon}
-			variant={variant}
-			className={className}
-			disabled={target === undefined}
+			trigger={(open) => (
+				<Button
+					variant={variant}
+					icon={GitMergeIcon}
+					className={className}
+					disabled={target === undefined}
+					onClick={open}
+				>
+					{label}
+				</Button>
+			)}
 			title={`Merge ${record.name} into ${targetName}?`}
 			description={`${movedDocumentCount(item.documents.length)} from the ${kindLabel} ${record.name} to ${targetName}. Schublade then deletes ${record.name} and confirms ${targetName}. You cannot undo this.`}
 			confirmationLabel="Merge"
@@ -237,9 +243,11 @@ function NewRecordEntry({
 				)}
 				{item.documents.length === 0 && (
 					<ActionConfirmation
-						label={`Delete ${label}`}
-						icon={TrashIcon}
-						variant="secondary-destructive"
+						trigger={(open) => (
+							<Button variant="secondary-destructive" icon={TrashIcon} className={touchSized} onClick={open}>
+								Delete {label}
+							</Button>
+						)}
 						title={`Delete the ${label} ${record.name}?`}
 						description={`No document refers to ${record.name}, so Schublade deletes the ${label} and nothing else. You cannot undo this.`}
 						confirmationLabel="Delete"
@@ -336,9 +344,11 @@ function NonArchivalEntry({ item }: { item: Extract<VerificationItem, { reason: 
 			</Text>
 			<div className="flex flex-col gap-2 md:flex-row">
 				<ActionConfirmation
-					label="Delete attachment"
-					icon={TrashIcon}
-					variant="destructive"
+					trigger={(open) => (
+						<Button variant="destructive" icon={TrashIcon} className={touchSized} onClick={open}>
+							Delete attachment
+						</Button>
+					)}
 					title="Delete this attachment?"
 					description={documentDeletionDescription(item.document.title)}
 					confirmationLabel="Delete"

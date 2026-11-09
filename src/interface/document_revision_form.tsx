@@ -1,11 +1,12 @@
-import { Button, Input, Select, TagInput, Text } from "@cloudflare/kumo"
-import { FloppyDiskIcon, TrashIcon } from "@phosphor-icons/react"
+import { FloppyDiskIcon } from "@phosphor-icons/react"
 import { useMutation } from "@tanstack/react-query"
 import { useRouter } from "@tanstack/react-router"
 import { useId, useState } from "react"
 import { extractedFieldKeys, extractedFieldTypes } from "../ingestion/document_classification"
-import { submitDocumentDeletion, submitDocumentRevision } from "../utilities/server_functions"
-import { ActionConfirmation, documentDeletionDescription } from "./action_confirmation"
+import { submitDocumentRevision } from "../utilities/server_functions"
+import { ActionButton } from "./controls/action_button"
+import { FailureMessage, SelectionField, TextField } from "./controls/form_fields"
+import { TagField } from "./controls/tag_field"
 import { fieldLabels, offeredFieldKeys } from "./document_detail_presentation"
 import type { ArchiveFacets, ListedDocument } from "../archive/document_listing"
 import type { ExtractedFieldKey } from "../ingestion/document_classification"
@@ -67,36 +68,15 @@ function revisionOf(documentId: string, initial: RevisionValues, values: Revisio
 	}
 }
 
-function DocumentDeletion({ document, onDeleted }: { document: ListedDocument; onDeleted: () => void }) {
-	const router = useRouter()
-	return (
-		<ActionConfirmation
-			label="Delete document"
-			icon={TrashIcon}
-			variant="secondary-destructive"
-			title="Delete this document?"
-			description={documentDeletionDescription(document.title)}
-			confirmationLabel="Delete"
-			confirmationVariant="destructive"
-			action={() => submitDocumentDeletion({ data: { documentId: document.id } })}
-			onCompleted={() => {
-				onDeleted()
-				return router.invalidate()
-			}}
-		/>
-	)
-}
-
 interface DocumentRevisionFormProperties {
 	document: ListedDocument
 	facets: ArchiveFacets
-	onDeleted: () => void
 	/** Runs after a saved revision has reloaded, and on Cancel. */
 	onConcluded: () => void
 }
 
 /** The editable metadata and fields of a document. It starts from the stored values each time it mounts. */
-export function DocumentRevisionForm({ document, facets, onDeleted, onConcluded }: DocumentRevisionFormProperties) {
+export function DocumentRevisionForm({ document, facets, onConcluded }: DocumentRevisionFormProperties) {
 	const router = useRouter()
 	const listIdentifier = useId()
 	const [initial] = useState(() => initialValues(document))
@@ -115,72 +95,54 @@ export function DocumentRevisionForm({ document, facets, onDeleted, onConcluded 
 	const unchanged = Object.keys(revisionOf(document.id, initial, values)).length === 1
 	return (
 		<form
-			className="flex flex-col gap-4"
+			className="flex flex-col gap-3"
 			onSubmit={(event) => {
 				event.preventDefault()
 				if (!unchanged) revision.mutate(values)
 			}}
 		>
-			<div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
-				<Input
-					label="Title"
-					className="w-full min-w-0 max-md:h-11"
-					value={values.title}
-					onChange={(event) => change({ title: event.target.value })}
+			<TextField label="Title" value={values.title} onChange={(event) => change({ title: event.target.value })} />
+			<TextField
+				label="Document date"
+				type="date"
+				value={values.documentDate}
+				onChange={(event) => change({ documentDate: event.target.value })}
+			/>
+			<TextField
+				label="Sender"
+				list={`${listIdentifier}-senders`}
+				value={values.senderName}
+				onChange={(event) => change({ senderName: event.target.value })}
+			/>
+			<TextField
+				label="Category"
+				list={`${listIdentifier}-categories`}
+				value={values.categoryName}
+				onChange={(event) => change({ categoryName: event.target.value })}
+			/>
+			{facets.members.length > 0 && (
+				<SelectionField
+					label="Person"
+					value={values.person}
+					onChange={(event) => change({ person: event.target.value })}
+					options={[
+						{ value: HOUSEHOLD_OPTION, label: "Household" },
+						...facets.members.map((member) => ({ value: member.id, label: member.name })),
+					]}
 				/>
-				<Input
-					label="Document date"
-					type="date"
-					className="w-full min-w-0 max-md:h-11"
-					value={values.documentDate}
-					onChange={(event) => change({ documentDate: event.target.value })}
+			)}
+			<TagField label="Tags" limit={5} value={values.tagNames} onChange={(tagNames) => change({ tagNames })} />
+			{offeredFieldKeys(values.categoryName, facets.categories, [initial.fields, values.fields]).map((fieldKey) => (
+				<TextField
+					key={fieldKey}
+					label={fieldLabels[fieldKey]}
+					type={{ number: "number", date: "date", text: "text" }[extractedFieldTypes[fieldKey]]}
+					inputMode={extractedFieldTypes[fieldKey] === "number" ? "decimal" : undefined}
+					step={extractedFieldTypes[fieldKey] === "number" ? 0.01 : undefined}
+					value={values.fields[fieldKey]}
+					onChange={(event) => changeField(fieldKey, event.target.value)}
 				/>
-				<Input
-					label="Sender"
-					className="w-full min-w-0 max-md:h-11"
-					list={`${listIdentifier}-senders`}
-					value={values.senderName}
-					onChange={(event) => change({ senderName: event.target.value })}
-				/>
-				<Input
-					label="Category"
-					className="w-full min-w-0 max-md:h-11"
-					list={`${listIdentifier}-categories`}
-					value={values.categoryName}
-					onChange={(event) => change({ categoryName: event.target.value })}
-				/>
-				{facets.members.length > 0 && (
-					<Select<string>
-						label="Person"
-						className="w-full max-md:h-11"
-						value={values.person}
-						onValueChange={(person) => change({ person: person ?? HOUSEHOLD_OPTION })}
-						items={[
-							{ value: HOUSEHOLD_OPTION, label: "Household" },
-							...facets.members.map((member) => ({ value: member.id, label: member.name })),
-						]}
-					/>
-				)}
-				<TagInput
-					label="Tags"
-					className="w-full min-w-0 max-md:min-h-11"
-					maxValues={5}
-					value={values.tagNames}
-					onValueChange={(tagNames) => change({ tagNames })}
-				/>
-				{offeredFieldKeys(values.categoryName, facets.categories, [initial.fields, values.fields]).map((fieldKey) => (
-					<Input
-						key={fieldKey}
-						label={fieldLabels[fieldKey]}
-						className="w-full min-w-0 max-md:h-11"
-						type={{ number: "number", date: "date", text: "text" }[extractedFieldTypes[fieldKey]]}
-						inputMode={extractedFieldTypes[fieldKey] === "number" ? "decimal" : undefined}
-						step={extractedFieldTypes[fieldKey] === "number" ? 0.01 : undefined}
-						value={values.fields[fieldKey]}
-						onChange={(event) => changeField(fieldKey, event.target.value)}
-					/>
-				))}
-			</div>
+			))}
 			<datalist id={`${listIdentifier}-senders`}>
 				{facets.senders.map((sender) => (
 					<option key={sender.id} value={sender.name} />
@@ -191,24 +153,21 @@ export function DocumentRevisionForm({ document, facets, onDeleted, onConcluded 
 					<option key={category.id} value={category.name} />
 				))}
 			</datalist>
-			{revision.isError && <Text variant="error">{revision.error.message}</Text>}
-			<div className="flex flex-col gap-2 md:flex-row md:flex-wrap md:justify-between">
-				<div className="flex flex-col gap-2 md:flex-row">
-					<Button
-						type="submit"
-						variant="primary"
-						icon={FloppyDiskIcon}
-						className="w-full max-md:h-11 md:w-auto"
-						disabled={unchanged}
-						loading={revision.isPending}
-					>
-						Save changes
-					</Button>
-					<Button variant="secondary" className="w-full max-md:h-11 md:w-auto" onClick={onConcluded}>
-						Cancel
-					</Button>
-				</div>
-				<DocumentDeletion document={document} onDeleted={onDeleted} />
+			{revision.isError && <FailureMessage>{revision.error.message}</FailureMessage>}
+			<div className="flex flex-col gap-2 md:flex-row">
+				<ActionButton
+					type="submit"
+					variant="primary"
+					icon={FloppyDiskIcon}
+					stretchOnPhone
+					disabled={unchanged}
+					pending={revision.isPending}
+				>
+					Save changes
+				</ActionButton>
+				<ActionButton variant="secondary" stretchOnPhone onClick={onConcluded}>
+					Cancel
+				</ActionButton>
 			</div>
 		</form>
 	)

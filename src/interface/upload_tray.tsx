@@ -97,10 +97,11 @@ export function FailedDocumentActions({ documentId, title }: { documentId: strin
 					Retry
 				</Button>
 				<ActionConfirmation
-					label="Delete"
-					icon={TrashIcon}
-					variant="secondary-destructive"
-					className={sideBySideAction}
+					trigger={(open) => (
+						<Button variant="secondary-destructive" icon={TrashIcon} className={sideBySideAction} onClick={open}>
+							Delete
+						</Button>
+					)}
 					title="Delete this document?"
 					description={documentDeletionDescription(title)}
 					confirmationLabel="Delete"

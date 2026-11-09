@@ -1,10 +1,10 @@
 import type { ReactNode } from "react"
 
 /** The classes of a tab that rests on the top edge of the frame below it. */
-const frameTabClasses =
+export const frameTabClasses =
 	"h-11 flex-none cursor-pointer rounded-t-tab border border-outline bg-inactive-tab px-3.5 text-fine whitespace-nowrap text-field-label data-[active]:border-b-surface data-[active]:bg-surface data-[active]:bg-none data-[active]:font-bold data-[active]:text-on-accent md:h-[34px]"
 
-const frameTabRowClasses = "relative -mb-px flex gap-[3px] overflow-x-auto pl-2 [scrollbar-width:none]"
+export const frameTabRowClasses = "relative -mb-px flex gap-[3px] overflow-x-auto pl-2 [scrollbar-width:none]"
 
 export function FilterTabs({ label, children }: { label: string; children: ReactNode }) {
 	return (

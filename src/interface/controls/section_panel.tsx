@@ -31,6 +31,11 @@ const panelPresentations: Record<
 	},
 }
 
+/** The heading colours of a section, shared with the dialogs of that section. */
+export function panelHeadingClasses(section: ArchiveSection): string {
+	return panelPresentations[section].heading
+}
+
 interface SectionPanelProperties {
 	section: ArchiveSection
 	heading: string
@@ -60,7 +65,7 @@ interface PanelRowAppearance {
 }
 
 /** The classes of a row in a panel menu, for a router link as well as a button. */
-function panelRowClasses({ section, selected = false, destructive = false }: PanelRowAppearance): string {
+export function panelRowClasses({ section, selected = false, destructive = false }: PanelRowAppearance): string {
 	const presentation = panelPresentations[section]
 	const fill = selected ? `${presentation.selected} font-bold text-on-accent` : "bg-menu-row"
 	const text = destructive ? "text-destructive-text" : selected ? "" : "text-link"

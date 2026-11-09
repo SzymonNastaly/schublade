@@ -1,10 +1,10 @@
-import { Loader, Text } from "@cloudflare/kumo"
 import { createClientOnlyFn } from "@tanstack/react-start"
 import pdfRendererUrl from "pdfjs-dist/legacy/build/pdf.renderer.min.mjs?url"
 import pdfWorkerUrl from "pdfjs-dist/legacy/build/pdf.worker.min.mjs?url"
 import jbig2DecoderUrl from "pdfjs-dist/wasm/jbig2.wasm?url"
 import openjpegDecoderUrl from "pdfjs-dist/wasm/openjpeg.wasm?url"
 import { useEffect, useRef, useState } from "react"
+import { ProgressSpinner } from "./controls/progress_spinner"
 import type {
 	PDFDocumentLoadingTask,
 	PDFDocumentProxy,
@@ -14,8 +14,7 @@ import type {
 import type { Dispatch, SetStateAction } from "react"
 
 /** The box that holds an original file: A4 proportions at full column width, capped at the window height from md upward. */
-export const documentBoxFrame =
-	"relative aspect-[1/1.414] w-full rounded-lg border border-kumo-hairline bg-kumo-tint md:max-h-[calc(100vh-8rem)]"
+export const documentBoxFrame = "relative block aspect-[1/1.414] w-full bg-viewer md:max-h-[calc(100vh-8rem)]"
 
 const MAXIMUM_DRAWING_PIXEL_RATIO = 2.5
 const DRAWN_PAGES_AROUND_VISIBLE_PAGE = 1
@@ -143,9 +142,9 @@ function PdfPages({ pdf, onProgress }: { pdf: PDFDocumentProxy; onProgress: PdfL
 				</div>
 			</div>
 			{pdf.numPages > 1 && (
-				<Text variant="secondary" size="sm">
+				<p className="border-t border-table-rule px-3 py-2 text-fine text-caption">
 					Page {visiblePageNumber} of {pdf.numPages}
-				</Text>
+				</p>
 			)}
 		</>
 	)
@@ -179,9 +178,11 @@ export function PdfPageBox({ url }: { url: string }) {
 	return (
 		<div className={`${documentBoxFrame} flex items-center justify-center p-4`}>
 			{progress.stage === "loading" ? (
-				<Loader aria-label="Loading the document" />
+				<span role="status" aria-label="Loading the document" className="text-caption">
+					<ProgressSpinner />
+				</span>
 			) : (
-				<Text variant="secondary">This PDF cannot be displayed here.</Text>
+				<p className="text-caption">This PDF cannot be displayed here.</p>
 			)}
 		</div>
 	)

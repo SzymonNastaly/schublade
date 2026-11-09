@@ -1,10 +1,18 @@
-import { Empty, Text } from "@cloudflare/kumo"
 import { FileXIcon } from "@phosphor-icons/react"
-import { createFileRoute, notFound, useRouter } from "@tanstack/react-router"
-import { DocumentDetails } from "../interface/document_details"
-import { DocumentOriginal } from "../interface/document_original"
-import { listArchiveFacets, retrieveDocument } from "../utilities/server_functions"
-import type { ReactNode } from "react"
+import { Link, createFileRoute, notFound, useRouter } from "@tanstack/react-router"
+import { useState } from "react"
+import { EmptyState } from "../interface/controls/empty_state"
+import {
+	BreadcrumbTrail,
+	PageColumns,
+	PageContent,
+	PageHeading,
+	PhoneReturnBar,
+} from "../interface/controls/page_layout"
+import { textLinkClasses } from "../interface/controls/text_link"
+import { DocumentDetails, DocumentSources } from "../interface/document_details"
+import { DocumentPanels, PhoneVerificationNotice } from "../interface/document_panels"
+import { listArchiveFacets, retrieveDocument, retrieveDocuments } from "../utilities/server_functions"
 
 export const Route = createFileRoute("/documents/$documentId")({
 	loader: async ({ params }) => {
@@ -13,59 +21,82 @@ export const Route = createFileRoute("/documents/$documentId")({
 			listArchiveFacets(),
 		])
 		if (document === null) throw notFound()
-		return { document, facets }
+		const sender = facets.senders.find((option) => option.name === document.senderName)
+		const senderDocuments = sender === undefined ? [] : await retrieveDocuments({ data: { sender: sender.id } })
+		return { document, facets, sender, senderDocuments }
 	},
 	component: DocumentPage,
 	notFoundComponent: () => (
-		<DocumentPageLayout heading="Document not found">
-			<Empty
+		<PageContent>
+			<BreadcrumbTrail current="Document not found">
+				<Link to="/" className={textLinkClasses}>
+					All documents
+				</Link>
+			</BreadcrumbTrail>
+			<EmptyState
 				icon={<FileXIcon size={32} />}
 				title="This document does not exist"
 				description="Someone may have deleted it."
 			/>
-		</DocumentPageLayout>
+		</PageContent>
 	),
 })
 
-function DocumentPageLayout({
-	heading,
-	summary = null,
-	children,
-}: {
-	heading: string
-	summary?: string | null
-	children: ReactNode
-}) {
-	return (
-		<main className="mx-auto flex max-w-6xl flex-col gap-6 px-4 py-6 pb-[max(1.5rem,env(safe-area-inset-bottom))] md:px-6 md:py-12">
-			<header className="flex min-w-0 flex-col gap-2 wrap-break-word">
-				<Text variant="heading1" as="h1">
-					{heading}
-				</Text>
-				{summary !== null && <Text>{summary}</Text>}
-			</header>
-			{children}
-		</main>
-	)
+function DocumentPage() {
+	const { document } = Route.useLoaderData()
+	// Keyed so that moving to another document leaves its form closed and its first tab open.
+	return <DocumentWorkspace key={document.id} />
 }
 
-function DocumentPage() {
-	const { document, facets } = Route.useLoaderData()
+function DocumentWorkspace() {
+	const { document, facets, sender, senderDocuments } = Route.useLoaderData()
 	const router = useRouter()
 	const navigate = Route.useNavigate()
+	const [editing, setEditing] = useState(false)
+	const title = document.title ?? "Untitled document"
+	const category = facets.categories.find((option) => option.name === document.categoryName)
 	return (
-		<DocumentPageLayout heading={document.title ?? "Untitled document"} summary={document.summary}>
-			<div key={document.id} className="grid grid-cols-1 gap-6 md:grid-cols-2 md:items-start">
-				<DocumentOriginal document={document} />
-				<DocumentDetails
-					document={document}
-					facets={facets}
-					onDeleted={() => {
-						if (router.history.canGoBack()) router.history.back()
-						else void navigate({ to: "/" })
-					}}
-				/>
-			</div>
-		</DocumentPageLayout>
+		<>
+			<PhoneReturnBar to="/">All documents</PhoneReturnBar>
+			<PageContent>
+				<BreadcrumbTrail current={title}>
+					<Link to="/" className={textLinkClasses}>
+						All documents
+					</Link>
+					{category !== undefined && (
+						<Link to="/" search={{ category: category.id }} className={textLinkClasses}>
+							{category.name}
+						</Link>
+					)}
+				</BreadcrumbTrail>
+				<PageColumns
+					panelsFollowOnPhone
+					panels={
+						<DocumentPanels
+							document={document}
+							sender={sender}
+							senderDocuments={senderDocuments}
+							onEdit={() => setEditing(true)}
+							onDeleted={() => {
+								if (router.history.canGoBack()) router.history.back()
+								else void navigate({ to: "/" })
+							}}
+						/>
+					}
+				>
+					<PageHeading title={title} subtitle={document.summary} />
+					<PhoneVerificationNotice document={document} />
+					<div className="flex flex-wrap items-start gap-6">
+						<DocumentSources document={document} />
+						<DocumentDetails
+							document={document}
+							facets={facets}
+							editing={editing}
+							onEditingConcluded={() => setEditing(false)}
+						/>
+					</div>
+				</PageColumns>
+			</PageContent>
+		</>
 	)
 }

@@ -39,7 +39,6 @@ export function PageHeading({ title, subtitle }: { title: string; subtitle: stri
 	)
 }
 
-/** @public */
 export function SectionHeading({ children }: { children: ReactNode }) {
 	return <h2 className="font-heading text-section-title font-bold text-heading">{children}</h2>
 }
@@ -77,4 +76,15 @@ export function PageColumns({ panels, panelsFollowOnPhone = false, children }: P
 
 export function ListFrame({ children }: { children: ReactNode }) {
 	return <div className="overflow-hidden rounded-list border border-outline bg-surface">{children}</div>
+}
+
+/** The way back to the page above, where a phone has no breadcrumb. */
+export function PhoneReturnBar({ to, children }: { to: "/" | "/verification"; children: string }) {
+	return (
+		<div className="border-b border-toolbar-border bg-toolbar md:hidden">
+			<Link to={to} className="inline-flex min-h-11 items-center px-3 font-bold text-link">
+				‹ {children}
+			</Link>
+		</div>
+	)
 }
