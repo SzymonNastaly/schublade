@@ -1,84 +1,16 @@
-import { Button, Combobox, Input, InputGroup, Loader, Popover } from "@cloudflare/kumo"
-import { CaretDownIcon, FunnelIcon, MagnifyingGlassIcon, XIcon } from "@phosphor-icons/react"
-import { useEffect, useRef, useState } from "react"
+import { Button, Combobox, Input, Popover } from "@cloudflare/kumo"
+import { CaretDownIcon, FunnelIcon, XIcon } from "@phosphor-icons/react"
+import { useState } from "react"
 import { activeFilters, personOptions } from "./active_filter_presentation"
-import { ARCHIVE_SEARCH_INPUT_IDENTIFIER } from "./phone_action_bar"
+import { useCommittedText } from "./committed_text"
 import type { ReactNode } from "react"
 import type { ArchiveFacets, FacetOption } from "../archive/document_listing"
 import type { SearchCriteria } from "../search/search_criteria"
 
-const TYPING_PAUSE_MILLISECONDS = 350
 // Kumo sets text at 14 px, and iOS Safari zooms the page when it focuses a field below 16 px.
 const TOUCH_FIELD = "max-md:h-11"
 
 type CriteriaChange = (changes: Partial<SearchCriteria>) => void
-
-/**
- * Text that commits after a pause in typing, so each keystroke does not start a search. A
- * committed value that changes elsewhere, such as through Clear, replaces the text.
- */
-function useCommittedText(committed: string, onCommit: (text: string) => void) {
-	const [text, setText] = useState(committed)
-	const [previousCommitted, setPreviousCommitted] = useState(committed)
-	if (committed !== previousCommitted) {
-		setPreviousCommitted(committed)
-		if (committed !== text.trim()) setText(committed)
-	}
-	const commit = useRef(onCommit)
-	commit.current = onCommit
-	useEffect(() => {
-		if (text.trim() === committed) return
-		const timer = setTimeout(() => commit.current(text.trim()), TYPING_PAUSE_MILLISECONDS)
-		return () => clearTimeout(timer)
-	}, [text, committed])
-	return [text, setText] as const
-}
-
-function SearchInput({ query, searching, onChange }: { query: string; searching: boolean; onChange: CriteriaChange }) {
-	const input = useRef<HTMLInputElement>(null)
-	const [text, setText] = useCommittedText(query, (committed) =>
-		onChange({ query: committed === "" ? undefined : committed }),
-	)
-	useEffect(() => {
-		const focusSearch = (event: KeyboardEvent) => {
-			const target = event.target instanceof HTMLElement ? event.target : null
-			const editing =
-				target !== null && (target.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName))
-			const shortcut = (event.key === "k" && (event.metaKey || event.ctrlKey)) || (event.key === "/" && !editing)
-			if (!shortcut) return
-			event.preventDefault()
-			input.current?.focus()
-			input.current?.select()
-		}
-		window.addEventListener("keydown", focusSearch)
-		return () => window.removeEventListener("keydown", focusSearch)
-	}, [])
-	return (
-		<InputGroup size="lg" className="w-full">
-			<InputGroup.Addon>
-				<MagnifyingGlassIcon />
-			</InputGroup.Addon>
-			<InputGroup.Input
-				ref={input}
-				id={ARCHIVE_SEARCH_INPUT_IDENTIFIER}
-				type="search"
-				aria-label="Search documents"
-				placeholder="Search documents"
-				value={text}
-				onChange={(event) => setText(event.target.value)}
-			/>
-			<InputGroup.Addon align="end">
-				{searching ? (
-					<Loader />
-				) : (
-					<kbd className="hidden rounded border border-kumo-hairline bg-kumo-base px-1.5 py-0.5 text-xs md:inline">
-						/
-					</kbd>
-				)}
-			</InputGroup.Addon>
-		</InputGroup>
-	)
-}
 
 function AmountInput({
 	label,
@@ -178,18 +110,15 @@ function FilterPopover({ label, children }: { label: string; children: ReactNode
 interface DocumentSearchControlsProperties {
 	criteria: SearchCriteria
 	facets: ArchiveFacets
-	/** True while the results for changed criteria load. */
-	searching: boolean
 	onChange: CriteriaChange
 }
 
-export function DocumentSearchControls({ criteria, facets, searching, onChange }: DocumentSearchControlsProperties) {
+export function DocumentSearchControls({ criteria, facets, onChange }: DocumentSearchControlsProperties) {
 	const [filtersShown, setFiltersShown] = useState(false)
 	const filters = activeFilters(criteria, facets)
 	return (
 		<div className="flex flex-col gap-3">
 			<div className="flex gap-2">
-				<SearchInput query={criteria.query ?? ""} searching={searching} onChange={onChange} />
 				<Button
 					className="md:hidden"
 					variant={filters.length > 0 ? "primary" : "secondary"}

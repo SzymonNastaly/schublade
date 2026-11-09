@@ -1,7 +1,6 @@
 import { Empty, Text } from "@cloudflare/kumo"
 import { FileXIcon } from "@phosphor-icons/react"
 import { createFileRoute, notFound, useRouter } from "@tanstack/react-router"
-import { ArchiveNavigation } from "../interface/archive_navigation"
 import { DocumentDetails } from "../interface/document_details"
 import { DocumentOriginal } from "../interface/document_original"
 import { listArchiveFacets, retrieveDocument } from "../utilities/server_functions"
@@ -46,7 +45,6 @@ function DocumentPageLayout({
 				{summary !== null && <Text>{summary}</Text>}
 			</header>
 			{children}
-			<ArchiveNavigation />
 		</main>
 	)
 }

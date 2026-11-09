@@ -3,7 +3,6 @@ import { KeyIcon, PlugsConnectedIcon, TrashIcon } from "@phosphor-icons/react"
 import { useMutation } from "@tanstack/react-query"
 import { createFileRoute, useRouter } from "@tanstack/react-router"
 import { useState } from "react"
-import { ArchiveNavigation } from "../interface/archive_navigation"
 import { formatTimestamp } from "../interface/document_formatting"
 import {
 	issueApiTokenRecord,
@@ -192,7 +191,6 @@ function SettingsPage() {
 				<Text variant="heading1" as="h1">
 					Settings
 				</Text>
-				<ArchiveNavigation />
 			</div>
 			<LayerCard>
 				<LayerCard.Secondary>API tokens</LayerCard.Secondary>

@@ -1,8 +1,6 @@
-import { Button, Empty, LayerCard, Text } from "@cloudflare/kumo"
-import { FilesIcon, MagnifyingGlassIcon, UploadSimpleIcon } from "@phosphor-icons/react"
-import { createFileRoute, useRouter, useRouterState } from "@tanstack/react-router"
-import { ArchiveNavigation } from "../interface/archive_navigation"
-import { DocumentFilePicker } from "../interface/document_file_picker"
+import { Empty, LayerCard } from "@cloudflare/kumo"
+import { FilesIcon, MagnifyingGlassIcon } from "@phosphor-icons/react"
+import { createFileRoute, useRouter } from "@tanstack/react-router"
 import { DocumentList } from "../interface/document_list"
 import { DocumentSearchControls } from "../interface/document_search_controls"
 import { useArchiveChanges } from "../interface/document_status_updates"
@@ -26,8 +24,6 @@ function ArchiveOverview() {
 	const criteria = Route.useSearch()
 	const navigate = Route.useNavigate()
 	const router = useRouter()
-	// A reload after an archive change keeps the address, so only a changed search shows the indicator.
-	const searching = useRouterState({ select: (state) => state.location.href !== state.resolvedLocation?.href })
 	useArchiveChanges(() => {
 		// A new document takes minutes to reach the index, so a text search would repeat a billed
 		// query for nothing. The latest location also covers a search that is still loading.
@@ -46,25 +42,7 @@ function ArchiveOverview() {
 	const filtered = Object.keys(criteria).length > 0
 	return (
 		<main className="mx-auto flex max-w-6xl flex-col gap-6 px-4 py-6 md:px-6 md:py-12">
-			<div className="flex flex-wrap items-center justify-between gap-4">
-				<Text variant="heading1" as="h1">
-					Schublade
-				</Text>
-				<div className="flex flex-wrap items-start gap-2">
-					<ArchiveNavigation />
-					{/* Phones upload from the action bar at the bottom of the screen. */}
-					<div className="max-md:hidden">
-						<DocumentFilePicker>
-							{(open) => (
-								<Button variant="primary" icon={UploadSimpleIcon} onClick={open}>
-									Upload documents
-								</Button>
-							)}
-						</DocumentFilePicker>
-					</div>
-				</div>
-			</div>
-			<DocumentSearchControls criteria={criteria} facets={facets} searching={searching} onChange={changeCriteria} />
+			<DocumentSearchControls criteria={criteria} facets={facets} onChange={changeCriteria} />
 			<LayerCard>
 				<LayerCard.Secondary>
 					<span className="min-w-0 wrap-break-word">

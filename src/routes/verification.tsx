@@ -3,7 +3,6 @@ import { SealCheckIcon } from "@phosphor-icons/react"
 import { Link, createFileRoute } from "@tanstack/react-router"
 import { useState } from "react"
 import { touchSized } from "../interface/action_confirmation"
-import { ArchiveNavigation } from "../interface/archive_navigation"
 import { DocumentThumbnail } from "../interface/document_thumbnail"
 import { NewSenderConfirmation } from "../interface/new_sender_confirmation"
 import {
@@ -52,7 +51,6 @@ function PendingVerificationPage() {
 				<Text variant="heading1" as="h1">
 					Pending verification
 				</Text>
-				<ArchiveNavigation />
 			</div>
 			{confirmedSenderCount !== null && (
 				<p role="status" className="text-kumo-subtle">

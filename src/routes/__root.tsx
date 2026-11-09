@@ -1,6 +1,7 @@
 import { HeadContent, Scripts, createRootRoute } from "@tanstack/react-router"
 import applicationStylesheet from "../styles.css?url"
-import { PhoneActionBar } from "../interface/phone_action_bar"
+import { ApplicationShell } from "../interface/application_shell"
+import { PhoneNavigationBar } from "../interface/phone_navigation_bar"
 import { DocumentUploadsProvider, UploadTray } from "../interface/upload_tray"
 import { countPendingVerificationItems } from "../utilities/server_functions"
 import type { ReactNode } from "react"
@@ -36,12 +37,12 @@ function RootDocument({ children }: { children: ReactNode }) {
 			<head>
 				<HeadContent />
 			</head>
-			{/* The padding keeps a page clear of the action bar and, in landscape, of the sensor housing. */}
-			<body className="bg-kumo-base pr-[env(safe-area-inset-right)] pl-[env(safe-area-inset-left)] text-kumo-default antialiased max-md:pb-[calc(3.5rem+env(safe-area-inset-bottom))]">
+			{/* The padding keeps a page clear of the navigation bar and, in landscape, of the sensor housing. */}
+			<body className="bg-page-background pr-[env(safe-area-inset-right)] pl-[env(safe-area-inset-left)] font-body text-body leading-normal text-foreground antialiased max-md:pb-[calc(3.875rem+env(safe-area-inset-bottom))]">
 				<DocumentUploadsProvider>
-					{children}
+					<ApplicationShell>{children}</ApplicationShell>
 					<UploadTray />
-					<PhoneActionBar />
+					<PhoneNavigationBar />
 				</DocumentUploadsProvider>
 				<Scripts />
 			</body>

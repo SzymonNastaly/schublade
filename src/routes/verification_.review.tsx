@@ -2,7 +2,6 @@ import { Empty, Text } from "@cloudflare/kumo"
 import { SealCheckIcon } from "@phosphor-icons/react"
 import { Link, createFileRoute } from "@tanstack/react-router"
 import { useState } from "react"
-import { ArchiveNavigation } from "../interface/archive_navigation"
 import { DocumentOriginal } from "../interface/document_original"
 import {
 	documentCountLabel,
@@ -94,7 +93,6 @@ function VerificationReviewPage() {
 					<ReviewedEntry key={verificationEntryKey(step.item)} item={step.item} facets={facets} />
 				</>
 			)}
-			<ArchiveNavigation />
 		</main>
 	)
 }
