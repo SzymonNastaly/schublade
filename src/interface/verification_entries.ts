@@ -56,6 +56,54 @@ export function summarizeVerificationEntry(item: VerificationItem): Verification
 	}
 }
 
+export type VerificationFilter = "all" | VerificationItem["reason"]
+
+const verificationReasonLabels: Record<VerificationItem["reason"], string> = {
+	new_taxonomy_record: "New names",
+	illegible_required_field: "Unreadable fields",
+	non_archival_attachment: "Attachments",
+	failed_ingestion: "Failed documents",
+}
+
+/** Everything first, then one option per reason with the number of its entries. */
+export function verificationFilterOptions(
+	items: ReadonlyArray<VerificationItem>,
+): Array<{ filter: VerificationFilter; label: string; count: number }> {
+	const reasons = Object.keys(verificationReasonLabels) as Array<VerificationItem["reason"]>
+	return [
+		{ filter: "all", label: "Everything", count: items.length },
+		...reasons.map((reason) => ({
+			filter: reason,
+			label: verificationReasonLabels[reason],
+			count: items.filter((item) => item.reason === reason).length,
+		})),
+	]
+}
+
+/** What a review asks about an entry, in the words of the page heading. */
+export function describeVerificationQuestion(item: VerificationItem): { question: string; explanation: string } {
+	switch (item.reason) {
+		case "new_taxonomy_record":
+			return {
+				question: `Is this a new ${item.record.kind}?`,
+				explanation:
+					item.documents.length === 0
+						? `No document refers to ${item.record.name} any more.`
+						: `${item.record.name} appears on ${documentCountLabel(item.documents.length)}.${item.documents.length > 1 ? " This is the newest." : ""}`,
+			}
+		case "illegible_required_field":
+			return { question: "Can you fill in what could not be read?", explanation: summarizeVerificationEntry(item).note }
+		case "non_archival_attachment":
+			return {
+				question: "Is this worth keeping?",
+				explanation:
+					"The classifier read this file as boilerplate that came with another document, such as general terms.",
+			}
+		case "failed_ingestion":
+			return { question: "This document could not be read", explanation: documentFailureSentences[item.failureReason] }
+	}
+}
+
 /** The document a review shows for an entry. A record shows the newest document that refers to it, if any does. */
 export function reviewedDocument(item: VerificationItem): VerificationDocument | undefined {
 	return item.reason === "new_taxonomy_record" ? item.documents[0] : item.document

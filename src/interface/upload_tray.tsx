@@ -6,6 +6,8 @@ import { createContext, useContext, useEffect, useReducer } from "react"
 import { isSettledStatus } from "../ingestion/document_lifecycle"
 import { submitDocumentDeletion, submitDocumentIngestionRetry } from "../utilities/server_functions"
 import { ActionConfirmation, documentDeletionDescription } from "./action_confirmation"
+import { ActionButton } from "./controls/action_button"
+import { FailureMessage } from "./controls/form_fields"
 import { StatusBadge } from "./controls/status_badge"
 import { documentFailureSentences, documentStatusBadges } from "./document_status_presentation"
 import { useDocumentStatusUpdates } from "./document_status_updates"
@@ -76,8 +78,6 @@ export function DocumentUploadsProvider({ children }: { children: ReactNode }) {
 	)
 }
 
-const sideBySideAction = "min-w-0 flex-1 max-md:h-11 md:flex-none"
-
 /** Retry and Delete for a failed document, in the tray and in the Pending verification review. */
 export function FailedDocumentActions({ documentId, title }: { documentId: string; title: string | null }) {
 	const router = useRouter()
@@ -85,22 +85,21 @@ export function FailedDocumentActions({ documentId, title }: { documentId: strin
 	const retrial = useMutation({ mutationFn: () => retry(documentId) })
 	return (
 		<div className="flex flex-col gap-2 pt-1">
-			{retrial.isError && <Text variant="error">{retrial.error.message}</Text>}
+			{retrial.isError && <FailureMessage>{retrial.error.message}</FailureMessage>}
 			<div className="flex gap-2">
-				<Button
+				<ActionButton
 					variant="primary"
 					icon={ArrowClockwiseIcon}
-					className={sideBySideAction}
-					loading={retrial.isPending}
+					pending={retrial.isPending}
 					onClick={() => retrial.mutate()}
 				>
 					Retry
-				</Button>
+				</ActionButton>
 				<ActionConfirmation
 					trigger={(open) => (
-						<Button variant="secondary-destructive" icon={TrashIcon} className={sideBySideAction} onClick={open}>
+						<ActionButton variant="secondaryDestructive" icon={TrashIcon} onClick={open}>
 							Delete
-						</Button>
+						</ActionButton>
 					)}
 					title="Delete this document?"
 					description={documentDeletionDescription(title)}

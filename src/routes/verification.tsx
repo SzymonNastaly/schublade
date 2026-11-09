@@ -1,8 +1,11 @@
-import { Button, Empty, Text } from "@cloudflare/kumo"
-import { SealCheckIcon } from "@phosphor-icons/react"
+import { CheckCircleIcon, SealCheckIcon } from "@phosphor-icons/react"
 import { Link, createFileRoute } from "@tanstack/react-router"
 import { useState } from "react"
-import { touchSized } from "../interface/action_confirmation"
+import { actionClasses } from "../interface/controls/action_button"
+import { EmptyState } from "../interface/controls/empty_state"
+import { FilterTab, FilterTabs } from "../interface/controls/filter_tabs"
+import { BreadcrumbTrail, ListFrame, PageColumns, PageContent, PageHeading } from "../interface/controls/page_layout"
+import { PanelRowButton, SectionPanel } from "../interface/controls/section_panel"
 import { StatusBadge } from "../interface/controls/status_badge"
 import { DocumentThumbnail } from "../interface/document_thumbnail"
 import { NewSenderConfirmation } from "../interface/new_sender_confirmation"
@@ -11,8 +14,10 @@ import {
 	selectNewSenders,
 	summarizeVerificationEntry,
 	verificationEntryKey,
+	verificationFilterOptions,
 } from "../interface/verification_entries"
 import { retrieveVerificationItems } from "../utilities/server_functions"
+import type { VerificationFilter } from "../interface/verification_entries"
 import type { VerificationItem } from "../archive/verification_items"
 
 export const Route = createFileRoute("/verification")({
@@ -28,63 +33,118 @@ function EntryRow({ item }: { item: VerificationItem }) {
 			<Link
 				to="/verification/review"
 				search={{ entry: verificationEntryKey(item) }}
-				className="flex min-h-11 w-full min-w-0 items-center gap-3 rounded-lg px-2 py-2 hover:bg-kumo-tint active:bg-kumo-tint"
+				className="flex min-h-[60px] items-stretch gap-3 border-b border-dotted border-row-rule py-2.5 pr-3.5 pl-2 hover:bg-row-hover"
 			>
-				{document !== undefined && <DocumentThumbnail documentId={document.id} className="h-[58px] w-[42px]" />}
-				<span className="flex min-w-0 flex-1 flex-wrap items-center gap-x-3 gap-y-1">
-					<StatusBadge tone={badge.tone}>{badge.label}</StatusBadge>
-					<span className="min-w-0 font-medium wrap-anywhere">{subject}</span>
-					<span className="text-sm text-kumo-subtle">{note}</span>
+				<span
+					className={`w-[5px] flex-none rounded-[3px] ${badge.tone === "failure" ? "bg-failure" : "bg-verification"}`}
+				/>
+				{document === undefined ? (
+					<span className="w-[34px] flex-none" />
+				) : (
+					<DocumentThumbnail documentId={document.id} className="h-[46px] w-[34px] self-center" />
+				)}
+				<span className="flex min-w-0 flex-1 flex-col items-start justify-center gap-0.5">
+					<span className="flex flex-wrap items-center gap-2">
+						<span className="text-[13.5px] font-bold wrap-anywhere text-link">{subject}</span>
+						<StatusBadge tone={badge.tone}>{badge.label}</StatusBadge>
+					</span>
+					<span className="text-fine text-caption">{note}</span>
 				</span>
+				<span className="self-center font-bold whitespace-nowrap text-link max-md:hidden">Review ›</span>
 			</Link>
 		</li>
 	)
 }
 
+function itemCountLabel(count: number): string {
+	return count === 1 ? "1 item" : `${count} items`
+}
+
 function PendingVerificationPage() {
 	const items = Route.useLoaderData()
-	const navigate = Route.useNavigate()
+	const [filter, setFilter] = useState<VerificationFilter>("all")
 	const [confirmedSenderCount, setConfirmedSenderCount] = useState<number | null>(null)
 	const newSenders = selectNewSenders(items)
+	const filterOptions = verificationFilterOptions(items).filter((option) => option.count > 0)
+	const activeFilter = filterOptions.some((option) => option.filter === filter) ? filter : "all"
+	const shownItems = items.filter((item) => activeFilter === "all" || item.reason === activeFilter)
 	return (
-		<main className="mx-auto flex max-w-6xl flex-col gap-6 px-4 py-6 pb-[max(1.5rem,env(safe-area-inset-bottom))] md:px-6 md:py-12">
-			<div className="flex flex-wrap items-center justify-between gap-4">
-				<Text variant="heading1" as="h1">
-					Pending verification
-				</Text>
-			</div>
-			{confirmedSenderCount !== null && (
-				<p role="status" className="text-kumo-subtle">
-					{confirmedSenderCount === 1 ? "1 sender" : `${confirmedSenderCount} senders`} confirmed
-				</p>
-			)}
-			{items.length === 0 ? (
-				<Empty
-					icon={<SealCheckIcon size={32} />}
-					title="Nothing awaits verification"
-					description="Every document is archived and searchable. New senders, unreadable fields, attachments, and failed documents appear here."
-				/>
-			) : (
-				<>
-					<div className="flex flex-col gap-2 md:flex-row">
-						<Button
-							variant="primary"
-							className={touchSized}
-							onClick={() => void navigate({ to: "/verification/review" })}
-						>
-							Review {items.length === 1 ? "1 item" : `${items.length} items`}
-						</Button>
-						{newSenders.senders.length > 0 && (
-							<NewSenderConfirmation {...newSenders} onConfirmed={setConfirmedSenderCount} />
-						)}
-					</div>
-					<ul className="-mx-2 flex flex-col">
-						{items.map((item) => (
-							<EntryRow key={verificationEntryKey(item)} item={item} />
+		<PageContent>
+			<BreadcrumbTrail current="Pending verification" />
+			<PageColumns
+				panels={
+					<SectionPanel section="verification" heading="Waiting for you">
+						{filterOptions.map((option) => (
+							<PanelRowButton
+								key={option.filter}
+								section="verification"
+								selected={option.filter === activeFilter}
+								onClick={() => setFilter(option.filter)}
+							>
+								<span className="flex-1">{option.label}</span>
+								<span className="text-fine font-normal text-caption">{option.count}</span>
+							</PanelRowButton>
 						))}
-					</ul>
-				</>
-			)}
-		</main>
+					</SectionPanel>
+				}
+			>
+				<PageHeading
+					title="Pending verification"
+					subtitle={
+						items.length === 0
+							? "You are all caught up."
+							: `${itemCountLabel(items.length)} ${items.length === 1 ? "needs" : "need"} a quick look from you.`
+					}
+				/>
+				{confirmedSenderCount !== null && (
+					<p role="status" className="flex items-center gap-2 text-field-label">
+						<CheckCircleIcon size={18} weight="fill" className="text-primary" />
+						{confirmedSenderCount === 1 ? "1 sender" : `${confirmedSenderCount} senders`} confirmed
+					</p>
+				)}
+				{items.length === 0 ? (
+					<ListFrame>
+						<EmptyState
+							icon={<SealCheckIcon size={56} weight="fill" />}
+							title="Nothing awaits verification"
+							description="Every document is archived and searchable. New senders, unreadable fields, attachments, and failed documents appear here."
+						/>
+					</ListFrame>
+				) : (
+					<>
+						<div className="flex flex-col gap-2 md:flex-row">
+							<Link to="/verification/review" className={actionClasses({ variant: "primary", stretchOnPhone: true })}>
+								Review {itemCountLabel(items.length)}
+							</Link>
+							{newSenders.senders.length > 0 && (
+								<NewSenderConfirmation {...newSenders} onConfirmed={setConfirmedSenderCount} />
+							)}
+						</div>
+						<div>
+							<div className="md:hidden">
+								<FilterTabs label="Show entries for">
+									{filterOptions.map((option) => (
+										<FilterTab
+											key={option.filter}
+											selected={option.filter === activeFilter}
+											onSelect={() => setFilter(option.filter)}
+										>
+											{option.label} {option.count}
+										</FilterTab>
+									))}
+								</FilterTabs>
+							</div>
+							<ListFrame>
+								<ul className="flex flex-col">
+									{shownItems.map((item) => (
+										<EntryRow key={verificationEntryKey(item)} item={item} />
+									))}
+								</ul>
+							</ListFrame>
+						</div>
+					</>
+				)}
+			</PageColumns>
+		</PageContent>
 	)
 }

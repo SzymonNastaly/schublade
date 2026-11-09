@@ -1,10 +1,11 @@
-import { Button, Checkbox, Dialog, Text } from "@cloudflare/kumo"
 import { CheckIcon } from "@phosphor-icons/react"
 import { useMutation } from "@tanstack/react-query"
 import { useRouter } from "@tanstack/react-router"
 import { useState } from "react"
 import { submitTaxonomyConfirmations } from "../utilities/server_functions"
-import { touchSized } from "./action_confirmation"
+import { ActionButton } from "./controls/action_button"
+import { FailureMessage } from "./controls/form_fields"
+import { ModalDialog } from "./controls/modal_dialog"
 import { documentCountLabel } from "./verification_entries"
 import type { NewSenderSelection } from "./verification_entries"
 
@@ -34,45 +35,42 @@ function SenderChecklist({ senders, unknownSenderLeftOut, onClose, onConfirmed }
 	}
 	return (
 		<>
-			<Dialog.Title className="text-lg font-semibold">Confirm new senders</Dialog.Title>
-			<Dialog.Description className="text-kumo-subtle">Untick any that look wrong.</Dialog.Description>
-			<ul className="flex min-h-0 flex-col overflow-y-auto">
+			<ul className="flex max-h-[45dvh] flex-col overflow-y-auto rounded-table border border-table-border">
 				{senders.map(({ id, name, documentCount }) => (
-					<li key={id}>
-						<label className="flex min-h-11 cursor-pointer items-center gap-3 py-1 pl-1">
-							<Checkbox
-								aria-label={name}
+					<li key={id} className="border-b border-dotted border-row-rule last:border-b-0">
+						<label className="flex min-h-11 cursor-pointer items-center gap-2.5 px-3 py-1">
+							<input
+								type="checkbox"
+								className="size-[18px] flex-none accent-primary"
 								checked={!untickedIds.has(id)}
-								onCheckedChange={(ticked) => setTicked(id, ticked)}
+								onChange={(event) => setTicked(id, event.target.checked)}
 							/>
-							<span className="min-w-0 flex-1 wrap-anywhere">{name}</span>
-							<span className="shrink-0 pr-1 text-sm text-kumo-subtle tabular-nums">
-								{documentCountLabel(documentCount)}
-							</span>
+							<span className="min-w-0 flex-1 font-bold wrap-anywhere">{name}</span>
+							<span className="flex-none text-fine text-caption">{documentCountLabel(documentCount)}</span>
 						</label>
 					</li>
 				))}
 			</ul>
 			{unknownSenderLeftOut && (
-				<Text variant="secondary">
+				<p className="text-caption">
 					The sender Unknown is left out, because the classifier invents it for unreadable documents.
-				</Text>
+				</p>
 			)}
-			{confirmation.isError && <Text variant="error">{confirmation.error.message}</Text>}
+			{confirmation.isError && <FailureMessage>{confirmation.error.message}</FailureMessage>}
 			<div className="flex flex-col-reverse gap-2 md:flex-row md:justify-end">
-				<Button variant="secondary" className={touchSized} onClick={onClose}>
+				<ActionButton variant="secondary" stretchOnPhone onClick={onClose}>
 					Cancel
-				</Button>
-				<Button
+				</ActionButton>
+				<ActionButton
 					variant="primary"
 					icon={CheckIcon}
-					className={touchSized}
+					stretchOnPhone
 					disabled={tickedIds.length === 0}
-					loading={confirmation.isPending}
+					pending={confirmation.isPending}
 					onClick={() => confirmation.mutate()}
 				>
 					Confirm {tickedIds.length}
-				</Button>
+				</ActionButton>
 			</div>
 		</>
 	)
@@ -85,13 +83,19 @@ export function NewSenderConfirmation({
 	const [open, setOpen] = useState(false)
 	const senderCount = selection.senders.length
 	return (
-		<Dialog.Root open={open} onOpenChange={setOpen}>
-			<Button variant="secondary" icon={CheckIcon} className={touchSized} onClick={() => setOpen(true)}>
+		<>
+			<ActionButton variant="secondary" icon={CheckIcon} stretchOnPhone onClick={() => setOpen(true)}>
 				Confirm {senderCount} new {senderCount === 1 ? "sender" : "senders"}
-			</Button>
-			<Dialog size="base" className="flex max-h-[calc(100dvh-4rem)] flex-col gap-4 p-6 sm:max-h-[calc(100dvh-8rem)]">
-				<SenderChecklist {...selection} onClose={() => setOpen(false)} onConfirmed={onConfirmed} />
-			</Dialog>
-		</Dialog.Root>
+			</ActionButton>
+			<ModalDialog
+				open={open}
+				onOpenChange={setOpen}
+				section="verification"
+				title="Confirm new senders"
+				description="Untick any that look wrong."
+			>
+				{open && <SenderChecklist {...selection} onClose={() => setOpen(false)} onConfirmed={onConfirmed} />}
+			</ModalDialog>
+		</>
 	)
 }

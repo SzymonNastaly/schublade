@@ -6,9 +6,6 @@ import { ModalDialog } from "./controls/modal_dialog"
 import type { ArchiveSection } from "./archive_sections"
 import type { ComponentProps, ReactNode } from "react"
 
-// Full width and 44 pixels high below md, where a finger operates them.
-export const touchSized = "w-full max-md:h-11 md:w-auto"
-
 interface ActionConfirmationProperties {
 	/** The control that opens the dialog. */
 	trigger: (open: () => void) => ReactNode

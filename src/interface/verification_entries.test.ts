@@ -1,9 +1,11 @@
 import { expect, test } from "vitest"
 import {
+	describeVerificationQuestion,
 	locateReviewStep,
 	selectNewSenders,
 	summarizeVerificationEntry,
 	verificationEntryKey,
+	verificationFilterOptions,
 } from "./verification_entries"
 import type { VerificationDocument, VerificationItem } from "../archive/verification_items"
 
@@ -110,4 +112,22 @@ test("an unreadable field entry notes each field as missing when it has no value
 		subject: "Untitled document",
 		note: "Document date is missing · Amount is unclear",
 	})
+})
+
+test("a review asks about a new record by its kind and names how many documents use it", () => {
+	expect(describeVerificationQuestion(newSender("nordkabel", "Nordkabel", ["a", "b"]))).toEqual({
+		question: "Is this a new sender?",
+		explanation: "Nordkabel appears on 2 documents. This is the newest.",
+	})
+})
+
+test("the filter options count the entries of each reason", () => {
+	const counts = verificationFilterOptions([first, second, third, fourth]).map(({ filter, count }) => [filter, count])
+	expect(counts).toEqual([
+		["all", 4],
+		["new_taxonomy_record", 2],
+		["illegible_required_field", 0],
+		["non_archival_attachment", 2],
+		["failed_ingestion", 0],
+	])
 })

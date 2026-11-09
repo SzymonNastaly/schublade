@@ -1,5 +1,4 @@
-import { Banner, Button, Input, LayerCard, Select, Text } from "@cloudflare/kumo"
-import { CaretRightIcon, CheckIcon, GitMergeIcon, PencilSimpleIcon, TrashIcon } from "@phosphor-icons/react"
+import { CheckIcon, GitMergeIcon, PencilSimpleIcon, TrashIcon } from "@phosphor-icons/react"
 import { useMutation } from "@tanstack/react-query"
 import { Link, useRouter } from "@tanstack/react-router"
 import { useState } from "react"
@@ -11,17 +10,20 @@ import {
 	submitTaxonomyMerge,
 	submitTaxonomyRename,
 } from "../utilities/server_functions"
-import { ActionConfirmation, documentDeletionDescription, touchSized } from "./action_confirmation"
-import { StatusBadge } from "./controls/status_badge"
+import { ActionConfirmation, documentDeletionDescription } from "./action_confirmation"
+import { ActionButton } from "./controls/action_button"
+import { FailureMessage, SelectionField, TextField } from "./controls/form_fields"
+import { NoticeBox } from "./controls/notice_box"
+import { SectionPanel } from "./controls/section_panel"
+import { textLinkClasses } from "./controls/text_link"
 import { formatDocumentDate } from "./document_formatting"
-import { documentFailureSentences } from "./document_status_presentation"
 import { FailedDocumentActions } from "./upload_tray"
-import { requiredFieldLabels, summarizeVerificationEntry } from "./verification_entries"
+import { requiredFieldLabels } from "./verification_entries"
 import type { ArchiveFacets } from "../archive/document_listing"
 import type { TaxonomyKind } from "../archive/taxonomy_maintenance"
 import type { VerificationDocument, VerificationItem } from "../archive/verification_items"
 import type { RequiredFieldKey } from "../ingestion/verification_assessment"
-import type { ReactNode } from "react"
+import type { ComponentProps, ReactNode } from "react"
 
 const kindPresentations: Record<TaxonomyKind, { label: string; facet: "senders" | "categories" | "tags" }> = {
 	sender: { label: "sender", facet: "senders" },
@@ -50,36 +52,14 @@ function documentLine(document: VerificationDocument): string {
 		.join(" · ")
 }
 
-// At least 44 pixels high below md, where a finger taps it.
-function DocumentLink({ document }: { document: VerificationDocument }) {
+function AnswerPanel({ children, error }: { children: ReactNode; error: Error | null }) {
 	return (
-		<Link
-			to="/documents/$documentId"
-			params={{ documentId: document.id }}
-			className="flex min-w-0 items-center gap-1 text-kumo-link underline underline-offset-2 max-md:min-h-11"
-		>
-			<span className="min-w-0 break-words">{documentLine(document)}</span>
-			<CaretRightIcon size={14} className="shrink-0" aria-hidden />
-		</Link>
-	)
-}
-
-function EntryBadge({ item }: { item: VerificationItem }) {
-	const { label, tone } = summarizeVerificationEntry(item).badge
-	return <StatusBadge tone={tone}>{label}</StatusBadge>
-}
-
-function EntryCard({ heading, children, error }: { heading: ReactNode; children: ReactNode; error: Error | null }) {
-	return (
-		<LayerCard>
-			<LayerCard.Secondary>
-				<span className="flex min-w-0 flex-wrap items-center gap-2">{heading}</span>
-			</LayerCard.Secondary>
-			<LayerCard.Primary className="flex flex-col gap-4">
+		<SectionPanel section="verification" heading="Your answer">
+			<div className="flex flex-col gap-3 p-3.5">
 				{children}
-				{error && <Text variant="error">{error.message}</Text>}
-			</LayerCard.Primary>
-		</LayerCard>
+				{error && <FailureMessage>{error.message}</FailureMessage>}
+			</div>
+		</SectionPanel>
 	)
 }
 
@@ -88,13 +68,11 @@ function MergeConfirmation({
 	target,
 	label,
 	variant,
-	className,
 }: {
 	item: Extract<VerificationItem, { reason: "new_taxonomy_record" }>
 	target: { id: string; name: string } | undefined
 	label: string
-	variant: "primary" | "secondary"
-	className?: string
+	variant: ComponentProps<typeof ActionButton>["variant"]
 }) {
 	const router = useRouter()
 	const { record } = item
@@ -103,16 +81,17 @@ function MergeConfirmation({
 	return (
 		<ActionConfirmation
 			trigger={(open) => (
-				<Button
+				<ActionButton
 					variant={variant}
 					icon={GitMergeIcon}
-					className={className}
+					stretchOnPhone
 					disabled={target === undefined}
 					onClick={open}
 				>
 					{label}
-				</Button>
+				</ActionButton>
 			)}
+			section="verification"
 			title={`Merge ${record.name} into ${targetName}?`}
 			description={`${movedDocumentCount(item.documents.length)} from the ${kindLabel} ${record.name} to ${targetName}. Schublade then deletes ${record.name} and confirms ${targetName}. You cannot undo this.`}
 			confirmationLabel="Merge"
@@ -140,7 +119,7 @@ function NewRecordEntry({
 	const [renaming, setRenaming] = useState(false)
 	const [name, setName] = useState(record.name)
 	const mergeTargets = facets[facet].filter((option) => option.id !== record.id)
-	const [targetRecordId, setTargetRecordId] = useState<string | null>(null)
+	const [targetRecordId, setTargetRecordId] = useState("")
 	const router = useRouter()
 	const confirmation = useVerificationAction(() => submitTaxonomyConfirmation({ data: reference }))
 	const rename = useVerificationAction((renamed: string) =>
@@ -148,91 +127,65 @@ function NewRecordEntry({
 	)
 	const proposedTarget = rename.data?.kind === "merge_proposed" ? rename.data.targetRecord : undefined
 	return (
-		<EntryCard
-			heading={
-				<>
-					<EntryBadge item={item} />
-					<span className="min-w-0 font-medium break-words">{record.name}</span>
-				</>
-			}
-			error={confirmation.error ?? rename.error}
-		>
-			{item.documents.length === 0 ? (
-				<Text variant="secondary">No document refers to this {label} any more.</Text>
-			) : (
-				<ul className="flex flex-col gap-1 text-sm text-kumo-subtle">
-					{item.documents.map((document) => (
-						<li key={document.id}>
-							<DocumentLink document={document} />
-						</li>
-					))}
-				</ul>
-			)}
+		<AnswerPanel error={confirmation.error ?? rename.error}>
+			<div className="flex flex-col gap-2 md:flex-row md:flex-wrap">
+				<ActionButton
+					variant="primary"
+					icon={CheckIcon}
+					stretchOnPhone
+					pending={confirmation.isPending}
+					onClick={() => confirmation.mutate()}
+				>
+					Confirm
+				</ActionButton>
+				<ActionButton
+					variant="secondary"
+					icon={PencilSimpleIcon}
+					stretchOnPhone
+					aria-expanded={renaming}
+					onClick={() => setRenaming(!renaming)}
+				>
+					Rename
+				</ActionButton>
+			</div>
 			{renaming && (
 				<form
-					className="flex flex-col gap-2 md:flex-row md:items-end"
+					className="flex flex-col gap-2 rounded-table border border-table-rule bg-table-label p-2.5"
 					onSubmit={(event) => {
 						event.preventDefault()
 						if (name.trim() !== "") rename.mutate(name.trim())
 					}}
 				>
-					<div className="w-full min-w-0 md:w-80">
-						<Input
-							label={`New ${label} name`}
-							className="w-full min-w-0"
-							value={name}
-							onChange={(event) => setName(event.target.value)}
-						/>
+					<TextField label={`New ${label} name`} value={name} onChange={(event) => setName(event.target.value)} />
+					<div>
+						<ActionButton type="submit" variant="primary" stretchOnPhone pending={rename.isPending}>
+							Save name
+						</ActionButton>
 					</div>
-					<Button type="submit" variant="primary" className={touchSized} loading={rename.isPending}>
-						Save name
-					</Button>
 				</form>
 			)}
 			{proposedTarget && (
-				<Banner
-					variant="alert"
-					title={`The ${label} ${proposedTarget.name} already has this name`}
-					description={
+				<NoticeBox tone="verification" title={`The ${label} ${proposedTarget.name} already has this name`}>
+					<div>
 						<MergeConfirmation
 							item={item}
 							target={proposedTarget}
 							label={`Merge into ${proposedTarget.name}`}
 							variant="primary"
-							className={`${touchSized} mt-2`}
 						/>
-					}
-				/>
+					</div>
+				</NoticeBox>
 			)}
-			<div className="flex flex-col gap-2 md:flex-row md:flex-wrap md:items-end">
-				<Button
-					variant="primary"
-					icon={CheckIcon}
-					className={touchSized}
-					loading={confirmation.isPending}
-					onClick={() => confirmation.mutate()}
-				>
-					Confirm
-				</Button>
-				<Button
-					variant="secondary"
-					icon={PencilSimpleIcon}
-					className={touchSized}
-					aria-expanded={renaming}
-					onClick={() => setRenaming(!renaming)}
-				>
-					Rename
-				</Button>
-				{mergeTargets.length > 0 && (
-					<div className="flex flex-col gap-2 md:flex-row md:items-end">
-						<Select<string>
-							label={`Merge into ${label}`}
-							className="w-full max-md:h-11 md:w-56"
-							value={targetRecordId}
-							placeholder={`Choose a ${label}`}
-							onValueChange={setTargetRecordId}
-							items={mergeTargets.map((option) => ({ value: option.id, label: option.name }))}
-						/>
+			{mergeTargets.length > 0 && (
+				<div className="flex flex-col gap-2 border-t border-dotted border-row-rule pt-3">
+					<SelectionField
+						label={`Or merge into ${label}`}
+						placeholder={`Choose a ${label}`}
+						value={targetRecordId}
+						onChange={(event) => setTargetRecordId(event.target.value)}
+						options={mergeTargets.map((option) => ({ value: option.id, label: option.name }))}
+					/>
+					<div>
 						<MergeConfirmation
 							item={item}
 							target={mergeTargets.find((option) => option.id === targetRecordId)}
@@ -240,14 +193,17 @@ function NewRecordEntry({
 							variant="secondary"
 						/>
 					</div>
-				)}
-				{item.documents.length === 0 && (
+				</div>
+			)}
+			{item.documents.length === 0 && (
+				<div>
 					<ActionConfirmation
 						trigger={(open) => (
-							<Button variant="secondary-destructive" icon={TrashIcon} className={touchSized} onClick={open}>
+							<ActionButton variant="secondaryDestructive" icon={TrashIcon} stretchOnPhone onClick={open}>
 								Delete {label}
-							</Button>
+							</ActionButton>
 						)}
+						section="verification"
 						title={`Delete the ${label} ${record.name}?`}
 						description={`No document refers to ${record.name}, so Schublade deletes the ${label} and nothing else. You cannot undo this.`}
 						confirmationLabel="Delete"
@@ -255,9 +211,20 @@ function NewRecordEntry({
 						action={() => submitTaxonomyDeletion({ data: reference })}
 						onCompleted={() => router.invalidate()}
 					/>
-				)}
-			</div>
-		</EntryCard>
+				</div>
+			)}
+			{item.documents.length > 1 && (
+				<ul className="flex flex-col gap-1 border-t border-dotted border-row-rule pt-3 text-fine">
+					{item.documents.map((document) => (
+						<li key={document.id}>
+							<Link to="/documents/$documentId" params={{ documentId: document.id }} className={textLinkClasses}>
+								{documentLine(document)}
+							</Link>
+						</li>
+					))}
+				</ul>
+			)}
+		</AnswerPanel>
 	)
 }
 
@@ -280,47 +247,39 @@ function IllegibleFieldEntry({ item }: { item: Extract<VerificationItem, { reaso
 	})
 	const complete = item.illegibleFields.every((field) => (values[field.fieldKey] ?? "") !== "")
 	return (
-		<EntryCard
-			heading={
-				<>
-					<EntryBadge item={item} />
-					<DocumentLink document={item.document} />
-				</>
-			}
-			error={supply.error}
-		>
+		<AnswerPanel error={supply.error}>
 			<form
-				className="flex flex-col gap-3 md:flex-row md:items-end"
+				className="flex flex-col gap-3"
 				onSubmit={(event) => {
 					event.preventDefault()
 					if (complete) supply.mutate(undefined)
 				}}
 			>
 				{item.illegibleFields.map(({ fieldKey }) => (
-					<div key={fieldKey} className="w-full min-w-0 md:w-56">
-						<Input
-							label={requiredFieldLabels[fieldKey]}
-							className="w-full min-w-0"
-							type={requiredFieldInputTypes[fieldKey]}
-							inputMode={fieldKey === "amount" ? "decimal" : undefined}
-							step={fieldKey === "amount" ? 0.01 : undefined}
-							value={values[fieldKey] ?? ""}
-							onChange={(event) => setValues({ ...values, [fieldKey]: event.target.value })}
-						/>
-					</div>
+					<TextField
+						key={fieldKey}
+						label={requiredFieldLabels[fieldKey]}
+						type={requiredFieldInputTypes[fieldKey]}
+						inputMode={fieldKey === "amount" ? "decimal" : undefined}
+						step={fieldKey === "amount" ? 0.01 : undefined}
+						value={values[fieldKey] ?? ""}
+						onChange={(event) => setValues({ ...values, [fieldKey]: event.target.value })}
+					/>
 				))}
-				<Button
-					type="submit"
-					variant="primary"
-					icon={CheckIcon}
-					className={touchSized}
-					disabled={!complete}
-					loading={supply.isPending}
-				>
-					Save
-				</Button>
+				<div>
+					<ActionButton
+						type="submit"
+						variant="primary"
+						icon={CheckIcon}
+						stretchOnPhone
+						disabled={!complete}
+						pending={supply.isPending}
+					>
+						Save
+					</ActionButton>
+				</div>
 			</form>
-		</EntryCard>
+		</AnswerPanel>
 	)
 }
 
@@ -330,25 +289,23 @@ function NonArchivalEntry({ item }: { item: Extract<VerificationItem, { reason: 
 		submitDocumentRevision({ data: { documentId: item.document.id, nonArchival: false } }),
 	)
 	return (
-		<EntryCard
-			heading={
-				<>
-					<EntryBadge item={item} />
-					<DocumentLink document={item.document} />
-				</>
-			}
-			error={retention.error}
-		>
-			<Text variant="secondary">
-				The classifier read this file as boilerplate that came with another document, such as general terms.
-			</Text>
-			<div className="flex flex-col gap-2 md:flex-row">
+		<AnswerPanel error={retention.error}>
+			<div className="flex flex-col gap-2 md:flex-row md:flex-wrap">
+				<ActionButton
+					variant="secondary"
+					stretchOnPhone
+					pending={retention.isPending}
+					onClick={() => retention.mutate()}
+				>
+					Keep document
+				</ActionButton>
 				<ActionConfirmation
 					trigger={(open) => (
-						<Button variant="destructive" icon={TrashIcon} className={touchSized} onClick={open}>
+						<ActionButton variant="destructive" icon={TrashIcon} stretchOnPhone onClick={open}>
 							Delete attachment
-						</Button>
+						</ActionButton>
 					)}
+					section="verification"
 					title="Delete this attachment?"
 					description={documentDeletionDescription(item.document.title)}
 					confirmationLabel="Delete"
@@ -356,33 +313,16 @@ function NonArchivalEntry({ item }: { item: Extract<VerificationItem, { reason: 
 					action={() => submitDocumentDeletion({ data: { documentId: item.document.id } })}
 					onCompleted={() => router.invalidate()}
 				/>
-				<Button
-					variant="secondary"
-					className={touchSized}
-					loading={retention.isPending}
-					onClick={() => retention.mutate()}
-				>
-					Keep document
-				</Button>
 			</div>
-		</EntryCard>
+		</AnswerPanel>
 	)
 }
 
 function FailedIngestionEntry({ item }: { item: Extract<VerificationItem, { reason: "failed_ingestion" }> }) {
 	return (
-		<EntryCard
-			heading={
-				<>
-					<EntryBadge item={item} />
-					<DocumentLink document={item.document} />
-				</>
-			}
-			error={null}
-		>
-			<Text variant="secondary">{documentFailureSentences[item.failureReason]}</Text>
+		<AnswerPanel error={null}>
 			<FailedDocumentActions documentId={item.document.id} title={item.document.title} />
-		</EntryCard>
+		</AnswerPanel>
 	)
 }
 
