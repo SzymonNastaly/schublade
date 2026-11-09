@@ -94,28 +94,43 @@ src/
 		authorization_grants.ts              The D1 record of each grant: the scope a request reads, and what Settings lists and disconnects
 		archive_access.workerd.test.ts       Registration, consent, token, and each tool under a restricted grant
 	interface/
-		document_search_controls.tsx         Search input with the / and Cmd+K shortcuts, the filter row, and the removable active filters
+		application_shell.tsx                The header, the section tabs, the one search field, and the toolbar that every page sits inside
+		application_logo.tsx                 The drawer and the wordmark, drawn as outlines so the logo needs no web font
+		archive_sections.ts                  The section a path belongs to
+		archive_sections.test.ts
+		phone_navigation_bar.tsx             Documents, Pending verification, and Upload, fixed to the bottom of a phone screen
+		committed_text.ts                    Text that commits after a pause in typing
+		archive_filter_panels.tsx            The side panels that filter the archive and the removable active filters
+		controls/                            The only components that style themselves; pages compose these
+			action_button.tsx                  Buttons by variant, and the same classes for a router link
+			section_panel.tsx                  The boxes with a heading in the colour of their section, and their menu rows
+			page_layout.tsx                    Page content, breadcrumb, headings, the panel column, list frame, and the phone return bar
+			form_fields.tsx                    Text field, native select, and failure message
+			tag_field.tsx                      Free text that becomes tags
+			filter_tabs.tsx                    Tabs that rest on a frame and filter what it shows
+			content_tabs.tsx                   Tabs on a frame that switch its content, on Base UI
+			modal_dialog.tsx                   A centred dialog and a phone sheet, on Base UI
+			status_badge.tsx, notice_box.tsx, empty_state.tsx, copyable_text.tsx, progress_spinner.tsx, text_link.ts
 		active_filter_presentation.ts        The Person options with Household, and the label of each active filter from a table keyed by criterion
 		active_filter_presentation.test.ts
-		document_list.tsx                    Stacked rows below the md breakpoint, the document table from md upward; every row links to its document page
+		document_list.tsx                    Stacked rows or a table, chosen by the width of the list frame; every row links to its document page
 		document_thumbnail.tsx               A small picture of the first page, or a file icon when there is none
 		document_formatting.ts               Dates, amounts, periods, and IBANs as readers expect them, in one fixed locale so server and browser render the same text
 		document_formatting.test.ts
 		page_load_failure.tsx                What a page shows when its loader failed; it recovers on the next announcement
-		archive_navigation.tsx               All documents, Pending verification with its count, and Settings
-		document_original.tsx                The original file in the document box, or the note that an email has no PDF yet, and the Open original link
+		document_original.tsx                The original file in the document box, or the note that an email has no PDF yet
 		pdf_page_box.tsx                     PDF.js in a box of constant size: sideways pages below md, stacked pages from md upward, only pages near the visible one drawn
-		document_details.tsx                 The document's details: reading or editing, the Pending verification banner, and Show extracted text
+		document_details.tsx                 The original and the extracted text as tabs, and the details as a table or the edit form
+		document_panels.tsx                  The Actions and More from this sender panels, and the prompt to verify a document
 		document_detail_presentation.ts      Extracted field labels, the rows of the reading state, and the fields the form offers
 		document_detail_presentation.test.ts
-		document_revision_form.tsx           The details' edit form and the confirmed document deletion
+		document_revision_form.tsx           The details' edit form
 		action_confirmation.tsx              The dialog that names what an irreversible action does before it runs
 		document_status_presentation.ts      Status badge labels and the plain sentence for each failure reason
 		document_status_updates.ts           The tab's one socket, useArchiveChanges, and useDocumentStatusUpdates, the only code that knows how updates arrive
 		tracked_uploads.ts                   The union of tracked upload rows and its reducer
 		tracked_uploads.test.ts
 		document_file_picker.tsx             The hidden file input and the control that opens it; on a phone the system picker offers camera, photos, and files
-		phone_action_bar.tsx                 Search, Pending verification, and Upload document, fixed to the bottom of a phone screen
 		upload_tray.tsx                      Upload context provider, the tray, and the Retry and Delete controls of a failed document
 		verification_entries.ts              Pure functions over the Pending verification union: entry key, list summary, new sender selection, and the review position
 		verification_entries.test.ts
@@ -125,18 +140,18 @@ src/
 		server_functions.ts                  TanStack Start server functions, each refused below its level by authorizeOperation
 		server_functions.workerd.test.ts     Each server function run through TanStack Start's server path with callers below and at its level
 	routes/
-		__root.tsx                           HTML document shell with the manifest links, the upload provider and tray, the phone action bar, and the Pending verification count for the navigation
-		index.tsx                            Archive page: search controls, document list, and upload control
+		__root.tsx                           HTML document shell with the manifest links, the application shell, the upload provider and tray, the phone navigation, and the Pending verification count
+		index.tsx                            Archive page: filter panels, tabs for each household member, and the document list
 		settings.tsx                         Settings page: issue an ingest token shown once, list and revoke tokens, list and disconnect the clients of /mcp
-		verification.tsx                     Pending verification overview: Review and Confirm new senders, and one compact row per entry that opens its review
-		verification_.review.tsx             /verification/review: one entry at a time with its document and controls, the entry parameter, Skip remembered in component state
-		documents.$documentId.tsx            Document page: title, summary, the original beside its details, then the navigation; after a deletion, the previous page or the archive
+		verification.tsx                     Pending verification overview: a filter by reason, Review and Confirm new senders, and one compact row per entry that opens its review
+		verification_.review.tsx             /verification/review: one question at a time beside its document, the remaining entries in a panel, the entry parameter, Skip remembered in component state
+		documents.$documentId.tsx            Document page: the panels, title, summary, the original beside its details; after a deletion, the previous page or the archive
 		api/documents.ts                     GET searches or lists documents by the searchCriteriaSchema parameters, POST accepts multipart uploads in fields named files
 		api/documents.$documentId.$representation.ts   GET the original file or the extracted Markdown
 		api/search_index.ts                  POST indexes archived documents that AI Search lacks and reports failedDocuments; repeat while it indexes some
 	router.tsx                             Router factory
 	routeTree.gen.ts                       Generated by `pnpm dev` and `pnpm build`; do not edit
-	styles.css                             Tailwind CSS v4 and Kumo styles
+	styles.css                             The Tailwind CSS v4 theme: the only colours, type sizes, radii, and gradients the interface may use
 	workflows/
 		document_ingestion_workflow.ts       DocumentIngestionWorkflow, which passes its env to ingestDocument
 	durable_objects/
@@ -169,6 +184,8 @@ eslint.config.js, .prettierrc.json, knip.json, tsconfig.json
 
 ## Things that will bite you
 
+- **The interface draws only from its theme and its controls.** `src/styles.css` switches off Tailwind's default palette, so `bg-white` produces no style, and `pnpm lint` rejects a class the theme does not define. A new colour is a token in `@theme`, and a class list held in a variable needs a name that `eslint.config.js` matches, such as one ending in `Classes`. Only `src/interface/controls/` may import Base UI. Blue means the archive, orange means Pending verification, and green means Settings, so colour a panel by the section it belongs to.
+- **Three widths matter.** Below `md` a page uses the phone navigation and one column. From `md` the tabs appear in their short form. From `lg` the panel column sits beside the content. A list or table inside `ListFrame` chooses its columns with container variants such as `@xl:`, because its width depends on the panels as well as the window.
 - **Configuration modes.** Builds evaluate `cloudflare.config.ts` in `production` mode or the `--mode` they receive. `cf dev` evaluates it in `development` mode, and `cf workers types` evaluates it without a mode. Only build modes require the identifiers in `schublade.deploy.json`.
 - **AI Search has no local simulation.** Every local mode binds `SEARCH_INDEX` to the remote AI Search instance `schublade-development`, which must exist on the signed-in account with the same four custom metadata fields as a provisioned instance. A dev server therefore never writes into the index of a deployment, but the local D1 database and that shared index can disagree. Searches and uploads against it are billed.
 - **Await `SEARCH_INDEX.items` before calling it.** In development, the remote binding answers over RPC, and `env.SEARCH_INDEX.items.list()` fails with `The RPC receiver does not implement the method "list"`. `await env.SEARCH_INDEX.items` first, as `document_indexing.ts` does. A deployed Worker returns the object itself, so the await costs nothing there.
