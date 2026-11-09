@@ -1,10 +1,9 @@
-import { Tabs } from "@base-ui/react/tabs"
 import { CheckCircleIcon } from "@phosphor-icons/react"
 import { useQuery } from "@tanstack/react-query"
 import { Link } from "@tanstack/react-router"
 import { Fragment } from "react"
-import { frameTabClasses, frameTabRowClasses } from "./controls/filter_tabs"
-import { ListFrame, SectionHeading } from "./controls/page_layout"
+import { ContentTabs } from "./controls/content_tabs"
+import { SectionHeading } from "./controls/page_layout"
 import { StatusBadge } from "./controls/status_badge"
 import { textLinkClasses } from "./controls/text_link"
 import { documentDetailRows } from "./document_detail_presentation"
@@ -78,24 +77,19 @@ function ExtractedText({ documentId }: { documentId: string }) {
 /** The original file and the extracted text, one at a time. */
 export function DocumentSources({ document }: { document: ListedDocument }) {
 	return (
-		<Tabs.Root defaultValue="original" className="min-w-0 flex-[3_1_480px]">
-			<Tabs.List className={frameTabRowClasses}>
-				<Tabs.Tab value="original" className={frameTabClasses}>
-					Original
-				</Tabs.Tab>
-				<Tabs.Tab value="text" className={frameTabClasses}>
-					Extracted text
-				</Tabs.Tab>
-			</Tabs.List>
-			<ListFrame>
-				<Tabs.Panel value="original" keepMounted className="data-[hidden]:hidden">
-					<DocumentOriginal document={document} />
-				</Tabs.Panel>
-				<Tabs.Panel value="text">
-					<ExtractedText documentId={document.id} />
-				</Tabs.Panel>
-			</ListFrame>
-		</Tabs.Root>
+		<div className="min-w-0 flex-[3_1_480px]">
+			<ContentTabs
+				tabs={[
+					{
+						value: "original",
+						label: "Original",
+						stayMounted: true,
+						content: <DocumentOriginal document={document} />,
+					},
+					{ value: "text", label: "Extracted text", content: <ExtractedText documentId={document.id} /> },
+				]}
+			/>
+		</div>
 	)
 }
 

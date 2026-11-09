@@ -1,9 +1,10 @@
-@source "../node_modules/@cloudflare/kumo/dist/**/*.{js,jsx,ts,tsx}";
-@import "@cloudflare/kumo/styles/tailwind";
 @import "tailwindcss";
 @import "@fontsource-variable/source-sans-3/wght.css";
 
+/* The default palette is switched off, so a colour outside this list produces no style. */
 @theme {
+	--color-*: initial;
+
 	--font-body: Verdana, "DejaVu Sans", Geneva, sans-serif;
 	--font-heading: "Source Sans 3 Variable", "Helvetica Neue", Arial, sans-serif;
 
