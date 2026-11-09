@@ -11,7 +11,7 @@ export const Route = createRootRoute({
 			{ charSet: "utf-8" },
 			// viewport-fit=cover makes env(safe-area-inset-bottom) report the home indicator.
 			{ name: "viewport", content: "width=device-width, initial-scale=1, viewport-fit=cover" },
-			{ name: "theme-color", content: "#ffffff" },
+			{ name: "theme-color", content: "#2c68c4" },
 			{ name: "apple-mobile-web-app-capable", content: "yes" },
 			{ name: "apple-mobile-web-app-title", content: "Schublade" },
 			{ title: "Schublade" },

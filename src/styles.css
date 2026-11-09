@@ -1,6 +1,129 @@
 @source "../node_modules/@cloudflare/kumo/dist/**/*.{js,jsx,ts,tsx}";
 @import "@cloudflare/kumo/styles/tailwind";
 @import "tailwindcss";
+@import "@fontsource-variable/source-sans-3/wght.css";
+
+@theme {
+	--font-body: Verdana, "DejaVu Sans", Geneva, sans-serif;
+	--font-heading: "Source Sans 3 Variable", "Helvetica Neue", Arial, sans-serif;
+
+	--text-fine: 12px;
+	--text-body: 13px;
+	--text-phone-subtitle: 17px;
+	--text-page-subtitle: 21px;
+	--text-section-title: 23px;
+	--text-phone-title: 28px;
+	--text-page-title: 34px;
+
+	--radius-field: 4px;
+	--radius-control: 5px;
+	--radius-table: 6px;
+	--radius-tab: 7px;
+	--radius-list: 8px;
+	--radius-badge: 10px;
+	--radius-panel: 12px;
+
+	--color-page-background: #c7d6ee;
+	--color-page-edge: #a9bcd9;
+	--color-surface: #ffffff;
+	--color-foreground: #1c2b3f;
+	--color-heading: #111820;
+	--color-subheading: #636b76;
+	--color-caption: #5a6472;
+	--color-field-label: #3b4a5e;
+	--color-on-accent: #0e2a52;
+	--color-on-header: #ffffff;
+	--color-header-caption: #e4effd;
+	--color-link: #0b57b0;
+	--color-link-hover: #063a7a;
+	--color-primary: #0b5cbf;
+	--color-primary-hover: #094c9f;
+	--color-on-primary: #ffffff;
+	--color-control-border: #a9b5c6;
+	--color-control-foreground: #22324a;
+	--color-field-border: #b9c3d2;
+	--color-outline: #bdc6d3;
+	--color-table-border: #d2d9e3;
+	--color-table-rule: #dfe4eb;
+	--color-table-label: #eef1f5;
+	--color-row-rule: #b8c2d0;
+	--color-row-edge: #e3e8ef;
+	--color-row-hover: #fff8dc;
+	--color-toolbar-border: #b7c4d8;
+	--color-toolbar-divider: #c9d3e2;
+	--color-viewer: #dde3ec;
+	--color-dialog-backdrop: rgb(15 40 85 / 0.45);
+	--color-chip: #eaf2fc;
+	--color-chip-border: #b7cbe6;
+
+	--color-documents: #4a97e3;
+	--color-documents-border: #c3cedd;
+	--color-documents-rule: #d9dfe8;
+	--color-documents-selected: #d6e7fb;
+	--color-documents-hover: #ddebfb;
+	--color-documents-badge: #dfeefc;
+	--color-documents-badge-text: #0e3f7e;
+	--color-documents-badge-border: #b3d2f2;
+
+	--color-verification: #f08f1f;
+	--color-verification-border: #e9b46f;
+	--color-verification-rule: #efe2d0;
+	--color-verification-surface: #fff8ec;
+	--color-verification-selected: #ffe3bd;
+	--color-verification-hover: #fff1de;
+	--color-verification-badge: #ffebd0;
+	--color-verification-badge-text: #7a3e00;
+	--color-verification-badge-border: #f2c58a;
+
+	--color-settings: #8fbc33;
+	--color-settings-border: #bbd27e;
+	--color-settings-rule: #e4ebd3;
+	--color-settings-surface: #f3f9e3;
+	--color-settings-selected: #e4f1c4;
+	--color-settings-hover: #eff6dc;
+	--color-settings-code-border: #c9d6a9;
+
+	--color-success-badge: #e4f1c4;
+	--color-success-badge-text: #3f5a0c;
+	--color-success-badge-border: #bbd27e;
+	--color-neutral-badge: #eef1f5;
+	--color-neutral-badge-text: #3b4a5e;
+	--color-neutral-badge-border: #d2d9e3;
+
+	--color-failure: #d2453a;
+	--color-failure-text: #8f1f15;
+	--color-failure-badge: #fde4e1;
+	--color-failure-badge-border: #f0b8b1;
+	--color-destructive: #b3261e;
+	--color-destructive-hover: #94201a;
+	--color-destructive-text: #a82323;
+	--color-destructive-border: #c9b6b6;
+
+	--background-image-application-header:
+		radial-gradient(ellipse 640px 90px at 58% -6px, rgb(205 228 255 / 0.85), rgb(205 228 255 / 0) 72%),
+		linear-gradient(180deg, #2c68c4 0%, #1a4fa6 58%, #123f8c 100%);
+	--background-image-toolbar: linear-gradient(180deg, #ffffff, #e6ebf3);
+	--background-image-control: linear-gradient(180deg, #ffffff, #dde3ec);
+	--background-image-menu-row: linear-gradient(180deg, #fbfcfe, #eef1f6);
+	--background-image-inactive-tab: linear-gradient(180deg, #f4f6fa, #d6dce6);
+	--background-image-verification-action: linear-gradient(180deg, #ffffff, #f3e7d6);
+	--background-image-documents-heading: linear-gradient(180deg, #4a8fe2, #1f5fb6);
+	--background-image-verification-heading: linear-gradient(180deg, #ffbe6b, #f08f1f);
+	--background-image-settings-heading: linear-gradient(180deg, #c4e070, #8fbc33);
+
+	--shadow-application: 0 0 0 1px #a9bcd9;
+	--shadow-thumbnail: 1px 1px 2px rgb(25 60 120 / 0.18);
+	--shadow-dialog: 0 8px 28px rgb(15 40 85 / 0.4);
+	--shadow-tray: 0 4px 18px rgb(15 40 85 / 0.3);
+
+	--animate-progress: progress-rotation 0.8s linear infinite;
+
+	@keyframes progress-rotation {
+		to {
+			transform: rotate(360deg);
+		}
+	}
+}
 
 /* iOS Safari zooms the page when a focused field holds text under 16 pixels. */
 @media (width < 48rem) {
