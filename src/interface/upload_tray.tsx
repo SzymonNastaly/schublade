@@ -1,4 +1,3 @@
-import { Button, Text } from "@cloudflare/kumo"
 import { ArrowClockwiseIcon, TrashIcon, XIcon } from "@phosphor-icons/react"
 import { useMutation } from "@tanstack/react-query"
 import { Link, useRouter } from "@tanstack/react-router"
@@ -8,7 +7,9 @@ import { submitDocumentDeletion, submitDocumentIngestionRetry } from "../utiliti
 import { ActionConfirmation, documentDeletionDescription } from "./action_confirmation"
 import { ActionButton } from "./controls/action_button"
 import { FailureMessage } from "./controls/form_fields"
+import { panelHeadingClasses } from "./controls/section_panel"
 import { StatusBadge } from "./controls/status_badge"
+import { textLinkClasses } from "./controls/text_link"
 import { documentFailureSentences, documentStatusBadges } from "./document_status_presentation"
 import { useDocumentStatusUpdates } from "./document_status_updates"
 import { isFinishedUpload, reduceTrackedUploads, unfinishedDocumentIds } from "./tracked_uploads"
@@ -116,14 +117,11 @@ export function FailedDocumentActions({ documentId, title }: { documentId: strin
 	)
 }
 
-const openLink =
-	"text-sm text-kumo-link underline underline-offset-2 max-md:inline-flex max-md:min-h-11 max-md:items-center"
-
 function RowFrame({ name, trailing, children }: { name: string; trailing: ReactNode; children?: ReactNode }) {
 	return (
-		<li className="flex flex-col gap-1 px-4 py-2">
+		<li className="flex flex-col gap-1 border-b border-dotted border-row-rule px-3.5 py-2 last:border-b-0">
 			<div className="flex items-center justify-between gap-2">
-				<span className="min-w-0 text-sm font-medium wrap-anywhere">{name}</span>
+				<span className="min-w-0 font-bold wrap-anywhere">{name}</span>
 				<span className="shrink-0">{trailing}</span>
 			</div>
 			{children}
@@ -140,24 +138,24 @@ function TrackedDocumentRow({ upload }: { upload: Extract<TrackedUpload, { stage
 				<RowFrame
 					name={name}
 					trailing={
-						<Link to="/documents/$documentId" params={{ documentId: upload.documentId }} className={openLink}>
+						<Link
+							to="/documents/$documentId"
+							params={{ documentId: upload.documentId }}
+							className={`inline-flex min-h-11 items-center md:min-h-0 ${textLinkClasses}`}
+						>
 							Open
 						</Link>
 					}
 				>
-					{upload.needsReview && (
-						<Text variant="secondary" size="sm">
-							Archived, needs review
-						</Text>
-					)}
+					{upload.needsReview && <p className="text-fine text-caption">Archived, needs review</p>}
 				</RowFrame>
 			)
 		case "failed":
 			return (
 				<RowFrame name={name} trailing={<StatusBadge tone={badge.tone}>{badge.label}</StatusBadge>}>
-					<Text variant="secondary" size="sm">
+					<p className="text-fine text-caption">
 						{documentFailureSentences[upload.failureReason ?? "processing_error"]}
-					</Text>
+					</p>
 					<FailedDocumentActions documentId={upload.documentId} title={name} />
 				</RowFrame>
 			)
@@ -176,20 +174,16 @@ function UploadRow({ upload }: { upload: TrackedUpload }) {
 				<RowFrame
 					name={upload.fileName}
 					trailing={
-						<Button
-							variant="ghost"
-							shape="square"
-							size="sm"
+						<ActionButton
+							variant="plain"
+							size="compact"
 							icon={XIcon}
 							aria-label={`Dismiss ${upload.fileName}`}
-							className="max-md:size-11"
 							onClick={() => dispatch({ kind: "dismissed", key: upload.key })}
 						/>
 					}
 				>
-					<Text variant="error" size="sm">
-						{upload.reason}
-					</Text>
+					<FailureMessage>{upload.reason}</FailureMessage>
 				</RowFrame>
 			)
 		case "tracked":
@@ -207,21 +201,22 @@ export function UploadTray() {
 			<div aria-hidden className="h-[50vh] md:hidden" />
 			<section
 				aria-label="Uploads"
-				className="fixed inset-x-0 bottom-[calc(3.5rem+env(safe-area-inset-bottom))] flex max-h-[50vh] flex-col border-t border-kumo-hairline bg-kumo-elevated shadow-lg md:inset-x-auto md:right-4 md:bottom-4 md:max-h-[60vh] md:w-[360px] md:rounded-lg md:border"
+				className="fixed inset-x-0 bottom-[calc(3.875rem+env(safe-area-inset-bottom))] flex max-h-[50vh] flex-col overflow-hidden rounded-tr-panel border-t border-documents-border bg-surface shadow-tray md:inset-x-auto md:right-4 md:bottom-4 md:max-h-[60vh] md:w-[360px] md:rounded-b-field md:border"
 			>
-				<header className="flex items-center justify-between gap-2 border-b border-kumo-hairline py-1 pr-2 pl-4">
-					<h2 className="font-medium">Uploads</h2>
-					<Button
-						variant="ghost"
-						size="sm"
-						className="max-md:h-11"
+				<header
+					className={`flex items-center justify-between gap-2 py-1 pr-1.5 pl-3 ${panelHeadingClasses("documents")}`}
+				>
+					<h2 className="font-bold">Uploads</h2>
+					<button
+						type="button"
 						disabled={!uploads.some(isFinishedUpload)}
 						onClick={() => dispatch({ kind: "finished_cleared" })}
+						className="min-h-11 cursor-pointer px-2 text-fine font-bold underline decoration-dotted underline-offset-2 disabled:cursor-not-allowed disabled:opacity-60 md:min-h-7"
 					>
 						Clear finished
-					</Button>
+					</button>
 				</header>
-				<ul className="flex min-h-0 flex-col divide-y divide-kumo-hairline overflow-y-auto">
+				<ul className="flex min-h-0 flex-col overflow-y-auto">
 					{uploads.map((upload) => (
 						<UploadRow key={upload.key} upload={upload} />
 					))}
