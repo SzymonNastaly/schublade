@@ -77,6 +77,7 @@ test("the migrations turn an archive written under the first schema into the cur
 			"0001_record_taxonomy_confirmation.sql",
 			"0002_record_indexed_revision.sql",
 			"0003_record_document_failure_reason.sql",
+			"0004_document_recognition_quarter_turns.sql",
 		],
 		categories: [
 			{ name: "Invoice", confirmed: true },

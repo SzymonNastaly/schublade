@@ -1,4 +1,13 @@
+import type { QuarterTurns } from "../database/schema"
+
 const TEXT_RECOGNITION_MODEL = "@cf/moondream/moondream3.1-9B-A2B"
+
+// Upright pages used at most 597 tokens. A page Moondream cannot read repeats text until this limit.
+const MAXIMUM_OUTPUT_TOKENS = 2048
+
+const LONGEST_EDGE_PIXELS = 1600
+const JPEG_QUALITY = 90
+const DEGREES_OF_QUARTER_TURNS = [0, 90, 180, 270] as const
 
 export type RecognizableImageType = "image/png" | "image/jpeg" | "image/webp"
 
@@ -7,19 +16,17 @@ interface RecognizableImage {
 	bytes: Uint8Array
 }
 
+export type TextRecognition = { kind: "transcribed"; text: string } | { kind: "token_limit_reached" }
+
 interface TextRecognizer {
-	transcribe: (image: RecognizableImage) => Promise<string>
+	transcribe: (image: RecognizableImage) => Promise<TextRecognition>
 }
 
 const TRANSCRIPTION_QUESTION =
 	"Transcribe all text on this document page exactly as printed, line by line, preserving numbers, dates, amounts, and IBANs. Output only the transcription."
 
-interface MoondreamAnswer {
-	answer?: string | null
-}
-
 interface MoondreamStreamEvent {
-	chunk?: MoondreamAnswer
+	chunk?: { answer?: string | null; finish_reason?: string | null }
 }
 
 // The Moondream service returns the euro sign, which UTF-8 encodes in three bytes, as
@@ -40,8 +47,9 @@ export function restoreEuroSigns(transcription: string): string {
 
 // The binding answers with a server-sent event stream even when `stream` is
 // false. Every chunk repeats the full answer so far, so the last chunk wins.
-export function parseMoondreamEventStream(eventStream: string): string {
+export function parseMoondreamEventStream(eventStream: string): TextRecognition {
 	let answer: string | undefined
+	let finishReason: string | null | undefined
 	for (const line of eventStream.split("\n")) {
 		if (!line.startsWith("data: ")) continue
 		const payload = line.slice("data: ".length).trim()
@@ -53,16 +61,32 @@ export function parseMoondreamEventStream(eventStream: string): string {
 			continue
 		}
 		if (typeof event.chunk?.answer === "string") answer = event.chunk.answer
+		if (event.chunk?.finish_reason) finishReason = event.chunk.finish_reason
 	}
 	if (answer === undefined) throw new Error("Moondream returned no answer")
-	return answer.trim()
+	return finishReason === "length" ? { kind: "token_limit_reached" } : { kind: "transcribed", text: answer.trim() }
 }
 
-async function readMoondreamResult(result: unknown): Promise<string> {
-	if (result instanceof ReadableStream) return parseMoondreamEventStream(await new Response(result).text())
-	const answer = (result as MoondreamAnswer | null)?.answer
-	if (typeof answer !== "string") throw new Error("Moondream returned no answer")
-	return answer.trim()
+/**
+ * Moondream reads the stored pixels and ignores the EXIF orientation of a photograph, which then
+ * reaches it sideways. Cloudflare Images applies the orientation. Without a stated background,
+ * transparent pixels came back as black, which hid black text.
+ */
+export async function normalizeRecognitionImage(
+	transformer: ImagesBinding,
+	bytes: Uint8Array<ArrayBuffer>,
+	quarterTurns: QuarterTurns,
+): Promise<RecognizableImage> {
+	const result = await transformer
+		.input(new Blob([bytes]).stream())
+		.transform({
+			width: LONGEST_EDGE_PIXELS,
+			height: LONGEST_EDGE_PIXELS,
+			fit: "scale-down",
+			rotate: DEGREES_OF_QUARTER_TURNS[quarterTurns],
+		})
+		.output({ format: "image/jpeg", quality: JPEG_QUALITY, background: "#FFFFFF" })
+	return { mediaType: "image/jpeg", bytes: new Uint8Array(await result.response().arrayBuffer()) }
 }
 
 function encodeDataUri(image: RecognizableImage): string {
@@ -85,11 +109,14 @@ export function createMoondreamRecognizer(runtime: Ai, gatewayIdentifier: string
 					question: TRANSCRIPTION_QUESTION,
 					reasoning: false,
 					temperature: 0,
-					max_tokens: 4096,
+					max_tokens: MAXIMUM_OUTPUT_TOKENS,
 				} as never,
-				{ gateway: { id: gatewayIdentifier } },
+				{ gateway: { id: gatewayIdentifier, skipCache: true } },
 			)
-			return restoreEuroSigns(await readMoondreamResult(result))
+			const recognition = parseMoondreamEventStream(await new Response(result as ReadableStream).text())
+			return recognition.kind === "transcribed"
+				? { kind: "transcribed", text: restoreEuroSigns(recognition.text) }
+				: recognition
 		},
 	}
 }

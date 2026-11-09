@@ -283,7 +283,13 @@ async function storeFailedDocument() {
 		.set({ status: "failed", failureReason: "processing_error" })
 		.where(eq(documents.id, failedDocumentId))
 	const readDocument = () =>
-		database.select({ status: documents.status, failureReason: documents.failureReason }).from(documents)
+		database
+			.select({
+				status: documents.status,
+				failureReason: documents.failureReason,
+				quarterTurns: documents.recognitionQuarterTurns,
+			})
+			.from(documents)
 	return { readDocument }
 }
 
@@ -310,7 +316,7 @@ test("retryDocumentIngestion lets one of two retries through and starts one work
 		instanceIdentifierIsNew: instances.every((instance) => instance.id !== failedDocumentId),
 	}).toEqual({
 		refusals: [`Document ${failedDocumentId} has not failed, so it cannot be retried`],
-		documents: [{ status: "processing", failureReason: null }],
+		documents: [{ status: "processing", failureReason: null, quarterTurns: 0 }],
 		parameters: [{ documentId: failedDocumentId }],
 		instanceIdentifierIsNew: true,
 	})
@@ -324,7 +330,7 @@ test("retryDocumentIngestion leaves the document failed when its workflow cannot
 		retryDocumentIngestion({ ...env, DOCUMENT_INGESTION_WORKFLOW: workflow as unknown as Workflow }, failedDocumentId),
 	).rejects.toThrow("The Workflows service is unavailable")
 
-	expect(await readDocument()).toEqual([{ status: "failed", failureReason: "processing_error" }])
+	expect(await readDocument()).toEqual([{ status: "failed", failureReason: "processing_error", quarterTurns: 0 }])
 })
 
 const receiptMessage = [
@@ -428,6 +434,136 @@ test("ingestDocument reads a printed email from its text layer, without the conv
 		invoiceNumberInText: content?.includes("NK-2026-1048-3391"),
 		emptyEmailBody: classificationRequests[0]?.includes("<email>\\n\\n</email>"),
 	}).toEqual({ invoiceNumberInText: true, emptyEmailBody: true })
+})
+
+function recognitionEventStream(answer: string, finishReason: string) {
+	return new Response(`data: ${JSON.stringify({ chunk: { answer, finish_reason: finishReason } })}\n\ndata: [DONE]\n\n`)
+		.body
+}
+
+function pngDimensions(dataUri: string) {
+	const bytes = Uint8Array.from(atob(dataUri.split(",")[1] ?? ""), (character) => character.charCodeAt(0))
+	const view = new DataView(bytes.buffer)
+	return { width: view.getUint32(16), height: view.getUint32(20) }
+}
+
+test("a page that reaches the token limit fails its document, and a retry reads the page a quarter turn further", async () => {
+	const documentId = "a1000000-0000-4000-8000-000000000001"
+	const database = await storeScannedInvoice(documentId)
+	const recognitionRequests: Array<{ image: string; tokenLimit: number; skipsCache: boolean }> = []
+	const runtimeFinishingWith = (finishReason: string) =>
+		({
+			toMarkdown: recordedRuntime.toMarkdown,
+			run: (
+				model: string,
+				inputs: { image: string; max_tokens: number },
+				options: { gateway: { skipCache: boolean } },
+			) => {
+				if (model !== "@cf/moondream/moondream3.1-9B-A2B") return Promise.resolve(recording.classificationResponse)
+				recognitionRequests.push({
+					image: inputs.image,
+					tokenLimit: inputs.max_tokens,
+					skipsCache: options.gateway.skipCache,
+				})
+				return Promise.resolve(recognitionEventStream("Seite Seite Seite", finishReason))
+			},
+		}) as unknown as Ai
+	const { stepNames, step } = createRecordingStep()
+
+	const message = await ingestDocument(
+		step,
+		{ ...recordedEnvironment, AI_RUNTIME: runtimeFinishingWith("length") },
+		documentId,
+	).catch((error: Error) => error.message)
+	const [failedDocument] = await database
+		.select({ status: documents.status, failureReason: documents.failureReason })
+		.from(documents)
+	await retryDocumentIngestion(
+		{ ...env, DOCUMENT_INGESTION_WORKFLOW: { create: () => Promise.resolve() } as unknown as Workflow },
+		documentId,
+	)
+	await ingestDocument(
+		createRecordingStep().step,
+		{ ...recordedEnvironment, AI_RUNTIME: runtimeFinishingWith("stop") },
+		documentId,
+	)
+
+	expect({
+		message,
+		failedDocument,
+		stepNames,
+		pages: recognitionRequests.map(({ image }) => pngDimensions(image)),
+		requests: recognitionRequests.map(({ tokenLimit, skipsCache }) => ({ tokenLimit, skipsCache })),
+	}).toEqual({
+		message: "Page 1 did not finish within the token limit",
+		failedDocument: { status: "failed", failureReason: "unreadable_page" },
+		stepNames: [
+			"render email",
+			"extract text",
+			"record status recognizing_text",
+			"recognize page 1",
+			"record status failed",
+		],
+		pages: [
+			{ width: 1240, height: 1754 },
+			{ width: 1754, height: 1240 },
+		],
+		requests: [
+			{ tokenLimit: 2048, skipsCache: true },
+			{ tokenLimit: 2048, skipsCache: true },
+		],
+	})
+})
+
+test("ingestDocument sends an uploaded photograph through the image transformer before text recognition", async () => {
+	const documentId = "a1000000-0000-4000-8000-000000000002"
+	const database = await storeScannedInvoice(documentId, new Uint8Array([0xff, 0xd8, 0xff, 0x01]))
+	await database.update(documents).set({ mimeType: "image/jpeg", recognitionQuarterTurns: 2 })
+	const transformations: Array<unknown> = []
+	let inputBytes: Promise<ArrayBuffer> = Promise.resolve(new ArrayBuffer(0))
+	const imageTransformer = {
+		input(stream: ReadableStream<Uint8Array>) {
+			inputBytes = new Response(stream).arrayBuffer()
+			const transformer = {
+				transform(options: unknown) {
+					transformations.push(options)
+					return transformer
+				},
+				output(options: unknown) {
+					transformations.push(options)
+					return Promise.resolve({ response: () => new Response(new Uint8Array([1, 2, 3])) })
+				},
+			}
+			return transformer
+		},
+	}
+	const recognizedImages: Array<string> = []
+	const { step } = createRecordingStep()
+
+	await ingestDocument(
+		step,
+		{
+			...recordedEnvironment,
+			IMAGE_TRANSFORMER: imageTransformer as unknown as ImagesBinding,
+			AI_RUNTIME: {
+				run: (model: string, inputs: { image: string }) => {
+					if (model !== "@cf/moondream/moondream3.1-9B-A2B") return Promise.resolve(recording.classificationResponse)
+					recognizedImages.push(inputs.image)
+					return Promise.resolve(recognitionEventStream("Stadtwerke Talbrück", "stop"))
+				},
+			} as unknown as Ai,
+		},
+		documentId,
+	)
+
+	expect({ input: [...new Uint8Array(await inputBytes)], transformations, recognizedImages }).toEqual({
+		input: [0xff, 0xd8, 0xff, 0x01],
+		transformations: [
+			{ width: 1600, height: 1600, fit: "scale-down", rotate: 180 },
+			{ format: "image/jpeg", quality: 90, background: "#FFFFFF" },
+		],
+		recognizedImages: ["data:image/jpeg;base64,AQID"],
+	})
 })
 
 test("ingestDocument records an email without a body as unreadable and renders nothing", async () => {

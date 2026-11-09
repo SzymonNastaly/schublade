@@ -171,6 +171,8 @@ export default defineConfig(({ mode }) => {
 				// Workers AI and Browser Run have no local simulation.
 				AI_RUNTIME: bindings.ai({ dev: { remote: true } }),
 				BROWSER_RENDERER: bindings.browser({ dev: { remote: true } }),
+				// The local simulation applies neither the EXIF orientation nor quality.
+				IMAGE_TRANSFORMER: bindings.images({ dev: { remote: true } }),
 				DOCUMENT_INGESTION_WORKFLOW: bindings.workflow({
 					name: `${name}-document-ingestion`,
 					worker: name,

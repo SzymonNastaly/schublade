@@ -14,7 +14,7 @@ import {
 import { classifyDocument } from "../inference/document_classifier"
 import { indexDocument } from "../search/document_indexing"
 import { UnopenablePdfError, inspectPages, rasterizePage } from "../inference/page_rasterizer"
-import { createMoondreamRecognizer } from "../inference/text_recognizer"
+import { createMoondreamRecognizer, normalizeRecognitionImage } from "../inference/text_recognizer"
 import { findStandardCategory } from "./document_classification"
 import {
 	assembleDocumentMarkdown,
@@ -32,6 +32,7 @@ import type { WorkflowStep, WorkflowStepConfig } from "cloudflare:workers"
 import type { InferInsertModel, SQL } from "drizzle-orm"
 import type { SQLiteTable } from "drizzle-orm/sqlite-core"
 import type { ArchiveDatabase } from "../database/client"
+import type { QuarterTurns } from "../database/schema"
 import type { PageInspection } from "../inference/page_rasterizer"
 import type { SearchIndex } from "../search/document_indexing"
 import type { MailContext } from "./classification_prompt"
@@ -49,6 +50,7 @@ type IngestionEnvironment = Pick<
 	| "AI_GATEWAY_IDENTIFIER"
 	| "BROWSER_RENDERER"
 	| "CLASSIFICATION_MODEL"
+	| "IMAGE_TRANSFORMER"
 > & { SEARCH_INDEX: SearchIndex }
 
 type StatusRecordEnvironment = Pick<Env, "ARCHIVE_COORDINATOR" | "DATABASE">
@@ -64,6 +66,10 @@ type DocumentStatusChange =
 // to keep the class of a thrown error.
 type TextExtractionOutcome =
 	| { kind: "extracted"; extraction: TextExtraction }
+	| { kind: "refused"; failureReason: DocumentFailureReason; explanation: string }
+
+type PageRecognitionOutcome =
+	| { kind: "recognized"; transcription: PageTranscription }
 	| { kind: "refused"; failureReason: DocumentFailureReason; explanation: string }
 
 type MailRenderingOutcome =
@@ -171,7 +177,11 @@ export async function retryDocumentIngestion(
 ): Promise<void> {
 	const reclaimed = await connectDatabase(environment.DATABASE)
 		.update(documents)
-		.set({ status: "processing", failureReason: null })
+		.set({
+			status: "processing",
+			failureReason: null,
+			recognitionQuarterTurns: sql`case when ${documents.failureReason} = 'unreadable_page' then (${documents.recognitionQuarterTurns} + 1) % 4 else ${documents.recognitionQuarterTurns} end`,
+		})
 		.where(and(eq(documents.id, documentId), eq(documents.status, "failed")))
 		.returning({ id: documents.id })
 	if (reclaimed.length === 0) throw new Error(`Document ${documentId} has not failed, so it cannot be retried`)
@@ -182,9 +192,13 @@ async function readOriginal(
 	database: ArchiveDatabase,
 	storage: R2Bucket,
 	documentId: string,
-): Promise<{ sourceFile: SourceFile; bytes: Uint8Array<ArrayBuffer> }> {
+): Promise<{ sourceFile: SourceFile; bytes: Uint8Array<ArrayBuffer>; quarterTurns: QuarterTurns }> {
 	const [document] = await database
-		.select({ storageObjectKey: documents.storageObjectKey, mimeType: documents.mimeType })
+		.select({
+			storageObjectKey: documents.storageObjectKey,
+			mimeType: documents.mimeType,
+			quarterTurns: documents.recognitionQuarterTurns,
+		})
 		.from(documents)
 		.where(eq(documents.id, documentId))
 	if (!document) throw new NonRetryableError(`Document ${documentId} has no record`)
@@ -192,7 +206,7 @@ async function readOriginal(
 	if (!sourceFile) throw new NonRetryableError(`Document ${documentId} has the unsupported type ${document.mimeType}`)
 	const object = await storage.get(document.storageObjectKey)
 	if (!object) throw new NonRetryableError(`Document ${documentId} has no original at ${document.storageObjectKey}`)
-	return { sourceFile, bytes: new Uint8Array(await object.arrayBuffer()) }
+	return { sourceFile, bytes: new Uint8Array(await object.arrayBuffer()), quarterTurns: document.quarterTurns }
 }
 
 /**
@@ -278,19 +292,27 @@ async function extractText(
 
 async function recognizePage(
 	environment: IngestionEnvironment,
-	original: { sourceFile: SourceFile; bytes: Uint8Array },
+	original: { sourceFile: SourceFile; bytes: Uint8Array<ArrayBuffer>; quarterTurns: QuarterTurns },
 	pageIndex: number,
-): Promise<PageTranscription> {
-	const { sourceFile, bytes } = original
+): Promise<PageRecognitionOutcome> {
+	const { sourceFile, bytes, quarterTurns } = original
 	const image =
 		sourceFile.kind === "image"
-			? { mediaType: sourceFile.mediaType, bytes }
+			? await normalizeRecognitionImage(environment.IMAGE_TRANSFORMER, bytes, quarterTurns)
 			: {
 					mediaType: "image/png" as const,
-					bytes: (await rasterizePage(bytes, pageIndex, RECOGNITION_DOTS_PER_INCH)).pngBytes,
+					bytes: (await rasterizePage(bytes, pageIndex, RECOGNITION_DOTS_PER_INCH, quarterTurns)).pngBytes,
 				}
 	const recognizer = createMoondreamRecognizer(environment.AI_RUNTIME, environment.AI_GATEWAY_IDENTIFIER)
-	return { pageIndex, text: await recognizer.transcribe(image) }
+	const recognition = await recognizer.transcribe(image)
+	if (recognition.kind === "token_limit_reached") {
+		return {
+			kind: "refused",
+			failureReason: "unreadable_page",
+			explanation: `Page ${pageIndex + 1} did not finish within the token limit`,
+		}
+	}
+	return { kind: "recognized", transcription: { pageIndex, text: recognition.text } }
 }
 
 async function readTaxonomy(database: ArchiveDatabase) {
@@ -534,10 +556,14 @@ async function archiveIngestedDocument(
 			)
 			for (const { pageIndex } of recognitionPages) {
 				// Each page is its own step, so a failed page retries without repeating the others.
-				const transcription = await step.do(`recognize page ${pageIndex + 1}`, inferenceStep, async () =>
+				const recognition = await step.do(`recognize page ${pageIndex + 1}`, inferenceStep, async () =>
 					recognizePage(environment, await readOriginal(database, environment.DOCUMENT_STORAGE, documentId), pageIndex),
 				)
-				transcriptions.push(transcription)
+				if (recognition.kind === "refused") {
+					failureReason = recognition.failureReason
+					throw new Error(recognition.explanation)
+				}
+				transcriptions.push(recognition.transcription)
 			}
 		}
 

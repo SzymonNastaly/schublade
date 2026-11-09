@@ -14,9 +14,20 @@ const recordedEventStream = [
 ].join("\n\n")
 
 test("parseMoondreamEventStream returns the answer of the last chunk", () => {
-	expect(parseMoondreamEventStream(`${recordedEventStream}\n\n`)).toBe(
-		"Stadtwerke Talbrück GmbH\nIBAN DE12 9701 1320 0300 4182 25",
-	)
+	expect(parseMoondreamEventStream(`${recordedEventStream}\n\n`)).toEqual({
+		kind: "transcribed",
+		text: "Stadtwerke Talbrück GmbH\nIBAN DE12 9701 1320 0300 4182 25",
+	})
+})
+
+test("parseMoondreamEventStream reports a reading that stopped at the token limit", () => {
+	const eventStream = [
+		'data: {"chunk":{"answer":"Seite Seite","caption":null,"finish_reason":""},"index":0}',
+		'data: {"chunk":{"answer":"Seite Seite Seite","caption":null,"finish_reason":"length"},"index":1}',
+		"data: [DONE]",
+	].join("\n\n")
+
+	expect(parseMoondreamEventStream(eventStream)).toEqual({ kind: "token_limit_reached" })
 })
 
 test("restoreEuroSigns turns a replacement character beside a monetary amount into a euro sign", () => {

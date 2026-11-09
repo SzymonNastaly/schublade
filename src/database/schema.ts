@@ -40,7 +40,14 @@ export const succeedingModificationTime = () => sql`max(unixepoch(), updated_at 
 // store only the two reasons that belong to the document itself. See verification_assessment.ts.
 const verificationReasons = ["illegible_required_field", "non_archival_attachment"] as const
 
-const documentFailureReasons = ["unreadable_file", "page_limit_exceeded", "processing_error"] as const
+const documentFailureReasons = [
+	"unreadable_file",
+	"page_limit_exceeded",
+	"unreadable_page",
+	"processing_error",
+] as const
+
+export type QuarterTurns = 0 | 1 | 2 | 3
 
 const extractedFieldTypes = ["text", "number", "date"] as const
 
@@ -111,6 +118,7 @@ export const documents = sqliteTable(
 		verificationReason: text("verification_reason", { enum: verificationReasons }),
 		// Null unless the status is failed.
 		failureReason: text("failure_reason", { enum: documentFailureReasons }),
+		recognitionQuarterTurns: integer("recognition_quarter_turns").$type<QuarterTurns>().notNull().default(0),
 		createdAt: creationTime(),
 		updatedAt: integer("updated_at", { mode: "timestamp" })
 			.notNull()
@@ -217,7 +225,7 @@ export const documentInsertSchema = createInsertSchema(documents, {
 	documentDate: z.iso.date(),
 	byteSize: (schema) => schema.int().nonnegative(),
 	pageCount: (schema) => schema.int().positive(),
-}).omit({ ...managedColumns, updatedAt: true, indexedAt: true })
+}).omit({ ...managedColumns, updatedAt: true, indexedAt: true, recognitionQuarterTurns: true })
 
 export const documentTagInsertSchema = createInsertSchema(documentTags)
 

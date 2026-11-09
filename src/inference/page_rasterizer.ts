@@ -2,6 +2,8 @@ import { init } from "@embedpdf/pdfium"
 import pdfiumModule from "@embedpdf/pdfium/pdfium.wasm?module"
 import { encode } from "fast-png"
 
+import type { QuarterTurns } from "../database/schema"
+
 type PdfiumLibrary = Awaited<ReturnType<typeof init>>
 
 export interface PageInspection {
@@ -97,17 +99,33 @@ function readPageText(library: PdfiumLibrary, textPageHandle: number, characterC
 	}
 }
 
-export function rasterizePage(pdfBytes: Uint8Array, pageIndex: number, dotsPerInch = 150): Promise<RasterizedPage> {
+export function rasterizePage(
+	pdfBytes: Uint8Array,
+	pageIndex: number,
+	dotsPerInch = 150,
+	quarterTurns: QuarterTurns = 0,
+): Promise<RasterizedPage> {
 	return withDocument(pdfBytes, (library, documentHandle) => {
 		const pageHandle = library.FPDF_LoadPage(documentHandle, pageIndex)
 		if (!pageHandle) throw new Error(`PDFium could not load page ${pageIndex}`)
 		const scale = dotsPerInch / POINTS_PER_INCH
-		const widthPixels = Math.round(library.FPDF_GetPageWidthF(pageHandle) * scale)
-		const heightPixels = Math.round(library.FPDF_GetPageHeightF(pageHandle) * scale)
+		const pageWidthPixels = Math.round(library.FPDF_GetPageWidthF(pageHandle) * scale)
+		const pageHeightPixels = Math.round(library.FPDF_GetPageHeightF(pageHandle) * scale)
+		const [widthPixels, heightPixels] =
+			quarterTurns % 2 === 0 ? [pageWidthPixels, pageHeightPixels] : [pageHeightPixels, pageWidthPixels]
 		const bitmapHandle = library.FPDFBitmap_CreateEx(widthPixels, heightPixels, BITMAP_FORMAT_BGRA, 0, 0)
 		try {
 			library.FPDFBitmap_FillRect(bitmapHandle, 0, 0, widthPixels, heightPixels, OPAQUE_WHITE)
-			library.FPDF_RenderPageBitmap(bitmapHandle, pageHandle, 0, 0, widthPixels, heightPixels, 0, RENDER_ANNOTATIONS)
+			library.FPDF_RenderPageBitmap(
+				bitmapHandle,
+				pageHandle,
+				0,
+				0,
+				widthPixels,
+				heightPixels,
+				quarterTurns,
+				RENDER_ANNOTATIONS,
+			)
 			const grayscale = toGrayscale(
 				library.pdfium.HEAPU8,
 				library.FPDFBitmap_GetBuffer(bitmapHandle),

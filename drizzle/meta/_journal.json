@@ -29,6 +29,13 @@
       "when": 1794129496676,
       "tag": "0003_record_document_failure_reason",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1794234400993,
+      "tag": "0004_document_recognition_quarter_turns",
+      "breakpoints": true
     }
   ]
 }

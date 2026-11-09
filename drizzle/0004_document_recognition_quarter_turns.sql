@@ -1,0 +1,1 @@
+ALTER TABLE `documents` ADD `recognition_quarter_turns` integer DEFAULT 0 NOT NULL;
