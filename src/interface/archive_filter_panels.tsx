@@ -87,18 +87,15 @@ function FacetPanel({ heading, noun, options, selected, onSelect }: FacetPanelPr
 	)
 }
 
-function PendingVerificationPanel() {
-	const pendingVerificationCount = useLoaderData({ from: "__root__" })
-	if (pendingVerificationCount === 0) return null
+function FailedDocumentsPanel() {
+	const failedDocumentCount = useLoaderData({ from: "__root__" })
+	if (failedDocumentCount === 0) return null
 	return (
-		<SectionPanel section="verification" heading="Pending verification" tinted>
+		<SectionPanel section="verification" heading="Failed documents" tinted>
 			<div className="flex flex-col items-start gap-2.5 p-3">
-				<p>
-					{pendingVerificationCount === 1 ? "1 item needs" : `${pendingVerificationCount} items need`} a quick look from
-					you.
-				</p>
-				<Link to="/verification" className={actionClasses({ variant: "secondary", size: "compact" })}>
-					Review now ›
+				<p>{failedDocumentCount === 1 ? "1 document" : `${failedDocumentCount} documents`} could not be archived.</p>
+				<Link to="/failed_documents" className={actionClasses({ variant: "secondary", size: "compact" })}>
+					Show failed documents ›
 				</Link>
 			</div>
 		</SectionPanel>
@@ -117,7 +114,7 @@ export function ArchiveFilterPanels({ criteria, facets, onChange }: ArchiveFilte
 			{filteredTaxonomyRecords(criteria, facets).map((record) => (
 				<TaxonomyRecordPanel key={`${record.kind}:${record.id}`} record={record} onChange={onChange} />
 			))}
-			<PendingVerificationPanel />
+			<FailedDocumentsPanel />
 			<FacetPanel
 				heading="Categories"
 				noun="categories"

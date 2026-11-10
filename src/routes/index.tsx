@@ -16,8 +16,7 @@ import type { SearchCriteria } from "../search/search_criteria"
 
 export const Route = createFileRoute("/")({
 	validateSearch: parseSearchParameters,
-	// The router merges a review's entry parameter into this search, and the server function refuses it.
-	loaderDeps: ({ search }) => parseSearchParameters(search),
+	loaderDeps: ({ search }) => search,
 	loader: async ({ deps }) => {
 		const [documents, facets] = await Promise.all([retrieveDocuments({ data: deps }), listArchiveFacets()])
 		return { documents, facets }

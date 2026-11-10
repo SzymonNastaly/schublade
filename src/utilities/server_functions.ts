@@ -3,6 +3,7 @@ import { env } from "cloudflare:workers"
 import { z } from "zod"
 import { queryArchiveFacets, queryDocumentListing, queryDocumentStatuses } from "../archive/document_listing"
 import { deleteDocument, documentRevisionSchema, reviseDocument } from "../archive/document_revision"
+import { countFailedDocuments, listFailedDocuments } from "../archive/failed_documents"
 import {
 	deleteTaxonomyRecord,
 	mergeTaxonomyRecords,
@@ -11,7 +12,6 @@ import {
 	taxonomyRecordSchema,
 	taxonomyRenameSchema,
 } from "../archive/taxonomy_maintenance"
-import { countVerificationItems, listVerificationItems } from "../archive/verification_items"
 import { apiTokenIssuanceSchema, issueApiToken, listApiTokens, revokeApiToken } from "../authentication/api_tokens"
 import { authorizeOperation } from "../authorization/caller_authorization"
 import { database } from "../database/client"
@@ -78,14 +78,14 @@ export const revokeAuthorizedClientRecord = createServerFn({ method: "POST" })
 		return revokeAuthorizedClient(database, data.grantId)
 	})
 
-export const retrieveVerificationItems = createServerFn({ method: "GET" }).handler(({ context }) => {
+export const retrieveFailedDocuments = createServerFn({ method: "GET" }).handler(({ context }) => {
 	authorizeOperation(context, "readArchive")
-	return listVerificationItems(database)
+	return listFailedDocuments(database)
 })
 
-export const countPendingVerificationItems = createServerFn({ method: "GET" }).handler(({ context }) => {
+export const retrieveFailedDocumentCount = createServerFn({ method: "GET" }).handler(({ context }) => {
 	authorizeOperation(context, "readArchive")
-	return countVerificationItems(database)
+	return countFailedDocuments(database)
 })
 
 const archiveEnvironment = () => ({ database, storage: env.DOCUMENT_STORAGE, searchIndex: env.SEARCH_INDEX })

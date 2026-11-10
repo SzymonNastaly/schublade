@@ -50,8 +50,8 @@ src/
 		document_listing.workerd.test.ts
 		document_representation.ts           The original file, the extracted Markdown, or a first-page thumbnail rendered on first request, served with nosniff and a sandbox policy
 		document_representation.workerd.test.ts
-		verification_items.ts                The failed documents that Pending verification lists, and their count
-		verification_items.workerd.test.ts
+		failed_documents.ts                  The documents whose ingestion failed, newest first, and their count
+		failed_documents.workerd.test.ts
 		taxonomy_maintenance.ts              Rename (proposing a merge on a name clash), merge, and delete senders, categories, and tags
 		taxonomy_maintenance.workerd.test.ts
 		document_revision.ts                 A member's revision of a document with its immediate reindex, and document deletion
@@ -97,7 +97,7 @@ src/
 		application_logo.tsx                 The drawer and the wordmark, drawn as outlines so the logo needs no web font
 		archive_sections.ts                  The section a path belongs to
 		archive_sections.test.ts
-		phone_navigation_bar.tsx             Documents, Pending verification, and Upload, fixed to the bottom of a phone screen
+		phone_navigation_bar.tsx             Documents, Failed documents, and Upload, fixed to the bottom of a phone screen
 		committed_text.ts                    Text that commits after a pause in typing
 		archive_filter_panels.tsx            The side panels that filter the archive, led by a panel for each filtered sender, category, and tag, and the removable active filters
 		taxonomy_record_panel.tsx            Rename, merge, and delete of a filtered sender, category, or tag; merges and deletions ask first and move the filter
@@ -132,18 +132,14 @@ src/
 		tracked_uploads.test.ts
 		document_file_picker.tsx             The hidden file input and the control that opens it; on a phone the system picker offers camera, photos, and files
 		upload_tray.tsx                      Upload context provider, the tray, and the Retry and Delete controls of a failed document
-		verification_entries.ts              Pure functions over the Pending verification entries: entry key, list summary, and the review position
-		verification_entries.test.ts
-		verification_entry_controls.tsx      The Retry and Delete controls of a failed document under review
 	utilities/
 		server_functions.ts                  TanStack Start server functions, each refused below its level by authorizeOperation
 		server_functions.workerd.test.ts     Each server function run through TanStack Start's server path with callers below and at its level
 	routes/
-		__root.tsx                           HTML document shell with the manifest links, the application shell, the upload provider and tray, the phone navigation, and the Pending verification count
+		__root.tsx                           HTML document shell with the manifest links, the application shell, the upload provider and tray, the phone navigation, and the failed document count
 		index.tsx                            Archive page: filter panels, tabs for each household member, and the document list
 		settings.tsx                         Settings page: issue an ingest token shown once, list and revoke tokens, list and disconnect the clients of /mcp
-		verification.tsx                     Pending verification overview: Review, and one compact row per entry that opens its review
-		verification_.review.tsx             /verification/review: one question at a time beside its document, the remaining entries in a panel, the entry parameter, Skip remembered in component state
+		failed_documents.tsx                 Failed documents page: each document whose ingestion failed, with its failure sentence, Retry, and Delete
 		documents.$documentId.tsx            Document page: the panels, title, summary, the original beside its details; after a deletion, the previous page or the archive
 		api/documents.ts                     GET searches or lists documents by the searchCriteriaSchema parameters, POST accepts multipart uploads in fields named files
 		api/documents.$documentId.$representation.ts   GET the original file or the extracted Markdown
@@ -183,14 +179,14 @@ eslint.config.js, .prettierrc.json, knip.json, tsconfig.json
 
 ## Things that will bite you
 
-- **The interface draws only from its theme and its controls.** `src/styles.css` switches off Tailwind's default palette, so `bg-white` produces no style, and `pnpm lint` rejects a class the theme does not define. A new colour is a token in `@theme`, and a class list held in a variable needs a name that `eslint.config.js` matches, such as one ending in `Classes`. Only `src/interface/controls/` may import Base UI. Blue means the archive, orange means Pending verification, and green means Settings, so colour a panel by the section it belongs to.
+- **The interface draws only from its theme and its controls.** `src/styles.css` switches off Tailwind's default palette, so `bg-white` produces no style, and `pnpm lint` rejects a class the theme does not define. A new colour is a token in `@theme`, and a class list held in a variable needs a name that `eslint.config.js` matches, such as one ending in `Classes`. Only `src/interface/controls/` may import Base UI. Blue means the archive, orange means Failed documents, and green means Settings, so colour a panel by the section it belongs to.
 - **Three widths matter.** Below `md` a page uses the phone navigation and one column. From `md` the tabs appear in their short form. From `lg` the panel column sits beside the content. A list or table inside `ListFrame` chooses its columns with container variants such as `@xl:`, because its width depends on the panels as well as the window.
 - **Configuration modes.** Builds evaluate `cloudflare.config.ts` in `production` mode or the `--mode` they receive. `cf dev` evaluates it in `development` mode, and `cf workers types` evaluates it without a mode. Only build modes require the identifiers in `schublade.deploy.json`.
 - **AI Search has no local simulation.** Every local mode binds `SEARCH_INDEX` to the remote AI Search instance `schublade-development`, which must exist on the signed-in account with the same four custom metadata fields as a provisioned instance. A dev server therefore never writes into the index of a deployment, but the local D1 database and that shared index can disagree. Searches and uploads against it are billed.
 - **Await `SEARCH_INDEX.items` before calling it.** In development, the remote binding answers over RPC, and `env.SEARCH_INDEX.items.list()` fails with `The RPC receiver does not implement the method "list"`. `await env.SEARCH_INDEX.items` first, as `document_indexing.ts` does. A deployed Worker returns the object itself, so the await costs nothing there.
 - **AI Search facts the search relies on.** An upload under an existing item name replaces the item and keeps its identifier. A `datetime` metadata field accepts `2026-09-22T00:00:00Z`, stores milliseconds, and filters correctly with ISO 8601 strings, not with Unix seconds. While an item reindexes, its old and new chunks can both match, so results are grouped by item name. Indexing an upload took 73 to 145 seconds on the development instance when 12 arrived together, so a document archived a moment ago is not yet searchable. Every search disables the similarity cache, which would answer a repeated query without the documents indexed since.
 - **A new route needs a regenerated route tree.** Only `pnpm dev` and `pnpm build` rewrite `src/routeTree.gen.ts`, and until then `tsc` rejects the path that the new file passes to `createFileRoute`. Without a dev server, regenerate it with `node --input-type=module -e 'import { resolveConfig } from "vite"; import { tanstackStart } from "@tanstack/react-start/plugin/vite"; await resolveConfig({ configFile: false, root: process.cwd(), plugins: [tanstackStart()] }, "build")'` and commit the result with the route.
-- **URL search parameters are parsed in `parseSearchString`.** TanStack Router merges every parameter it parses into the validated search of each route, so `validateSearch` alone cannot drop an unknown or unreadable one, and the default parser reads `1.50` as a number. `src/router.tsx` therefore passes `parseSearchString` and `composeSearchString` from `search_criteria.ts`. A new search parameter must pass through `parseSearchString`, as `entry` of the review page does, and the archive loader reads its criteria through `parseSearchParameters`, because `retrieveDocuments` refuses any other key.
+- **URL search parameters are parsed in `parseSearchString`.** TanStack Router merges every parameter it parses into the validated search of each route, so `validateSearch` alone cannot drop an unknown or unreadable one, and the default parser reads `1.50` as a number. `src/router.tsx` therefore passes `parseSearchString` and `composeSearchString` from `search_criteria.ts`. The router keeps only the archive criteria that `parseSearchString` returns, so the archive loader passes its search straight to `retrieveDocuments`, which refuses any other key. A new search parameter must pass through `parseSearchString`, and the archive loader must then drop it.
 - **A document is stale while its updated_at exceeds its indexed_at, or its indexed_at is null.** The index step reads updated_at before anything else, uploads, and stores that revision only while updated_at still holds it. When the revision changed during the upload, AI Search may have accepted an older upload last, so the step clears indexed_at and raises updated_at, which keeps every overlapping upload from recording its revision too. Every update raises updated_at by at least one second, so a revision written in the second of an upload still counts as stale. A write that changes nothing AI Search reads, such as recording indexed_at, sets `updatedAt` to its own column, or the backfill uploads the document again. A merge or rename marks its documents stale with `succeedingModificationTime()` instead of uploading each one.
 - **Moondream reads stored pixels.** It ignores the EXIF orientation, so a phone photograph reaches it sideways and it repeats text until its token limit. `normalizeRecognitionImage` sends every uploaded image through `IMAGE_TRANSFORMER`, which applies the orientation. Cloudflare Images returned transparent pixels as black for JPEG output until the output stated `background: "#FFFFFF"`. The local simulation of the binding supports only width, height, rotate, and format, so it is remote in development.
 - **A page that hits the token limit is read at all four rotations.** `recognizePage` reads the other three rotations in parallel workflow steps and keeps the reading with the most distinct words, counted with `Intl.Segmenter` so that scripts without spaces work. It records the winner in `recognition_quarter_turns`, and later pages start from that rotation. A document fails with `unreadable_page` only when no rotation finishes.

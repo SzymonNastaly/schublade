@@ -79,21 +79,12 @@ export function ListFrame({ children }: { children: ReactNode }) {
 }
 
 /** The way back to the page above, where a phone has no breadcrumb. */
-export function PhoneReturnBar({
-	to,
-	trailing,
-	children,
-}: {
-	to: "/" | "/verification"
-	trailing?: ReactNode
-	children: string
-}) {
+export function PhoneReturnBar({ to, children }: { to: "/"; children: string }) {
 	return (
-		<div className="flex items-center justify-between gap-2 border-b border-toolbar-border bg-toolbar pr-1.5 md:hidden">
+		<div className="border-b border-toolbar-border bg-toolbar md:hidden">
 			<Link to={to} className="inline-flex min-h-11 items-center px-3 font-bold text-link">
 				‹ {children}
 			</Link>
-			{trailing !== undefined && <span className="flex items-center gap-1">{trailing}</span>}
 		</div>
 	)
 }

@@ -3,7 +3,7 @@ import applicationStylesheet from "../styles.css?url"
 import { ApplicationShell } from "../interface/application_shell"
 import { PhoneNavigationBar } from "../interface/phone_navigation_bar"
 import { DocumentUploadsProvider, UploadTray } from "../interface/upload_tray"
-import { countPendingVerificationItems } from "../utilities/server_functions"
+import { retrieveFailedDocumentCount } from "../utilities/server_functions"
 import type { ReactNode } from "react"
 
 export const Route = createRootRoute({
@@ -25,9 +25,9 @@ export const Route = createRootRoute({
 			{ rel: "apple-touch-icon", href: "/apple_touch_icon.png" },
 		],
 	}),
-	// Every page shows the number of entries in Pending verification, and invalidating the router
-	// after an action counts them again.
-	loader: () => countPendingVerificationItems(),
+	// Every page shows the number of failed documents, and invalidating the router after an action
+	// counts them again.
+	loader: () => retrieveFailedDocumentCount(),
 	shellComponent: RootDocument,
 })
 

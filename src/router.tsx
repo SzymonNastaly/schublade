@@ -13,7 +13,7 @@ export function getRouter() {
 		defaultErrorComponent: PageLoadFailure,
 		// The router merges every parameter it parses into the validated search of each route,
 		// so an unknown or unreadable parameter is dropped here, where the URL is read. The
-		// archive page and the Pending verification review are the only pages with search parameters.
+		// archive page is the only page with search parameters.
 		parseSearch: parseSearchString,
 		stringifySearch: composeSearchString,
 		Wrap: ({ children }) => <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>,

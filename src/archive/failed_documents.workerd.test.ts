@@ -2,11 +2,11 @@ import { applyD1Migrations, env, reset } from "cloudflare:test"
 import { expect, inject, test } from "vitest"
 import { connectDatabase } from "../database/client"
 import { documents } from "../database/schema"
-import { countVerificationItems, listVerificationItems } from "./verification_items"
+import { countFailedDocuments, listFailedDocuments } from "./failed_documents"
 
 const createdOn = (day: number) => new Date(`2026-11-0${day}T08:00:00Z`)
 
-test("listVerificationItems and the count give each failed document, newest first, whose missing reason reads as a processing error", async () => {
+test("listFailedDocuments and the count give each failed document, newest first, whose missing reason reads as a processing error", async () => {
 	await reset()
 	await applyD1Migrations(env.DATABASE, inject("databaseMigrations"))
 	const database = connectDatabase(env.DATABASE)
@@ -27,6 +27,7 @@ test("listVerificationItems and the count give each failed document, newest firs
 		{
 			...failed,
 			id: damagedId,
+			title: "Water Meter Reading",
 			storageObjectKey: `documents/${damagedId}/original.png`,
 			failureReason: "unreadable_file",
 			createdAt: createdOn(6),
@@ -34,29 +35,13 @@ test("listVerificationItems and the count give each failed document, newest firs
 		{ ...failed, id: legacyId, storageObjectKey: `documents/${legacyId}/original.png`, createdAt: createdOn(5) },
 	])
 
-	const failedDocument = (id: string) => ({
-		id,
-		status: "failed",
-		mimeType: "image/png",
-		title: null,
-		documentDate: null,
-		senderName: null,
-	})
-	expect({ items: await listVerificationItems(database), count: await countVerificationItems(database) }).toEqual({
-		items: [
-			{
-				reason: "failed_ingestion",
-				createdAt: createdOn(6),
-				document: failedDocument(damagedId),
-				failureReason: "unreadable_file",
-			},
-			{
-				reason: "failed_ingestion",
-				createdAt: createdOn(5),
-				document: failedDocument(legacyId),
-				failureReason: "processing_error",
-			},
-		],
-		count: 2,
-	})
+	expect({ failedDocuments: await listFailedDocuments(database), count: await countFailedDocuments(database) }).toEqual(
+		{
+			failedDocuments: [
+				{ id: damagedId, title: "Water Meter Reading", failureReason: "unreadable_file" },
+				{ id: legacyId, title: null, failureReason: "processing_error" },
+			],
+			count: 2,
+		},
+	)
 })

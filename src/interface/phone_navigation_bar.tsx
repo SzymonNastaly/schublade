@@ -1,4 +1,4 @@
-import { FilesIcon, SealCheckIcon, UploadSimpleIcon } from "@phosphor-icons/react"
+import { FilesIcon, UploadSimpleIcon, WarningCircleIcon } from "@phosphor-icons/react"
 import { Link, useLoaderData, useRouterState } from "@tanstack/react-router"
 import { archiveSectionOfPath } from "./archive_sections"
 import { DocumentFilePicker } from "./document_file_picker"
@@ -8,7 +8,7 @@ const destination =
 
 /** The sections and the upload, within reach of a thumb. It sets no z-index, so a dialog covers it. */
 export function PhoneNavigationBar() {
-	const pendingVerificationCount = useLoaderData({ from: "__root__" })
+	const failedDocumentCount = useLoaderData({ from: "__root__" })
 	const section = useRouterState({ select: (state) => archiveSectionOfPath(state.location.pathname) })
 	return (
 		<nav
@@ -25,19 +25,19 @@ export function PhoneNavigationBar() {
 				Documents
 			</Link>
 			<Link
-				to="/verification"
+				to="/failed_documents"
 				aria-current={section === "verification" ? "page" : undefined}
 				className={`${destination} ${section === "verification" ? "border-verification font-bold" : "border-transparent"}`}
 			>
 				<span className="relative">
-					<SealCheckIcon size={22} className="text-verification-badge-text" />
-					{pendingVerificationCount > 0 && (
+					<WarningCircleIcon size={22} className="text-verification-badge-text" />
+					{failedDocumentCount > 0 && (
 						<span className="absolute -top-1.5 left-4 flex h-[18px] min-w-[18px] items-center justify-center rounded-badge bg-verification px-1 text-[11px] font-bold">
-							{pendingVerificationCount}
+							{failedDocumentCount}
 						</span>
 					)}
 				</span>
-				Pending
+				Failed documents
 			</Link>
 			<DocumentFilePicker>
 				{(open) => (

@@ -25,12 +25,12 @@ const sectionTabs = [
 	},
 	{
 		section: "verification",
-		to: "/verification",
-		label: "Pending verification",
-		compactLabel: "Pending",
-		width: 258,
-		compactWidth: 168,
-		widthClasses: "w-[168px] lg:w-[258px]",
+		to: "/failed_documents",
+		label: "Failed documents",
+		compactLabel: "Failed documents",
+		width: 240,
+		compactWidth: 204,
+		widthClasses: "w-[204px] lg:w-[240px]",
 		highlight: "#ffc878",
 	},
 	{
@@ -104,7 +104,7 @@ function TabShape({
 }
 
 function SectionTab({ tab, active }: { tab: (typeof sectionTabs)[number]; active: boolean }) {
-	const pendingVerificationCount = useLoaderData({ from: "__root__" })
+	const failedDocumentCount = useLoaderData({ from: "__root__" })
 	return (
 		<Link
 			to={tab.to}
@@ -117,9 +117,9 @@ function SectionTab({ tab, active }: { tab: (typeof sectionTabs)[number]; active
 			<TabShape tab={tab} width={tab.width} active={active} visibility="max-lg:hidden" />
 			<span className="relative lg:hidden">{tab.compactLabel}</span>
 			<span className="relative max-lg:hidden">{tab.label}</span>
-			{tab.section === "verification" && pendingVerificationCount > 0 && (
+			{tab.section === "verification" && failedDocumentCount > 0 && (
 				<span className="relative inline-flex h-5 min-w-[22px] items-center justify-center rounded-badge bg-surface px-1.5 text-fine font-bold text-verification-badge-text">
-					{pendingVerificationCount}
+					{failedDocumentCount}
 				</span>
 			)}
 		</Link>

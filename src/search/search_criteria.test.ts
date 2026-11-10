@@ -32,10 +32,6 @@ test("parseSearchString drops an unreadable or unknown parameter and keeps the o
 	})
 })
 
-test("parseSearchString keeps the entry that the Pending verification review opens", () => {
-	expect(parseSearchString(`?entry=sender-${senderId}&utm_source=x`)).toEqual({ entry: `sender-${senderId}` })
-})
-
 test("composeSearchString writes criteria that parseSearchString reads back unchanged", () => {
 	const searchString = composeSearchString({ query: "1.50", minimumAmount: 50, sender: undefined })
 	expect({ searchString, criteria: parseSearchString(searchString) }).toEqual({

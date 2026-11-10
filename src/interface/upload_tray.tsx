@@ -79,7 +79,7 @@ export function DocumentUploadsProvider({ children }: { children: ReactNode }) {
 	)
 }
 
-/** Retry and Delete for a failed document, in the tray and in the Pending verification review. */
+/** Retry and Delete for a failed document, in the tray and on the Failed documents page. */
 export function FailedDocumentActions({ documentId, title }: { documentId: string; title: string | null }) {
 	const router = useRouter()
 	const { retry, dispatch } = useDocumentUploads()
