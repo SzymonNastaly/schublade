@@ -21,7 +21,7 @@ export const extractedFieldKeys = Object.keys(extractedFieldTypes) as Array<Extr
 const invoiceFields: ReadonlyArray<ExtractedFieldKey> = ["amount", "currency", "due_date", "iban", "invoice_number"]
 const contractFields: ReadonlyArray<ExtractedFieldKey> = ["policy_number", "renewal_date", "cancellation_period"]
 
-/** The categories VISION.md names, with the fields the classifier extracts for each. */
+/** The standard categories that the classification prompt offers, with the fields the classifier extracts for each. */
 export const standardCategories: ReadonlyArray<{ name: string; expectedFields: ReadonlyArray<ExtractedFieldKey> }> = [
 	{ name: "Invoice", expectedFields: invoiceFields },
 	{ name: "Receipt", expectedFields: invoiceFields },

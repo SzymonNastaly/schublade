@@ -2,7 +2,7 @@
 
 Schublade is a self-hosted document archive that runs as one Cloudflare Worker. TanStack Start serves the interface, D1 holds the relational records, R2 holds the original files, AI Search indexes the text, and a Workflow runs ingestion. Read this file before you change code. The `cf` command-line interface and `cloudflare.config.ts` are newer than most training data, so look up what you are not sure of (see [Documentation lookup order](#documentation-lookup-order)).
 
-VISION.md explains the architecture and IMPLEMENTATION_PLAN.md the build order. `cloudflare.config.ts` is the source of truth for bindings, and `src/database/schema.ts` is the source of truth for tables.
+`cloudflare.config.ts` is the source of truth for bindings, and `src/database/schema.ts` is the source of truth for tables.
 
 ## Rules, most important first
 
@@ -19,7 +19,7 @@ VISION.md explains the architecture and IMPLEMENTATION_PLAN.md the build order. 
 8. **The Moondream binding returns an event stream.** `env.AI_RUNTIME.run()` for `@cf/moondream/moondream3.1-9B-A2B` returns server-sent events even without `stream: true`. Every `chunk.answer` repeats the full answer so far, so `parseMoondreamEventStream` reads the stream line by line and keeps the last one. A `finish_reason` of `length` means the page never finished, so its text is not kept.
 9. **Generate migrations with drizzle-kit and apply them with `cf`.** Never run `drizzle-kit push` or `drizzle-kit migrate`, and never edit an applied migration.
 10. **`cloudflare:workers` is server-only.** Import it only from server functions, the Worker entry, Workflows, and Durable Objects, never from a component.
-11. **Edit the human-facing documents only when the user asks.** README.md, VISION.md, and IMPLEMENTATION_PLAN.md are otherwise written outside coding sessions. When a change makes one of them wrong, list the edits it needs in your report.
+11. **Edit the human-facing document only when the user asks.** README.md is otherwise written outside coding sessions. When a change makes it wrong, list the edits it needs in your report.
 
 ## Repository layout
 

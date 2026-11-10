@@ -84,8 +84,6 @@ pnpm evaluate:search                              # billed: checks fixed searche
 
 ## Documentation
 
-- [VISION.md](VISION.md) explains the architecture and its rationale.
-- [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md) holds the build order and open follow-ups.
 - [AGENTS.md](AGENTS.md) holds the rules for contributors and coding agents.
 
 Paperless-ngx inspired Schublade. Fayaz Ahmed's [Coworkers](https://github.com/fayazara/coworkers) repository informed its runtime choices.

@@ -28,7 +28,7 @@ export type Caller =
 
 function grantedLevel(caller: Caller): PermissionLevel {
 	switch (caller.kind) {
-		// VISION.md trusts every member of the household with the whole archive.
+		// The household is trusted, so a signed-in member holds every permission.
 		case "member_session":
 			return "administer"
 		case "api_token":
@@ -43,7 +43,7 @@ export function permits(caller: Caller, required: PermissionLevel): boolean {
 	return permissionLevels.indexOf(grantedLevel(caller)) >= permissionLevels.indexOf(required)
 }
 
-/** The level each server function requires. VISION.md reserves merging and deleting for administer. */
+/** The level each server function requires. Merging and deleting are reserved for administer. */
 const operationLevels = {
 	readArchive: "read",
 	reviseDocument: "modify",

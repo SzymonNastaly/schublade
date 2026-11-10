@@ -1,6 +1,6 @@
 import type { PageInspection } from "../inference/page_rasterizer"
 
-// VISION.md: a scanned page yields fewer than 40 characters from its text layer.
+// A scanned page yields fewer than 40 characters from its text layer.
 const MINIMUM_ALPHANUMERIC_CHARACTERS = 40
 
 // A complete conversion held every letter and digit of the text layer on all 27 digital pages of

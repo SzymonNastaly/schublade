@@ -14,7 +14,7 @@ export type ModelContextEnvironment = Pick<Env, "DATABASE" | "DOCUMENT_STORAGE" 
 /** The consent page, not the OAuth scope, narrows a grant. Every grant is read-only. */
 export const GRANTED_OAUTH_SCOPES = ["read"]
 
-/** VISION.md does not record which member is signed in, so the household owns every grant. */
+/** Schublade does not record which member is signed in, so the household owns every grant. */
 export const HOUSEHOLD_GRANT_SUBJECT = "household"
 
 // Registration needs no credential, so this caps what a stranger can store in KV per request.
