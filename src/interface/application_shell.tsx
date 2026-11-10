@@ -22,9 +22,10 @@ const sectionTabs = [
 		compactWidth: 150,
 		widthClasses: "w-[150px] lg:w-[184px]",
 		highlight: "#a6d3fa",
+		colour: "var(--color-documents)",
 	},
 	{
-		section: "verification",
+		section: "failed_documents",
 		to: "/failed_documents",
 		label: "Failed documents",
 		compactLabel: "Failed documents",
@@ -32,6 +33,7 @@ const sectionTabs = [
 		compactWidth: 204,
 		widthClasses: "w-[204px] lg:w-[240px]",
 		highlight: "#ffc878",
+		colour: "var(--color-failed-documents)",
 	},
 	{
 		section: "settings",
@@ -42,6 +44,7 @@ const sectionTabs = [
 		compactWidth: 116,
 		widthClasses: "w-[116px] lg:w-[130px]",
 		highlight: "#cde582",
+		colour: "var(--color-settings)",
 	},
 ] as const satisfies ReadonlyArray<{
 	section: ArchiveSection
@@ -52,11 +55,12 @@ const sectionTabs = [
 	compactWidth: number
 	widthClasses: string
 	highlight: string
+	colour: string
 }>
 
 const sectionRules: Record<ArchiveSection, string> = {
 	documents: "bg-documents",
-	verification: "bg-verification",
+	failed_documents: "bg-failed-documents",
 	settings: "bg-settings",
 }
 
@@ -89,7 +93,7 @@ function TabShape({
 			<defs>
 				<linearGradient id={gradientIdentifier} x1="0" y1="0" x2="0" y2="1">
 					<stop offset="0" stopColor={tab.highlight} />
-					<stop offset="1" stopColor={`var(--color-${tab.section})`} />
+					<stop offset="1" stopColor={tab.colour} />
 				</linearGradient>
 			</defs>
 			<path
@@ -117,8 +121,8 @@ function SectionTab({ tab, active }: { tab: (typeof sectionTabs)[number]; active
 			<TabShape tab={tab} width={tab.width} active={active} visibility="max-lg:hidden" />
 			<span className="relative lg:hidden">{tab.compactLabel}</span>
 			<span className="relative max-lg:hidden">{tab.label}</span>
-			{tab.section === "verification" && failedDocumentCount > 0 && (
-				<span className="relative inline-flex h-5 min-w-[22px] items-center justify-center rounded-badge bg-surface px-1.5 text-fine font-bold text-verification-badge-text">
+			{tab.section === "failed_documents" && failedDocumentCount > 0 && (
+				<span className="relative inline-flex h-5 min-w-[22px] items-center justify-center rounded-badge bg-surface px-1.5 text-fine font-bold text-failed-documents-badge-text">
 					{failedDocumentCount}
 				</span>
 			)}

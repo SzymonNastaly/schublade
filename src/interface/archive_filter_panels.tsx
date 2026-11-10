@@ -91,7 +91,7 @@ function FailedDocumentsPanel() {
 	const failedDocumentCount = useLoaderData({ from: "__root__" })
 	if (failedDocumentCount === 0) return null
 	return (
-		<SectionPanel section="verification" heading="Failed documents" tinted>
+		<SectionPanel section="failed_documents" heading="Failed documents" tinted>
 			<div className="flex flex-col items-start gap-2.5 p-3">
 				<p>{failedDocumentCount === 1 ? "1 document" : `${failedDocumentCount} documents`} could not be archived.</p>
 				<Link to="/failed_documents" className={actionClasses({ variant: "secondary", size: "compact" })}>

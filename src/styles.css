@@ -66,15 +66,13 @@
 	--color-documents-badge-text: #0e3f7e;
 	--color-documents-badge-border: #b3d2f2;
 
-	--color-verification: #f08f1f;
-	--color-verification-border: #e9b46f;
-	--color-verification-rule: #efe2d0;
-	--color-verification-surface: #fff8ec;
-	--color-verification-selected: #ffe3bd;
-	--color-verification-hover: #fff1de;
-	--color-verification-badge: #ffebd0;
-	--color-verification-badge-text: #7a3e00;
-	--color-verification-badge-border: #f2c58a;
+	--color-failed-documents: #f08f1f;
+	--color-failed-documents-border: #e9b46f;
+	--color-failed-documents-rule: #efe2d0;
+	--color-failed-documents-surface: #fff8ec;
+	--color-failed-documents-selected: #ffe3bd;
+	--color-failed-documents-hover: #fff1de;
+	--color-failed-documents-badge-text: #7a3e00;
 
 	--color-settings: #8fbc33;
 	--color-settings-border: #bbd27e;
@@ -107,9 +105,8 @@
 	--background-image-control: linear-gradient(180deg, #ffffff, #dde3ec);
 	--background-image-menu-row: linear-gradient(180deg, #fbfcfe, #eef1f6);
 	--background-image-inactive-tab: linear-gradient(180deg, #f4f6fa, #d6dce6);
-	--background-image-verification-action: linear-gradient(180deg, #ffffff, #f3e7d6);
 	--background-image-documents-heading: linear-gradient(180deg, #4a8fe2, #1f5fb6);
-	--background-image-verification-heading: linear-gradient(180deg, #ffbe6b, #f08f1f);
+	--background-image-failed-documents-heading: linear-gradient(180deg, #ffbe6b, #f08f1f);
 	--background-image-settings-heading: linear-gradient(180deg, #c4e070, #8fbc33);
 
 	--shadow-application: 0 0 0 1px #a9bcd9;

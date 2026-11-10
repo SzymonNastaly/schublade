@@ -26,13 +26,13 @@ export function PhoneNavigationBar() {
 			</Link>
 			<Link
 				to="/failed_documents"
-				aria-current={section === "verification" ? "page" : undefined}
-				className={`${destination} ${section === "verification" ? "border-verification font-bold" : "border-transparent"}`}
+				aria-current={section === "failed_documents" ? "page" : undefined}
+				className={`${destination} ${section === "failed_documents" ? "border-failed-documents font-bold" : "border-transparent"}`}
 			>
 				<span className="relative">
-					<WarningCircleIcon size={22} className="text-verification-badge-text" />
+					<WarningCircleIcon size={22} className="text-failed-documents-badge-text" />
 					{failedDocumentCount > 0 && (
-						<span className="absolute -top-1.5 left-4 flex h-[18px] min-w-[18px] items-center justify-center rounded-badge bg-verification px-1 text-[11px] font-bold">
+						<span className="absolute -top-1.5 left-4 flex h-[18px] min-w-[18px] items-center justify-center rounded-badge bg-failed-documents px-1 text-[11px] font-bold">
 							{failedDocumentCount}
 						</span>
 					)}

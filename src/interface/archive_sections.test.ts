@@ -4,6 +4,6 @@ import { archiveSectionOfPath } from "./archive_sections"
 test("a path belongs to the section whose tab stays active on it", () => {
 	expect(archiveSectionOfPath("/")).toBe("documents")
 	expect(archiveSectionOfPath("/documents/af0cf412-70e7-45d6-9957-62f2a522d882")).toBe("documents")
-	expect(archiveSectionOfPath("/failed_documents")).toBe("verification")
+	expect(archiveSectionOfPath("/failed_documents")).toBe("failed_documents")
 	expect(archiveSectionOfPath("/settings")).toBe("settings")
 })

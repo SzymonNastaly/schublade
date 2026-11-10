@@ -13,13 +13,13 @@ const panelPresentations: Record<
 		hover: "hover:bg-documents-hover",
 		tint: "bg-surface",
 	},
-	verification: {
-		frame: "border-verification-border",
-		heading: "bg-verification-heading text-on-accent",
-		rule: "border-verification-rule",
-		selected: "bg-verification-selected",
-		hover: "hover:bg-verification-hover",
-		tint: "bg-verification-surface",
+	failed_documents: {
+		frame: "border-failed-documents-border",
+		heading: "bg-failed-documents-heading text-on-accent",
+		rule: "border-failed-documents-rule",
+		selected: "bg-failed-documents-selected",
+		hover: "hover:bg-failed-documents-hover",
+		tint: "bg-failed-documents-surface",
 	},
 	settings: {
 		frame: "border-settings-border",
