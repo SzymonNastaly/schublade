@@ -1,5 +1,5 @@
 import { expect, test } from "vitest"
-import { locateReviewStep, verificationEntryKey, verificationFilterOptions } from "./verification_entries"
+import { locateReviewStep, verificationEntryKey } from "./verification_entries"
 import type { VerificationDocument, VerificationItem } from "../archive/verification_items"
 
 const createdAt = new Date("2026-11-01T08:00:00Z")
@@ -20,17 +20,11 @@ const failure = (id: string): VerificationItem => ({
 	failureReason: "unreadable_file",
 })
 
-const attachment = (id: string): VerificationItem => ({
-	reason: "non_archival_attachment",
-	createdAt,
-	document: document(id, "General Terms"),
-})
-
 const [first, second, third, fourth] = [
 	failure("first"),
-	attachment("second"),
+	failure("second"),
 	failure("third"),
-	attachment("fourth"),
+	failure("fourth"),
 ] as const
 const entryOrder = ["first", "second", "third", "fourth"]
 
@@ -74,13 +68,4 @@ test("an entry that arrives during a review joins the end of the count", () => {
 		total: 5,
 		successor: "arrival",
 	})
-})
-
-test("the filter options count the entries of each reason", () => {
-	const counts = verificationFilterOptions([first, second, third, fourth]).map(({ filter, count }) => [filter, count])
-	expect(counts).toEqual([
-		["all", 4],
-		["non_archival_attachment", 2],
-		["failed_ingestion", 2],
-	])
 })

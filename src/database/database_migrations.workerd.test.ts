@@ -1,7 +1,6 @@
 import { applyD1Migrations, env, reset } from "cloudflare:test"
 import { asc } from "drizzle-orm"
 import { expect, inject, test } from "vitest"
-import { listVerificationItems } from "../archive/verification_items"
 import { connectDatabase } from "./client"
 import { categories, documentTags, documents, extractedFields, senders, tags } from "./schema"
 
@@ -66,7 +65,6 @@ test("the migrations turn an archive written under the first schema into the cur
 			.select({ documentId: extractedFields.documentId, valueNumber: extractedFields.valueNumber })
 			.from(extractedFields),
 		links: await database.select().from(documentTags),
-		pendingVerification: (await listVerificationItems(database)).map((item) => [item.reason, item.document.id]),
 	}).toEqual({
 		appliedMigrations: [
 			"0000_create_archive_tables.sql",
@@ -109,6 +107,5 @@ test("the migrations turn an archive written under the first schema into the cur
 		],
 		fields: [{ documentId: invoiceId, valueNumber: 72.09 }],
 		links: [{ documentId: invoiceId, tagId: electricityTagId }],
-		pendingVerification: [],
 	})
 })

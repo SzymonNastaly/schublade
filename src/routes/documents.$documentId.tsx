@@ -11,7 +11,7 @@ import {
 } from "../interface/controls/page_layout"
 import { textLinkClasses } from "../interface/controls/text_link"
 import { DocumentDetails, DocumentSources } from "../interface/document_details"
-import { DocumentPanels, PhoneVerificationNotice } from "../interface/document_panels"
+import { DocumentPanels } from "../interface/document_panels"
 import { listArchiveFacets, retrieveDocument, retrieveDocuments } from "../utilities/server_functions"
 
 export const Route = createFileRoute("/documents/$documentId")({
@@ -85,7 +85,6 @@ function DocumentWorkspace() {
 					}
 				>
 					<PageHeading title={title} subtitle={document.summary} />
-					<PhoneVerificationNotice document={document} />
 					<div className="flex flex-wrap items-start gap-6">
 						<DocumentSources document={document} />
 						<DocumentDetails

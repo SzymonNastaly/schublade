@@ -12,7 +12,6 @@ const modelOutput = {
 	person: memberId,
 	tags: ["Utilities", "utilities", " ", "–"],
 	summary: "An annual electricity statement. It requires a back payment of 72.09 EUR.",
-	is_non_archival: false,
 	fields: {
 		amount: { value: 72.089, confidence: 1.2 },
 		currency: { value: "€", confidence: 0.9 },
@@ -42,7 +41,6 @@ test("normalizeClassification converts model output into archive values", () => 
 		personMemberId: memberId,
 		tagNames: ["utilities"],
 		summary: "An annual electricity statement. It requires a back payment of 72.09 EUR.",
-		nonArchival: false,
 		extractedFields: [
 			{ fieldKey: "amount", fieldType: "number", value: 72.09, confidence: 1 },
 			{ fieldKey: "currency", fieldType: "text", value: "EUR", confidence: 0.9 },

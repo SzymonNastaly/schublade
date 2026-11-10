@@ -1,6 +1,14 @@
 import { and, eq, inArray, sql } from "drizzle-orm"
 import { z } from "zod"
-import { categories, documentTags, documents, extractedFields, senders, tags } from "../database/schema"
+import {
+	categories,
+	documentTags,
+	documents,
+	extractedFields,
+	senders,
+	succeedingModificationTime,
+	tags,
+} from "../database/schema"
 import {
 	MAXIMUM_TAG_COUNT,
 	extractedFieldKeys,
@@ -45,7 +53,6 @@ const revisedFieldsSchema = z
  * A member's revision of an archived document. Each attribute that is present replaces the
  * stored one, and a null clears it. A sender, category, or tag name that no record has creates
  * a confirmed record, and the name of an unconfirmed record confirms that record.
- * `nonArchival: false` keeps a document flagged as a non-archival attachment.
  */
 export const documentRevisionSchema = z.strictObject({
 	documentId: z.uuid(),
@@ -57,7 +64,6 @@ export const documentRevisionSchema = z.strictObject({
 	personMemberId: z.uuid().nullable().optional(),
 	tagNames: z.array(taxonomyNameSchema).max(MAXIMUM_TAG_COUNT).optional(),
 	fields: revisedFieldsSchema.optional(),
-	nonArchival: z.boolean().optional(),
 })
 
 type DocumentRevision = z.output<typeof documentRevisionSchema>
@@ -66,14 +72,13 @@ type DocumentRevision = z.output<typeof documentRevisionSchema>
 const namedRecord = (table: typeof senders | typeof categories, normalizedName: string) =>
 	sql<string>`(select ${table.id} from ${table} where ${table.normalizedName} = ${normalizedName})`
 
-async function readRevisedDocument(database: ArchiveDatabase, documentId: string) {
+async function requireArchivedDocument(database: ArchiveDatabase, documentId: string): Promise<void> {
 	const [document] = await database
-		.select({ status: documents.status, verificationReason: documents.verificationReason })
+		.select({ status: documents.status })
 		.from(documents)
 		.where(eq(documents.id, documentId))
 	if (!document) throw new Error(`Document ${documentId} does not exist`)
 	if (document.status !== "archived") throw new Error(`Document ${documentId} is not archived, so it cannot be revised`)
-	return document
 }
 
 /**
@@ -85,8 +90,7 @@ export async function reviseDocument(
 	revision: DocumentRevision,
 ): Promise<void> {
 	const { documentId, senderName, categoryName, tagNames, fields = [] } = revision
-	const document = await readRevisedDocument(database, documentId)
-	const nonArchival = revision.nonArchival ?? document.verificationReason === "non_archival_attachment"
+	await requireArchivedDocument(database, documentId)
 	const confirmedAt = new Date()
 	const senderKey = senderName == null ? senderName : normalizeTaxonomyName(senderName)
 	const categoryKey = categoryName == null ? categoryName : normalizeTaxonomyName(categoryName)
@@ -129,7 +133,8 @@ export async function reviseDocument(
 					categoryId: categoryKey === null ? null : namedRecord(categories, categoryKey),
 				}),
 				...(revision.personMemberId !== undefined && { personMemberId: revision.personMemberId }),
-				verificationReason: nonArchival ? "non_archival_attachment" : null,
+				// A revision of only tags or fields changes no column of the row, yet makes the document stale.
+				updatedAt: succeedingModificationTime(),
 			})
 			.where(eq(documents.id, documentId)),
 		...(tagNames === undefined

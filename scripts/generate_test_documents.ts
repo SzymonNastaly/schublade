@@ -237,7 +237,6 @@ function describeExpectedExtraction(specification: DocumentSpecification) {
 		person: specification.person,
 		document_date: specification.documentDate.value,
 		title_hint: specification.titleHint,
-		is_non_archival: specification.isNonArchival,
 		fields: specification.fields,
 	}
 }

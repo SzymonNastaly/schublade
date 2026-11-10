@@ -61,11 +61,6 @@ export function buildClassificationSchema(memberIds: ReadonlyArray<string>) {
 		person: z.enum(people).describe("Identifier of the household member the document concerns, or household"),
 		tags: z.array(z.string()).describe("Zero to three lowercase cross-cutting labels such as tax-2026"),
 		summary: z.string().describe("Two English sentences: what the document is, and what it records or requires"),
-		is_non_archival: z
-			.boolean()
-			.describe(
-				"True for boilerplate that accompanies a document instead of recording anything for the household, such as general terms and conditions, a privacy notice, advertising, or a signature graphic",
-			),
 		fields: z.object({
 			amount: fieldValue(
 				z.number(),
@@ -103,8 +98,6 @@ export interface DocumentClassification {
 	personMemberId: string | null
 	tagNames: Array<string>
 	summary: string | null
-	/** Boilerplate such as general terms that an email attached beside the document it accompanies. */
-	nonArchival: boolean
 	extractedFields: Array<ExtractedField>
 }
 
@@ -192,7 +185,6 @@ export function normalizeClassification(output: ClassificationOutput): DocumentC
 		personMemberId: output.person === "household" ? null : output.person,
 		tagNames: normalizeTagNames(output.tags),
 		summary: normalizeText(output.summary),
-		nonArchival: output.is_non_archival,
 		extractedFields: normalizeExtractedFields(output.fields),
 	}
 }

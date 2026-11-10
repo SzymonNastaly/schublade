@@ -39,7 +39,6 @@ export interface DocumentSpecification {
 	person: PersonAssignment
 	documentDate: PrintedValue
 	titleHint: string
-	isNonArchival: boolean
 	fields: Partial<Record<FieldKey, PrintedValue>>
 	render: (document: PDFKit.PDFDocument) => void
 }

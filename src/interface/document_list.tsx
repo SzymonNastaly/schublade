@@ -21,20 +21,16 @@ function dateLabel(document: RetrievedDocument): string {
 	return document.documentDate === null ? "" : formatDocumentDate(document.documentDate)
 }
 
-/** Orange asks for the member's attention, blue is still at work, and red has failed. */
+/** Blue is still at work, and red has failed. */
 function rowEdgeColour(document: RetrievedDocument): string {
 	if (document.status === "failed") return "bg-failure"
-	if (document.status !== "archived") return "bg-documents"
-	return document.verificationReason === null ? "bg-row-edge" : "bg-verification"
+	return document.status === "archived" ? "bg-row-edge" : "bg-documents"
 }
 
 function DocumentStateBadge({ document }: { document: RetrievedDocument }) {
-	if (document.status !== "archived") {
-		const badge = documentStatusBadges[document.status]
-		return <StatusBadge tone={badge.tone}>{badge.label}</StatusBadge>
-	}
-	if (document.verificationReason === null) return null
-	return <StatusBadge tone="verification">Pending verification</StatusBadge>
+	if (document.status === "archived") return null
+	const badge = documentStatusBadges[document.status]
+	return <StatusBadge tone={badge.tone}>{badge.label}</StatusBadge>
 }
 
 function MatchingPassage({ document }: { document: RetrievedDocument }) {

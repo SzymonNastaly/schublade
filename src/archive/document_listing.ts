@@ -34,7 +34,6 @@ export interface ListedDocument {
 	summary: string | null
 	mimeType: string
 	pageCount: number | null
-	verificationReason: "non_archival_attachment" | null
 	tagNames: Array<string>
 	fields: Array<ListedField>
 }
@@ -138,11 +137,6 @@ function listingConditions(database: ArchiveDatabase, criteria: ListingCriteria)
 	]
 }
 
-/** A document archived earlier may still store illegible_required_field, which awaits nobody now. */
-function awaitedVerificationReason(stored: (typeof documents.$inferSelect)["verificationReason"]) {
-	return stored === "non_archival_attachment" ? stored : null
-}
-
 export async function queryDocumentListing(
 	database: ArchiveDatabase,
 	criteria: ListingCriteria = {},
@@ -161,7 +155,6 @@ export async function queryDocumentListing(
 				summary: documents.summary,
 				mimeType: documents.mimeType,
 				pageCount: documents.pageCount,
-				verificationReason: documents.verificationReason,
 			})
 			.from(documents)
 			.leftJoin(senders, eq(documents.senderId, senders.id))
@@ -204,9 +197,8 @@ export async function queryDocumentListing(
 		})
 		fieldsByDocument.set(field.documentId, listedFields)
 	}
-	return rows.map(({ verificationReason, ...row }) => ({
+	return rows.map((row) => ({
 		...row,
-		verificationReason: awaitedVerificationReason(verificationReason),
 		tagNames: tagRows.filter((tag) => tag.documentId === row.id).map((tag) => tag.name),
 		fields: fieldsByDocument.get(row.id) ?? [],
 	}))
@@ -217,27 +209,21 @@ export interface DocumentStatusRecord {
 	title: string | null
 	status: DocumentStatus
 	failureReason: DocumentFailureReason | null
-	needsReview: boolean
 }
 
 export async function queryDocumentStatuses(
 	database: ArchiveDatabase,
 	documentIds: Array<string>,
 ): Promise<Array<DocumentStatusRecord>> {
-	const rows = await database
+	return database
 		.select({
 			documentId: documents.id,
 			title: documents.title,
 			status: documents.status,
 			failureReason: documents.failureReason,
-			verificationReason: documents.verificationReason,
 		})
 		.from(documents)
 		.where(inArray(documents.id, documentIds))
-	return rows.map(({ verificationReason, ...row }) => ({
-		...row,
-		needsReview: awaitedVerificationReason(verificationReason) !== null,
-	}))
 }
 
 export interface FacetOption {

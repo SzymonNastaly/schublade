@@ -50,7 +50,7 @@ src/
 		document_listing.workerd.test.ts
 		document_representation.ts           The original file, the extracted Markdown, or a first-page thumbnail rendered on first request, served with nosniff and a sandbox policy
 		document_representation.workerd.test.ts
-		verification_items.ts                The Pending verification entries as one union by reason, and their count
+		verification_items.ts                The failed documents that Pending verification lists, and their count
 		verification_items.workerd.test.ts
 		taxonomy_maintenance.ts              Rename (proposing a merge on a name clash), merge, and delete senders, categories, and tags
 		taxonomy_maintenance.workerd.test.ts
@@ -121,7 +121,7 @@ src/
 		document_original.tsx                The original file in the document box, or the note that an email has no PDF yet
 		pdf_page_box.tsx                     PDF.js in a box of constant size: sideways pages below md, stacked pages from md upward, only pages near the visible one drawn
 		document_details.tsx                 The original and the extracted text as tabs, and the details as a table or the edit form
-		document_panels.tsx                  The Actions and More from this sender panels, and the prompt to verify a document
+		document_panels.tsx                  The Actions and More from this sender panels
 		document_detail_presentation.ts      Extracted field labels, the rows of the reading state, and the fields the form offers
 		document_detail_presentation.test.ts
 		document_revision_form.tsx           The details' edit form
@@ -132,9 +132,9 @@ src/
 		tracked_uploads.test.ts
 		document_file_picker.tsx             The hidden file input and the control that opens it; on a phone the system picker offers camera, photos, and files
 		upload_tray.tsx                      Upload context provider, the tray, and the Retry and Delete controls of a failed document
-		verification_entries.ts              Pure functions over the Pending verification union: entry key, list summary, and the review position
+		verification_entries.ts              Pure functions over the Pending verification entries: entry key, list summary, and the review position
 		verification_entries.test.ts
-		verification_entry_controls.tsx      What one entry asks and the controls that resolve it; deletions ask first
+		verification_entry_controls.tsx      The Retry and Delete controls of a failed document under review
 	utilities/
 		server_functions.ts                  TanStack Start server functions, each refused below its level by authorizeOperation
 		server_functions.workerd.test.ts     Each server function run through TanStack Start's server path with callers below and at its level
@@ -142,7 +142,7 @@ src/
 		__root.tsx                           HTML document shell with the manifest links, the application shell, the upload provider and tray, the phone navigation, and the Pending verification count
 		index.tsx                            Archive page: filter panels, tabs for each household member, and the document list
 		settings.tsx                         Settings page: issue an ingest token shown once, list and revoke tokens, list and disconnect the clients of /mcp
-		verification.tsx                     Pending verification overview: a filter by reason, Review, and one compact row per entry that opens its review
+		verification.tsx                     Pending verification overview: Review, and one compact row per entry that opens its review
 		verification_.review.tsx             /verification/review: one question at a time beside its document, the remaining entries in a panel, the entry parameter, Skip remembered in component state
 		documents.$documentId.tsx            Document page: the panels, title, summary, the original beside its details; after a deletion, the previous page or the archive
 		api/documents.ts                     GET searches or lists documents by the searchCriteriaSchema parameters, POST accepts multipart uploads in fields named files

@@ -17,7 +17,6 @@
 			"person": "Jonas Becker",
 			"document_date": "2026-10-05",
 			"title_hint": "Nordkabel Kommunikation Invoice October 2026",
-			"is_non_archival": false,
 			"fields": {
 				"amount": {
 					"value": 67.13,
@@ -53,7 +52,6 @@
 			"person": "household",
 			"document_date": "2026-09-22",
 			"title_hint": "Stadtwerke Talbrück Electricity Annual Statement 2025-2026",
-			"is_non_archival": false,
 			"fields": {
 				"amount": {
 					"value": 72.09,
@@ -89,7 +87,6 @@
 			"person": "household",
 			"document_date": "2026-10-31",
 			"title_hint": "Frischemarkt Talbrück Receipt October 2026",
-			"is_non_archival": false,
 			"fields": {
 				"amount": {
 					"value": 29.63,
@@ -117,7 +114,6 @@
 			"person": "household",
 			"document_date": "2026-10-17",
 			"title_hint": "Werkhof Baumarkt Receipt October 2026",
-			"is_non_archival": false,
 			"fields": {
 				"amount": {
 					"value": 75.49,
@@ -145,7 +141,6 @@
 			"person": "household",
 			"document_date": "2026-03-12",
 			"title_hint": "Talbrücker Wohnungsbau Rental Contract Am Lindenhang 7",
-			"is_non_archival": false,
 			"fields": {
 				"policy_number": {
 					"value": "MV-0417-2026",
@@ -169,7 +164,6 @@
 			"person": "household",
 			"document_date": "2026-02-20",
 			"title_hint": "Lindenhain Versicherung Household Contents Insurance Policy",
-			"is_non_archival": false,
 			"fields": {
 				"policy_number": {
 					"value": "HR-7731-0482-19",
@@ -197,7 +191,6 @@
 			"person": "Jonas Becker",
 			"document_date": "2026-09-08",
 			"title_hint": "Finanzamt Talbrück Income Tax Assessment 2025",
-			"is_non_archival": false,
 			"fields": {
 				"amount": {
 					"value": 341,
@@ -229,7 +222,6 @@
 			"person": "Jonas Becker",
 			"document_date": "2026-10-31",
 			"title_hint": "Mühlbach Bank Account Statement October 2026",
-			"is_non_archival": false,
 			"fields": {
 				"iban": {
 					"value": "DE72960512400471128305",
@@ -249,7 +241,6 @@
 			"person": "Lena Becker",
 			"document_date": "2026-08-27",
 			"title_hint": "Zahnarztpraxis Vossberg Dental Invoice Lena Becker August 2026",
-			"is_non_archival": false,
 			"fields": {
 				"amount": {
 					"value": 91.84,
@@ -285,7 +276,6 @@
 			"person": "Mira Wiśniewska",
 			"document_date": "2026-05-04",
 			"title_hint": "Stadt Talbrück Residence Registration Certificate Mira Wiśniewska",
-			"is_non_archival": false,
 			"fields": {}
 		},
 		{
@@ -300,7 +290,6 @@
 			"person": "Mira Wiśniewska",
 			"document_date": "2026-10-03",
 			"title_hint": "Paperlark Software Invoice October 2026",
-			"is_non_archival": false,
 			"fields": {
 				"amount": {
 					"value": 42.84,
@@ -332,7 +321,6 @@
 			"person": "household",
 			"document_date": "2026-07-01",
 			"title_hint": "Nordkabel Kommunikation General Terms and Conditions July 2026",
-			"is_non_archival": true,
 			"fields": {}
 		}
 	]

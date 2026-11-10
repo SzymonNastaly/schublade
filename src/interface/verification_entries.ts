@@ -14,56 +14,16 @@ interface VerificationEntrySummary {
 }
 
 export function summarizeVerificationEntry(item: VerificationItem): VerificationEntrySummary {
-	switch (item.reason) {
-		case "non_archival_attachment":
-			return {
-				badge: { label: "Non-archival attachment", tone: "verification" },
-				subject: item.document.title ?? "Untitled document",
-				note: "Looks like boilerplate",
-			}
-		case "failed_ingestion":
-			return {
-				badge: { label: "Failed", tone: "failure" },
-				subject: item.document.title ?? "Untitled document",
-				note: documentFailureSentences[item.failureReason],
-			}
+	return {
+		badge: { label: "Failed", tone: "failure" },
+		subject: item.document.title ?? "Untitled document",
+		note: documentFailureSentences[item.failureReason],
 	}
-}
-
-export type VerificationFilter = "all" | VerificationItem["reason"]
-
-const verificationReasonLabels: Record<VerificationItem["reason"], string> = {
-	non_archival_attachment: "Attachments",
-	failed_ingestion: "Failed documents",
-}
-
-/** Everything first, then one option per reason with the number of its entries. */
-export function verificationFilterOptions(
-	items: ReadonlyArray<VerificationItem>,
-): Array<{ filter: VerificationFilter; label: string; count: number }> {
-	const reasons = Object.keys(verificationReasonLabels) as Array<VerificationItem["reason"]>
-	return [
-		{ filter: "all", label: "Everything", count: items.length },
-		...reasons.map((reason) => ({
-			filter: reason,
-			label: verificationReasonLabels[reason],
-			count: items.filter((item) => item.reason === reason).length,
-		})),
-	]
 }
 
 /** What a review asks about an entry, in the words of the page heading. */
 export function describeVerificationQuestion(item: VerificationItem): { question: string; explanation: string } {
-	switch (item.reason) {
-		case "non_archival_attachment":
-			return {
-				question: "Is this worth keeping?",
-				explanation:
-					"The classifier read this file as boilerplate that came with another document, such as general terms.",
-			}
-		case "failed_ingestion":
-			return { question: "This document could not be read", explanation: documentFailureSentences[item.failureReason] }
-	}
+	return { question: "This document could not be read", explanation: documentFailureSentences[item.failureReason] }
 }
 
 type ReviewStep =

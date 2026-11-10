@@ -36,8 +36,7 @@ const documentStatuses = [
  */
 export const succeedingModificationTime = () => sql`max(unixepoch(), updated_at + 1)`
 
-// A document archived before the archive stopped asking for unread dates and amounts may still
-// store illegible_required_field.
+// Nothing reads or writes verification_reason any more, but rows archived earlier still hold these values.
 const verificationReasons = ["illegible_required_field", "non_archival_attachment"] as const
 
 const documentFailureReasons = [

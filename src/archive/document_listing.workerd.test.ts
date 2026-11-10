@@ -87,7 +87,7 @@ test("queryDocumentListing lists documents in ingestion first, then an archived 
 	])
 })
 
-test("queryDocumentStatuses reports the given documents with their failure reason and whether they need review", async () => {
+test("queryDocumentStatuses reports the given documents with their failure reason", async () => {
 	await applyD1Migrations(env.DATABASE, inject("databaseMigrations"))
 	const database = connectDatabase(env.DATABASE)
 	const statusDocument = (id: string, status: "archived" | "failed" | "classifying") => ({
@@ -97,26 +97,21 @@ test("queryDocumentStatuses reports the given documents with their failure reaso
 		byteSize: 1024,
 		status,
 	})
-	const flaggedId = "c2000000-0000-4000-8000-000000000001"
 	const settledId = "c2000000-0000-4000-8000-000000000002"
 	const failedId = "c2000000-0000-4000-8000-000000000003"
-	await database.insert(documents).values([
-		{
-			...statusDocument(flaggedId, "archived"),
-			title: "Werkhof Receipt",
-			verificationReason: "non_archival_attachment",
-		},
-		{ ...statusDocument(settledId, "archived"), title: "Plain Receipt" },
-		{ ...statusDocument(failedId, "failed"), failureReason: "page_limit_exceeded" },
-		statusDocument("c2000000-0000-4000-8000-000000000004", "classifying"),
-	])
+	await database
+		.insert(documents)
+		.values([
+			{ ...statusDocument(settledId, "archived"), title: "Plain Receipt" },
+			{ ...statusDocument(failedId, "failed"), failureReason: "page_limit_exceeded" },
+			statusDocument("c2000000-0000-4000-8000-000000000004", "classifying"),
+		])
 
-	const records = await queryDocumentStatuses(database, [flaggedId, settledId, failedId])
+	const records = await queryDocumentStatuses(database, [settledId, failedId])
 
 	expect(records.sort((first, second) => first.documentId.localeCompare(second.documentId))).toEqual([
-		{ documentId: flaggedId, title: "Werkhof Receipt", status: "archived", failureReason: null, needsReview: true },
-		{ documentId: settledId, title: "Plain Receipt", status: "archived", failureReason: null, needsReview: false },
-		{ documentId: failedId, title: null, status: "failed", failureReason: "page_limit_exceeded", needsReview: false },
+		{ documentId: settledId, title: "Plain Receipt", status: "archived", failureReason: null },
+		{ documentId: failedId, title: null, status: "failed", failureReason: "page_limit_exceeded" },
 	])
 })
 

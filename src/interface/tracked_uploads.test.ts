@@ -18,7 +18,6 @@ const trackedRow = (key: string, overrides: Partial<Extract<TrackedUpload, { sta
 	title: null,
 	status: "processing",
 	failureReason: null,
-	needsReview: false,
 	...overrides,
 })
 
@@ -41,7 +40,6 @@ test("an answered request tracks each accepted file by its position and refuses 
 			title: null,
 			status: "processing",
 			failureReason: null,
-			needsReview: false,
 		},
 		{
 			key: "second",
@@ -55,9 +53,7 @@ test("an answered request tracks each accepted file by its position and refuses 
 test("a status record updates its row and a retry makes the failed row unfinished again", () => {
 	const failed = reduceTrackedUploads([trackedRow("scan", {}), trackedRow("other", {})], {
 		kind: "statuses_received",
-		records: [
-			{ documentId: "scan", title: null, status: "failed", failureReason: "unreadable_file", needsReview: false },
-		],
+		records: [{ documentId: "scan", title: null, status: "failed", failureReason: "unreadable_file" }],
 	})
 	const retried = reduceTrackedUploads(failed, { kind: "retried", documentId: "scan" })
 

@@ -14,7 +14,6 @@ export type TrackedUpload =
 			title: string | null
 			status: DocumentStatus
 			failureReason: DocumentFailureReason | null
-			needsReview: boolean
 	  }
 
 export type TrackedUploadEvent =
@@ -47,7 +46,6 @@ function answeredUpload({ key, fileName }: TrackedUpload, outcome: UploadOutcome
 		title: null,
 		status: "processing",
 		failureReason: null,
-		needsReview: false,
 	}
 }
 

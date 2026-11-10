@@ -146,9 +146,7 @@ function TrackedDocumentRow({ upload }: { upload: Extract<TrackedUpload, { stage
 							Open
 						</Link>
 					}
-				>
-					{upload.needsReview && <p className="text-fine text-caption">Archived, needs review</p>}
-				</RowFrame>
+				/>
 			)
 		case "failed":
 			return (

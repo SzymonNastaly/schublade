@@ -181,7 +181,6 @@ function telecommunicationInvoice(): DocumentSpecification {
 		person: "Jonas Becker",
 		documentDate: germanDateField(invoiceDate),
 		titleHint: "Nordkabel Kommunikation Invoice October 2026",
-		isNonArchival: false,
 		fields: {
 			amount: euroField(telecommunicationTotalCents),
 			currency: euroCurrency,
@@ -273,7 +272,6 @@ function electricityInvoice(): DocumentSpecification {
 		person: "household",
 		documentDate: germanDateField(invoiceDate),
 		titleHint: "Stadtwerke Talbrück Electricity Annual Statement 2025-2026",
-		isNonArchival: false,
 		fields: {
 			amount: euroField(electricityBalanceCents),
 			currency: euroCurrency,
@@ -496,7 +494,6 @@ function supermarketReceipt(): DocumentSpecification {
 		person: "household",
 		documentDate: germanDateField(purchaseDate),
 		titleHint: "Frischemarkt Talbrück Receipt October 2026",
-		isNonArchival: false,
 		fields: {
 			amount: { value: supermarketTotalCents / 100, printed: total },
 			currency: literalField("EUR"),
@@ -561,7 +558,6 @@ function hardwareStoreReceipt(): DocumentSpecification {
 		person: "household",
 		documentDate: germanDateField(purchaseDate),
 		titleHint: "Werkhof Baumarkt Receipt October 2026",
-		isNonArchival: false,
 		fields: {
 			amount: { value: totalCents / 100, printed: formatGermanDecimal(totalCents) },
 			currency: literalField("EUR"),
@@ -630,7 +626,6 @@ function rentalContract(): DocumentSpecification {
 		person: "household",
 		documentDate: germanDateField(signatureDate),
 		titleHint: "Talbrücker Wohnungsbau Rental Contract Am Lindenhang 7",
-		isNonArchival: false,
 		fields: {
 			policy_number: literalField(rentalContractNumber),
 			cancellation_period: threeMonths,
@@ -801,7 +796,6 @@ function householdContentsInsurancePolicy(): DocumentSpecification {
 		person: "household",
 		documentDate: germanDateField(issueDate),
 		titleHint: "Lindenhain Versicherung Household Contents Insurance Policy",
-		isNonArchival: false,
 		fields: {
 			policy_number: literalField(policyNumber),
 			renewal_date: germanDateField(renewalDate),
@@ -945,7 +939,6 @@ function incomeTaxAssessment(): DocumentSpecification {
 		person: "Jonas Becker",
 		documentDate: germanDateField(assessmentDate),
 		titleHint: "Finanzamt Talbrück Income Tax Assessment 2025",
-		isNonArchival: false,
 		fields: {
 			amount: euroField(taxBalanceCents),
 			currency: euroCurrency,
@@ -1121,7 +1114,6 @@ function bankStatement(): DocumentSpecification {
 		person: "Jonas Becker",
 		documentDate: germanDateField(statementDate),
 		titleHint: "Mühlbach Bank Account Statement October 2026",
-		isNonArchival: false,
 		fields: {
 			iban: ibanField(statementAccountIban),
 		},
@@ -1228,7 +1220,6 @@ function dentalInvoice(): DocumentSpecification {
 		person: "Lena Becker",
 		documentDate: germanDateField(invoiceDate),
 		titleHint: "Zahnarztpraxis Vossberg Dental Invoice Lena Becker August 2026",
-		isNonArchival: false,
 		fields: {
 			amount: euroField(totalCents),
 			currency: euroCurrency,
@@ -1318,7 +1309,6 @@ function residenceRegistrationCertificate(): DocumentSpecification {
 		person: "Mira Wiśniewska",
 		documentDate: germanDateField(issueDate),
 		titleHint: "Stadt Talbrück Residence Registration Certificate Mira Wiśniewska",
-		isNonArchival: false,
 		fields: {},
 		render(document) {
 			document.addPage()
@@ -1433,7 +1423,6 @@ function softwareSubscriptionInvoice(): DocumentSpecification {
 		person: "Mira Wiśniewska",
 		documentDate: { value: issueDate, printed: formatEnglishDate(issueDate) },
 		titleHint: "Paperlark Software Invoice October 2026",
-		isNonArchival: false,
 		fields: {
 			amount: { value: totalCents / 100, printed: dollars(totalCents) },
 			currency: literalField("USD"),
@@ -1527,7 +1516,6 @@ function generalTermsAndConditions(): DocumentSpecification {
 		person: "household",
 		documentDate: germanDateField(effectiveDate),
 		titleHint: "Nordkabel Kommunikation General Terms and Conditions July 2026",
-		isNonArchival: true,
 		fields: {},
 		render(document) {
 			document.addPage()

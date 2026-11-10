@@ -1,20 +1,12 @@
 import { SealCheckIcon } from "@phosphor-icons/react"
 import { Link, createFileRoute } from "@tanstack/react-router"
-import { useState } from "react"
 import { actionClasses } from "../interface/controls/action_button"
 import { EmptyState } from "../interface/controls/empty_state"
-import { FilterTab, FilterTabs } from "../interface/controls/filter_tabs"
-import { BreadcrumbTrail, ListFrame, PageColumns, PageContent, PageHeading } from "../interface/controls/page_layout"
-import { PanelRowButton, SectionPanel } from "../interface/controls/section_panel"
+import { BreadcrumbTrail, ListFrame, PageContent, PageHeading } from "../interface/controls/page_layout"
 import { StatusBadge } from "../interface/controls/status_badge"
 import { DocumentThumbnail } from "../interface/document_thumbnail"
-import {
-	summarizeVerificationEntry,
-	verificationEntryKey,
-	verificationFilterOptions,
-} from "../interface/verification_entries"
+import { summarizeVerificationEntry, verificationEntryKey } from "../interface/verification_entries"
 import { retrieveVerificationItems } from "../utilities/server_functions"
-import type { VerificationFilter } from "../interface/verification_entries"
 import type { VerificationItem } from "../archive/verification_items"
 
 export const Route = createFileRoute("/verification")({
@@ -54,78 +46,41 @@ function itemCountLabel(count: number): string {
 
 function PendingVerificationPage() {
 	const items = Route.useLoaderData()
-	const [filter, setFilter] = useState<VerificationFilter>("all")
-	const filterOptions = verificationFilterOptions(items).filter((option) => option.count > 0)
-	const activeFilter = filterOptions.some((option) => option.filter === filter) ? filter : "all"
-	const shownItems = items.filter((item) => activeFilter === "all" || item.reason === activeFilter)
 	return (
 		<PageContent>
 			<BreadcrumbTrail current="Pending verification" />
-			<PageColumns
-				panels={
-					<SectionPanel section="verification" heading="Waiting for you">
-						{filterOptions.map((option) => (
-							<PanelRowButton
-								key={option.filter}
-								section="verification"
-								selected={option.filter === activeFilter}
-								onClick={() => setFilter(option.filter)}
-							>
-								<span className="flex-1">{option.label}</span>
-								<span className="text-fine font-normal text-caption">{option.count}</span>
-							</PanelRowButton>
-						))}
-					</SectionPanel>
+			<PageHeading
+				title="Pending verification"
+				subtitle={
+					items.length === 0
+						? "You are all caught up."
+						: `${itemCountLabel(items.length)} ${items.length === 1 ? "needs" : "need"} a quick look from you.`
 				}
-			>
-				<PageHeading
-					title="Pending verification"
-					subtitle={
-						items.length === 0
-							? "You are all caught up."
-							: `${itemCountLabel(items.length)} ${items.length === 1 ? "needs" : "need"} a quick look from you.`
-					}
-				/>
-				{items.length === 0 ? (
+			/>
+			{items.length === 0 ? (
+				<ListFrame>
+					<EmptyState
+						icon={<SealCheckIcon size={56} weight="fill" />}
+						title="Nothing awaits verification"
+						description="Every document is archived and searchable. Failed documents appear here."
+					/>
+				</ListFrame>
+			) : (
+				<>
+					<div className="flex flex-col gap-2 md:flex-row">
+						<Link to="/verification/review" className={actionClasses({ variant: "primary", stretchOnPhone: true })}>
+							Review {itemCountLabel(items.length)}
+						</Link>
+					</div>
 					<ListFrame>
-						<EmptyState
-							icon={<SealCheckIcon size={56} weight="fill" />}
-							title="Nothing awaits verification"
-							description="Every document is archived and searchable. Attachments and failed documents appear here."
-						/>
+						<ul className="flex flex-col">
+							{items.map((item) => (
+								<EntryRow key={verificationEntryKey(item)} item={item} />
+							))}
+						</ul>
 					</ListFrame>
-				) : (
-					<>
-						<div className="flex flex-col gap-2 md:flex-row">
-							<Link to="/verification/review" className={actionClasses({ variant: "primary", stretchOnPhone: true })}>
-								Review {itemCountLabel(items.length)}
-							</Link>
-						</div>
-						<div>
-							<div className="lg:hidden">
-								<FilterTabs label="Show entries for">
-									{filterOptions.map((option) => (
-										<FilterTab
-											key={option.filter}
-											selected={option.filter === activeFilter}
-											onSelect={() => setFilter(option.filter)}
-										>
-											{option.label} {option.count}
-										</FilterTab>
-									))}
-								</FilterTabs>
-							</div>
-							<ListFrame>
-								<ul className="flex flex-col">
-									{shownItems.map((item) => (
-										<EntryRow key={verificationEntryKey(item)} item={item} />
-									))}
-								</ul>
-							</ListFrame>
-						</div>
-					</>
-				)}
-			</PageColumns>
+				</>
+			)}
 		</PageContent>
 	)
 }

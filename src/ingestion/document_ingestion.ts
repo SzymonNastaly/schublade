@@ -441,7 +441,6 @@ async function archiveDocument(
 			personMemberId: classification.personMemberId,
 			summary: classification.summary,
 			pageCount,
-			verificationReason: classification.nonArchival ? "non_archival_attachment" : null,
 			status: "archived",
 		})
 		.where(classifyingDocument)

@@ -22,7 +22,6 @@ const archivedDocument: ListedDocument = {
 	summary: null,
 	mimeType: "application/pdf",
 	pageCount: 1,
-	verificationReason: null,
 	tagNames: ["tax-2026", "unlisted"],
 	fields: [
 		{ fieldKey: "currency", value: "EUR", confidence: 0.9 },
