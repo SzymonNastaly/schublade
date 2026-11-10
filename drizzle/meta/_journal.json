@@ -36,6 +36,13 @@
       "when": 1794234400993,
       "tag": "0004_document_recognition_quarter_turns",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1794296538114,
+      "tag": "0005_remove_taxonomy_confirmation_and_verification_reason",
+      "breakpoints": true
     }
   ]
 }

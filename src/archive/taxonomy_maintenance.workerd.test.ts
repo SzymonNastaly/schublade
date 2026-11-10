@@ -1,5 +1,5 @@
 import { applyD1Migrations, env, reset } from "cloudflare:test"
-import { asc, eq } from "drizzle-orm"
+import { asc } from "drizzle-orm"
 import { expect, inject, test } from "vitest"
 import { connectDatabase } from "../database/client"
 import { documentTags, documents, senders, tags } from "../database/schema"
@@ -37,11 +37,11 @@ async function prepareArchive() {
 	const database = connectDatabase(env.DATABASE)
 	await database.insert(senders).values([
 		{ ...insurerAlias, normalizedName: "allianz versicherungs ag" },
-		{ ...insurer, normalizedName: "allianz se", confirmedAt: new Date("2026-10-01T00:00:00Z") },
+		{ ...insurer, normalizedName: "allianz se" },
 	])
 	await database.insert(tags).values([
 		{ ...taxAlias, normalizedName: "steuer" },
-		{ ...taxYear, normalizedName: "tax 2026", confirmedAt: new Date("2026-10-01T00:00:00Z") },
+		{ ...taxYear, normalizedName: "tax 2026" },
 	])
 	await archive(policyId, "Allianz Household Insurance Policy", insurerAlias.id, [taxAlias.id])
 	await archive(statementId, "Allianz Premium Statement 2026", insurer.id, [taxAlias.id, taxYear.id])
@@ -92,7 +92,7 @@ test("a merge moves every document and tag link to the target, and the backfill 
 	})
 })
 
-test("a rename onto another record's name proposes merging into it, and an accepted rename confirms the record", async () => {
+test("a rename onto another record's name proposes merging into it, and any other name renames the record", async () => {
 	const { database } = await prepareArchive()
 
 	const outcomes = [
@@ -106,22 +106,20 @@ test("a rename onto another record's name proposes merging into it, and an accep
 
 	expect({
 		outcomes,
-		senders: (
-			await database
-				.select({ name: senders.name, normalizedName: senders.normalizedName, confirmedAt: senders.confirmedAt })
-				.from(senders)
-				.orderBy(asc(senders.name))
-		).map(({ confirmedAt, ...sender }) => ({ ...sender, confirmed: confirmedAt !== null })),
+		senders: await database
+			.select({ name: senders.name, normalizedName: senders.normalizedName })
+			.from(senders)
+			.orderBy(asc(senders.name)),
 	}).toEqual({
 		outcomes: [{ kind: "merge_proposed", targetRecord: insurer }, { kind: "renamed" }],
 		senders: [
-			{ name: "Allianz Lebensversicherung", normalizedName: "allianz lebensversicherung", confirmed: true },
-			{ name: "Allianz SE", normalizedName: "allianz se", confirmed: true },
+			{ name: "Allianz Lebensversicherung", normalizedName: "allianz lebensversicherung" },
+			{ name: "Allianz SE", normalizedName: "allianz se" },
 		],
 	})
 })
 
-test("deleteTaxonomyRecord deletes a record no document refers to, confirmed or not, and refuses the others", async () => {
+test("deleteTaxonomyRecord deletes a record no document refers to and refuses the others", async () => {
 	const { database } = await prepareArchive()
 	await database.delete(documentTags)
 	const deletion = async (reference: Parameters<typeof deleteTaxonomyRecord>[1]) => {
@@ -157,12 +155,15 @@ test("a merge whose source no longer exists changes nothing and reports it", asy
 
 	expect({
 		outcome,
-		target: await database
-			.select({ id: tags.id, confirmedAt: tags.confirmedAt })
-			.from(tags)
-			.where(eq(tags.id, taxAlias.id)),
+		tags: await database.select({ id: tags.id }).from(tags).orderBy(asc(tags.name)),
+		links: await database.select().from(documentTags).orderBy(asc(documentTags.documentId), asc(documentTags.tagId)),
 	}).toEqual({
 		outcome: `The tag ${mergedTagId} to merge does not exist`,
-		target: [{ id: taxAlias.id, confirmedAt: null }],
+		tags: [{ id: taxAlias.id }, { id: taxYear.id }],
+		links: [
+			{ documentId: policyId, tagId: taxAlias.id },
+			{ documentId: statementId, tagId: taxAlias.id },
+			{ documentId: statementId, tagId: taxYear.id },
+		],
 	})
 })

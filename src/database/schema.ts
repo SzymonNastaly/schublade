@@ -15,10 +15,6 @@ const creationTime = () =>
 		.notNull()
 		.default(sql`(unixepoch())`)
 
-// Null for a record the classifier created. A record that a member creates, renames, or merges
-// into is confirmed.
-const confirmationTime = () => integer("confirmed_at", { mode: "timestamp" })
-
 // An email without a usable attachment is stored as awaiting_rendering until its workflow renders it.
 const documentStatuses = [
 	"awaiting_rendering",
@@ -35,9 +31,6 @@ const documentStatuses = [
  * second, so an AI Search upload of an earlier revision never counts as current.
  */
 export const succeedingModificationTime = () => sql`max(unixepoch(), updated_at + 1)`
-
-// Nothing reads or writes verification_reason any more, but rows archived earlier still hold these values.
-const verificationReasons = ["illegible_required_field", "non_archival_attachment"] as const
 
 const documentFailureReasons = [
 	"unreadable_file",
@@ -65,7 +58,6 @@ export const senders = sqliteTable(
 		name: text("name").notNull(),
 		normalizedName: text("normalized_name").notNull(),
 		createdAt: creationTime(),
-		confirmedAt: confirmationTime(),
 	},
 	(table) => [uniqueIndex("senders_normalized_name_index").on(table.normalizedName)],
 )
@@ -79,7 +71,6 @@ export const categories = sqliteTable(
 		// Field keys the classifier extracts for this category, such as "amount" and "iban".
 		expectedFields: text("expected_fields_json", { mode: "json" }).$type<Array<string>>().notNull(),
 		createdAt: creationTime(),
-		confirmedAt: confirmationTime(),
 	},
 	(table) => [uniqueIndex("categories_normalized_name_index").on(table.normalizedName)],
 )
@@ -92,7 +83,6 @@ export const tags = sqliteTable(
 		normalizedName: text("normalized_name").notNull(),
 		colorHex: text("color_hex"),
 		createdAt: creationTime(),
-		confirmedAt: confirmationTime(),
 	},
 	(table) => [uniqueIndex("tags_normalized_name_index").on(table.normalizedName)],
 )
@@ -114,7 +104,6 @@ export const documents = sqliteTable(
 		byteSize: integer("byte_size").notNull(),
 		pageCount: integer("page_count"),
 		status: text("status", { enum: documentStatuses }).notNull().default("processing"),
-		verificationReason: text("verification_reason", { enum: verificationReasons }),
 		// Null unless the status is failed.
 		failureReason: text("failure_reason", { enum: documentFailureReasons }),
 		recognitionQuarterTurns: integer("recognition_quarter_turns").$type<QuarterTurns>().notNull().default(0),

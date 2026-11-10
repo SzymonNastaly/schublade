@@ -20,7 +20,7 @@ import { isSettledStatus } from "../ingestion/document_lifecycle"
 import { documentObjectPrefix } from "../ingestion/source_file"
 import { normalizeTaxonomyName } from "../ingestion/taxonomy_resolution"
 import { indexDocument, removeDocumentFromIndex } from "../search/document_indexing"
-import { confirmation, taxonomyNameSchema } from "./taxonomy_maintenance"
+import { taxonomyNameSchema } from "./taxonomy_maintenance"
 import type { BatchItem } from "drizzle-orm/batch"
 import type { ArchiveDatabase } from "../database/client"
 import type { ExtractedFieldKey } from "../ingestion/document_classification"
@@ -52,7 +52,7 @@ const revisedFieldsSchema = z
 /**
  * A member's revision of an archived document. Each attribute that is present replaces the
  * stored one, and a null clears it. A sender, category, or tag name that no record has creates
- * a confirmed record, and the name of an unconfirmed record confirms that record.
+ * that record.
  */
 export const documentRevisionSchema = z.strictObject({
 	documentId: z.uuid(),
@@ -68,7 +68,7 @@ export const documentRevisionSchema = z.strictObject({
 
 type DocumentRevision = z.output<typeof documentRevisionSchema>
 
-/** The record a revised name denotes: the existing one, or a confirmed record that the batch inserts. */
+/** The record a revised name denotes: the existing one, or the record that the batch inserts. */
 const namedRecord = (table: typeof senders | typeof categories, normalizedName: string) =>
 	sql<string>`(select ${table.id} from ${table} where ${table.normalizedName} = ${normalizedName})`
 
@@ -91,7 +91,6 @@ export async function reviseDocument(
 ): Promise<void> {
 	const { documentId, senderName, categoryName, tagNames, fields = [] } = revision
 	await requireArchivedDocument(database, documentId)
-	const confirmedAt = new Date()
 	const senderKey = senderName == null ? senderName : normalizeTaxonomyName(senderName)
 	const categoryKey = categoryName == null ? categoryName : normalizeTaxonomyName(categoryName)
 
@@ -101,8 +100,8 @@ export async function reviseDocument(
 			: [
 					database
 						.insert(senders)
-						.values({ name: senderName, normalizedName: senderKey, confirmedAt })
-						.onConflictDoUpdate({ target: senders.normalizedName, set: { confirmedAt: confirmation(senders) } }),
+						.values({ name: senderName, normalizedName: senderKey })
+						.onConflictDoNothing({ target: senders.normalizedName }),
 				]),
 		...(categoryName == null || categoryKey == null
 			? []
@@ -113,15 +112,14 @@ export async function reviseDocument(
 							name: categoryName,
 							normalizedName: categoryKey,
 							expectedFields: [...(findStandardCategory(categoryKey)?.expectedFields ?? [])],
-							confirmedAt,
 						})
-						.onConflictDoUpdate({ target: categories.normalizedName, set: { confirmedAt: confirmation(categories) } }),
+						.onConflictDoNothing({ target: categories.normalizedName }),
 				]),
 		...(tagNames ?? []).map((name) =>
 			database
 				.insert(tags)
-				.values({ name, normalizedName: normalizeTaxonomyName(name), confirmedAt })
-				.onConflictDoUpdate({ target: tags.normalizedName, set: { confirmedAt: confirmation(tags) } }),
+				.values({ name, normalizedName: normalizeTaxonomyName(name) })
+				.onConflictDoNothing({ target: tags.normalizedName }),
 		),
 		database
 			.update(documents)

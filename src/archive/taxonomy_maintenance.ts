@@ -1,4 +1,4 @@
-import { and, eq, exists, inArray, ne, notExists, sql } from "drizzle-orm"
+import { and, eq, inArray, ne, notExists, sql } from "drizzle-orm"
 import { z } from "zod"
 import { categories, documentTags, documents, senders, succeedingModificationTime, tags } from "../database/schema"
 import { normalizeTaxonomyName } from "../ingestion/taxonomy_resolution"
@@ -55,17 +55,13 @@ export const taxonomyMergeSchema = z
 
 type TaxonomyMerge = z.infer<typeof taxonomyMergeSchema>
 
-/** Confirms a record now, or keeps the time of an earlier confirmation. */
-export const confirmation = (table: (typeof taxonomyKindModels)[TaxonomyKind]["table"]) =>
-	sql`coalesce(${table.confirmedAt}, unixepoch())`
-
 /** A rename that would give the record another record's name proposes merging into that record instead. */
 export type TaxonomyRenameOutcome =
 	{ kind: "renamed" } | { kind: "merge_proposed"; targetRecord: { id: string; name: string } }
 
 /**
- * Renames and confirms the record. Documents whose AI Search item carries the name become
- * stale, and the backfill uploads them again.
+ * Renames the record. Documents whose AI Search item carries the name become stale, and the
+ * backfill uploads them again.
  */
 export async function renameTaxonomyRecord(
 	database: ArchiveDatabase,
@@ -79,11 +75,7 @@ export async function renameTaxonomyRecord(
 		.where(and(eq(table.normalizedName, normalizedName), ne(table.id, recordId)))
 	if (namesake) return { kind: "merge_proposed", targetRecord: namesake }
 	const [renamed] = await database.batch([
-		database
-			.update(table)
-			.set({ name, normalizedName, confirmedAt: confirmation(table) })
-			.where(eq(table.id, recordId))
-			.returning({ id: table.id }),
+		database.update(table).set({ name, normalizedName }).where(eq(table.id, recordId)).returning({ id: table.id }),
 		...(nameIndexed
 			? [
 					database
@@ -98,8 +90,8 @@ export async function renameTaxonomyRecord(
 }
 
 /**
- * Deletes a record no document refers to, confirmed or not, such as the sender of a deleted
- * attachment. Deleting a record that no longer exists changes nothing.
+ * Deletes a record no document refers to, such as the sender of a deleted attachment. Deleting a
+ * record that no longer exists changes nothing.
  */
 export async function deleteTaxonomyRecord(
 	database: ArchiveDatabase,
@@ -122,10 +114,10 @@ export async function deleteTaxonomyRecord(
 }
 
 /**
- * Moves every document and tag link from the source record to the target, confirms the target,
- * and deletes the source, in one D1 batch. Each moved document becomes stale, and the backfill
- * uploads it again with the target's identifier and name. A merge whose source no longer exists,
- * such as a repeated one, changes nothing and throws, so it never confirms a target on its own.
+ * Moves every document and tag link from the source record to the target and deletes the
+ * source, in one D1 batch. Each moved document becomes stale, and the backfill uploads it again
+ * with the target's identifier and name. A merge whose source no longer exists, such as a
+ * repeated one, changes nothing and throws.
  */
 export async function mergeTaxonomyRecords(
 	database: ArchiveDatabase,
@@ -149,24 +141,14 @@ export async function mergeTaxonomyRecords(
 					.update(documents)
 					.set(kind === "sender" ? { senderId: targetRecordId } : { categoryId: targetRecordId })
 					.where(referringDocuments(sourceRecordId))
-	const [, , confirmed] = await database.batch([
+	const [, , deleted] = await database.batch([
 		database
 			.update(documents)
 			.set({ updatedAt: succeedingModificationTime() })
 			.where(referringDocuments(sourceRecordId)),
 		reassignment,
-		database
-			.update(table)
-			.set({ confirmedAt: confirmation(table) })
-			.where(
-				and(
-					eq(table.id, targetRecordId),
-					exists(database.select({ id: table.id }).from(table).where(eq(table.id, sourceRecordId))),
-				),
-			)
-			.returning({ id: table.id }),
 		// Deleting the source tag also deletes its links, which cascade.
-		database.delete(table).where(eq(table.id, sourceRecordId)),
+		database.delete(table).where(eq(table.id, sourceRecordId)).returning({ id: table.id }),
 	])
-	if (confirmed.length === 0) throw new Error(`The ${kind} ${sourceRecordId} to merge does not exist`)
+	if (deleted.length === 0) throw new Error(`The ${kind} ${sourceRecordId} to merge does not exist`)
 }

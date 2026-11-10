@@ -23,7 +23,6 @@ async function prepareReceipt() {
 		name: "Receipt",
 		normalizedName: "receipt",
 		expectedFields: ["amount", "currency", "due_date", "iban", "invoice_number"],
-		confirmedAt: new Date("2026-10-01T00:00:00Z"),
 	})
 	await database.insert(tags).values({ id: groceriesTagId, name: "groceries", normalizedName: "groceries" })
 	await database.insert(documents).values({
@@ -84,7 +83,7 @@ test("a revision stores each field a member enters without a confidence and uplo
 	})
 })
 
-test("a revision naming a new sender and tag creates confirmed records and re-indexes the document under them", async () => {
+test("a revision naming a new sender and tag creates those records and re-indexes the document under them", async () => {
 	const { database, items, searchIndex } = await prepareReceipt()
 
 	await reviseDocument(
@@ -99,25 +98,20 @@ test("a revision naming a new sender and tag creates confirmed records and re-in
 	)
 
 	const [sender] = await database
-		.select({ id: senders.id, confirmedAt: senders.confirmedAt })
+		.select({ id: senders.id })
 		.from(senders)
 		.where(eq(senders.normalizedName, "frischemarkt talbruck gmbh"))
 	expect({
-		senderConfirmed: sender?.confirmedAt !== null,
-		tags: (
-			await database.select({ name: tags.name, confirmedAt: tags.confirmedAt }).from(tags).orderBy(asc(tags.name))
-		).map(({ name, confirmedAt }) => ({ name, confirmed: confirmedAt !== null })),
+		senderCreated: sender !== undefined,
+		tags: await database.select({ name: tags.name }).from(tags).orderBy(asc(tags.name)),
 		linkedTags: (await database.select({ tagId: documentTags.tagId }).from(documentTags)).length,
 		item: {
 			heading: items.get(`${receiptId}.md`)?.content.split("\n").slice(0, 3),
 			sender: items.get(`${receiptId}.md`)?.metadata.sender === sender?.id,
 		},
 	}).toEqual({
-		senderConfirmed: true,
-		tags: [
-			{ name: "groceries", confirmed: true },
-			{ name: "household-2026", confirmed: true },
-		],
+		senderCreated: true,
+		tags: [{ name: "groceries" }, { name: "household-2026" }],
 		linkedTags: 2,
 		item: {
 			heading: [
@@ -210,38 +204,36 @@ test("a backfill upload accepted after deleteDocument finished removes the item 
 	})
 })
 
-test("a revision naming an existing unconfirmed sender, category, and tag confirms each of them", async () => {
+test("a revision naming an existing sender, category, and tag refers to them and creates no other record", async () => {
 	const { database, searchIndex } = await prepareReceipt()
-	await database.insert(senders).values({ name: "Werkhof", normalizedName: "werkhof" })
-	await database.insert(categories).values({ name: "Kassenbon", normalizedName: "kassenbon", expectedFields: [] })
+	const workshopId = "3d9f1b62-8e4a-4c07-b5d1-7a2e6c9f0b38"
+	const cashReceiptId = "e8b4c2a6-1f7d-4b39-9a05-4d6e8f2c1a73"
+	await database.insert(senders).values({ id: workshopId, name: "Werkhof", normalizedName: "werkhof" })
+	await database
+		.insert(categories)
+		.values({ id: cashReceiptId, name: "Kassenbon", normalizedName: "kassenbon", expectedFields: [] })
 
 	await reviseDocument(
 		{ database, storage: env.DOCUMENT_STORAGE, searchIndex },
 		documentRevisionSchema.parse({
 			documentId: receiptId,
-			senderName: "Werkhof",
+			senderName: "WERKHOF",
 			categoryName: "Kassenbon",
 			tagNames: ["groceries"],
 		}),
 	)
 
-	const confirmation = async (table: typeof senders | typeof categories | typeof tags) =>
-		(
-			await database.select({ name: table.name, confirmedAt: table.confirmedAt }).from(table).orderBy(asc(table.name))
-		).map(({ name, confirmedAt }) => ({ name, confirmed: confirmedAt !== null }))
 	expect({
-		senders: await confirmation(senders),
-		categories: await confirmation(categories),
-		tags: await confirmation(tags),
+		documents: await database
+			.select({ senderId: documents.senderId, categoryId: documents.categoryId })
+			.from(documents),
+		senders: await database.select({ name: senders.name }).from(senders).orderBy(asc(senders.name)),
+		categories: await database.select({ name: categories.name }).from(categories).orderBy(asc(categories.name)),
+		links: await database.select({ tagId: documentTags.tagId }).from(documentTags),
 	}).toEqual({
-		senders: [
-			{ name: "Frischemarkt", confirmed: false },
-			{ name: "Werkhof", confirmed: true },
-		],
-		categories: [
-			{ name: "Kassenbon", confirmed: true },
-			{ name: "Receipt", confirmed: true },
-		],
-		tags: [{ name: "groceries", confirmed: true }],
+		documents: [{ senderId: workshopId, categoryId: cashReceiptId }],
+		senders: [{ name: "Frischemarkt" }, { name: "Werkhof" }],
+		categories: [{ name: "Kassenbon" }, { name: "Receipt" }],
+		links: [{ tagId: groceriesTagId }],
 	})
 })

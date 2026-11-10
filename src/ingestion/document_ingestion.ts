@@ -387,8 +387,7 @@ async function readTaxonomy(database: ArchiveDatabase) {
  * that exist now, not when the model ran, because a concurrent workflow may have created
  * the same sender in between. Foreign keys resolve by normalized name for the same reason.
  * Every write applies only while the document is classifying, so a document that left that
- * status keeps its tags and fields and adds no taxonomy rows. A record the classifier creates
- * stays unconfirmed, except a standard category, which the prompt offers as established.
+ * status keeps its tags and fields and adds no taxonomy rows.
  */
 async function archiveDocument(
 	database: ArchiveDatabase,
@@ -458,7 +457,6 @@ async function archiveDocument(
 								name: sender.name,
 								normalizedName: sender.normalizedName,
 								createdAt: new Date(),
-								confirmedAt: null,
 							}),
 						)
 						.onConflictDoNothing(),
@@ -475,7 +473,6 @@ async function archiveDocument(
 								normalizedName: category.normalizedName,
 								expectedFields: [...(standardCategory?.expectedFields ?? [])],
 								createdAt: new Date(),
-								confirmedAt: standardCategory === undefined ? null : new Date(),
 							}),
 						)
 						.onConflictDoNothing(),
@@ -493,7 +490,6 @@ async function archiveDocument(
 									normalizedName: resolution.normalizedName,
 									colorHex: null,
 									createdAt: new Date(),
-									confirmedAt: null,
 								}),
 							)
 							.onConflictDoNothing(),

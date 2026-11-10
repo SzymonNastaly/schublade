@@ -13,7 +13,7 @@ const invoiceId = "50617283-94a5-4fb6-90c7-18293a4b5c6d"
 const unreadableId = "61728394-a5b6-40c7-a1d8-293a4b5c6d7e"
 const classifyingId = "728394a5-b6c7-41d8-b2e9-3a4b5c6d7e8f"
 
-// The rows as staging holds them under the schema of the first migration, before confirmed_at and indexed_at.
+// The rows as staging holds them under the schema of the first migration.
 const stagingRows = [
 	`INSERT INTO categories (id, name, normalized_name, expected_fields_json, created_at) VALUES
 		('${invoiceCategoryId}', 'Invoice', 'invoice', '["amount","currency","due_date","iban","invoice_number"]', 1793000000),
@@ -42,20 +42,15 @@ test("the migrations turn an archive written under the first schema into the cur
 	await applyD1Migrations(env.DATABASE, migrations)
 
 	const database = connectDatabase(env.DATABASE)
-	const confirmation = async (table: typeof senders | typeof categories | typeof tags) =>
-		(
-			await database.select({ name: table.name, confirmedAt: table.confirmedAt }).from(table).orderBy(asc(table.name))
-		).map(({ name, confirmedAt }) => ({ name, confirmed: confirmedAt !== null }))
 	expect({
 		appliedMigrations: migrations.map((migration) => migration.name),
-		categories: await confirmation(categories),
-		senders: await confirmation(senders),
-		tags: await confirmation(tags),
+		categories: await database.select().from(categories).orderBy(asc(categories.name)),
+		senders: await database.select().from(senders).orderBy(asc(senders.name)),
+		tags: await database.select().from(tags),
 		documents: await database
 			.select({
 				id: documents.id,
 				status: documents.status,
-				verificationReason: documents.verificationReason,
 				updatedAt: documents.updatedAt,
 				indexedAt: documents.indexedAt,
 			})
@@ -72,35 +67,58 @@ test("the migrations turn an archive written under the first schema into the cur
 			"0002_record_indexed_revision.sql",
 			"0003_record_document_failure_reason.sql",
 			"0004_document_recognition_quarter_turns.sql",
+			"0005_remove_taxonomy_confirmation_and_verification_reason.sql",
 		],
 		categories: [
-			{ name: "Invoice", confirmed: true },
-			{ name: "Unknown", confirmed: false },
+			{
+				id: invoiceCategoryId,
+				name: "Invoice",
+				normalizedName: "invoice",
+				expectedFields: ["amount", "currency", "due_date", "iban", "invoice_number"],
+				createdAt: new Date(1793000000_000),
+			},
+			{
+				id: unknownCategoryId,
+				name: "Unknown",
+				normalizedName: "unknown",
+				expectedFields: [],
+				createdAt: new Date(1793000100_000),
+			},
 		],
 		senders: [
-			{ name: "Stadtwerke Talbrück GmbH", confirmed: false },
-			{ name: "Unknown", confirmed: false },
+			{
+				id: utilitySenderId,
+				name: "Stadtwerke Talbrück GmbH",
+				normalizedName: "stadtwerke talbruck gmbh",
+				createdAt: new Date(1793000300_000),
+			},
+			{ id: unknownSenderId, name: "Unknown", normalizedName: "unknown", createdAt: new Date(1793000200_000) },
 		],
-		tags: [{ name: "strom", confirmed: false }],
+		tags: [
+			{
+				id: electricityTagId,
+				name: "strom",
+				normalizedName: "strom",
+				colorHex: null,
+				createdAt: new Date(1793000400_000),
+			},
+		],
 		documents: [
 			{
 				id: invoiceId,
 				status: "archived",
-				verificationReason: null,
 				updatedAt: new Date(1793100000_000),
 				indexedAt: new Date(1793100000_000),
 			},
 			{
 				id: unreadableId,
 				status: "archived",
-				verificationReason: "illegible_required_field",
 				updatedAt: new Date(1793100600_000),
 				indexedAt: new Date(1793100600_000),
 			},
 			{
 				id: classifyingId,
 				status: "classifying",
-				verificationReason: null,
 				updatedAt: new Date(1793100900_000),
 				indexedAt: null,
 			},
