@@ -5,11 +5,9 @@ import { ActionConfirmation, documentDeletionDescription } from "./action_confir
 import { actionClasses } from "./controls/action_button"
 import { PanelRowButton, SectionPanel, panelRowClasses } from "./controls/section_panel"
 import type { ListedDocument } from "../archive/document_listing"
-import type { VerificationReason } from "../ingestion/verification_assessment"
 import type { RetrievedDocument } from "../search/document_search"
 
-const verificationPrompts: Record<VerificationReason, string> = {
-	illegible_required_field: "The document date or the amount could not be read.",
+const verificationPrompts: Record<NonNullable<ListedDocument["verificationReason"]>, string> = {
 	non_archival_attachment: "The classifier read this file as boilerplate, such as general terms.",
 }
 

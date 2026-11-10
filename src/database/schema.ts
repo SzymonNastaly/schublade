@@ -36,8 +36,8 @@ const documentStatuses = [
  */
 export const succeedingModificationTime = () => sql`max(unixepoch(), updated_at + 1)`
 
-// A new sender, category, or tag is a state of that record, not of the document, so documents
-// store only the two reasons that belong to the document itself. See verification_assessment.ts.
+// A document archived before the archive stopped asking for unread dates and amounts may still
+// store illegible_required_field.
 const verificationReasons = ["illegible_required_field", "non_archival_attachment"] as const
 
 const documentFailureReasons = [

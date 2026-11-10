@@ -27,7 +27,6 @@ import { composePrintableMail, mailContextOf, parseMailWithinLimits, printedHead
 import { printMail } from "./mail_rendering"
 import { MAIL_MEDIA_TYPE, contentObjectKey, originalObjectKey, parseSourceFile } from "./source_file"
 import { resolveTaxonomyName } from "./taxonomy_resolution"
-import { assessVerificationReason } from "./verification_assessment"
 import type { WorkflowStep, WorkflowStepConfig } from "cloudflare:workers"
 import type { InferInsertModel, SQL } from "drizzle-orm"
 import type { SQLiteTable } from "drizzle-orm/sqlite-core"
@@ -364,12 +363,7 @@ async function readTaxonomy(database: ArchiveDatabase) {
 			.from(senders)
 			.orderBy(asc(senders.name)),
 		database
-			.select({
-				id: categories.id,
-				name: categories.name,
-				normalizedName: categories.normalizedName,
-				expectedFields: categories.expectedFields,
-			})
+			.select({ id: categories.id, name: categories.name, normalizedName: categories.normalizedName })
 			.from(categories)
 			.orderBy(asc(categories.name)),
 		database
@@ -415,8 +409,6 @@ async function archiveDocument(
 		classification.categoryName === null ? null : resolveTaxonomyName(classification.categoryName, categoryRecords)
 	const tagResolutions = classification.tagNames.map((name) => resolveTaxonomyName(name, tagRecords))
 	const standardCategory = category?.kind === "new" ? findStandardCategory(category.normalizedName) : undefined
-	const categoryExpectedFields =
-		category?.kind === "existing" ? category.record.expectedFields : [...(standardCategory?.expectedFields ?? [])]
 
 	const recordIdentifier = (table: typeof senders | typeof categories, normalizedName: string) =>
 		sql<string>`(select ${table.id} from ${table} where ${table.normalizedName} = ${normalizedName})`
@@ -449,12 +441,7 @@ async function archiveDocument(
 			personMemberId: classification.personMemberId,
 			summary: classification.summary,
 			pageCount,
-			verificationReason: assessVerificationReason({
-				nonArchival: classification.nonArchival,
-				documentDate: classification.documentDate,
-				categoryExpectedFields,
-				fields: classification.extractedFields,
-			}),
+			verificationReason: classification.nonArchival ? "non_archival_attachment" : null,
 			status: "archived",
 		})
 		.where(classifyingDocument)
@@ -487,7 +474,7 @@ async function archiveDocument(
 								id: crypto.randomUUID(),
 								name: category.name,
 								normalizedName: category.normalizedName,
-								expectedFields: categoryExpectedFields,
+								expectedFields: [...(standardCategory?.expectedFields ?? [])],
 								createdAt: new Date(),
 								confirmedAt: standardCategory === undefined ? null : new Date(),
 							}),

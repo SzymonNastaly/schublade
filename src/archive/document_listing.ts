@@ -1,4 +1,4 @@
-import { and, asc, count, desc, eq, exists, gte, inArray, isNull, lte, notExists, sql } from "drizzle-orm"
+import { and, asc, count, desc, eq, exists, gte, inArray, isNull, lte, ne, notExists, sql } from "drizzle-orm"
 import {
 	categories,
 	documentTags,
@@ -13,7 +13,6 @@ import type { Column, SQL } from "drizzle-orm"
 import type { AuthorizationScope } from "../authorization/caller_authorization"
 import type { ArchiveDatabase } from "../database/client"
 import type { DocumentFailureReason, DocumentStatus } from "../ingestion/document_lifecycle"
-import type { VerificationReason } from "../ingestion/verification_assessment"
 import type { SearchCriteria } from "../search/search_criteria"
 
 interface ListedField {
@@ -35,7 +34,7 @@ export interface ListedDocument {
 	summary: string | null
 	mimeType: string
 	pageCount: number | null
-	verificationReason: VerificationReason | null
+	verificationReason: "non_archival_attachment" | null
 	tagNames: Array<string>
 	fields: Array<ListedField>
 }
@@ -139,6 +138,11 @@ function listingConditions(database: ArchiveDatabase, criteria: ListingCriteria)
 	]
 }
 
+/** A document archived earlier may still store illegible_required_field, which awaits nobody now. */
+function awaitedVerificationReason(stored: (typeof documents.$inferSelect)["verificationReason"]) {
+	return stored === "non_archival_attachment" ? stored : null
+}
+
 export async function queryDocumentListing(
 	database: ArchiveDatabase,
 	criteria: ListingCriteria = {},
@@ -164,10 +168,11 @@ export async function queryDocumentListing(
 			.leftJoin(categories, eq(documents.categoryId, categories.id))
 			.leftJoin(householdMembers, eq(documents.personMemberId, householdMembers.id))
 			.where(and(...listingConditions(database, criteria)))
-			// A document without a date is still in processing or needs one supplied, so it stays on top.
+			// A document still in ingestion has no date yet, so it stays on top. An archived document
+			// without a date takes the day it arrived.
 			.orderBy(
-				desc(isNull(documents.documentDate)),
-				desc(documents.documentDate),
+				desc(ne(documents.status, "archived")),
+				desc(sql`coalesce(${documents.documentDate}, date(${documents.createdAt}, 'unixepoch'))`),
 				desc(documents.createdAt),
 				desc(documents.id),
 			),
@@ -199,8 +204,9 @@ export async function queryDocumentListing(
 		})
 		fieldsByDocument.set(field.documentId, listedFields)
 	}
-	return rows.map((row) => ({
+	return rows.map(({ verificationReason, ...row }) => ({
 		...row,
+		verificationReason: awaitedVerificationReason(verificationReason),
 		tagNames: tagRows.filter((tag) => tag.documentId === row.id).map((tag) => tag.name),
 		fields: fieldsByDocument.get(row.id) ?? [],
 	}))
@@ -228,7 +234,10 @@ export async function queryDocumentStatuses(
 		})
 		.from(documents)
 		.where(inArray(documents.id, documentIds))
-	return rows.map(({ verificationReason, ...row }) => ({ ...row, needsReview: verificationReason !== null }))
+	return rows.map(({ verificationReason, ...row }) => ({
+		...row,
+		needsReview: awaitedVerificationReason(verificationReason) !== null,
+	}))
 }
 
 export interface FacetOption {

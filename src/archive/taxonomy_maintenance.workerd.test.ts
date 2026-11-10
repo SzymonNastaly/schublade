@@ -2,12 +2,11 @@ import { applyD1Migrations, env, reset } from "cloudflare:test"
 import { asc, eq } from "drizzle-orm"
 import { expect, inject, test } from "vitest"
 import { connectDatabase } from "../database/client"
-import { categories, documentTags, documents, extractedFields, senders, tags } from "../database/schema"
+import { documentTags, documents, senders, tags } from "../database/schema"
 import { contentObjectKey } from "../ingestion/source_file"
 import { indexDocument, indexMissingDocuments } from "../search/document_indexing"
 import { createInMemorySearchIndex } from "../search/in_memory_search_index"
 import { deleteTaxonomyRecord, mergeTaxonomyRecords, renameTaxonomyRecord } from "./taxonomy_maintenance"
-import { listVerificationItems } from "./verification_items"
 
 const insurerAlias = { id: "0a6f2c41-9d3e-4b58-8a71-5e2d9c0b4f13", name: "Allianz Versicherungs-AG" }
 const insurer = { id: "7c3e9b10-4a2d-4f86-9e15-b8d0a6c2e947", name: "Allianz SE" }
@@ -165,71 +164,5 @@ test("a merge whose source no longer exists changes nothing and reports it", asy
 	}).toEqual({
 		outcome: `The tag ${mergedTagId} to merge does not exist`,
 		target: [{ id: taxAlias.id, confirmedAt: null }],
-	})
-})
-
-test("a category merge flags a moved receipt without an amount when the target category requires one", async () => {
-	const { database } = await prepareArchive()
-	const slipCategoryId = "b8e2d4f6-1c3a-4d59-8e70-a2c4e6f8b013"
-	const receiptCategoryId = "4c6e8a0b-2d4f-4a71-9c83-b5d7f9a1c325"
-	await database.insert(categories).values([
-		{ id: slipCategoryId, name: "Kassenbon", normalizedName: "kassenbon", expectedFields: [] },
-		{
-			id: receiptCategoryId,
-			name: "Receipt",
-			normalizedName: "receipt",
-			expectedFields: ["amount", "currency"],
-			confirmedAt: new Date("2026-10-01T00:00:00Z"),
-		},
-	])
-	await database
-		.update(documents)
-		.set({ categoryId: slipCategoryId, documentDate: "2026-10-31" })
-		.where(eq(documents.id, statementId))
-	await database
-		.update(documents)
-		.set({ categoryId: slipCategoryId, documentDate: "2026-10-30" })
-		.where(eq(documents.id, contractId))
-	await database.insert(extractedFields).values({
-		documentId: contractId,
-		fieldKey: "amount",
-		fieldType: "number",
-		valueNumber: 12.4,
-		confidenceScore: 0.9,
-	})
-
-	await mergeTaxonomyRecords(database, {
-		kind: "category",
-		sourceRecordId: slipCategoryId,
-		targetRecordId: receiptCategoryId,
-	})
-
-	expect({
-		reasons: await database
-			.select({ id: documents.id, reason: documents.verificationReason })
-			.from(documents)
-			.where(eq(documents.categoryId, receiptCategoryId))
-			.orderBy(asc(documents.title)),
-		pending: (await listVerificationItems(database)).filter((item) => item.reason === "illegible_required_field"),
-	}).toEqual({
-		reasons: [
-			{ id: contractId, reason: null },
-			{ id: statementId, reason: "illegible_required_field" },
-		],
-		pending: [
-			{
-				reason: "illegible_required_field",
-				createdAt: expect.any(Date),
-				document: {
-					id: statementId,
-					status: "archived",
-					mimeType: "application/pdf",
-					title: "Allianz Premium Statement 2026",
-					documentDate: "2026-10-31",
-					senderName: "Allianz SE",
-				},
-				illegibleFields: [{ fieldKey: "amount", value: null }],
-			},
-		],
 	})
 })

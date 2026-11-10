@@ -11,7 +11,6 @@ import {
 import { isSettledStatus } from "../ingestion/document_lifecycle"
 import { documentObjectPrefix } from "../ingestion/source_file"
 import { normalizeTaxonomyName } from "../ingestion/taxonomy_resolution"
-import { assessVerificationReason } from "../ingestion/verification_assessment"
 import { indexDocument, removeDocumentFromIndex } from "../search/document_indexing"
 import { confirmation, taxonomyNameSchema } from "./taxonomy_maintenance"
 import type { BatchItem } from "drizzle-orm/batch"
@@ -68,46 +67,18 @@ const namedRecord = (table: typeof senders | typeof categories, normalizedName: 
 	sql<string>`(select ${table.id} from ${table} where ${table.normalizedName} = ${normalizedName})`
 
 async function readRevisedDocument(database: ArchiveDatabase, documentId: string) {
-	const [[document], fields] = await Promise.all([
-		database
-			.select({
-				status: documents.status,
-				documentDate: documents.documentDate,
-				verificationReason: documents.verificationReason,
-				categoryExpectedFields: categories.expectedFields,
-			})
-			.from(documents)
-			.leftJoin(categories, eq(documents.categoryId, categories.id))
-			.where(eq(documents.id, documentId)),
-		database
-			.select({ fieldKey: extractedFields.fieldKey, confidence: extractedFields.confidenceScore })
-			.from(extractedFields)
-			.where(eq(extractedFields.documentId, documentId)),
-	])
+	const [document] = await database
+		.select({ status: documents.status, verificationReason: documents.verificationReason })
+		.from(documents)
+		.where(eq(documents.id, documentId))
 	if (!document) throw new Error(`Document ${documentId} does not exist`)
 	if (document.status !== "archived") throw new Error(`Document ${documentId} is not archived, so it cannot be revised`)
-	return { ...document, fields }
-}
-
-async function revisedCategoryExpectedFields(
-	database: ArchiveDatabase,
-	categoryName: string | null | undefined,
-	currentExpectedFields: Array<string> | null,
-): Promise<ReadonlyArray<string>> {
-	if (categoryName === undefined) return currentExpectedFields ?? []
-	if (categoryName === null) return []
-	const normalizedName = normalizeTaxonomyName(categoryName)
-	const [category] = await database
-		.select({ expectedFields: categories.expectedFields })
-		.from(categories)
-		.where(eq(categories.normalizedName, normalizedName))
-	return category?.expectedFields ?? findStandardCategory(normalizedName)?.expectedFields ?? []
+	return document
 }
 
 /**
- * Applies a member's revision in one D1 batch, assesses the verification reason again, and
- * uploads the document to AI Search at once. A failed upload leaves the document stale, and the
- * backfill uploads it later.
+ * Applies a member's revision in one D1 batch and uploads the document to AI Search at once.
+ * A failed upload leaves the document stale, and the backfill uploads it later.
  */
 export async function reviseDocument(
 	{ database, storage, searchIndex }: ArchiveEnvironment,
@@ -115,22 +86,7 @@ export async function reviseDocument(
 ): Promise<void> {
 	const { documentId, senderName, categoryName, tagNames, fields = [] } = revision
 	const document = await readRevisedDocument(database, documentId)
-	const categoryExpectedFields = await revisedCategoryExpectedFields(
-		database,
-		categoryName,
-		document.categoryExpectedFields,
-	)
-	const revisedKeys = new Set(fields.map((field) => field.fieldKey))
-	const verificationReason = assessVerificationReason({
-		nonArchival: revision.nonArchival ?? document.verificationReason === "non_archival_attachment",
-		documentDate: revision.documentDate === undefined ? document.documentDate : revision.documentDate,
-		categoryExpectedFields,
-		fields: [
-			...document.fields.filter((field) => !revisedKeys.has(field.fieldKey as ExtractedFieldKey)),
-			// A value a member entered carries no confidence.
-			...fields.filter((field) => field.value !== null).map((field) => ({ ...field, confidence: null })),
-		],
-	})
+	const nonArchival = revision.nonArchival ?? document.verificationReason === "non_archival_attachment"
 	const confirmedAt = new Date()
 	const senderKey = senderName == null ? senderName : normalizeTaxonomyName(senderName)
 	const categoryKey = categoryName == null ? categoryName : normalizeTaxonomyName(categoryName)
@@ -152,7 +108,7 @@ export async function reviseDocument(
 						.values({
 							name: categoryName,
 							normalizedName: categoryKey,
-							expectedFields: [...categoryExpectedFields],
+							expectedFields: [...(findStandardCategory(categoryKey)?.expectedFields ?? [])],
 							confirmedAt,
 						})
 						.onConflictDoUpdate({ target: categories.normalizedName, set: { confirmedAt: confirmation(categories) } }),
@@ -173,7 +129,7 @@ export async function reviseDocument(
 					categoryId: categoryKey === null ? null : namedRecord(categories, categoryKey),
 				}),
 				...(revision.personMemberId !== undefined && { personMemberId: revision.personMemberId }),
-				verificationReason,
+				verificationReason: nonArchival ? "non_archival_attachment" : null,
 			})
 			.where(eq(documents.id, documentId)),
 		...(tagNames === undefined

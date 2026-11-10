@@ -109,6 +109,6 @@ test("the migrations turn an archive written under the first schema into the cur
 		],
 		fields: [{ documentId: invoiceId, valueNumber: 72.09 }],
 		links: [{ documentId: invoiceId, tagId: electricityTagId }],
-		pendingVerification: [["illegible_required_field", unreadableId]],
+		pendingVerification: [],
 	})
 })

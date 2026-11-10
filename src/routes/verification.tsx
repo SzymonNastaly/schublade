@@ -91,7 +91,7 @@ function PendingVerificationPage() {
 						<EmptyState
 							icon={<SealCheckIcon size={56} weight="fill" />}
 							title="Nothing awaits verification"
-							description="Every document is archived and searchable. Unreadable fields, attachments, and failed documents appear here."
+							description="Every document is archived and searchable. Attachments and failed documents appear here."
 						/>
 					</ListFrame>
 				) : (

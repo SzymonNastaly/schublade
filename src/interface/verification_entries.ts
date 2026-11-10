@@ -1,16 +1,10 @@
 import { documentFailureSentences } from "./document_status_presentation"
 import type { VerificationItem } from "../archive/verification_items"
 import type { BadgeTone } from "./controls/status_badge"
-import type { RequiredFieldKey } from "../ingestion/verification_assessment"
 
 /** Identifies an entry across reloads of the list, so a review keeps its place as entries resolve. */
 export function verificationEntryKey(item: VerificationItem): string {
 	return item.document.id
-}
-
-export const requiredFieldLabels: Record<RequiredFieldKey, string> = {
-	document_date: "Document date",
-	amount: "Amount",
 }
 
 interface VerificationEntrySummary {
@@ -21,14 +15,6 @@ interface VerificationEntrySummary {
 
 export function summarizeVerificationEntry(item: VerificationItem): VerificationEntrySummary {
 	switch (item.reason) {
-		case "illegible_required_field":
-			return {
-				badge: { label: "Unreadable field", tone: "verification" },
-				subject: item.document.title ?? "Untitled document",
-				note: item.illegibleFields
-					.map(({ fieldKey, value }) => `${requiredFieldLabels[fieldKey]} is ${value === null ? "missing" : "unclear"}`)
-					.join(" · "),
-			}
 		case "non_archival_attachment":
 			return {
 				badge: { label: "Non-archival attachment", tone: "verification" },
@@ -47,7 +33,6 @@ export function summarizeVerificationEntry(item: VerificationItem): Verification
 export type VerificationFilter = "all" | VerificationItem["reason"]
 
 const verificationReasonLabels: Record<VerificationItem["reason"], string> = {
-	illegible_required_field: "Unreadable fields",
 	non_archival_attachment: "Attachments",
 	failed_ingestion: "Failed documents",
 }
@@ -70,8 +55,6 @@ export function verificationFilterOptions(
 /** What a review asks about an entry, in the words of the page heading. */
 export function describeVerificationQuestion(item: VerificationItem): { question: string; explanation: string } {
 	switch (item.reason) {
-		case "illegible_required_field":
-			return { question: "Can you fill in what could not be read?", explanation: summarizeVerificationEntry(item).note }
 		case "non_archival_attachment":
 			return {
 				question: "Is this worth keeping?",

@@ -1,10 +1,5 @@
 import { expect, test } from "vitest"
-import {
-	locateReviewStep,
-	summarizeVerificationEntry,
-	verificationEntryKey,
-	verificationFilterOptions,
-} from "./verification_entries"
+import { locateReviewStep, verificationEntryKey, verificationFilterOptions } from "./verification_entries"
 import type { VerificationDocument, VerificationItem } from "../archive/verification_items"
 
 const createdAt = new Date("2026-11-01T08:00:00Z")
@@ -81,29 +76,10 @@ test("an entry that arrives during a review joins the end of the count", () => {
 	})
 })
 
-test("an unreadable field entry notes each field as missing when it has no value and as unclear when it has one", () => {
-	const item: VerificationItem = {
-		reason: "illegible_required_field",
-		createdAt,
-		document: document("receipt", null),
-		illegibleFields: [
-			{ fieldKey: "document_date", value: null },
-			{ fieldKey: "amount", value: 75.49 },
-		],
-	}
-
-	expect(summarizeVerificationEntry(item)).toEqual({
-		badge: { label: "Unreadable field", tone: "verification" },
-		subject: "Untitled document",
-		note: "Document date is missing · Amount is unclear",
-	})
-})
-
 test("the filter options count the entries of each reason", () => {
 	const counts = verificationFilterOptions([first, second, third, fourth]).map(({ filter, count }) => [filter, count])
 	expect(counts).toEqual([
 		["all", 4],
-		["illegible_required_field", 0],
 		["non_archival_attachment", 2],
 		["failed_ingestion", 2],
 	])

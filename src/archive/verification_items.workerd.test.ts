@@ -1,11 +1,10 @@
 import { applyD1Migrations, env, reset } from "cloudflare:test"
 import { expect, inject, test } from "vitest"
 import { connectDatabase } from "../database/client"
-import { categories, documents, extractedFields, senders } from "../database/schema"
+import { documents, senders } from "../database/schema"
 import { countVerificationItems, listVerificationItems } from "./verification_items"
 
 const telecomId = "b2f6d4a9-1e3c-4a75-9d82-7f0e5c3a1b64"
-const receiptCategoryId = "3a9d7f25-6c1e-4b48-a093-8e2b5d7f1c40"
 const policyId = "0d4f8b26-2e7a-4c91-8b35-6a1e9c3f7d52"
 const receiptId = "9a3c6e18-5d4b-4f27-a960-3b8e1d7c5f04"
 const termsId = "f1e7a3c5-8b2d-4c69-9e04-5d3a7b1f6c28"
@@ -17,13 +16,6 @@ async function prepareArchive() {
 	await applyD1Migrations(env.DATABASE, inject("databaseMigrations"))
 	const database = connectDatabase(env.DATABASE)
 	await database.insert(senders).values({ id: telecomId, name: "Nordkabel", normalizedName: "nordkabel" })
-	await database.insert(categories).values({
-		id: receiptCategoryId,
-		name: "Receipt",
-		normalizedName: "receipt",
-		expectedFields: ["amount", "currency"],
-		confirmedAt: createdOn(1),
-	})
 	const archived = { mimeType: "application/pdf", byteSize: 1024, status: "archived" as const }
 	await database.insert(documents).values([
 		{
@@ -38,7 +30,6 @@ async function prepareArchive() {
 			...archived,
 			id: receiptId,
 			title: "Werkhof Receipt",
-			categoryId: receiptCategoryId,
 			storageObjectKey: `documents/${receiptId}/original.pdf`,
 			verificationReason: "illegible_required_field",
 			createdAt: createdOn(3),
@@ -54,17 +45,10 @@ async function prepareArchive() {
 			createdAt: createdOn(4),
 		},
 	])
-	await database.insert(extractedFields).values({
-		documentId: receiptId,
-		fieldKey: "amount",
-		fieldType: "number",
-		valueNumber: 75.49,
-		confidenceScore: 0.3,
-	})
 	return database
 }
 
-test("listVerificationItems gives each flagged document, newest first", async () => {
+test("listVerificationItems gives each non-archival attachment and passes over an illegible field stored earlier", async () => {
 	const database = await prepareArchive()
 
 	expect({ items: await listVerificationItems(database), count: await countVerificationItems(database) }).toEqual({
@@ -81,24 +65,8 @@ test("listVerificationItems gives each flagged document, newest first", async ()
 					senderName: "Nordkabel",
 				},
 			},
-			{
-				reason: "illegible_required_field",
-				createdAt: createdOn(3),
-				document: {
-					id: receiptId,
-					status: "archived",
-					mimeType: "application/pdf",
-					title: "Werkhof Receipt",
-					documentDate: null,
-					senderName: null,
-				},
-				illegibleFields: [
-					{ fieldKey: "document_date", value: null },
-					{ fieldKey: "amount", value: 75.49 },
-				],
-			},
 		],
-		count: 2,
+		count: 1,
 	})
 })
 

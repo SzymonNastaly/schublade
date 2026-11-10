@@ -42,33 +42,47 @@ test("queryDocumentListing filtered by a person lists only archived documents", 
 	})
 })
 
-test("queryDocumentListing lists a document without a date first, then the newest document date", async () => {
+test("queryDocumentListing lists documents in ingestion first, then an archived document without a date on the day it arrived", async () => {
 	await applyD1Migrations(env.DATABASE, inject("databaseMigrations"))
 	const database = connectDatabase(env.DATABASE)
-	const memberId = "3f8a0b2c-4d5e-4f60-9b7c-8d9e0f1a2b3c"
-	await database.insert(householdMembers).values({ id: memberId, displayName: "Lena Becker", addresseeNames: [] })
-	const documentOf = (id: string, documentDate: string | null) => ({
+	const documentOf = (
+		id: string,
+		status: "archived" | "classifying",
+		documentDate: string | null,
+		createdAt: string,
+	) => ({
 		id,
 		storageObjectKey: `documents/${id}/original.pdf`,
 		mimeType: "application/pdf",
 		byteSize: 1024,
-		status: "archived" as const,
-		personMemberId: memberId,
+		status,
 		documentDate,
+		createdAt: new Date(createdAt),
 	})
+	const documentIds = [
+		"b1000000-0000-4000-8000-000000000001",
+		"b1000000-0000-4000-8000-000000000002",
+		"b1000000-0000-4000-8000-000000000003",
+		"b1000000-0000-4000-8000-000000000004",
+		"b1000000-0000-4000-8000-000000000005",
+	]
 	await database
 		.insert(documents)
 		.values([
-			documentOf("b1000000-0000-4000-8000-000000000001", "2026-03-12"),
-			documentOf("b1000000-0000-4000-8000-000000000002", null),
-			documentOf("b1000000-0000-4000-8000-000000000003", "2026-10-31"),
+			documentOf("b1000000-0000-4000-8000-000000000001", "archived", "2026-03-12", "2026-03-14T10:00:00Z"),
+			documentOf("b1000000-0000-4000-8000-000000000002", "archived", null, "2026-06-01T09:00:00Z"),
+			documentOf("b1000000-0000-4000-8000-000000000003", "archived", "2026-10-31", "2026-11-03T08:00:00Z"),
+			documentOf("b1000000-0000-4000-8000-000000000004", "archived", null, "2026-11-02T23:30:00Z"),
+			documentOf("b1000000-0000-4000-8000-000000000005", "classifying", null, "2026-11-01T12:00:00Z"),
 		])
 
-	const listing = await queryDocumentListing(database, { person: memberId })
+	const listing = await queryDocumentListing(database, { documentIds })
 
 	expect(listing.map((document) => document.id)).toEqual([
-		"b1000000-0000-4000-8000-000000000002",
+		"b1000000-0000-4000-8000-000000000005",
+		"b1000000-0000-4000-8000-000000000004",
 		"b1000000-0000-4000-8000-000000000003",
+		"b1000000-0000-4000-8000-000000000002",
 		"b1000000-0000-4000-8000-000000000001",
 	])
 })
@@ -90,7 +104,7 @@ test("queryDocumentStatuses reports the given documents with their failure reaso
 		{
 			...statusDocument(flaggedId, "archived"),
 			title: "Werkhof Receipt",
-			verificationReason: "illegible_required_field",
+			verificationReason: "non_archival_attachment",
 		},
 		{ ...statusDocument(settledId, "archived"), title: "Plain Receipt" },
 		{ ...statusDocument(failedId, "failed"), failureReason: "page_limit_exceeded" },

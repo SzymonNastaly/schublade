@@ -1,16 +1,7 @@
 import { and, eq, exists, inArray, ne, notExists, sql } from "drizzle-orm"
 import { z } from "zod"
-import {
-	categories,
-	documentTags,
-	documents,
-	extractedFields,
-	senders,
-	succeedingModificationTime,
-	tags,
-} from "../database/schema"
+import { categories, documentTags, documents, senders, succeedingModificationTime, tags } from "../database/schema"
 import { normalizeTaxonomyName } from "../ingestion/taxonomy_resolution"
-import { assessVerificationReason } from "../ingestion/verification_assessment"
 import type { SQL } from "drizzle-orm"
 import type { ArchiveDatabase } from "../database/client"
 
@@ -130,51 +121,11 @@ export async function deleteTaxonomyRecord(
 	throw new Error(`Documents still refer to the ${kind} ${recordId}`)
 }
 
-/** The archived documents of the source category whose verification reason differs under the target's expected fields. */
-async function reassessMovedDocuments(database: ArchiveDatabase, sourceRecordId: string, targetRecordId: string) {
-	const movedDocument = and(eq(documents.categoryId, sourceRecordId), eq(documents.status, "archived"))
-	const [[target], movedDocuments, fields] = await Promise.all([
-		database
-			.select({ expectedFields: categories.expectedFields })
-			.from(categories)
-			.where(eq(categories.id, targetRecordId)),
-		database
-			.select({
-				id: documents.id,
-				documentDate: documents.documentDate,
-				verificationReason: documents.verificationReason,
-			})
-			.from(documents)
-			.where(movedDocument),
-		database
-			.select({
-				documentId: extractedFields.documentId,
-				fieldKey: extractedFields.fieldKey,
-				confidence: extractedFields.confidenceScore,
-			})
-			.from(extractedFields)
-			.innerJoin(documents, eq(extractedFields.documentId, documents.id))
-			.where(movedDocument),
-	])
-	return movedDocuments.flatMap((document) => {
-		const verificationReason = assessVerificationReason({
-			nonArchival: document.verificationReason === "non_archival_attachment",
-			documentDate: document.documentDate,
-			categoryExpectedFields: target?.expectedFields ?? [],
-			fields: fields.filter((field) => field.documentId === document.id),
-		})
-		return verificationReason === document.verificationReason ? [] : [{ documentId: document.id, verificationReason }]
-	})
-}
-
 /**
  * Moves every document and tag link from the source record to the target, confirms the target,
  * and deletes the source, in one D1 batch. Each moved document becomes stale, and the backfill
  * uploads it again with the target's identifier and name. A merge whose source no longer exists,
  * such as a repeated one, changes nothing and throws, so it never confirms a target on its own.
- * A category merge assesses the verification reason of each moved document again against the
- * target's expected fields, so a receipt without an amount that moves into a category that
- * requires one awaits verification.
  */
 export async function mergeTaxonomyRecords(
 	database: ArchiveDatabase,
@@ -198,8 +149,6 @@ export async function mergeTaxonomyRecords(
 					.update(documents)
 					.set(kind === "sender" ? { senderId: targetRecordId } : { categoryId: targetRecordId })
 					.where(referringDocuments(sourceRecordId))
-	const reassessments =
-		kind === "category" ? await reassessMovedDocuments(database, sourceRecordId, targetRecordId) : []
 	const [, , confirmed] = await database.batch([
 		database
 			.update(documents)
@@ -218,12 +167,6 @@ export async function mergeTaxonomyRecords(
 			.returning({ id: table.id }),
 		// Deleting the source tag also deletes its links, which cascade.
 		database.delete(table).where(eq(table.id, sourceRecordId)),
-		...reassessments.map(({ documentId, verificationReason }) =>
-			database
-				.update(documents)
-				.set({ verificationReason })
-				.where(and(eq(documents.id, documentId), eq(documents.categoryId, targetRecordId))),
-		),
 	])
 	if (confirmed.length === 0) throw new Error(`The ${kind} ${sourceRecordId} to merge does not exist`)
 }

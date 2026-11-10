@@ -36,7 +36,6 @@ async function prepareReceipt() {
 		mimeType: "image/jpeg",
 		byteSize: 2048,
 		status: "archived",
-		verificationReason: "illegible_required_field",
 	})
 	await database.insert(documentTags).values({ documentId: receiptId, tagId: groceriesTagId })
 	await database.insert(extractedFields).values({
@@ -54,21 +53,17 @@ async function prepareReceipt() {
 	return { database, ...index }
 }
 
-test("supplying the illegible amount clears the reason and uploads the document at once", async () => {
+test("a revision stores each field a member enters without a confidence and uploads the document at once", async () => {
 	const { database, uploadedItemNames, searchIndex } = await prepareReceipt()
 	const environment = { database, storage: env.DOCUMENT_STORAGE, searchIndex }
-	const reason = async () =>
-		(await database.select({ reason: documents.verificationReason }).from(documents))[0]?.reason
 
 	// The server function parses its input with documentRevisionSchema, which normalizes each field.
 	const revise = (revision: unknown) => reviseDocument(environment, documentRevisionSchema.parse(revision))
 
 	await revise({ documentId: receiptId, fields: { currency: "eur" } })
-	const reasonWithoutAmount = await reason()
 	await revise({ documentId: receiptId, fields: { amount: 29.63 } })
 
 	expect({
-		reasons: [reasonWithoutAmount, await reason()],
 		fields: await database
 			.select({
 				fieldKey: extractedFields.fieldKey,
@@ -80,7 +75,6 @@ test("supplying the illegible amount clears the reason and uploads the document 
 			.orderBy(asc(extractedFields.fieldKey)),
 		uploadedItemNames,
 	}).toEqual({
-		reasons: ["illegible_required_field", null],
 		fields: [
 			{ fieldKey: "amount", valueText: null, valueNumber: 29.63, confidence: null },
 			{ fieldKey: "currency", valueText: "EUR", valueNumber: null, confidence: null },

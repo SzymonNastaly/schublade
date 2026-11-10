@@ -1,9 +1,7 @@
-import { and, eq, isNotNull } from "drizzle-orm"
-import { categories, documents, extractedFields, senders } from "../database/schema"
-import { illegibleRequiredFields } from "../ingestion/verification_assessment"
+import { and, eq } from "drizzle-orm"
+import { documents, senders } from "../database/schema"
 import type { ArchiveDatabase } from "../database/client"
 import type { DocumentFailureReason, DocumentStatus } from "../ingestion/document_lifecycle"
-import type { RequiredFieldKey } from "../ingestion/verification_assessment"
 
 export interface VerificationDocument {
 	id: string
@@ -16,16 +14,15 @@ export interface VerificationDocument {
 
 /** One entry of the Pending verification view, discriminated by its reason. */
 export type VerificationItem = { createdAt: Date } & (
-	| {
-			reason: "illegible_required_field"
-			document: VerificationDocument
-			illegibleFields: Array<{ fieldKey: RequiredFieldKey; value: string | number | null }>
-	  }
 	| { reason: "non_archival_attachment"; document: VerificationDocument }
 	| { reason: "failed_ingestion"; document: VerificationDocument; failureReason: DocumentFailureReason }
 )
 
-const flaggedDocument = and(isNotNull(documents.verificationReason), eq(documents.status, "archived"))
+// A document archived earlier may still store illegible_required_field, which awaits nobody now.
+const flaggedDocument = and(
+	eq(documents.verificationReason, "non_archival_attachment"),
+	eq(documents.status, "archived"),
+)
 const failedDocument = eq(documents.status, "failed")
 
 const verificationDocumentColumns = {
@@ -39,17 +36,11 @@ const verificationDocumentColumns = {
 
 /** The entries of the Pending verification view, newest first. */
 export async function listVerificationItems(database: ArchiveDatabase): Promise<Array<VerificationItem>> {
-	const [flaggedDocuments, failedDocuments, fieldRows] = await Promise.all([
+	const [flaggedDocuments, failedDocuments] = await Promise.all([
 		database
-			.select({
-				...verificationDocumentColumns,
-				reason: documents.verificationReason,
-				createdAt: documents.createdAt,
-				categoryExpectedFields: categories.expectedFields,
-			})
+			.select({ ...verificationDocumentColumns, createdAt: documents.createdAt })
 			.from(documents)
 			.leftJoin(senders, eq(documents.senderId, senders.id))
-			.leftJoin(categories, eq(documents.categoryId, categories.id))
 			.where(flaggedDocument),
 		database
 			.select({
@@ -60,34 +51,13 @@ export async function listVerificationItems(database: ArchiveDatabase): Promise<
 			.from(documents)
 			.leftJoin(senders, eq(documents.senderId, senders.id))
 			.where(failedDocument),
-		database
-			.select({
-				documentId: extractedFields.documentId,
-				fieldKey: extractedFields.fieldKey,
-				valueText: extractedFields.valueText,
-				valueNumber: extractedFields.valueNumber,
-				confidence: extractedFields.confidenceScore,
-			})
-			.from(extractedFields)
-			.innerJoin(documents, eq(extractedFields.documentId, documents.id))
-			.where(and(flaggedDocument, eq(documents.verificationReason, "illegible_required_field"))),
 	])
 
-	const documentItems = flaggedDocuments.map(
-		({ reason, createdAt, categoryExpectedFields, ...document }): VerificationItem => {
-			if (reason !== "illegible_required_field") return { reason: "non_archival_attachment", createdAt, document }
-			const fields = fieldRows.filter((field) => field.documentId === document.id)
-			const illegibleFields = illegibleRequiredFields({
-				documentDate: document.documentDate,
-				categoryExpectedFields: categoryExpectedFields ?? [],
-				fields,
-			}).map((fieldKey) => {
-				const field = fields.find((candidate) => candidate.fieldKey === fieldKey)
-				return { fieldKey, value: field?.valueNumber ?? field?.valueText ?? null }
-			})
-			return { reason, createdAt, document, illegibleFields }
-		},
-	)
+	const documentItems = flaggedDocuments.map(({ createdAt, ...document }): VerificationItem => ({
+		reason: "non_archival_attachment",
+		createdAt,
+		document,
+	}))
 	const failedItems = failedDocuments.map(({ failureReason, createdAt, ...document }): VerificationItem => ({
 		reason: "failed_ingestion",
 		createdAt,
