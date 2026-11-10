@@ -163,7 +163,7 @@ test("a rename onto another record's name proposes merging into it, and an accep
 	})
 })
 
-test("deleteTaxonomyRecord deletes an unconfirmed record no document refers to, and refuses the others", async () => {
+test("deleteTaxonomyRecord deletes a record no document refers to, confirmed or not, and refuses the others", async () => {
 	const { database } = await prepareArchive()
 	await database.delete(documentTags)
 	const deletion = async (reference: Parameters<typeof deleteTaxonomyRecord>[1]) => {
@@ -181,13 +181,7 @@ test("deleteTaxonomyRecord deletes an unconfirmed record no document refers to, 
 		await deletion({ kind: "tag", recordId: taxAlias.id }),
 		await deletion({ kind: "tag", recordId: taxYear.id }),
 		await database.select({ id: tags.id }).from(tags),
-	]).toEqual([
-		`Documents still refer to the sender ${insurerAlias.id}`,
-		"deleted",
-		"deleted",
-		`The tag ${taxYear.id} is confirmed, so only a merge removes it`,
-		[{ id: taxYear.id }],
-	])
+	]).toEqual([`Documents still refer to the sender ${insurerAlias.id}`, "deleted", "deleted", "deleted", []])
 })
 
 test("a merge whose source no longer exists changes nothing and reports it", async () => {

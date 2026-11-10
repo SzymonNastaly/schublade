@@ -1,11 +1,12 @@
 import { XIcon } from "@phosphor-icons/react"
 import { Link, useLoaderData } from "@tanstack/react-router"
 import { useState } from "react"
-import { activeFilters, visibleFacetOptions } from "./active_filter_presentation"
+import { activeFilters, filteredTaxonomyRecords, visibleFacetOptions } from "./active_filter_presentation"
 import { useCommittedText } from "./committed_text"
 import { ActionButton, actionClasses } from "./controls/action_button"
 import { TextField } from "./controls/form_fields"
 import { PanelRowButton, SectionPanel } from "./controls/section_panel"
+import { TaxonomyRecordPanel } from "./taxonomy_record_panel"
 import type { ArchiveFacets, FacetOption } from "../archive/document_listing"
 import type { SearchCriteria } from "../search/search_criteria"
 
@@ -113,6 +114,9 @@ interface ArchiveFilterPanelsProperties {
 export function ArchiveFilterPanels({ criteria, facets, onChange }: ArchiveFilterPanelsProperties) {
 	return (
 		<>
+			{filteredTaxonomyRecords(criteria, facets).map((record) => (
+				<TaxonomyRecordPanel key={`${record.kind}:${record.id}`} record={record} onChange={onChange} />
+			))}
 			<PendingVerificationPanel />
 			<FacetPanel
 				heading="Categories"

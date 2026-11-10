@@ -1,4 +1,4 @@
-import { CheckIcon, GitMergeIcon, PencilSimpleIcon, TrashIcon } from "@phosphor-icons/react"
+import { CheckIcon, TrashIcon } from "@phosphor-icons/react"
 import { useMutation } from "@tanstack/react-query"
 import { Link, useRouter } from "@tanstack/react-router"
 import { useState } from "react"
@@ -6,30 +6,21 @@ import {
 	submitDocumentDeletion,
 	submitDocumentRevision,
 	submitTaxonomyConfirmation,
-	submitTaxonomyDeletion,
-	submitTaxonomyMerge,
-	submitTaxonomyRename,
 } from "../utilities/server_functions"
 import { ActionConfirmation, documentDeletionDescription } from "./action_confirmation"
+import { filteredTaxonomyRecords } from "./active_filter_presentation"
 import { ActionButton } from "./controls/action_button"
-import { FailureMessage, SelectionField, TextField } from "./controls/form_fields"
-import { NoticeBox } from "./controls/notice_box"
+import { FailureMessage, TextField } from "./controls/form_fields"
 import { SectionPanel } from "./controls/section_panel"
 import { textLinkClasses } from "./controls/text_link"
 import { formatDocumentDate } from "./document_formatting"
+import { TaxonomyRecordPanel } from "./taxonomy_record_panel"
 import { FailedDocumentActions } from "./upload_tray"
 import { requiredFieldLabels } from "./verification_entries"
 import type { ArchiveFacets } from "../archive/document_listing"
-import type { TaxonomyKind } from "../archive/taxonomy_maintenance"
 import type { VerificationDocument, VerificationItem } from "../archive/verification_items"
 import type { RequiredFieldKey } from "../ingestion/verification_assessment"
-import type { ComponentProps, ReactNode } from "react"
-
-const kindPresentations: Record<TaxonomyKind, { label: string; facet: "senders" | "categories" | "tags" }> = {
-	sender: { label: "sender", facet: "senders" },
-	category: { label: "category", facet: "categories" },
-	tag: { label: "tag", facet: "tags" },
-}
+import type { ReactNode } from "react"
 
 const requiredFieldInputTypes: Record<RequiredFieldKey, "date" | "number"> = { document_date: "date", amount: "number" }
 
@@ -37,12 +28,6 @@ const requiredFieldInputTypes: Record<RequiredFieldKey, "date" | "number"> = { d
 function useVerificationAction<TInput, TResult = unknown>(action: (input: TInput) => Promise<TResult>) {
 	const router = useRouter()
 	return useMutation({ mutationFn: action, onSuccess: () => router.invalidate() })
-}
-
-/** States how many documents a merge moves, such as "3 documents move". */
-function movedDocumentCount(count: number): string {
-	if (count === 0) return "No document moves"
-	return count === 1 ? "1 document moves" : `${count} documents move`
 }
 
 function documentLine(document: VerificationDocument): string {
@@ -63,49 +48,6 @@ function AnswerPanel({ children, error }: { children: ReactNode; error: Error | 
 	)
 }
 
-function MergeConfirmation({
-	item,
-	target,
-	label,
-	variant,
-}: {
-	item: Extract<VerificationItem, { reason: "new_taxonomy_record" }>
-	target: { id: string; name: string } | undefined
-	label: string
-	variant: ComponentProps<typeof ActionButton>["variant"]
-}) {
-	const router = useRouter()
-	const { record } = item
-	const kindLabel = kindPresentations[record.kind].label
-	const targetName = target?.name ?? ""
-	return (
-		<ActionConfirmation
-			trigger={(open) => (
-				<ActionButton
-					variant={variant}
-					icon={GitMergeIcon}
-					stretchOnPhone
-					disabled={target === undefined}
-					onClick={open}
-				>
-					{label}
-				</ActionButton>
-			)}
-			section="verification"
-			title={`Merge ${record.name} into ${targetName}?`}
-			description={`${movedDocumentCount(item.documents.length)} from the ${kindLabel} ${record.name} to ${targetName}. Schublade then deletes ${record.name} and confirms ${targetName}. You cannot undo this.`}
-			confirmationLabel="Merge"
-			confirmationVariant="primary"
-			action={() =>
-				submitTaxonomyMerge({
-					data: { kind: record.kind, sourceRecordId: record.id, targetRecordId: target?.id ?? "" },
-				})
-			}
-			onCompleted={() => router.invalidate()}
-		/>
-	)
-}
-
 function NewRecordEntry({
 	item,
 	facets,
@@ -114,117 +56,40 @@ function NewRecordEntry({
 	facets: ArchiveFacets
 }) {
 	const { record } = item
-	const { label, facet } = kindPresentations[record.kind]
-	const reference = { kind: record.kind, recordId: record.id }
-	const [renaming, setRenaming] = useState(false)
-	const [name, setName] = useState(record.name)
-	const mergeTargets = facets[facet].filter((option) => option.id !== record.id)
-	const [targetRecordId, setTargetRecordId] = useState("")
 	const router = useRouter()
-	const confirmation = useVerificationAction(() => submitTaxonomyConfirmation({ data: reference }))
-	const rename = useVerificationAction((renamed: string) =>
-		submitTaxonomyRename({ data: { ...reference, name: renamed } }),
+	const confirmation = useVerificationAction(() =>
+		submitTaxonomyConfirmation({ data: { kind: record.kind, recordId: record.id } }),
 	)
-	const proposedTarget = rename.data?.kind === "merge_proposed" ? rename.data.targetRecord : undefined
 	return (
-		<AnswerPanel error={confirmation.error ?? rename.error}>
-			<div className="flex flex-col gap-2 md:flex-row md:flex-wrap">
-				<ActionButton
-					variant="primary"
-					icon={CheckIcon}
-					stretchOnPhone
-					pending={confirmation.isPending}
-					onClick={() => confirmation.mutate()}
-				>
-					Confirm
-				</ActionButton>
-				<ActionButton
-					variant="secondary"
-					icon={PencilSimpleIcon}
-					stretchOnPhone
-					aria-expanded={renaming}
-					onClick={() => setRenaming(!renaming)}
-				>
-					Rename
-				</ActionButton>
-			</div>
-			{renaming && (
-				<form
-					className="flex flex-col gap-2 rounded-table border border-table-rule bg-table-label p-2.5"
-					onSubmit={(event) => {
-						event.preventDefault()
-						if (name.trim() !== "") rename.mutate(name.trim())
-					}}
-				>
-					<TextField label={`New ${label} name`} value={name} onChange={(event) => setName(event.target.value)} />
-					<div>
-						<ActionButton type="submit" variant="primary" stretchOnPhone pending={rename.isPending}>
-							Save name
-						</ActionButton>
-					</div>
-				</form>
-			)}
-			{proposedTarget && (
-				<NoticeBox tone="verification" title={`The ${label} ${proposedTarget.name} already has this name`}>
-					<div>
-						<MergeConfirmation
-							item={item}
-							target={proposedTarget}
-							label={`Merge into ${proposedTarget.name}`}
-							variant="primary"
-						/>
-					</div>
-				</NoticeBox>
-			)}
-			{mergeTargets.length > 0 && (
-				<div className="flex flex-col gap-2 border-t border-dotted border-row-rule pt-3">
-					<SelectionField
-						label={`Or merge into ${label}`}
-						placeholder={`Choose a ${label}`}
-						value={targetRecordId}
-						onChange={(event) => setTargetRecordId(event.target.value)}
-						options={mergeTargets.map((option) => ({ value: option.id, label: option.name }))}
-					/>
-					<div>
-						<MergeConfirmation
-							item={item}
-							target={mergeTargets.find((option) => option.id === targetRecordId)}
-							label="Merge"
-							variant="secondary"
-						/>
-					</div>
-				</div>
-			)}
-			{item.documents.length === 0 && (
+		<div className="flex flex-col gap-3">
+			<AnswerPanel error={confirmation.error}>
 				<div>
-					<ActionConfirmation
-						trigger={(open) => (
-							<ActionButton variant="secondaryDestructive" icon={TrashIcon} stretchOnPhone onClick={open}>
-								Delete {label}
-							</ActionButton>
-						)}
-						section="verification"
-						title={`Delete the ${label} ${record.name}?`}
-						description={`No document refers to ${record.name}, so Schublade deletes the ${label} and nothing else. You cannot undo this.`}
-						confirmationLabel="Delete"
-						confirmationVariant="destructive"
-						action={() => submitTaxonomyDeletion({ data: reference })}
-						onCompleted={() => router.invalidate()}
-					/>
+					<ActionButton
+						variant="primary"
+						icon={CheckIcon}
+						stretchOnPhone
+						pending={confirmation.isPending}
+						onClick={() => confirmation.mutate()}
+					>
+						Confirm
+					</ActionButton>
 				</div>
-			)}
-			{item.documents.length > 1 && (
-				<ul className="flex flex-col gap-1 border-t border-dotted border-row-rule pt-3 text-fine">
-					{item.documents.map((document) => (
-						<li key={document.id}>
-							<Link to="/documents/$documentId" params={{ documentId: document.id }} className={textLinkClasses}>
-								{documentLine(document)}
-							</Link>
-						</li>
-					))}
-				</ul>
-			)}
-		</AnswerPanel>
+				{item.documents.length > 1 && (
+					<ul className="flex flex-col gap-1 border-t border-dotted border-row-rule pt-3 text-fine">
+						{item.documents.map((document) => (
+							<li key={document.id}>
+								<Link to="/documents/$documentId" params={{ documentId: document.id }} className={textLinkClasses}>
+									{documentLine(document)}
+								</Link>
+							</li>
+						))}
+					</ul>
+				)}
+			</AnswerPanel>
+			{filteredTaxonomyRecords({ [record.kind]: record.id }, facets).map((filteredRecord) => (
+				<TaxonomyRecordPanel key={filteredRecord.id} record={filteredRecord} onChange={() => router.invalidate()} />
+			))}
+		</div>
 	)
 }
 

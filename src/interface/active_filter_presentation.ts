@@ -1,6 +1,7 @@
 import { HOUSEHOLD_PERSON } from "../search/search_index_item"
 import { formatAmount, formatDocumentDate } from "./document_formatting"
 import type { ArchiveFacets, FacetOption } from "../archive/document_listing"
+import type { TaxonomyKind } from "../archive/taxonomy_maintenance"
 import type { SearchCriteria } from "../search/search_criteria"
 
 type FilterValues = Required<Omit<SearchCriteria, "query">>
@@ -49,6 +50,55 @@ export function activeFilters(criteria: SearchCriteria, facets: ArchiveFacets): 
 	return filterCriteria.flatMap((criterion) => {
 		const value = criteria[criterion]
 		return value === undefined ? [] : [{ criterion, label: filterLabel(criterion, value, facets) }]
+	})
+}
+
+/** Each kind is also the criterion that filters by it, so `{ [kind]: id }` changes that filter. */
+export const taxonomyKindPresentations: Record<
+	TaxonomyKind,
+	{ label: string; heading: string; facet: "senders" | "categories" | "tags" }
+> = {
+	sender: { label: "sender", heading: "Sender", facet: "senders" },
+	category: { label: "category", heading: "Category", facet: "categories" },
+	tag: { label: "tag", heading: "Tag", facet: "tags" },
+}
+
+const taxonomyKindOrder = Object.keys(taxonomyKindPresentations) as Array<TaxonomyKind>
+
+/** A sender, category, or tag the archive is filtered by. */
+export interface FilteredTaxonomyRecord {
+	kind: TaxonomyKind
+	id: string
+	name: string
+	/** Archived documents only, as the facet counts them. */
+	documentCount: number
+	/** Every other record of the same kind. */
+	mergeTargets: Array<FacetOption>
+}
+
+/**
+ * One entry for each sender, category, and tag filter, in the order of the removable filters. A
+ * filter whose identifier no facet holds, as after a merge or deletion elsewhere, yields none.
+ */
+export function filteredTaxonomyRecords(
+	criteria: SearchCriteria,
+	facets: ArchiveFacets,
+): Array<FilteredTaxonomyRecord> {
+	return taxonomyKindOrder.flatMap((kind) => {
+		const options = facets[taxonomyKindPresentations[kind].facet]
+		const record = options.find((option) => option.id === criteria[kind])
+		if (record === undefined) return []
+		return [
+			{
+				kind,
+				id: record.id,
+				name: record.name,
+				documentCount: record.documentCount,
+				mergeTargets: options
+					.filter((option) => option.id !== record.id)
+					.map(({ id, name, documentCount }) => ({ id, name, documentCount })),
+			},
+		]
 	})
 }
 

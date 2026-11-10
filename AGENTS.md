@@ -100,7 +100,8 @@ src/
 		archive_sections.test.ts
 		phone_navigation_bar.tsx             Documents, Pending verification, and Upload, fixed to the bottom of a phone screen
 		committed_text.ts                    Text that commits after a pause in typing
-		archive_filter_panels.tsx            The side panels that filter the archive and the removable active filters
+		archive_filter_panels.tsx            The side panels that filter the archive, led by a panel for each filtered sender, category, and tag, and the removable active filters
+		taxonomy_record_panel.tsx            Rename, merge, and delete of a filtered sender, category, or tag; merges and deletions ask first and move the filter
 		controls/                            The only components that style themselves; pages compose these
 			action_button.tsx                  Buttons by variant, and the same classes for a router link
 			section_panel.tsx                  The boxes with a heading in the colour of their section, and their menu rows
@@ -111,7 +112,7 @@ src/
 			content_tabs.tsx                   Tabs on a frame that switch its content, on Base UI
 			modal_dialog.tsx                   A centred dialog and a phone sheet, on Base UI
 			status_badge.tsx, notice_box.tsx, empty_state.tsx, copyable_text.tsx, progress_spinner.tsx, text_link.ts
-		active_filter_presentation.ts        The Person options with Household, and the label of each active filter from a table keyed by criterion
+		active_filter_presentation.ts        The Person options with Household, the label of each active filter from a table keyed by criterion, and the filtered senders, categories, and tags
 		active_filter_presentation.test.ts
 		document_list.tsx                    Stacked rows or a table, chosen by the width of the list frame; every row links to its document page
 		document_thumbnail.tsx               A small picture of the first page, or a file icon when there is none
@@ -134,7 +135,7 @@ src/
 		upload_tray.tsx                      Upload context provider, the tray, and the Retry and Delete controls of a failed document
 		verification_entries.ts              Pure functions over the Pending verification union: entry key, list summary, new sender selection, and the review position
 		verification_entries.test.ts
-		verification_entry_controls.tsx      What one entry asks and the controls that resolve it; deletions and merges ask first; each document links to its page
+		verification_entry_controls.tsx      What one entry asks and the controls that resolve it; a new record adds its taxonomy record panel; deletions ask first; each document links to its page
 		new_sender_confirmation.tsx          The dialog that confirms the ticked new senders together
 	utilities/
 		server_functions.ts                  TanStack Start server functions, each refused below its level by authorizeOperation

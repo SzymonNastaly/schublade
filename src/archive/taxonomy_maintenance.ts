@@ -159,8 +159,8 @@ export async function renameTaxonomyRecord(
 }
 
 /**
- * Deletes a record that no member confirmed and no document refers to, such as the sender of a
- * deleted attachment. Deleting a record that no longer exists changes nothing.
+ * Deletes a record no document refers to, confirmed or not, such as the sender of a deleted
+ * attachment. Deleting a record that no longer exists changes nothing.
  */
 export async function deleteTaxonomyRecord(
 	database: ArchiveDatabase,
@@ -172,19 +172,14 @@ export async function deleteTaxonomyRecord(
 		.where(
 			and(
 				eq(table.id, recordId),
-				isNull(table.confirmedAt),
 				notExists(database.select({ id: documents.id }).from(documents).where(referringDocuments(recordId))),
 			),
 		)
 		.returning({ id: table.id })
 	if (deleted.length > 0) return
-	const [record] = await database.select({ confirmedAt: table.confirmedAt }).from(table).where(eq(table.id, recordId))
+	const [record] = await database.select({ id: table.id }).from(table).where(eq(table.id, recordId))
 	if (record === undefined) return
-	throw new Error(
-		record.confirmedAt === null
-			? `Documents still refer to the ${kind} ${recordId}`
-			: `The ${kind} ${recordId} is confirmed, so only a merge removes it`,
-	)
+	throw new Error(`Documents still refer to the ${kind} ${recordId}`)
 }
 
 /** The archived documents of the source category whose verification reason differs under the target's expected fields. */

@@ -1,5 +1,5 @@
 import { expect, test } from "vitest"
-import { activeFilters, visibleFacetOptions } from "./active_filter_presentation"
+import { activeFilters, filteredTaxonomyRecords, visibleFacetOptions } from "./active_filter_presentation"
 import type { ArchiveFacets } from "../archive/document_listing"
 
 const facets: ArchiveFacets = {
@@ -45,6 +45,38 @@ test("the household filter reads as Household", () => {
 test("a filter on a value no facet holds stays removable", () => {
 	expect(activeFilters({ sender: "sender-absent" }, facets)).toEqual([
 		{ criterion: "sender", label: "Sender: Not found" },
+	])
+})
+
+test("each sender, category, and tag filter names its record with the other records of its kind to merge into", () => {
+	const fullerFacets: ArchiveFacets = {
+		...facets,
+		senders: [
+			{ id: "sender-1", name: "Nordkabel", documentCount: 3 },
+			{ id: "sender-2", name: "Nordkabel GmbH", documentCount: 0 },
+		],
+	}
+	expect(
+		filteredTaxonomyRecords(
+			{ tag: "tag-1", category: "category-1", sender: "sender-2", person: "member-1" },
+			fullerFacets,
+		),
+	).toEqual([
+		{
+			kind: "sender",
+			id: "sender-2",
+			name: "Nordkabel GmbH",
+			documentCount: 0,
+			mergeTargets: [{ id: "sender-1", name: "Nordkabel", documentCount: 3 }],
+		},
+		{ kind: "category", id: "category-1", name: "Rechnung", documentCount: 5, mergeTargets: [] },
+		{ kind: "tag", id: "tag-1", name: "tax-2026", documentCount: 1, mergeTargets: [] },
+	])
+})
+
+test("a record filter whose identifier no facet holds names no record", () => {
+	expect(filteredTaxonomyRecords({ sender: "sender-absent", category: "category-1" }, facets)).toEqual([
+		{ kind: "category", id: "category-1", name: "Rechnung", documentCount: 5, mergeTargets: [] },
 	])
 })
 

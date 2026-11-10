@@ -1,6 +1,7 @@
 import type { ReactNode } from "react"
 
 const toneClasses = {
+	documents: "border-documents-badge-border bg-documents-badge",
 	verification: "border-verification-border bg-verification-surface",
 	settings: "border-settings-border bg-settings-surface",
 }
