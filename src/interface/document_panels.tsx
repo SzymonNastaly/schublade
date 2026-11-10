@@ -9,35 +9,11 @@ import type { VerificationReason } from "../ingestion/verification_assessment"
 import type { RetrievedDocument } from "../search/document_search"
 
 const verificationPrompts: Record<VerificationReason, string> = {
-	new_taxonomy_record: "The classifier created a sender, category, or tag for this document.",
 	illegible_required_field: "The document date or the amount could not be read.",
 	non_archival_attachment: "The classifier read this file as boilerplate, such as general terms.",
 }
 
 const MAXIMUM_RELATED_DOCUMENTS = 3
-
-/** A new record has its own review entry rather than one for the document, so it opens the whole list. */
-function PendingVerificationLink({
-	document,
-	reason,
-	className,
-	children,
-}: {
-	document: ListedDocument
-	reason: VerificationReason
-	className: string
-	children: string
-}) {
-	return reason === "new_taxonomy_record" ? (
-		<Link to="/verification" className={className}>
-			{children}
-		</Link>
-	) : (
-		<Link to="/verification/review" search={{ entry: document.id }} className={className}>
-			{children}
-		</Link>
-	)
-}
 
 /** The prompt to verify a document, compact above the document on a phone. */
 export function PhoneVerificationNotice({ document }: { document: ListedDocument }) {
@@ -47,13 +23,13 @@ export function PhoneVerificationNotice({ document }: { document: ListedDocument
 			<span>
 				<strong>Pending verification.</strong> {verificationPrompts[document.verificationReason]}
 			</span>
-			<PendingVerificationLink
-				document={document}
-				reason={document.verificationReason}
+			<Link
+				to="/verification/review"
+				search={{ entry: document.id }}
 				className="flex min-h-11 items-center font-bold whitespace-nowrap"
 			>
 				Review ›
-			</PendingVerificationLink>
+			</Link>
 		</div>
 	)
 }
@@ -77,13 +53,13 @@ export function DocumentPanels({ document, sender, senderDocuments, onEdit, onDe
 					<SectionPanel section="verification" heading="Pending verification" tinted>
 						<div className="flex flex-col items-start gap-2.5 p-3">
 							<p>{verificationPrompts[document.verificationReason]}</p>
-							<PendingVerificationLink
-								document={document}
-								reason={document.verificationReason}
+							<Link
+								to="/verification/review"
+								search={{ entry: document.id }}
 								className={actionClasses({ variant: "secondary", size: "compact" })}
 							>
 								Review now ›
-							</PendingVerificationLink>
+							</Link>
 						</div>
 					</SectionPanel>
 				</div>

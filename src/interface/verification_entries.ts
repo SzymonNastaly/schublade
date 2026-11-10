@@ -1,17 +1,11 @@
-import { normalizeTaxonomyName } from "../ingestion/taxonomy_resolution"
 import { documentFailureSentences } from "./document_status_presentation"
-import type { VerificationDocument, VerificationItem } from "../archive/verification_items"
+import type { VerificationItem } from "../archive/verification_items"
 import type { BadgeTone } from "./controls/status_badge"
 import type { RequiredFieldKey } from "../ingestion/verification_assessment"
 
 /** Identifies an entry across reloads of the list, so a review keeps its place as entries resolve. */
 export function verificationEntryKey(item: VerificationItem): string {
-	return item.reason === "new_taxonomy_record" ? `${item.record.kind}-${item.record.id}` : item.document.id
-}
-
-export function documentCountLabel(count: number): string {
-	if (count === 0) return "No documents"
-	return count === 1 ? "1 document" : `${count} documents`
+	return item.document.id
 }
 
 export const requiredFieldLabels: Record<RequiredFieldKey, string> = {
@@ -27,12 +21,6 @@ interface VerificationEntrySummary {
 
 export function summarizeVerificationEntry(item: VerificationItem): VerificationEntrySummary {
 	switch (item.reason) {
-		case "new_taxonomy_record":
-			return {
-				badge: { label: `New ${item.record.kind}`, tone: "verification" },
-				subject: item.record.name,
-				note: documentCountLabel(item.documents.length),
-			}
 		case "illegible_required_field":
 			return {
 				badge: { label: "Unreadable field", tone: "verification" },
@@ -59,7 +47,6 @@ export function summarizeVerificationEntry(item: VerificationItem): Verification
 export type VerificationFilter = "all" | VerificationItem["reason"]
 
 const verificationReasonLabels: Record<VerificationItem["reason"], string> = {
-	new_taxonomy_record: "New names",
 	illegible_required_field: "Unreadable fields",
 	non_archival_attachment: "Attachments",
 	failed_ingestion: "Failed documents",
@@ -83,14 +70,6 @@ export function verificationFilterOptions(
 /** What a review asks about an entry, in the words of the page heading. */
 export function describeVerificationQuestion(item: VerificationItem): { question: string; explanation: string } {
 	switch (item.reason) {
-		case "new_taxonomy_record":
-			return {
-				question: `Is this a new ${item.record.kind}?`,
-				explanation:
-					item.documents.length === 0
-						? `No document refers to ${item.record.name} any more.`
-						: `${item.record.name} appears on ${documentCountLabel(item.documents.length)}.${item.documents.length > 1 ? " This is the newest." : ""}`,
-			}
 		case "illegible_required_field":
 			return { question: "Can you fill in what could not be read?", explanation: summarizeVerificationEntry(item).note }
 		case "non_archival_attachment":
@@ -101,30 +80,6 @@ export function describeVerificationQuestion(item: VerificationItem): { question
 			}
 		case "failed_ingestion":
 			return { question: "This document could not be read", explanation: documentFailureSentences[item.failureReason] }
-	}
-}
-
-/** The document a review shows for an entry. A record shows the newest document that refers to it, if any does. */
-export function reviewedDocument(item: VerificationItem): VerificationDocument | undefined {
-	return item.reason === "new_taxonomy_record" ? item.documents[0] : item.document
-}
-
-export interface NewSenderSelection {
-	senders: Array<{ id: string; name: string; documentCount: number }>
-	unknownSenderLeftOut: boolean
-}
-
-/** The new senders a member can confirm together. The classifier invents the name Unknown for unreadable documents. */
-export function selectNewSenders(items: ReadonlyArray<VerificationItem>): NewSenderSelection {
-	const newSenders = items.flatMap((item) =>
-		item.reason === "new_taxonomy_record" && item.record.kind === "sender"
-			? [{ id: item.record.id, name: item.record.name, documentCount: item.documents.length }]
-			: [],
-	)
-	const isUnknown = ({ name }: { name: string }) => normalizeTaxonomyName(name) === "unknown"
-	return {
-		senders: newSenders.filter((sender) => !isUnknown(sender)),
-		unknownSenderLeftOut: newSenders.some(isUnknown),
 	}
 }
 

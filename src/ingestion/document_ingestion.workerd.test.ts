@@ -133,7 +133,7 @@ test("ingestDocument recognizes, classifies, archives, and indexes a scanned inv
 				"This is an annual electricity consumption statement from Stadtwerke Talbrück for the joint supply address Am Lindenhang 7, covering 1 September 2025 to 31 August 2026. It records a consumption of 2,691 kWh and requires a Nachzahlung of €72.09 by 6 October 2026.",
 			mimeType: "application/pdf",
 			pageCount: 1,
-			verificationReason: "new_taxonomy_record",
+			verificationReason: null,
 			tagNames: [],
 			fields: [
 				{ fieldKey: "amount", value: expected?.amount?.value, confidence: 0.99 },
@@ -150,10 +150,8 @@ test("ingestDocument recognizes, classifies, archives, and indexes a scanned inv
 	expect(markdown?.split("\n").filter((line) => line.includes("Nachzahlungsbetrag"))).toEqual([
 		"Bitte überweisen Sie den Nachzahlungsbetrag von 72,09 € bis zum 06.10.2026 unter Angabe der Rechnungsnummer JA-2026-0381547 das folgende Konto:",
 	])
-	const [sender] = await database.select({ id: senders.id, confirmedAt: senders.confirmedAt }).from(senders)
-	const [category] = await database.select({ id: categories.id, confirmedAt: categories.confirmedAt }).from(categories)
-	// The classifier's new sender awaits a member, and the standard category Invoice does not.
-	expect([sender?.confirmedAt === null, category?.confirmedAt === null]).toEqual([true, false])
+	const [sender] = await database.select({ id: senders.id }).from(senders)
+	const [category] = await database.select({ id: categories.id }).from(categories)
 	expect(searchIndexUploads.map((upload) => ({ ...upload, content: upload.content.split("\n").slice(0, 4) }))).toEqual([
 		{
 			name: `${documentId}.md`,

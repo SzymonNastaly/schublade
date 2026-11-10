@@ -1,4 +1,4 @@
-import { CheckCircleIcon, SealCheckIcon } from "@phosphor-icons/react"
+import { SealCheckIcon } from "@phosphor-icons/react"
 import { Link, createFileRoute } from "@tanstack/react-router"
 import { useState } from "react"
 import { actionClasses } from "../interface/controls/action_button"
@@ -8,10 +8,7 @@ import { BreadcrumbTrail, ListFrame, PageColumns, PageContent, PageHeading } fro
 import { PanelRowButton, SectionPanel } from "../interface/controls/section_panel"
 import { StatusBadge } from "../interface/controls/status_badge"
 import { DocumentThumbnail } from "../interface/document_thumbnail"
-import { NewSenderConfirmation } from "../interface/new_sender_confirmation"
 import {
-	reviewedDocument,
-	selectNewSenders,
 	summarizeVerificationEntry,
 	verificationEntryKey,
 	verificationFilterOptions,
@@ -27,7 +24,6 @@ export const Route = createFileRoute("/verification")({
 
 function EntryRow({ item }: { item: VerificationItem }) {
 	const { badge, subject, note } = summarizeVerificationEntry(item)
-	const document = reviewedDocument(item)
 	return (
 		<li>
 			<Link
@@ -38,11 +34,7 @@ function EntryRow({ item }: { item: VerificationItem }) {
 				<span
 					className={`w-[5px] flex-none rounded-[3px] ${badge.tone === "failure" ? "bg-failure" : "bg-verification"}`}
 				/>
-				{document === undefined ? (
-					<span className="w-[34px] flex-none" />
-				) : (
-					<DocumentThumbnail documentId={document.id} className="h-[46px] w-[34px] self-center" />
-				)}
+				<DocumentThumbnail documentId={item.document.id} className="h-[46px] w-[34px] self-center" />
 				<span className="flex min-w-0 flex-1 flex-col items-start justify-center gap-0.5">
 					<span className="flex flex-wrap items-center gap-2">
 						<span className="text-[13.5px] font-bold wrap-anywhere text-link">{subject}</span>
@@ -63,8 +55,6 @@ function itemCountLabel(count: number): string {
 function PendingVerificationPage() {
 	const items = Route.useLoaderData()
 	const [filter, setFilter] = useState<VerificationFilter>("all")
-	const [confirmedSenderCount, setConfirmedSenderCount] = useState<number | null>(null)
-	const newSenders = selectNewSenders(items)
 	const filterOptions = verificationFilterOptions(items).filter((option) => option.count > 0)
 	const activeFilter = filterOptions.some((option) => option.filter === filter) ? filter : "all"
 	const shownItems = items.filter((item) => activeFilter === "all" || item.reason === activeFilter)
@@ -96,18 +86,12 @@ function PendingVerificationPage() {
 							: `${itemCountLabel(items.length)} ${items.length === 1 ? "needs" : "need"} a quick look from you.`
 					}
 				/>
-				{confirmedSenderCount !== null && (
-					<p role="status" className="flex items-center gap-2 text-field-label">
-						<CheckCircleIcon size={18} weight="fill" className="text-primary" />
-						{confirmedSenderCount === 1 ? "1 sender" : `${confirmedSenderCount} senders`} confirmed
-					</p>
-				)}
 				{items.length === 0 ? (
 					<ListFrame>
 						<EmptyState
 							icon={<SealCheckIcon size={56} weight="fill" />}
 							title="Nothing awaits verification"
-							description="Every document is archived and searchable. New senders, unreadable fields, attachments, and failed documents appear here."
+							description="Every document is archived and searchable. Unreadable fields, attachments, and failed documents appear here."
 						/>
 					</ListFrame>
 				) : (
@@ -116,9 +100,6 @@ function PendingVerificationPage() {
 							<Link to="/verification/review" className={actionClasses({ variant: "primary", stretchOnPhone: true })}>
 								Review {itemCountLabel(items.length)}
 							</Link>
-							{newSenders.senders.length > 0 && (
-								<NewSenderConfirmation {...newSenders} onConfirmed={setConfirmedSenderCount} />
-							)}
 						</div>
 						<div>
 							<div className="lg:hidden">

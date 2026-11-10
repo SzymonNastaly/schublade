@@ -1,8 +1,6 @@
 import { expect, test } from "vitest"
 import {
-	describeVerificationQuestion,
 	locateReviewStep,
-	selectNewSenders,
 	summarizeVerificationEntry,
 	verificationEntryKey,
 	verificationFilterOptions,
@@ -20,11 +18,11 @@ const document = (id: string, title: string | null): VerificationDocument => ({
 	senderName: null,
 })
 
-const newSender = (id: string, name: string, documentIds: Array<string> = []): VerificationItem => ({
-	reason: "new_taxonomy_record",
+const failure = (id: string): VerificationItem => ({
+	reason: "failed_ingestion",
 	createdAt,
-	record: { kind: "sender", id, name },
-	documents: documentIds.map((documentId) => document(documentId, null)),
+	document: document(id, null),
+	failureReason: "unreadable_file",
 })
 
 const attachment = (id: string): VerificationItem => ({
@@ -34,12 +32,12 @@ const attachment = (id: string): VerificationItem => ({
 })
 
 const [first, second, third, fourth] = [
-	newSender("first", "Nordkabel"),
+	failure("first"),
 	attachment("second"),
-	newSender("third", "Allianz SE"),
+	failure("third"),
 	attachment("fourth"),
 ] as const
-const entryOrder = ["sender-first", "second", "sender-third", "fourth"]
+const entryOrder = ["first", "second", "third", "fourth"]
 
 function reviewOutcome(items: Array<VerificationItem>, requestedKey?: string, skipped: Array<string> = []) {
 	const step = locateReviewStep({ items, entryOrder, skippedKeys: new Set(skipped), requestedKey })
@@ -54,46 +52,33 @@ test("a review moves past a resolved entry to the next one, keeps the count, and
 		reviewOutcome([first, third, fourth], "second"),
 		reviewOutcome([first], "fourth"),
 	]).toEqual([
-		{ key: "second", ordinal: 2, total: 4, successor: "sender-third" },
-		{ key: "sender-third", ordinal: 3, total: 4, successor: "fourth" },
-		{ key: "sender-first", ordinal: 1, total: 4, successor: undefined },
+		{ key: "second", ordinal: 2, total: 4, successor: "third" },
+		{ key: "third", ordinal: 3, total: 4, successor: "fourth" },
+		{ key: "first", ordinal: 1, total: 4, successor: undefined },
 	])
 })
 
 test("a skipped entry is passed over but still opens when requested, and only skipped entries left finish the review", () => {
 	expect([
-		reviewOutcome([first, second, third, fourth], undefined, ["sender-first"]),
-		reviewOutcome([first, second], "sender-first", ["sender-first"]),
-		reviewOutcome([first, second], undefined, ["sender-first", "second"]),
+		reviewOutcome([first, second, third, fourth], undefined, ["first"]),
+		reviewOutcome([first, second], "first", ["first"]),
+		reviewOutcome([first, second], undefined, ["first", "second"]),
 		reviewOutcome([]),
 	]).toEqual([
-		{ key: "second", ordinal: 2, total: 4, successor: "sender-third" },
-		{ key: "sender-first", ordinal: 1, total: 4, successor: "second" },
+		{ key: "second", ordinal: 2, total: 4, successor: "third" },
+		{ key: "first", ordinal: 1, total: 4, successor: "second" },
 		{ kind: "finished", skippedCount: 2 },
 		{ kind: "finished", skippedCount: 0 },
 	])
 })
 
 test("an entry that arrives during a review joins the end of the count", () => {
-	expect(reviewOutcome([newSender("arrival", "Werkhof"), fourth], "fourth")).toEqual({
+	expect(reviewOutcome([failure("arrival"), fourth], "fourth")).toEqual({
 		key: "fourth",
 		ordinal: 4,
 		total: 5,
-		successor: "sender-arrival",
+		successor: "arrival",
 	})
-})
-
-test("selectNewSenders leaves out only the sender the classifier names Unknown, however it is written", () => {
-	const items = [
-		newSender("nordkabel", "Nordkabel", ["one", "two"]),
-		newSender("unknown", " UNKNOWN."),
-		attachment("three"),
-	]
-
-	expect([selectNewSenders(items), selectNewSenders([items[0] as VerificationItem])]).toEqual([
-		{ senders: [{ id: "nordkabel", name: "Nordkabel", documentCount: 2 }], unknownSenderLeftOut: true },
-		{ senders: [{ id: "nordkabel", name: "Nordkabel", documentCount: 2 }], unknownSenderLeftOut: false },
-	])
 })
 
 test("an unreadable field entry notes each field as missing when it has no value and as unclear when it has one", () => {
@@ -114,20 +99,12 @@ test("an unreadable field entry notes each field as missing when it has no value
 	})
 })
 
-test("a review asks about a new record by its kind and names how many documents use it", () => {
-	expect(describeVerificationQuestion(newSender("nordkabel", "Nordkabel", ["a", "b"]))).toEqual({
-		question: "Is this a new sender?",
-		explanation: "Nordkabel appears on 2 documents. This is the newest.",
-	})
-})
-
 test("the filter options count the entries of each reason", () => {
 	const counts = verificationFilterOptions([first, second, third, fourth]).map(({ filter, count }) => [filter, count])
 	expect(counts).toEqual([
 		["all", 4],
-		["new_taxonomy_record", 2],
 		["illegible_required_field", 0],
 		["non_archival_attachment", 2],
-		["failed_ingestion", 0],
+		["failed_ingestion", 2],
 	])
 })

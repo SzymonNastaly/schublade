@@ -18,22 +18,17 @@ import { DocumentOriginal } from "../interface/document_original"
 import {
 	describeVerificationQuestion,
 	locateReviewStep,
-	reviewedDocument,
 	summarizeVerificationEntry,
 	verificationEntryKey,
 } from "../interface/verification_entries"
 import { VerificationEntryControls } from "../interface/verification_entry_controls"
-import { listArchiveFacets, retrieveVerificationItems } from "../utilities/server_functions"
-import type { ArchiveFacets } from "../archive/document_listing"
+import { retrieveVerificationItems } from "../utilities/server_functions"
 import type { VerificationItem } from "../archive/verification_items"
 
 export const Route = createFileRoute("/verification_/review")({
 	validateSearch: (search: Record<string, unknown>): { entry?: string } =>
 		typeof search.entry === "string" ? { entry: search.entry } : {},
-	loader: async () => {
-		const [items, facets] = await Promise.all([retrieveVerificationItems(), listArchiveFacets()])
-		return { items, facets }
-	},
+	loader: () => retrieveVerificationItems(),
 	component: VerificationReviewPage,
 })
 
@@ -44,10 +39,8 @@ function skippedEntriesNote(skippedCount: number): string {
 		: `The ${skippedCount} entries you skipped stay pending.`
 }
 
-function ReviewedEntry({ item, facets }: { item: VerificationItem; facets: ArchiveFacets }) {
-	const document = reviewedDocument(item)
-	const controls = <VerificationEntryControls item={item} facets={facets} />
-	if (document === undefined) return <div className="max-w-[420px]">{controls}</div>
+function ReviewedEntry({ item }: { item: VerificationItem }) {
+	const { document } = item
 	return (
 		<div className="flex flex-wrap items-start gap-6">
 			<div className="min-w-0 flex-[3_1_380px] max-md:max-h-72 max-md:overflow-hidden">
@@ -56,7 +49,7 @@ function ReviewedEntry({ item, facets }: { item: VerificationItem; facets: Archi
 				</ListFrame>
 			</div>
 			<div className="flex min-w-0 flex-[2_1_280px] flex-col gap-3">
-				{controls}
+				<VerificationEntryControls item={item} />
 				<Link
 					to="/documents/$documentId"
 					params={{ documentId: document.id }}
@@ -95,7 +88,7 @@ function UpNextPanel({ items, currentKey }: { items: Array<VerificationItem>; cu
 }
 
 function VerificationReviewPage() {
-	const { items, facets } = Route.useLoaderData()
+	const items = Route.useLoaderData()
 	const { entry: requestedKey } = Route.useSearch()
 	const [entryOrder] = useState(() => items.map(verificationEntryKey))
 	const [skippedKeys, setSkippedKeys] = useState<ReadonlySet<string>>(new Set())
@@ -163,7 +156,7 @@ function VerificationReviewPage() {
 						</div>
 					</div>
 					{/* Keyed so an entry's half-filled form and drawn document never carry over to the next one. */}
-					<ReviewedEntry key={key} item={step.item} facets={facets} />
+					<ReviewedEntry key={key} item={step.item} />
 				</PageColumns>
 			</PageContent>
 		</>

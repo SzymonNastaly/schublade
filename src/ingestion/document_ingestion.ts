@@ -394,7 +394,7 @@ async function readTaxonomy(database: ArchiveDatabase) {
  * the same sender in between. Foreign keys resolve by normalized name for the same reason.
  * Every write applies only while the document is classifying, so a document that left that
  * status keeps its tags and fields and adds no taxonomy rows. A record the classifier creates
- * awaits confirmation, except a standard category, which the prompt offers as established.
+ * stays unconfirmed, except a standard category, which the prompt offers as established.
  */
 async function archiveDocument(
 	database: ArchiveDatabase,

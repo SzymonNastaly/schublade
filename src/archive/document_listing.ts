@@ -1,19 +1,4 @@
-import {
-	and,
-	asc,
-	count,
-	desc,
-	eq,
-	exists,
-	gte,
-	inArray,
-	isNotNull,
-	isNull,
-	lte,
-	notExists,
-	or,
-	sql,
-} from "drizzle-orm"
+import { and, asc, count, desc, eq, exists, gte, inArray, isNull, lte, notExists, sql } from "drizzle-orm"
 import {
 	categories,
 	documentTags,
@@ -23,7 +8,6 @@ import {
 	senders,
 	tags,
 } from "../database/schema"
-import { effectiveVerificationReason } from "../ingestion/verification_assessment"
 import { HOUSEHOLD_PERSON } from "../search/search_index_item"
 import type { Column, SQL } from "drizzle-orm"
 import type { AuthorizationScope } from "../authorization/caller_authorization"
@@ -155,22 +139,6 @@ function listingConditions(database: ArchiveDatabase, criteria: ListingCriteria)
 	]
 }
 
-/** True for a document whose sender, category, or a tag awaits confirmation. Joins senders and categories. */
-function refersToUnconfirmedRecord(database: ArchiveDatabase) {
-	const condition = or(
-		and(isNotNull(senders.id), isNull(senders.confirmedAt)),
-		and(isNotNull(categories.id), isNull(categories.confirmedAt)),
-		exists(
-			database
-				.select({ tagId: documentTags.tagId })
-				.from(documentTags)
-				.innerJoin(tags, eq(documentTags.tagId, tags.id))
-				.where(and(eq(documentTags.documentId, documents.id), isNull(tags.confirmedAt))),
-		),
-	)
-	return sql<boolean>`${condition}`.mapWith(Boolean)
-}
-
 export async function queryDocumentListing(
 	database: ArchiveDatabase,
 	criteria: ListingCriteria = {},
@@ -189,8 +157,7 @@ export async function queryDocumentListing(
 				summary: documents.summary,
 				mimeType: documents.mimeType,
 				pageCount: documents.pageCount,
-				storedVerificationReason: documents.verificationReason,
-				refersToUnconfirmedRecord: refersToUnconfirmedRecord(database),
+				verificationReason: documents.verificationReason,
 			})
 			.from(documents)
 			.leftJoin(senders, eq(documents.senderId, senders.id))
@@ -232,9 +199,8 @@ export async function queryDocumentListing(
 		})
 		fieldsByDocument.set(field.documentId, listedFields)
 	}
-	return rows.map(({ storedVerificationReason, refersToUnconfirmedRecord: unconfirmed, ...row }) => ({
+	return rows.map((row) => ({
 		...row,
-		verificationReason: effectiveVerificationReason(storedVerificationReason, unconfirmed),
 		tagNames: tagRows.filter((tag) => tag.documentId === row.id).map((tag) => tag.name),
 		fields: fieldsByDocument.get(row.id) ?? [],
 	}))
@@ -258,17 +224,11 @@ export async function queryDocumentStatuses(
 			title: documents.title,
 			status: documents.status,
 			failureReason: documents.failureReason,
-			storedVerificationReason: documents.verificationReason,
-			refersToUnconfirmedRecord: refersToUnconfirmedRecord(database),
+			verificationReason: documents.verificationReason,
 		})
 		.from(documents)
-		.leftJoin(senders, eq(documents.senderId, senders.id))
-		.leftJoin(categories, eq(documents.categoryId, categories.id))
 		.where(inArray(documents.id, documentIds))
-	return rows.map(({ storedVerificationReason, refersToUnconfirmedRecord: unconfirmed, ...row }) => ({
-		...row,
-		needsReview: effectiveVerificationReason(storedVerificationReason, unconfirmed) !== null,
-	}))
+	return rows.map(({ verificationReason, ...row }) => ({ ...row, needsReview: verificationReason !== null }))
 }
 
 export interface FacetOption {

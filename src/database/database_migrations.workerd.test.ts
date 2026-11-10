@@ -66,11 +66,7 @@ test("the migrations turn an archive written under the first schema into the cur
 			.select({ documentId: extractedFields.documentId, valueNumber: extractedFields.valueNumber })
 			.from(extractedFields),
 		links: await database.select().from(documentTags),
-		pendingVerification: (await listVerificationItems(database)).map((item) =>
-			item.reason === "new_taxonomy_record"
-				? [item.reason, item.record.name, item.documents.map((document) => document.id)]
-				: [item.reason, item.document.id],
-		),
+		pendingVerification: (await listVerificationItems(database)).map((item) => [item.reason, item.document.id]),
 	}).toEqual({
 		appliedMigrations: [
 			"0000_create_archive_tables.sql",
@@ -113,12 +109,6 @@ test("the migrations turn an archive written under the first schema into the cur
 		],
 		fields: [{ documentId: invoiceId, valueNumber: 72.09 }],
 		links: [{ documentId: invoiceId, tagId: electricityTagId }],
-		pendingVerification: [
-			["illegible_required_field", unreadableId],
-			["new_taxonomy_record", "strom", [invoiceId]],
-			["new_taxonomy_record", "Stadtwerke Talbrück GmbH", [invoiceId]],
-			["new_taxonomy_record", "Unknown", [unreadableId]],
-			["new_taxonomy_record", "Unknown", [unreadableId]],
-		],
+		pendingVerification: [["illegible_required_field", unreadableId]],
 	})
 })

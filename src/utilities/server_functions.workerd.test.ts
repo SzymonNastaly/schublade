@@ -30,8 +30,6 @@ const {
 	submitDocumentDeletion,
 	submitDocumentIngestionRetry,
 	submitDocumentRevision,
-	submitTaxonomyConfirmation,
-	submitTaxonomyConfirmations,
 	submitTaxonomyDeletion,
 	submitTaxonomyMerge,
 	submitTaxonomyRename,
@@ -80,13 +78,6 @@ test("each server function of Pending verification and the document page refuses
 		retrieveDocumentStatuses: [retrieveDocumentStatuses, undefined, token("read"), { documentIds: [documentId] }],
 		submitDocumentRevision: [submitDocumentRevision, token("ingest"), token("modify"), { documentId }],
 		submitDocumentIngestionRetry: [submitDocumentIngestionRetry, token("ingest"), token("modify"), { documentId }],
-		submitTaxonomyConfirmation: [submitTaxonomyConfirmation, token("ingest"), token("modify"), record],
-		submitTaxonomyConfirmations: [
-			submitTaxonomyConfirmations,
-			token("ingest"),
-			token("modify"),
-			{ kind: "sender", recordIds: [recordId] },
-		],
 		submitTaxonomyRename: [submitTaxonomyRename, token("ingest"), token("modify"), { ...record, name: "Werkhof" }],
 		submitTaxonomyMerge: [
 			submitTaxonomyMerge,
@@ -126,11 +117,6 @@ test("each server function of Pending verification and the document page refuses
 			below: "This action requires the modify permission",
 			at: `Document ${documentId} has not failed, so it cannot be retried`,
 		},
-		submitTaxonomyConfirmation: {
-			below: "This action requires the modify permission",
-			at: `The sender ${recordId} does not exist`,
-		},
-		submitTaxonomyConfirmations: { below: "This action requires the modify permission", at: 0 },
 		submitTaxonomyRename: {
 			below: "This action requires the modify permission",
 			at: `The sender ${recordId} does not exist`,

@@ -52,7 +52,7 @@ src/
 		document_representation.workerd.test.ts
 		verification_items.ts                The Pending verification entries as one union by reason, and their count
 		verification_items.workerd.test.ts
-		taxonomy_maintenance.ts              Confirm, rename (proposing a merge on a name clash), merge, and delete senders, categories, and tags
+		taxonomy_maintenance.ts              Rename (proposing a merge on a name clash), merge, and delete senders, categories, and tags
 		taxonomy_maintenance.workerd.test.ts
 		document_revision.ts                 A member's revision of a document with its immediate reindex, and document deletion
 		document_revision.workerd.test.ts
@@ -63,7 +63,7 @@ src/
 		document_classification.ts           Extracted field set, standard categories, output schema, and normalization
 		classification_prompt.ts             Classification prompt with the taxonomy, the members, the schema, and the email that delivered a document
 		taxonomy_resolution.ts               Name normalization and matching against sender, category, and tag rows
-		verification_assessment.ts           Illegible required fields and the precedence of the three verification reasons
+		verification_assessment.ts           Illegible required fields and the precedence of the two verification reasons
 		document_ingestion.ts                The workflow steps and their D1 and R2 writes, the workflow start, and the retry of a failed document
 		document_ingestion.workerd.test.ts   Step order with recorded Workers AI responses
 		document_upload.ts                   Multipart uploads: size limits and 20 files per request, then per file identification, R2 write, row, and workflow start
@@ -133,10 +133,9 @@ src/
 		tracked_uploads.test.ts
 		document_file_picker.tsx             The hidden file input and the control that opens it; on a phone the system picker offers camera, photos, and files
 		upload_tray.tsx                      Upload context provider, the tray, and the Retry and Delete controls of a failed document
-		verification_entries.ts              Pure functions over the Pending verification union: entry key, list summary, new sender selection, and the review position
+		verification_entries.ts              Pure functions over the Pending verification union: entry key, list summary, and the review position
 		verification_entries.test.ts
-		verification_entry_controls.tsx      What one entry asks and the controls that resolve it; a new record adds its taxonomy record panel; deletions ask first; each document links to its page
-		new_sender_confirmation.tsx          The dialog that confirms the ticked new senders together
+		verification_entry_controls.tsx      What one entry asks and the controls that resolve it; deletions ask first
 	utilities/
 		server_functions.ts                  TanStack Start server functions, each refused below its level by authorizeOperation
 		server_functions.workerd.test.ts     Each server function run through TanStack Start's server path with callers below and at its level
@@ -144,7 +143,7 @@ src/
 		__root.tsx                           HTML document shell with the manifest links, the application shell, the upload provider and tray, the phone navigation, and the Pending verification count
 		index.tsx                            Archive page: filter panels, tabs for each household member, and the document list
 		settings.tsx                         Settings page: issue an ingest token shown once, list and revoke tokens, list and disconnect the clients of /mcp
-		verification.tsx                     Pending verification overview: a filter by reason, Review and Confirm new senders, and one compact row per entry that opens its review
+		verification.tsx                     Pending verification overview: a filter by reason, Review, and one compact row per entry that opens its review
 		verification_.review.tsx             /verification/review: one question at a time beside its document, the remaining entries in a panel, the entry parameter, Skip remembered in component state
 		documents.$documentId.tsx            Document page: the panels, title, summary, the original beside its details; after a deletion, the previous page or the archive
 		api/documents.ts                     GET searches or lists documents by the searchCriteriaSchema parameters, POST accepts multipart uploads in fields named files

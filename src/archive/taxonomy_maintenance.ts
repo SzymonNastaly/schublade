@@ -1,4 +1,4 @@
-import { and, eq, exists, inArray, isNull, ne, notExists, sql } from "drizzle-orm"
+import { and, eq, exists, inArray, ne, notExists, sql } from "drizzle-orm"
 import { z } from "zod"
 import {
 	categories,
@@ -14,7 +14,7 @@ import { assessVerificationReason } from "../ingestion/verification_assessment"
 import type { SQL } from "drizzle-orm"
 import type { ArchiveDatabase } from "../database/client"
 
-export const taxonomyKinds = ["sender", "category", "tag"] as const
+const taxonomyKinds = ["sender", "category", "tag"] as const
 
 export type TaxonomyKind = (typeof taxonomyKinds)[number]
 
@@ -30,7 +30,7 @@ export const taxonomyNameSchema = z
  * and whether the AI Search item of such a document carries the record's name. The index
  * content names the sender and the tags, while the metadata holds only identifiers.
  */
-export const taxonomyKindModels = {
+const taxonomyKindModels = {
 	sender: {
 		table: senders,
 		referringDocuments: (recordId: string): SQL => eq(documents.senderId, recordId),
@@ -56,13 +56,6 @@ export const taxonomyRecordSchema = z.strictObject({ kind: z.enum(taxonomyKinds)
 
 type TaxonomyRecordReference = z.infer<typeof taxonomyRecordSchema>
 
-export const taxonomyRecordsSchema = z.strictObject({
-	kind: z.enum(taxonomyKinds),
-	recordIds: z.array(z.uuid()).min(1),
-})
-
-const MAXIMUM_BOUND_IDENTIFIERS = 100
-
 export const taxonomyRenameSchema = taxonomyRecordSchema.extend({ name: taxonomyNameSchema })
 
 export const taxonomyMergeSchema = z
@@ -78,51 +71,6 @@ export const confirmation = (table: (typeof taxonomyKindModels)[TaxonomyKind]["t
 /** A rename that would give the record another record's name proposes merging into that record instead. */
 export type TaxonomyRenameOutcome =
 	{ kind: "renamed" } | { kind: "merge_proposed"; targetRecord: { id: string; name: string } }
-
-/** A member's confirmation. Confirming a confirmed record changes nothing. */
-export async function confirmTaxonomyRecord(
-	database: ArchiveDatabase,
-	{ kind, recordId }: TaxonomyRecordReference,
-): Promise<void> {
-	const { table } = taxonomyKindModels[kind]
-	const confirmed = await database
-		.update(table)
-		.set({ confirmedAt: confirmation(table) })
-		.where(eq(table.id, recordId))
-		.returning({ id: table.id })
-	if (confirmed.length === 0) throw new Error(`The ${kind} ${recordId} does not exist`)
-}
-
-/**
- * A member's confirmation of several records at once, in one D1 batch whose statements each bind
- * at most 100 identifiers. A record already confirmed or no longer present changes nothing, and
- * the result counts only the records this call confirmed.
- */
-export async function confirmTaxonomyRecords(
-	database: ArchiveDatabase,
-	{ kind, recordIds }: z.infer<typeof taxonomyRecordsSchema>,
-): Promise<number> {
-	const { table } = taxonomyKindModels[kind]
-	const [firstStatement, ...laterStatements] = Array.from(
-		{ length: Math.ceil(recordIds.length / MAXIMUM_BOUND_IDENTIFIERS) },
-		(_, chunk) =>
-			database
-				.update(table)
-				.set({ confirmedAt: confirmation(table) })
-				.where(
-					and(
-						inArray(
-							table.id,
-							recordIds.slice(chunk * MAXIMUM_BOUND_IDENTIFIERS, (chunk + 1) * MAXIMUM_BOUND_IDENTIFIERS),
-						),
-						isNull(table.confirmedAt),
-					),
-				)
-				.returning({ id: table.id }),
-	)
-	if (firstStatement === undefined) return 0
-	return (await database.batch([firstStatement, ...laterStatements])).flat().length
-}
 
 /**
  * Renames and confirms the record. Documents whose AI Search item carries the name become

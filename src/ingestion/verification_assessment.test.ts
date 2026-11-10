@@ -1,9 +1,5 @@
 import { expect, test } from "vitest"
-import {
-	assessVerificationReason,
-	effectiveVerificationReason,
-	illegibleRequiredFields,
-} from "./verification_assessment"
+import { assessVerificationReason, illegibleRequiredFields } from "./verification_assessment"
 
 const receiptFields = ["amount", "currency", "due_date", "iban", "invoice_number"]
 const receipt = {
@@ -23,21 +19,11 @@ test("illegibleRequiredFields names a missing date and an amount that is absent 
 	]).toEqual([[], ["amount"], ["document_date", "amount"], [], ["document_date"], []])
 })
 
-test("a non-archival attachment precedes an illegible field, which precedes a new taxonomy record", () => {
-	const reason = (nonArchival: boolean, fields: typeof receipt.fields, refersToUnconfirmedRecord: boolean) =>
-		effectiveVerificationReason(
-			assessVerificationReason({ ...receipt, fields, nonArchival }),
-			refersToUnconfirmedRecord,
-		)
-	expect([
-		reason(false, receipt.fields, false),
-		reason(false, receipt.fields, true),
-		reason(false, [], true),
-		reason(true, [], true),
-		reason(true, receipt.fields, false),
-	]).toEqual([
+test("a non-archival attachment precedes an illegible field", () => {
+	const reason = (nonArchival: boolean, fields: typeof receipt.fields) =>
+		assessVerificationReason({ ...receipt, fields, nonArchival })
+	expect([reason(false, receipt.fields), reason(false, []), reason(true, []), reason(true, receipt.fields)]).toEqual([
 		null,
-		"new_taxonomy_record",
 		"illegible_required_field",
 		"non_archival_attachment",
 		"non_archival_attachment",

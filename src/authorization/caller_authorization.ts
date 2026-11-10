@@ -48,7 +48,6 @@ const operationLevels = {
 	readArchive: "read",
 	reviseDocument: "modify",
 	retryDocumentIngestion: "modify",
-	confirmTaxonomyRecord: "modify",
 	renameTaxonomyRecord: "modify",
 	mergeTaxonomyRecords: "administer",
 	deleteDocument: "administer",

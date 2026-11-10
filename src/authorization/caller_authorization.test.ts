@@ -29,7 +29,6 @@ test("authorizeOperation admits a modify token to revisions and reserves merging
 	const operations = [
 		"readArchive",
 		"reviseDocument",
-		"confirmTaxonomyRecord",
 		"renameTaxonomyRecord",
 		"mergeTaxonomyRecords",
 		"deleteDocument",
@@ -51,7 +50,6 @@ test("authorizeOperation admits a modify token to revisions and reserves merging
 	expect(refusals({ caller: modifyToken })).toEqual({
 		readArchive: "admitted",
 		reviseDocument: "admitted",
-		confirmTaxonomyRecord: "admitted",
 		renameTaxonomyRecord: "admitted",
 		mergeTaxonomyRecords: "This action requires the administer permission",
 		deleteDocument: "This action requires the administer permission",

@@ -4,14 +4,11 @@ import { z } from "zod"
 import { queryArchiveFacets, queryDocumentListing, queryDocumentStatuses } from "../archive/document_listing"
 import { deleteDocument, documentRevisionSchema, reviseDocument } from "../archive/document_revision"
 import {
-	confirmTaxonomyRecord,
-	confirmTaxonomyRecords,
 	deleteTaxonomyRecord,
 	mergeTaxonomyRecords,
 	renameTaxonomyRecord,
 	taxonomyMergeSchema,
 	taxonomyRecordSchema,
-	taxonomyRecordsSchema,
 	taxonomyRenameSchema,
 } from "../archive/taxonomy_maintenance"
 import { countVerificationItems, listVerificationItems } from "../archive/verification_items"
@@ -112,20 +109,6 @@ export const submitDocumentIngestionRetry = createServerFn({ method: "POST" })
 	.handler(({ context, data }) => {
 		authorizeOperation(context, "retryDocumentIngestion")
 		return retryDocumentIngestion(env, data.documentId)
-	})
-
-export const submitTaxonomyConfirmation = createServerFn({ method: "POST" })
-	.validator(taxonomyRecordSchema)
-	.handler(({ context, data }) => {
-		authorizeOperation(context, "confirmTaxonomyRecord")
-		return confirmTaxonomyRecord(database, data)
-	})
-
-export const submitTaxonomyConfirmations = createServerFn({ method: "POST" })
-	.validator(taxonomyRecordsSchema)
-	.handler(({ context, data }) => {
-		authorizeOperation(context, "confirmTaxonomyRecord")
-		return confirmTaxonomyRecords(database, data)
 	})
 
 export const submitTaxonomyRename = createServerFn({ method: "POST" })

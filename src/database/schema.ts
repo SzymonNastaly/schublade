@@ -15,8 +15,8 @@ const creationTime = () =>
 		.notNull()
 		.default(sql`(unixepoch())`)
 
-// Null while a record the classifier created awaits a member in Pending verification. A record
-// that a member creates, confirms, renames, or merges into is confirmed.
+// Null for a record the classifier created. A record that a member creates, renames, or merges
+// into is confirmed.
 const confirmationTime = () => integer("confirmed_at", { mode: "timestamp" })
 
 // An email without a usable attachment is stored as awaiting_rendering until its workflow renders it.

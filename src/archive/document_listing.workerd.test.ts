@@ -76,8 +76,6 @@ test("queryDocumentListing lists a document without a date first, then the newes
 test("queryDocumentStatuses reports the given documents with their failure reason and whether they need review", async () => {
 	await applyD1Migrations(env.DATABASE, inject("databaseMigrations"))
 	const database = connectDatabase(env.DATABASE)
-	const senderId = "c1000000-0000-4000-8000-000000000001"
-	await database.insert(senders).values({ id: senderId, name: "Werkhof", normalizedName: "werkhof" })
 	const statusDocument = (id: string, status: "archived" | "failed" | "classifying") => ({
 		id,
 		storageObjectKey: `documents/${id}/original.pdf`,
@@ -85,22 +83,24 @@ test("queryDocumentStatuses reports the given documents with their failure reaso
 		byteSize: 1024,
 		status,
 	})
-	const newSenderId = "c2000000-0000-4000-8000-000000000001"
+	const flaggedId = "c2000000-0000-4000-8000-000000000001"
 	const settledId = "c2000000-0000-4000-8000-000000000002"
 	const failedId = "c2000000-0000-4000-8000-000000000003"
-	await database
-		.insert(documents)
-		.values([
-			{ ...statusDocument(newSenderId, "archived"), title: "Werkhof Receipt", senderId },
-			{ ...statusDocument(settledId, "archived"), title: "Plain Receipt" },
-			{ ...statusDocument(failedId, "failed"), failureReason: "page_limit_exceeded" },
-			statusDocument("c2000000-0000-4000-8000-000000000004", "classifying"),
-		])
+	await database.insert(documents).values([
+		{
+			...statusDocument(flaggedId, "archived"),
+			title: "Werkhof Receipt",
+			verificationReason: "illegible_required_field",
+		},
+		{ ...statusDocument(settledId, "archived"), title: "Plain Receipt" },
+		{ ...statusDocument(failedId, "failed"), failureReason: "page_limit_exceeded" },
+		statusDocument("c2000000-0000-4000-8000-000000000004", "classifying"),
+	])
 
-	const records = await queryDocumentStatuses(database, [newSenderId, settledId, failedId])
+	const records = await queryDocumentStatuses(database, [flaggedId, settledId, failedId])
 
 	expect(records.sort((first, second) => first.documentId.localeCompare(second.documentId))).toEqual([
-		{ documentId: newSenderId, title: "Werkhof Receipt", status: "archived", failureReason: null, needsReview: true },
+		{ documentId: flaggedId, title: "Werkhof Receipt", status: "archived", failureReason: null, needsReview: true },
 		{ documentId: settledId, title: "Plain Receipt", status: "archived", failureReason: null, needsReview: false },
 		{ documentId: failedId, title: null, status: "failed", failureReason: "page_limit_exceeded", needsReview: false },
 	])
