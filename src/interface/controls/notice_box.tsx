@@ -15,7 +15,7 @@ interface NoticeBoxProperties {
 export function NoticeBox({ tone, title, children }: NoticeBoxProperties) {
 	return (
 		<div role="status" className={`flex flex-col gap-2 rounded-list border px-3.5 py-3 ${toneClasses[tone]}`}>
-			<strong>{title}</strong>
+			<strong className="wrap-anywhere">{title}</strong>
 			{children}
 		</div>
 	)

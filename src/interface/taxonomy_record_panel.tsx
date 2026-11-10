@@ -24,13 +24,12 @@ function movedDocumentCount(count: number): string {
 interface TaxonomyMergeConfirmationProperties {
 	record: FilteredTaxonomyRecord
 	target: { id: string; name: string } | undefined
-	label: string
 	variant: ComponentProps<typeof ActionButton>["variant"]
 	onChange: CriteriaChange
 }
 
 /** The merge button and its confirmation. The source no longer exists afterwards, so the filter moves to the target. */
-function TaxonomyMergeConfirmation({ record, target, label, variant, onChange }: TaxonomyMergeConfirmationProperties) {
+function TaxonomyMergeConfirmation({ record, target, variant, onChange }: TaxonomyMergeConfirmationProperties) {
 	const kindLabel = taxonomyKindPresentations[record.kind].label
 	const targetName = target?.name ?? ""
 	const targetRecordId = target?.id ?? ""
@@ -44,7 +43,7 @@ function TaxonomyMergeConfirmation({ record, target, label, variant, onChange }:
 					disabled={target === undefined}
 					onClick={open}
 				>
-					{label}
+					Merge
 				</ActionButton>
 			)}
 			title={`Merge ${record.name} into ${targetName}?`}
@@ -111,7 +110,6 @@ export function TaxonomyRecordPanel({ record, onChange }: TaxonomyRecordPanelPro
 								<TaxonomyMergeConfirmation
 									record={record}
 									target={proposedTarget}
-									label={`Merge into ${proposedTarget.name}`}
 									variant="primary"
 									onChange={onChange}
 								/>
@@ -139,7 +137,6 @@ export function TaxonomyRecordPanel({ record, onChange }: TaxonomyRecordPanelPro
 						<TaxonomyMergeConfirmation
 							record={record}
 							target={record.mergeTargets.find((option) => option.id === targetRecordId)}
-							label="Merge"
 							variant="secondary"
 							onChange={onChange}
 						/>

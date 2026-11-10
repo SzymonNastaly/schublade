@@ -52,7 +52,7 @@ export function SectionPanel({ section, heading, tinted = false, children }: Sec
 			aria-label={heading}
 			className={`overflow-hidden rounded-tr-panel rounded-b-field border ${presentation.frame} ${tinted ? presentation.tint : "bg-surface"}`}
 		>
-			<h2 className={`px-3 py-2 font-bold ${presentation.heading}`}>{heading}</h2>
+			<h2 className={`px-3 py-2 font-bold wrap-anywhere ${presentation.heading}`}>{heading}</h2>
 			{children}
 		</section>
 	)
