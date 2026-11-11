@@ -214,8 +214,9 @@ function ArchiveSearchField({ onArchive }: { onArchive: boolean }) {
 
 function ApplicationToolbar({ onArchive }: { onArchive: boolean }) {
 	return (
+		// On the archive the filter bar continues this band and draws its lower border.
 		<div
-			className={`flex flex-wrap items-stretch border-b border-toolbar-border bg-toolbar ${onArchive ? "" : "max-md:hidden"}`}
+			className={`flex flex-wrap items-stretch bg-toolbar ${onArchive ? "" : "border-b border-toolbar-border max-md:hidden"}`}
 		>
 			<ArchiveSearchField onArchive={onArchive} />
 			<div className="flex items-center border-l border-toolbar-divider px-5 py-2.5 max-md:hidden">

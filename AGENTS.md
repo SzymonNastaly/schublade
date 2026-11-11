@@ -99,8 +99,8 @@ src/
 		archive_sections.test.ts
 		phone_navigation_bar.tsx             Documents, Failed documents, and Upload, fixed to the bottom of a phone screen
 		committed_text.ts                    Text that commits after a pause in typing
-		archive_filter_panels.tsx            The side panels that filter the archive, led by a panel for each filtered sender, category, and tag, and the removable active filters
-		taxonomy_record_panel.tsx            Rename, merge, and delete of a filtered sender, category, or tag; merges and deletions ask first and move the filter
+		archive_filter_bar.tsx               The row of filter controls under the search field, each opening a popover, with Clear filters and the result count
+		taxonomy_record_dialog.tsx           The dialog to rename, merge, and delete a filtered sender, category, or tag; merges and deletions ask first and move the filter
 		controls/                            The only components that style themselves; pages compose these
 			action_button.tsx                  Buttons by variant, and the same classes for a router link
 			section_panel.tsx                  The boxes with a heading in the colour of their section, and their menu rows
@@ -110,8 +110,9 @@ src/
 			filter_tabs.tsx                    Tabs that rest on a frame and filter what it shows
 			content_tabs.tsx                   Tabs on a frame that switch its content, on Base UI
 			modal_dialog.tsx                   A centred dialog and a phone sheet, on Base UI
+			filter_popover.tsx                 A filter button, with its value and a clear button while it applies, that opens a popover, on Base UI
 			status_badge.tsx, notice_box.tsx, empty_state.tsx, copyable_text.tsx, progress_spinner.tsx, text_link.ts
-		active_filter_presentation.ts        The Person options with Household, the label of each active filter from a table keyed by criterion, and the filtered senders, categories, and tags
+		active_filter_presentation.ts        The ordered table of filter controls, the value each shows, the criteria each clears, ranked options, and the filtered sender, category, or tag
 		active_filter_presentation.test.ts
 		document_list.tsx                    Stacked rows or a table, chosen by the width of the list frame; every row links to its document page
 		document_thumbnail.tsx               A small picture of the first page, or a file icon when there is none
@@ -137,7 +138,7 @@ src/
 		server_functions.workerd.test.ts     Each server function run through TanStack Start's server path with callers below and at its level
 	routes/
 		__root.tsx                           HTML document shell with the manifest links, the application shell, the upload provider and tray, the phone navigation, and the failed document count
-		index.tsx                            Archive page: filter panels, tabs for each household member, and the document list
+		index.tsx                            Archive page: the filter bar, which continues the search toolbar, and the document list
 		settings.tsx                         Settings page: issue an ingest token shown once, list and revoke tokens, list and disconnect the clients of /mcp
 		failed_documents.tsx                 Failed documents page: each document whose ingestion failed, with its failure sentence, Retry, and Delete
 		documents.$documentId.tsx            Document page: the panels, title, summary, the original beside its details; after a deletion, the previous page or the archive

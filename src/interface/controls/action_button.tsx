@@ -25,8 +25,7 @@ const sizeClasses = {
 	compact: "h-11 px-3 text-fine md:h-8.5",
 }
 
-/** The classes of an action, for a router link that navigates but looks like a button. */
-export function actionClasses({ variant, size = "regular", stretchOnPhone = false }: ActionAppearance): string {
+function actionClasses({ variant, size = "regular", stretchOnPhone = false }: ActionAppearance): string {
 	return `inline-flex cursor-pointer items-center justify-center gap-2 rounded-control font-bold whitespace-nowrap disabled:cursor-not-allowed disabled:opacity-55 ${variantClasses[variant]} ${sizeClasses[size]} ${stretchOnPhone ? "max-md:w-full" : ""}`
 }
 

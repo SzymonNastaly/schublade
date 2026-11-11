@@ -52,6 +52,7 @@
 	--color-row-hover: #fff8dc;
 	--color-toolbar-border: #b7c4d8;
 	--color-toolbar-divider: #c9d3e2;
+	--color-filter-bar: #e6ebf3;
 	--color-viewer: #dde3ec;
 	--color-dialog-backdrop: rgb(15 40 85 / 0.45);
 	--color-chip: #eaf2fc;
@@ -101,7 +102,7 @@
 	--background-image-application-header:
 		radial-gradient(ellipse 640px 90px at 58% -6px, rgb(205 228 255 / 0.85), rgb(205 228 255 / 0) 72%),
 		linear-gradient(180deg, #2c68c4 0%, #1a4fa6 58%, #123f8c 100%);
-	--background-image-toolbar: linear-gradient(180deg, #ffffff, #e6ebf3);
+	--background-image-toolbar: linear-gradient(180deg, #ffffff, var(--color-filter-bar));
 	--background-image-control: linear-gradient(180deg, #ffffff, #dde3ec);
 	--background-image-menu-row: linear-gradient(180deg, #fbfcfe, #eef1f6);
 	--background-image-inactive-tab: linear-gradient(180deg, #f4f6fa, #d6dce6);
