@@ -30,7 +30,7 @@ export const Route = createFileRoute("/documents/$documentId")({
 		<PageContent>
 			<BreadcrumbTrail current="Document not found">
 				<Link to="/" className={textLinkClasses}>
-					All documents
+					Documents
 				</Link>
 			</BreadcrumbTrail>
 			<EmptyState
@@ -57,11 +57,11 @@ function DocumentWorkspace() {
 	const category = facets.categories.find((option) => option.name === document.categoryName)
 	return (
 		<>
-			<PhoneReturnBar to="/">All documents</PhoneReturnBar>
+			<PhoneReturnBar to="/">Documents</PhoneReturnBar>
 			<PageContent>
 				<BreadcrumbTrail current={title}>
 					<Link to="/" className={textLinkClasses}>
-						All documents
+						Documents
 					</Link>
 					{category !== undefined && (
 						<Link to="/" search={{ category: category.id }} className={textLinkClasses}>

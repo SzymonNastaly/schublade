@@ -11,52 +11,7 @@ import type { ArchiveSection } from "./archive_sections"
 import type { ReactNode } from "react"
 
 const TAB_HEIGHT = 42
-
-const sectionTabs = [
-	{
-		section: "documents",
-		to: "/",
-		label: "All documents",
-		compactLabel: "All documents",
-		width: 184,
-		compactWidth: 150,
-		widthClasses: "w-[150px] lg:w-[184px]",
-		highlight: "#a6d3fa",
-		colour: "var(--color-documents)",
-	},
-	{
-		section: "failed_documents",
-		to: "/failed_documents",
-		label: "Failed documents",
-		compactLabel: "Failed documents",
-		width: 240,
-		compactWidth: 204,
-		widthClasses: "w-[204px] lg:w-[240px]",
-		highlight: "#ffc878",
-		colour: "var(--color-failed-documents)",
-	},
-	{
-		section: "settings",
-		to: "/settings",
-		label: "Settings",
-		compactLabel: "Settings",
-		width: 130,
-		compactWidth: 116,
-		widthClasses: "w-[116px] lg:w-[130px]",
-		highlight: "#cde582",
-		colour: "var(--color-settings)",
-	},
-] as const satisfies ReadonlyArray<{
-	section: ArchiveSection
-	to: string
-	label: string
-	compactLabel: string
-	width: number
-	compactWidth: number
-	widthClasses: string
-	highlight: string
-	colour: string
-}>
+const TAB_WIDTH = 170
 
 const sectionRules: Record<ArchiveSection, string> = {
 	documents: "bg-documents",
@@ -65,68 +20,91 @@ const sectionRules: Record<ArchiveSection, string> = {
 }
 
 /** The open outline of a tab whose sides curve out to meet the bottom of the header. */
-function tabOutline(width: number): string {
-	const height = TAB_HEIGHT
-	return `M0 ${height} C9 ${height} 13 36 17 24 C21 10 27 2 40 2 H${width - 40} C${width - 27} 2 ${width - 21} 10 ${width - 17} 24 C${width - 13} 36 ${width - 9} ${height} ${width} ${height}`
-}
+const tabOutline = `M0 ${TAB_HEIGHT} C9 ${TAB_HEIGHT} 13 36 17 24 C21 10 27 2 40 2 H${TAB_WIDTH - 40} C${TAB_WIDTH - 27} 2 ${TAB_WIDTH - 21} 10 ${TAB_WIDTH - 17} 24 C${TAB_WIDTH - 13} 36 ${TAB_WIDTH - 9} ${TAB_HEIGHT} ${TAB_WIDTH} ${TAB_HEIGHT}`
 
-function TabShape({
-	tab,
-	width,
-	active,
-	visibility,
-}: {
-	tab: (typeof sectionTabs)[number]
-	width: number
-	active: boolean
-	visibility: string
-}) {
-	const gradientIdentifier = `section-tab-${tab.section}-${width}`
+/** The one tab of the header, because the archive is what members come for. */
+function DocumentsTab({ active }: { active: boolean }) {
 	return (
-		<svg
-			aria-hidden
-			width={width}
-			height={TAB_HEIGHT}
-			viewBox={`0 0 ${width} ${TAB_HEIGHT}`}
-			className={`absolute inset-0 ${visibility}`}
+		<Link
+			to="/"
+			aria-current={active ? "page" : undefined}
+			activeOptions={{ exact: true, includeSearch: false }}
+			style={{ height: TAB_HEIGHT, width: TAB_WIDTH }}
+			className={`relative flex items-center justify-center font-bold text-on-accent ${active ? "" : "translate-y-1.5"}`}
 		>
-			<defs>
-				<linearGradient id={gradientIdentifier} x1="0" y1="0" x2="0" y2="1">
-					<stop offset="0" stopColor={tab.highlight} />
-					<stop offset="1" stopColor={tab.colour} />
-				</linearGradient>
-			</defs>
-			<path
-				d={tabOutline(width)}
-				fill={`url(#${gradientIdentifier})`}
-				stroke={active ? "#ffffff" : "#0e2a52"}
-				strokeOpacity={active ? 0.9 : 0.35}
-				strokeWidth={1.4}
-			/>
-		</svg>
+			<svg
+				aria-hidden
+				width={TAB_WIDTH}
+				height={TAB_HEIGHT}
+				viewBox={`0 0 ${TAB_WIDTH} ${TAB_HEIGHT}`}
+				className="absolute inset-0"
+			>
+				<defs>
+					<linearGradient id="documents-tab-gradient" x1="0" y1="0" x2="0" y2="1">
+						<stop offset="0" stopColor="#a6d3fa" />
+						<stop offset="1" stopColor="var(--color-documents)" />
+					</linearGradient>
+				</defs>
+				<path
+					d={tabOutline}
+					fill="url(#documents-tab-gradient)"
+					stroke={active ? "#ffffff" : "#0e2a52"}
+					strokeOpacity={active ? 0.9 : 0.35}
+					strokeWidth={1.4}
+				/>
+			</svg>
+			<span className="relative">Documents</span>
+		</Link>
 	)
 }
 
-function SectionTab({ tab, active }: { tab: (typeof sectionTabs)[number]; active: boolean }) {
-	const failedDocumentCount = useLoaderData({ from: "__root__" })
+function UtilityLink({
+	to,
+	current,
+	children,
+}: {
+	to: "/failed_documents" | "/settings"
+	current: boolean
+	children: ReactNode
+}) {
 	return (
 		<Link
-			to={tab.to}
-			aria-current={active ? "page" : undefined}
-			activeOptions={{ exact: true, includeSearch: false }}
-			style={{ height: TAB_HEIGHT }}
-			className={`relative flex items-center justify-center gap-2 font-bold text-on-accent ${tab.widthClasses} ${active ? "" : "translate-y-1.5"}`}
+			to={to}
+			aria-current={current ? "page" : undefined}
+			className={`flex items-center gap-1.5 rounded-list px-2 py-1 hover:underline ${current ? "bg-on-header/18 font-bold" : ""}`}
 		>
-			<TabShape tab={tab} width={tab.compactWidth} active={active} visibility="lg:hidden" />
-			<TabShape tab={tab} width={tab.width} active={active} visibility="max-lg:hidden" />
-			<span className="relative lg:hidden">{tab.compactLabel}</span>
-			<span className="relative max-lg:hidden">{tab.label}</span>
-			{tab.section === "failed_documents" && failedDocumentCount > 0 && (
-				<span className="relative inline-flex h-5 min-w-[22px] items-center justify-center rounded-badge bg-surface px-1.5 text-fine font-bold text-failed-documents-badge-text">
-					{failedDocumentCount}
-				</span>
-			)}
+			{children}
 		</Link>
+	)
+}
+
+/** Failed documents and Settings, small at the top right, as the archive matters more than either. */
+function UtilityLinks({ section }: { section: ArchiveSection }) {
+	const failedDocumentCount = useLoaderData({ from: "__root__" })
+	return (
+		<nav
+			aria-label="Failed documents and settings"
+			className="ml-auto flex items-center gap-1 self-start text-body text-on-header max-md:hidden"
+		>
+			{(failedDocumentCount > 0 || section === "failed_documents") && (
+				<>
+					<UtilityLink to="/failed_documents" current={section === "failed_documents"}>
+						Failed documents
+						{failedDocumentCount > 0 && (
+							<span className="inline-flex h-[18px] min-w-[18px] items-center justify-center rounded-badge bg-failed-documents px-1 text-fine font-bold text-on-accent">
+								{failedDocumentCount}
+							</span>
+						)}
+					</UtilityLink>
+					<span aria-hidden className="text-on-header/60">
+						|
+					</span>
+				</>
+			)}
+			<UtilityLink to="/settings" current={section === "settings"}>
+				Settings
+			</UtilityLink>
+		</nav>
 	)
 }
 
@@ -135,11 +113,10 @@ function ApplicationHeader({ section }: { section: ArchiveSection }) {
 		<header className="overflow-hidden bg-application-header">
 			<div className="flex min-h-15 flex-wrap items-center justify-between gap-x-4 gap-y-1.5 px-3 py-2 md:min-h-[76px] md:items-end md:justify-start md:px-5 md:pt-2.5 md:pb-0 lg:min-h-[98px] lg:gap-x-9">
 				<ApplicationLogo />
-				<nav aria-label="Archive sections" className="flex flex-wrap items-end gap-0.5 max-md:hidden">
-					{sectionTabs.map((tab) => (
-						<SectionTab key={tab.section} tab={tab} active={tab.section === section} />
-					))}
+				<nav aria-label="Archive" className="flex items-end max-md:hidden">
+					<DocumentsTab active={section === "documents"} />
 				</nav>
+				<UtilityLinks section={section} />
 				<Link
 					to="/settings"
 					aria-label="Settings"

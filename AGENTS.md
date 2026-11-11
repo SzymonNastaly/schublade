@@ -93,7 +93,7 @@ src/
 		authorization_grants.ts              The D1 record of each grant: the scope a request reads, and what Settings lists and disconnects
 		archive_access.workerd.test.ts       Registration, consent, token, and each tool under a restricted grant
 	interface/
-		application_shell.tsx                The header, the section tabs, the one search field, and the toolbar that every page sits inside
+		application_shell.tsx                The header with its one Documents tab and the Failed documents and Settings links, the one search field, and the toolbar that every page sits inside
 		application_logo.tsx                 The drawer and the wordmark, drawn as outlines so the logo needs no web font
 		archive_sections.ts                  The section a path belongs to
 		archive_sections.test.ts
@@ -180,7 +180,7 @@ eslint.config.js, .prettierrc.json, knip.json, tsconfig.json
 ## Things that will bite you
 
 - **The interface draws only from its theme and its controls.** `src/styles.css` switches off Tailwind's default palette, so `bg-white` produces no style, and `pnpm lint` rejects a class the theme does not define. A new colour is a token in `@theme`, and a class list held in a variable needs a name that `eslint.config.js` matches, such as one ending in `Classes`. Only `src/interface/controls/` may import Base UI. Blue means the archive, orange means Failed documents, and green means Settings, so colour a panel by the section it belongs to.
-- **Three widths matter.** Below `md` a page uses the phone navigation and one column. From `md` the tabs appear in their short form. From `lg` the panel column sits beside the content. A list or table inside `ListFrame` chooses its columns with container variants such as `@xl:`, because its width depends on the panels as well as the window.
+- **Three widths matter.** Below `md` a page uses the phone navigation and one column. From `md` the header shows the Documents tab and the Failed documents and Settings links. From `lg` the panel column sits beside the content. A list or table inside `ListFrame` chooses its columns with container variants such as `@xl:`, because its width depends on the panels as well as the window.
 - **Configuration modes.** Builds evaluate `cloudflare.config.ts` in `production` mode or the `--mode` they receive. `cf dev` evaluates it in `development` mode, and `cf workers types` evaluates it without a mode. Only build modes require the identifiers in `schublade.deploy.json`.
 - **AI Search has no local simulation.** Every local mode binds `SEARCH_INDEX` to the remote AI Search instance `schublade-development`, which must exist on the signed-in account with the same four custom metadata fields as a provisioned instance. A dev server therefore never writes into the index of a deployment, but the local D1 database and that shared index can disagree. Searches and uploads against it are billed.
 - **Await `SEARCH_INDEX.items` before calling it.** In development, the remote binding answers over RPC, and `env.SEARCH_INDEX.items.list()` fails with `The RPC receiver does not implement the method "list"`. `await env.SEARCH_INDEX.items` first, as `document_indexing.ts` does. A deployed Worker returns the object itself, so the await costs nothing there.
