@@ -38,7 +38,7 @@ Schublade accepts PDF, JPEG, PNG, and WebP files, up to 20 files at once, 25 MB 
 curl -X POST -H "Authorization: Bearer <token>" -F "files=@invoice.pdf;type=application/pdf" https://<host>/api/documents/ingest
 ```
 
-Every document enters the archive as soon as it is processed. Anything Schublade is unsure of, such as a new sender or a page it could not read, also appears under **Pending verification**. Ignoring that page never blocks archiving or search.
+Every document enters the archive as soon as it is processed. A file that Schublade cannot process, such as one it cannot open or a page it cannot read, appears under **Failed documents**, where you retry or delete it.
 
 ## Connect an AI client
 
