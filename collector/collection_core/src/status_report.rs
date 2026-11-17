@@ -1,0 +1,49 @@
+//! The figures the store derives for the status. Every field is computed from stored states;
+//! nothing here is kept separately. The status itself, with its activities and attention items,
+//! arrives with the coordinator.
+
+use crate::domain_types::{DocumentIdentifier, DocumentStatus, FolderIdentifier, Timestamp};
+
+/// "1,240 files: 310 already in the archive, 930 new, holding 902 distinct contents."
+#[derive(Clone, Debug, Default, PartialEq, Eq, serde::Serialize)]
+pub struct BacklogSummary {
+    pub folders: Vec<FolderIdentifier>,
+    /// Digested paths.
+    pub candidate_files: u64,
+    pub files_already_archived: u64,
+    pub files_deleted_from_archive: u64,
+    pub files_refused_by_archive: u64,
+    pub files_new: u64,
+    /// Distinct absent contents across the folders.
+    pub new_contents: u64,
+    pub excluded_files: u64,
+    pub unreadable_files: u64,
+    /// Paths still Stabilizing or Stable, and Digested paths whose content is still Unresolved.
+    pub files_under_examination: u64,
+}
+
+#[derive(Clone, Debug, Default, PartialEq, Eq, serde::Serialize)]
+pub struct StateCounts {
+    pub paths_stabilizing: u64,
+    pub paths_awaiting_digest: u64,
+    pub paths_digested: u64,
+    pub paths_excluded: u64,
+    pub paths_unreadable: u64,
+    pub contents_unresolved: u64,
+    pub contents_awaiting_submission: u64,
+    pub contents_present: u64,
+    pub contents_deleted: u64,
+    pub contents_refused: u64,
+    /// Absent contents with three or more submission failures.
+    pub contents_failing: u64,
+}
+
+/// A document this collector's PUT created, newest first.
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize)]
+pub struct Receipt {
+    pub document: DocumentIdentifier,
+    /// The relative path of the newest sighting of the content.
+    pub file_name: String,
+    pub received_at: Timestamp,
+    pub status: Option<DocumentStatus>,
+}

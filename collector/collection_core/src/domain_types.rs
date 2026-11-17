@@ -157,6 +157,17 @@ fn os_str_bytes(name: &OsStr) -> Vec<u8> {
     name.to_string_lossy().into_owned().into_bytes()
 }
 
+#[cfg(unix)]
+fn os_string_from_bytes(bytes: Vec<u8>) -> OsString {
+    use std::os::unix::ffi::OsStringExt;
+    OsString::from_vec(bytes)
+}
+
+#[cfg(not(unix))]
+fn os_string_from_bytes(bytes: Vec<u8>) -> OsString {
+    String::from_utf8_lossy(&bytes).into_owned().into()
+}
+
 /// The exact name `readdir` returned. It is never normalized, because `open` needs it as is.
 /// Existence is judged by the parent's listing containing this name, never by `stat`, so a
 /// case-only rename on a case-insensitive volume removes the old row.
@@ -170,6 +181,15 @@ impl EntryName {
 
     pub fn as_os_str(&self) -> &OsStr {
         &self.0
+    }
+
+    /// The exact bytes, as the store keeps them.
+    pub fn to_bytes(&self) -> Vec<u8> {
+        os_str_bytes(&self.0)
+    }
+
+    pub fn from_bytes(bytes: Vec<u8>) -> EntryName {
+        EntryName(os_string_from_bytes(bytes))
     }
 }
 
