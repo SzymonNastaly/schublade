@@ -171,9 +171,37 @@ scripts/
 	generate_test_documents.ts             Deterministic generator for test_fixtures/documents
 	evaluate_extraction.ts                 `pnpm evaluate:extraction`: uploads the test documents to a dev server and scores the results
 	evaluate_search.ts                     `pnpm evaluate:search`: archives and indexes the test documents on a dev server, then checks fixed searches
+	execute_on_macintosh.sh                Copies what git tracks to the build account on the Mac (`ssh mac`) and runs a command there, for FSEvents, st_flags, and the Keychain
 	test_document_generation/              Document catalog, page layout, and scan and photograph simulation
+collector/                               The desktop collector, a Cargo workspace apart from pnpm; `notes/collector_design.md` is its design
+	Cargo.toml                             Workspace: collection_core, collection_command; dependencies build with opt-level 2 in dev so SHA-256 and SQLite run at speed in tests
+	collection_core/src/
+		lib.rs                               Collector, CollectorSettings, CollectorEvent, CommandRefusal, and the re-exports the app and the program use
+		domain_types.rs                      ContentDigest, FileSignature, FolderIdentifier, DirectoryKey, EntryName, PathKey, Timestamp, DocumentStatus, TimingPolicy
+		candidate_classification.rs          The name filter, ReadableSignature, the leading-byte table compared with src/ingestion/source_file.ts
+		path_lifecycle.rs                    PathState and advance_path, the first pure machine
+		content_synchronization.rs           ArchiveStanding, advance_content, SubmissionAuthorization, the second
+		folder_admission.rs                  FolderAdmission, FolderAvailability, survey_complete, decide, the third
+		archive_connection.rs                ConnectionState, advance_connection, and the consequences table of every archive answer, the fourth
+		directory_reconciliation.rs          DirectoryListing and reconcile_directory, the only way the file system reaches state
+		work_planning.rs                     Work, Reservations, WorkCandidates, plan_work; work is derived, never queued
+		state_store.rs                       The one SQLite file and the only module with SQL; migrations/ holds the schema
+		file_system_observation.rs           Listings with lstat signatures (SF_DATALESS on macOS), the digest read, the source read, the notify watcher that produces directory hints
+		work_execution.rs                    The worker lanes: threads that perform one Assignment and send its result back
+		collection_coordinator.rs            The one owner thread: batches, transactions, reservations, timers, planning, status
+		credential_storage.rs                CredentialStore; the Keychain through keyring on macOS, a fixed token from SCHUBLADE_INGEST_TOKEN elsewhere
+		archive_client.rs                    ArchiveClient trait and the ureq HttpArchiveClient; no wire type leaves it
+		scripted_archive.rs                  The in-process archive with scripted answers and failures for scenarios
+		status_report.rs                     CollectorStatus and everything it is made of
+		clock.rs                             Clock, SystemClock, ManualClock
+	collection_core/tests/
+		collection_scenarios.rs              The corpus scenarios: a Collector over test_fixtures/collection_corpus against the scripted archive with a manual clock
+		http_archive_client.rs               The HTTP client against a local tiny_http server
+	collection_command/src/main.rs         `schublade-collector`: connect, enroll, survey, decide, collect, status
 test_fixtures/
 	documents/                             Synthetic test documents and expected_extraction.json
+	collection_corpus/                     Folders a Mac user might enroll (Downloads, Desktop, Documents/Scans, Cloud Storage), with duplicates, incomplete downloads, and files that are no documents
+	expected_collection.json               Each corpus file with its SHA-256 and whether the collector archives, sets aside, or ignores it
 	inference_recordings/                  Workers AI responses recorded from the test documents for workerd tests
 .agents/skills/                          Project skills; .claude/skills links here
 .github/workflows/check.yml              Runs `pnpm check` on each push to main
@@ -243,6 +271,12 @@ eslint.config.js, .prettierrc.json, knip.json, tsconfig.json
 - **`cf dev` ignores `.dev.vars` and `.env` for text bindings.** Override a text binding locally through its parameter in the git-ignored `schublade.deploy.json`, such as `classificationModel` or `aiGatewayIdentifier`. Point `aiGatewayIdentifier` at a gateway that exists on the account, such as `default`.
 - **The local explorer API.** `cf dev` serves `/cdn-cgi/local/explorer/api` with raw D1 queries and Workflow instance status, steps, and output. `pnpm evaluate:extraction` reads it.
 - **Node.js 24.22 or later.** `cf` requires it. `.node-version` pins the version for GitHub Actions.
+- **A collector scenario drives time by hand.** `Collector::wait_until_idle` returns as soon as nothing can be planned now and nothing is in flight, so a Stabilizing path, a retry, or a probe shows up as `CollectorStatus.next_scheduled_at` instead of blocking. A test moves its `ManualClock` to that time and waits again (`settle` in `collection_scenarios.rs`); the program sleeps until a deadline within a minute and stops at a later one. A test that writes a file must settle in a loop until the watcher's hint has arrived, because no clock controls that.
+- **FSEvents reports real paths.** An event under a root enrolled through a symbolic link, including the Mac's temporary directory (`/var/folders/...` is `/private/var/...`), names the real path. `FolderWatcher::watch` therefore registers the root as given and as canonicalized; a scenario on a Linux temporary directory never shows the difference, so test watcher changes on the Mac.
+- **inotify reports reads.** The digest lane's own reads of a file produce `Access` events, which would hint their directory and list it again, forever one step behind. `hints_of` in `file_system_observation.rs` drops `EventKind::Access`; keep it that way when you touch the watcher.
+- **Two submission lanes mean one more PUT.** When a PUT answers 401 or 503, the PUT already in flight on the other lane completes, and the refused one counts no failure, so its content is submitted again once the connection returns. A scenario asserts what the archive holds, not that every digest saw exactly one attempt.
+- **Dependencies run optimized in collector tests.** `collector/Cargo.toml` sets `opt-level = 2` for every dependency in the dev profile, because unoptimized SHA-256 and SQLite made one corpus scenario take six seconds of CPU. The first build after a dependency change is slower; the tests are ten times faster.
+- **The Mac runner copies the tree at launch.** `scripts/execute_on_macintosh.sh` rsyncs what git tracks before it runs the command, so a file written after the launch is not on the Mac, and `cargo fmt --check` there judges the copy, not your working tree.
 
 ## Commands
 
@@ -260,6 +294,14 @@ pnpm evaluate:extraction        # billed: score classification against a running
 pnpm evaluate:search            # billed: check fixed searches against a running `VITE_ACCESS_DEVELOPMENT_EXEMPTION=true pnpm dev`
 pnpm run build                  # cf build; needs schublade.deploy.json
 pnpm run deploy                 # cf deploy; only when the user asks
+```
+
+The collector is checked apart from pnpm, in `collector/`, with `export PATH="$HOME/.cargo/bin:$PATH"`:
+
+```bash
+cargo fmt --check && cargo clippy --all-targets --locked -- -D warnings && cargo test --locked   # the three checks of a collector commit
+scripts/execute_on_macintosh.sh bash -c 'cd collector && cargo test --locked'                   # the same on the Mac, from the repository root
+cargo run -p collection_command -- --database /tmp/state.sqlite status --json                   # the program against a chosen state database
 ```
 
 `cf dev` and `cf build` forward only `--mode` to Vite. Set the port and other Vite options in `vite.config.ts`.
