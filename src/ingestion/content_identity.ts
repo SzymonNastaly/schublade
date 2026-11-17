@@ -66,6 +66,16 @@ export interface DigestReport {
 
 const undigestedDocuments = and(isNull(documents.originalSha256), inArray(documents.mimeType, acceptedMediaTypes))
 
+/**
+ * Whether a document of an accepted kind still awaits its digest. While one does, the lookup
+ * cannot tell its bytes from absent ones. documents_original_sha256_index limits the read to the
+ * documents without a digest, so the answer costs no scan of the archive.
+ */
+export async function awaitsContentDigests(database: ArchiveDatabase): Promise<boolean> {
+	const undigested = await database.select({ id: documents.id }).from(documents).where(undigestedDocuments).limit(1)
+	return undigested.length > 0
+}
+
 async function recordContentDigest(
 	database: ArchiveDatabase,
 	storage: R2Bucket,

@@ -125,6 +125,7 @@ export const documents = sqliteTable(
 		index("documents_category_id_index").on(table.categoryId),
 		index("documents_person_member_id_index").on(table.personMemberId),
 		index("documents_status_index").on(table.status),
+		index("documents_original_sha256_index").on(table.originalSha256),
 	],
 )
 

@@ -1,0 +1,1 @@
+CREATE INDEX `documents_original_sha256_index` ON `documents` (`original_sha256`);

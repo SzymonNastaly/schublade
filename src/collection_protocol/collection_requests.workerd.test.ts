@@ -7,6 +7,7 @@ import { deleteDocument } from "../archive/document_revision"
 import { issueApiToken } from "../authentication/api_tokens"
 import { connectDatabase } from "../database/client"
 import { documents } from "../database/schema"
+import { recordMissingContentDigests } from "../ingestion/content_identity"
 import { acceptDocumentUpload } from "../ingestion/document_upload"
 import { createRequestDispatcher } from "../request_dispatch"
 import { createInMemorySearchIndex } from "../search/in_memory_search_index"
@@ -137,6 +138,55 @@ test("POST /api/v1/contents/lookup reads 1000 indented digests and refuses a bod
 				detail: "The lookup is larger than 128 KB. Send at most 1000 digests.",
 			},
 		},
+	})
+})
+
+test("the lookup and the upload answer 503 until every archived document has its digest, and the lookup then names the document", async () => {
+	const { database, collect } = await prepareArchive()
+	const legacyId = "4c5d6e7f-8091-4a2b-9c3d-4e5f60718293"
+	await database.insert(documents).values({
+		id: legacyId,
+		storageObjectKey: `documents/${legacyId}/original.pdf`,
+		mimeType: "application/pdf",
+		byteSize: downloadsInvoice.byteLength,
+		status: "archived",
+	})
+	await env.DOCUMENT_STORAGE.put(`documents/${legacyId}/original.pdf`, downloadsInvoice)
+	const lookup = () => collect("POST", "/api/v1/contents/lookup", JSON.stringify({ sha256: [INVOICE_SHA256] }))
+
+	const lookupBeforeBackfill = await lookup()
+	const submissionBeforeBackfill = await collect("PUT", `/api/v1/contents/${INVOICE_SHA256}`, downloadsInvoice)
+	await recordMissingContentDigests(database, env.DOCUMENT_STORAGE)
+	const lookupAfterBackfill = await lookup()
+
+	const unavailable = {
+		status: 503,
+		contentType: "application/problem+json",
+		location: null,
+		body: {
+			type: "about:blank",
+			title: "Service Unavailable",
+			status: 503,
+			detail: "The archive is still recording the digests of its documents. Send the request again later.",
+		},
+	}
+	expect({
+		lookupBeforeBackfill: await answer(lookupBeforeBackfill),
+		retryAfter: [lookupBeforeBackfill.headers.get("Retry-After"), submissionBeforeBackfill.headers.get("Retry-After")],
+		submissionBeforeBackfill: await answer(submissionBeforeBackfill),
+		lookupAfterBackfill: await answer(lookupAfterBackfill),
+		storedDocuments: await database.select({ id: documents.id }).from(documents),
+	}).toEqual({
+		lookupBeforeBackfill: unavailable,
+		retryAfter: ["900", "900"],
+		submissionBeforeBackfill: unavailable,
+		lookupAfterBackfill: {
+			status: 200,
+			contentType: "application/json",
+			location: null,
+			body: { contents: [{ sha256: INVOICE_SHA256, state: "present", document_id: legacyId }] },
+		},
+		storedDocuments: [{ id: legacyId }],
 	})
 })
 
