@@ -28,11 +28,20 @@ export interface PrintedValue {
 	printed: string
 }
 
-export interface DocumentSpecification {
+export const syntheticNotice =
+	"Synthetic test document for Schublade. Every person, organization, address, and account number in it is fictional."
+
+export type PageSize = readonly [number, number]
+
+export interface PrintedMatter {
+	pageSize: PageSize
+	pageCount: number
+	render: (document: PDFKit.PDFDocument) => void
+}
+
+export interface DocumentSpecification extends PrintedMatter {
 	fileStem: string
 	captureMethod: CaptureMethod
-	pageSize: readonly [number, number]
-	pageCount: number
 	language: "de" | "en"
 	category: Category
 	sender: string
@@ -40,7 +49,6 @@ export interface DocumentSpecification {
 	documentDate: PrintedValue
 	titleHint: string
 	fields: Partial<Record<FieldKey, PrintedValue>>
-	render: (document: PDFKit.PDFDocument) => void
 }
 
 export const typefaceFiles = {
