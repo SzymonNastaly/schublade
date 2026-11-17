@@ -583,6 +583,10 @@ The third part (the Tauri app, `collection_application` with its window `collect
 31. **`CommandRefusal` serializes.** The window receives the variant with its folder identifier and words it with the folder's name. The identifier in the `Display` text means nothing to a person.
 32. **`CollectorStatus.archive_origin`** names the configured origin in every connection state but Unconfigured. Only `Connected` carried it, so a suspended collector could not fill in the address when it asked for a new token.
 
+Two reviews of the app (2026-11-17) changed the core in these further places.
+
+33. **`connect_archive` refuses another origin once anything is recorded.** Content standings and receipts describe the connected archive. On another origin, a file the first archive holds would stay Present and never upload, and old receipts would link into the new archive. `CommandRefusal::ArchiveOriginDiffers` therefore answers a different origin while any folder is enrolled or any content row exists, withdrawn folders' contents included. A new token for the same origin, or any origin before the first folder, is still accepted. Starting over means removing the state database.
+
 ## Open questions and risks
 
 1. Should the archive refuse a PUT of a `deleted` content (for example 409 with a problem document)? Today it revives the document, and the collector's 10-minute validity only narrows the window in which another device could have uploaded and the owner could have deleted the content. A server change closes it for every collector, the iPhone app included.

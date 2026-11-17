@@ -381,12 +381,22 @@ impl VolatileState {
         address: ArchiveAddress,
         token: IngestToken,
     ) -> Result<(), CommandRefusal> {
-        self.credential_store
-            .write(&address, &token)
-            .map_err(|failure| CommandRefusal::CredentialStorageFailed { detail: failure.detail })?;
         let store_failure = |error: rusqlite::Error| CommandRefusal::StoreFailed {
             detail: error.to_string(),
         };
+        // Content standings and receipts describe the connected archive, so another archive would
+        // never receive a file the first one holds, and old receipts would link into it.
+        if let Some(record) = store.connection_record().map_err(store_failure)?
+            && record.archive_origin != address.origin()
+            && (!self.folders.is_empty() || store.holds_contents().map_err(store_failure)?)
+        {
+            return Err(CommandRefusal::ArchiveOriginDiffers {
+                connected_origin: record.archive_origin,
+            });
+        }
+        self.credential_store
+            .write(&address, &token)
+            .map_err(|failure| CommandRefusal::CredentialStorageFailed { detail: failure.detail })?;
         transaction
             .store_connection(&address.origin(), &token.fingerprint())
             .map_err(store_failure)?;
@@ -1210,5 +1220,37 @@ mod tests {
             Err(CommandRefusal::FolderUnknown { folder })
         );
         assert!(collector.status().unwrap().folders.is_empty());
+    }
+
+    #[test]
+    fn another_archive_is_refused_once_the_collector_holds_records_of_the_connected_one() {
+        let temporary = tempfile::tempdir().unwrap();
+        let downloads = temporary.path().join("Downloads");
+        std::fs::create_dir(&downloads).unwrap();
+        std::fs::write(downloads.join("Invoice.pdf"), b"%PDF-1.7 one invoice").unwrap();
+        let archive = Arc::new(ScriptedArchive::new());
+        let clock = Arc::new(ManualClock::starting_at(Timestamp(1_700_000_000_000)));
+        let (collector, _events) = start(&temporary.path().join("collector.sqlite"), &archive, &clock);
+        let connected = || ArchiveAddress::parse("https://archive.example.org").unwrap();
+        let other = || ArchiveAddress::parse("https://other.example.org").unwrap();
+        let token = |secret: &str| IngestToken::new(secret.to_owned());
+        let refused = Err(CommandRefusal::ArchiveOriginDiffers {
+            connected_origin: "https://archive.example.org".to_owned(),
+        });
+
+        collector.connect_archive(other(), token("first")).unwrap();
+        collector.connect_archive(connected(), token("first")).unwrap();
+        let folder = collector.enroll_folder(downloads).unwrap();
+        assert_eq!(collector.connect_archive(other(), token("first")), refused);
+
+        settle(&collector, &clock, Duration::from_secs(60));
+        collector.withdraw_folder(folder).unwrap();
+        assert_eq!(collector.connect_archive(other(), token("first")), refused);
+
+        collector.connect_archive(connected(), token("second")).unwrap();
+        assert_eq!(
+            collector.status().unwrap().archive_origin.as_deref(),
+            Some("https://archive.example.org")
+        );
     }
 }

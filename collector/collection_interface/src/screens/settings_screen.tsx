@@ -2,6 +2,7 @@ import { useApplicationPreferences, useChangePreferences } from "../collector_qu
 import { FailureMessage, ToggleField } from "../controls/form_fields"
 import { PanelRow, SectionPanel } from "../controls/section_panel"
 import { failureSentence } from "../failure_sentence"
+import { startingOverInstructions } from "../status_sentences"
 import { ConnectionForm } from "./connection_form"
 import type { CollectorStatus } from "../collector_status"
 
@@ -42,8 +43,8 @@ export function SettingsScreen({ status }: { status: CollectorStatus }) {
 			<SectionPanel section="settings" heading="Archive">
 				<div className="p-3.5">
 					<p className="mb-3 text-caption">
-						Replace the token after you revoke it in Schublade, or connect another archive. The token is kept in your
-						Keychain.
+						Replace the token after you revoke it in Schublade. The token is kept in your Keychain.{" "}
+						{startingOverInstructions}
 					</p>
 					<ConnectionForm initialAddress={status.archive_origin ?? ""} submitLabel="Save and connect" />
 				</div>

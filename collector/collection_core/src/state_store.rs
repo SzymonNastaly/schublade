@@ -378,6 +378,12 @@ impl StateStore {
             .optional()
     }
 
+    /// Whether any content was ever recorded, withdrawn folders' contents included.
+    pub fn holds_contents(&self) -> rusqlite::Result<bool> {
+        self.connection
+            .query_row("SELECT EXISTS (SELECT 1 FROM contents)", [], |row| row.get(0))
+    }
+
     pub fn folders(&self) -> rusqlite::Result<Vec<FolderRecord>> {
         let mut statement = self.connection.prepare(
             "SELECT folder_identifier, root_path, enrolled_at, admission, decided_at FROM watched_folders \

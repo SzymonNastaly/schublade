@@ -121,6 +121,7 @@ export interface CollectorStatus {
 /** `CommandRefusal` of the core: why the collector did not carry out a command. */
 export type CommandRefusal =
 	| { kind: "ArchiveAddressInvalid"; detail: string }
+	| { kind: "ArchiveOriginDiffers"; connected_origin: string }
 	| { kind: "CredentialStorageFailed"; detail: string }
 	| { kind: "FolderRootNotADirectory"; root: string }
 	| { kind: "FolderAlreadyEnrolled"; folder: number }

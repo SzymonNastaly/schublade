@@ -29,6 +29,10 @@ function nameOf(names: Map<number, string>, folder: number): string {
 	return names.get(folder) ?? "A folder"
 }
 
+/** How to collect into another archive: the collector's records belong to the one it connected first. */
+export const startingOverInstructions =
+	"To collect into another archive, start over: quit Schublade Collector, then in Finder choose Go > Go to Folder, enter ~/Library/Application Support, move the folder org.schublade.collector to the Trash, and open Schublade Collector again."
+
 export function connectionSentence(connection: ConnectionStatus, clockTime: ClockTime): string {
 	switch (connection.kind) {
 		case "Unconfigured":
@@ -178,6 +182,8 @@ export function refusalSentence(refusal: Refusal, status: Pick<CollectorStatus, 
 		case "AddressInvalid":
 		case "ArchiveAddressInvalid":
 			return "This is not an archive address. Copy the address from your browser, such as https://archive.example.org."
+		case "ArchiveOriginDiffers":
+			return `This collector already collects into ${new URL(refusal.connected_origin).host}. ${startingOverInstructions}`
 		case "TokenRefused":
 			return "Schublade refused this token. Check that you copied all of it and that it was not revoked."
 		case "TokenInsufficient":

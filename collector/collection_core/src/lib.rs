@@ -105,6 +105,11 @@ pub enum CommandRefusal {
     ArchiveAddressInvalid {
         detail: String,
     },
+    /// Another archive than the connected one, while the collector holds folders or contents
+    /// recorded against the connected one.
+    ArchiveOriginDiffers {
+        connected_origin: String,
+    },
     CredentialStorageFailed {
         detail: String,
     },
@@ -147,6 +152,10 @@ impl std::fmt::Display for CommandRefusal {
             CommandRefusal::ArchiveAddressInvalid { detail } => {
                 write!(formatter, "The archive address is invalid: {detail}")
             }
+            CommandRefusal::ArchiveOriginDiffers { connected_origin } => write!(
+                formatter,
+                "The collector's records belong to {connected_origin}; start over with a new state database to collect into another archive"
+            ),
             CommandRefusal::CredentialStorageFailed { detail } => {
                 write!(formatter, "The token could not be stored: {detail}")
             }

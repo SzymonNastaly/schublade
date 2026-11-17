@@ -94,6 +94,12 @@ describe("the status sentences", () => {
 		expect(refusalSentence(overlap, status)).toBe(
 			"This folder is inside Downloads or contains it. Each file can be collected from one folder only.",
 		)
+		const otherArchive = parseRefusal({
+			CommandRefused: { refusal: { ArchiveOriginDiffers: { connected_origin: "https://archive.example.org" } } },
+		})
+		expect(refusalSentence(otherArchive, status)).toBe(
+			"This collector already collects into archive.example.org. To collect into another archive, start over: quit Schublade Collector, then in Finder choose Go > Go to Folder, enter ~/Library/Application Support, move the folder org.schublade.collector to the Trash, and open Schublade Collector again.",
+		)
 		expect(refusalSentence(parseRefusal("TokenRefused"), status)).toBe(
 			"Schublade refused this token. Check that you copied all of it and that it was not revoked.",
 		)
