@@ -16,6 +16,9 @@ pub struct CollectorStatus {
     /// Grows with every committed batch. The window compares it to drop stale reads.
     pub revision: u64,
     pub connection: ConnectionStatus,
+    /// The origin the collector is configured for, in every connection state but Unconfigured, so
+    /// a suspended collector can offer to replace the token without asking for the address again.
+    pub archive_origin: Option<String>,
     pub folders: Vec<FolderStatus>,
     /// Over every folder in AwaitingDecision; None when no folder awaits a decision.
     pub backlog: Option<BacklogSummary>,

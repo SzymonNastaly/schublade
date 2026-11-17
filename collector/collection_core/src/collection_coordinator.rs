@@ -998,6 +998,7 @@ impl VolatileState {
         Ok(CollectorStatus {
             revision: self.revision,
             connection,
+            archive_origin: self.archive_origin.clone(),
             folders,
             backlog,
             counts: store.state_counts()?,
@@ -1135,6 +1136,7 @@ mod tests {
             (1, 1, 1)
         );
         assert_eq!(surveyed.folders[0].backlog.as_ref(), Some(&backlog));
+        assert_eq!(surveyed.archive_origin.as_deref(), Some("https://archive.example.org"));
         assert_eq!(
             surveyed.attention,
             vec![AttentionItem::BacklogAwaitsDecision { folders: vec![folder] }]
