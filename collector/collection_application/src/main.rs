@@ -90,6 +90,7 @@ fn main() {
             }
             Ok(())
         })
+        .on_menu_event(|application, event| window_presence::answer_menu_event(application, &event))
         .on_window_event(|window, event| {
             if let WindowEvent::CloseRequested { api, .. } = event {
                 api.prevent_close();

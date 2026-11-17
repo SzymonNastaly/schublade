@@ -146,9 +146,10 @@ pub async fn read_application_preferences(
     current_preferences(&application)
 }
 
-/// Applies each preference that changed and answers what now holds.
+/// Applies each preference that changed and answers what now holds. Synchronous, so Tauri runs it
+/// on the main thread, where AppKit requires the menu bar item to be added and removed.
 #[tauri::command]
-pub async fn change_application_preferences(
+pub fn change_application_preferences(
     application: AppHandle,
     preferences: ApplicationPreferences,
 ) -> Result<ApplicationPreferences, ApplicationRefusal> {

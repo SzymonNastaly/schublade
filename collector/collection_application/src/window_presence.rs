@@ -3,7 +3,7 @@
 //! Accessory without it.
 
 use tauri::image::Image;
-use tauri::menu::{MenuBuilder, MenuItem};
+use tauri::menu::{MenuBuilder, MenuEvent, MenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::{ActivationPolicy, AppHandle, Manager};
 
@@ -29,7 +29,19 @@ pub fn hide_main_window(application: &AppHandle) -> tauri::Result<()> {
     application.set_activation_policy(ActivationPolicy::Accessory)
 }
 
-/// Adds or removes the menu bar item. Its icon is a template image, so macOS draws it in the
+/// The menu bar item's menu. Registered once on the builder, because a handler given to each new
+/// tray icon is added to the app's global listeners and never removed.
+pub fn answer_menu_event(application: &AppHandle, event: &MenuEvent) {
+    match event.id().as_ref() {
+        OPEN_WINDOW_ITEM => {
+            let _ = show_main_window(application);
+        }
+        QUIT_ITEM => application.exit(0),
+        _ => {}
+    }
+}
+
+/// Adds or removes the menu bar item. AppKit owns the item, so call this on the main thread only. Its icon is a template image, so macOS draws it in the
 /// menu bar's own colour in light and dark mode.
 pub fn show_menu_bar_item(application: &AppHandle, shown: bool) -> tauri::Result<()> {
     if !shown {
@@ -56,13 +68,6 @@ pub fn show_menu_bar_item(application: &AppHandle, shown: bool) -> tauri::Result
         .tooltip("Schublade Collector")
         .menu(&menu)
         .show_menu_on_left_click(false)
-        .on_menu_event(|application, event| match event.id().as_ref() {
-            OPEN_WINDOW_ITEM => {
-                let _ = show_main_window(application);
-            }
-            QUIT_ITEM => application.exit(0),
-            _ => {}
-        })
         .on_tray_icon_event(|tray, event| {
             if let TrayIconEvent::Click {
                 button: MouseButton::Left,
