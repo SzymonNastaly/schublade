@@ -514,6 +514,7 @@ Decisions the owner made on 2026-11-17:
 
 - **No decline.** The first build offers one decision per folder backlog: upload everything. The confirmation dialog shows the counts with the buttons "Upload N files" and "Remove folder". `BacklogDecision` and `DeclineBacklog` stay out, and `declined_at` is not created.
 - **The archive refuses a PUT of a deleted content.** `PUT /api/v1/contents/{sha256}` answers 409 for a content whose document the owner deleted, so no collector can bring it back. Only a person's browser upload revives it. The collector maps 409 to Deleted.
+- **The dialog says that new files need no confirmation.** The confirmation is asked once per folder, for the files found when the folder is added. The dialog must say both halves: what happens to the files already there (the counts, with skipped files per reason), and that from now on every new PDF or image in that folder is uploaded automatically without asking again. The main button reads like "Upload 930 files and keep collecting". A folder that is Collecting never asks again.
 - **The defaults stay.** A 5-second stabilization interval, symbolic links not followed, and one leading-byte rule that a test compares with `src/ingestion/source_file.ts`.
 
 ## Tradeoffs accepted
