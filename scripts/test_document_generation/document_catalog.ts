@@ -11,20 +11,25 @@ import {
 	drawTable,
 	euroField,
 	formatEnglishDate,
+	formatEnglishMonth,
 	formatEuro,
 	formatGermanDate,
 	formatGermanDecimal,
+	formatGermanMonth,
+	formatGermanPeriod,
 	germanDateField,
 	groupIban,
 	ibanField,
+	lastDayOfMonth,
 	leftMargin,
 	literalField,
 	millimetre,
 	pageSizeA4,
+	precedingMonth,
 	rightEdge,
 	vatIncludedInGross,
 } from "./document_layout.ts"
-import type { DocumentSpecification, Organization, PrintedValue } from "./document_layout.ts"
+import type { DocumentSpecification, IsoMonth, Organization, PrintedValue } from "./document_layout.ts"
 
 const householdAddressLines = ["Am Lindenhang 7", "31846 Talbrück"]
 const euroCurrency: PrintedValue = { value: "EUR", printed: "€" }
@@ -157,22 +162,40 @@ function drawBankDetails(document: PDFKit.PDFDocument, organization: Organizatio
 	)
 }
 
-const telecommunicationInvoiceNumber = "NK-2026-1048-3391"
-const telecommunicationCharges: ReadonlyArray<readonly [string, string, number]> = [
-	["Glasfaser 250 (monatlicher Grundpreis)", "01.10.2026 – 31.10.2026", 3999],
-	["Mobilfunktarif Allnet M (monatlicher Grundpreis)", "01.10.2026 – 31.10.2026", 1999],
-	["Miete WLAN-Router Nordbox 7", "01.10.2026 – 31.10.2026", 499],
-	["Verbindungen außerhalb des Inklusivvolumens", "01.09.2026 – 30.09.2026", 216],
-]
-const telecommunicationTotalCents = sumOf(telecommunicationCharges.map(([, , cents]) => cents))
+const telecommunicationBillingMonths = {
+	"2026-04": { invoiceNumber: "NK-2026-0451-3391", usageCents: 87 },
+	"2026-05": { invoiceNumber: "NK-2026-0547-3391", usageCents: 148 },
+	"2026-06": { invoiceNumber: "NK-2026-0652-3391", usageCents: 392 },
+	"2026-07": { invoiceNumber: "NK-2026-0749-3391", usageCents: 61 },
+	"2026-08": { invoiceNumber: "NK-2026-0850-3391", usageCents: 1173 },
+	"2026-09": { invoiceNumber: "NK-2026-0946-3391", usageCents: 254 },
+	"2026-10": { invoiceNumber: "NK-2026-1048-3391", usageCents: 216 },
+} as const satisfies Record<IsoMonth, { invoiceNumber: string; usageCents: number }>
+type TelecommunicationBillingMonth = keyof typeof telecommunicationBillingMonths
 
-function telecommunicationInvoice(): DocumentSpecification {
-	const invoiceDate = "2026-10-05"
-	const dueDate = "2026-10-20"
-	const { netCents, taxCents } = vatIncludedInGross(telecommunicationTotalCents, 19)
+function telecommunicationCharges(billingMonth: TelecommunicationBillingMonth): Array<[string, string, number]> {
+	const servicePeriod = formatGermanPeriod(billingMonth)
+	return [
+		["Glasfaser 250 (monatlicher Grundpreis)", servicePeriod, 3999],
+		["Mobilfunktarif Allnet M (monatlicher Grundpreis)", servicePeriod, 1999],
+		["Miete WLAN-Router Nordbox 7", servicePeriod, 499],
+		[
+			"Verbindungen außerhalb des Inklusivvolumens",
+			formatGermanPeriod(precedingMonth(billingMonth)),
+			telecommunicationBillingMonths[billingMonth].usageCents,
+		],
+	]
+}
+const telecommunicationTotalCents = (billingMonth: TelecommunicationBillingMonth): number =>
+	sumOf(telecommunicationCharges(billingMonth).map(([, , cents]) => cents))
+
+function telecommunicationInvoice(billingMonth: TelecommunicationBillingMonth): DocumentSpecification {
+	const invoiceNumber = telecommunicationBillingMonths[billingMonth].invoiceNumber
+	const invoiceDate = `${billingMonth}-05`
+	const dueDate = `${billingMonth}-20`
+	const totalCents = telecommunicationTotalCents(billingMonth)
+	const { netCents, taxCents } = vatIncludedInGross(totalCents, 19)
 	return {
-		fileStem: "telecommunication_invoice_digital",
-		captureMethod: "digital",
 		pageSize: pageSizeA4,
 		pageCount: 1,
 		language: "de",
@@ -180,13 +203,13 @@ function telecommunicationInvoice(): DocumentSpecification {
 		sender: nordkabel.name,
 		person: "Jonas Becker",
 		documentDate: germanDateField(invoiceDate),
-		titleHint: "Nordkabel Kommunikation Invoice October 2026",
+		titleHint: `Nordkabel Kommunikation Invoice ${formatEnglishMonth(billingMonth)}`,
 		fields: {
-			amount: euroField(telecommunicationTotalCents),
+			amount: euroField(totalCents),
 			currency: euroCurrency,
 			due_date: germanDateField(dueDate),
 			iban: ibanField(nordkabel.iban),
-			invoice_number: literalField(telecommunicationInvoiceNumber),
+			invoice_number: literalField(invoiceNumber),
 		},
 		render(document) {
 			document.addPage()
@@ -194,17 +217,17 @@ function telecommunicationInvoice(): DocumentSpecification {
 				recipientLines: ["Herrn", "Jonas Becker", ...householdAddressLines],
 				referenceRows: [
 					["Kundennummer", "4100 2738 51"],
-					["Rechnungsnummer", telecommunicationInvoiceNumber],
+					["Rechnungsnummer", invoiceNumber],
 					["Rechnungsdatum", formatGermanDate(invoiceDate)],
 					["Seite", "1 von 1"],
 				],
-				subject: "Ihre Rechnung für Oktober 2026",
+				subject: `Ihre Rechnung für ${formatGermanMonth(billingMonth)}`,
 			})
 			cursor = drawParagraphs(
 				document,
 				[
 					"Sehr geehrter Herr Becker,",
-					"vielen Dank, dass Sie sich für Nordkabel entschieden haben. Mit dieser Rechnung berechnen wir Ihnen die monatlichen Grundpreise für Oktober 2026 sowie die Verbindungen aus dem Vormonat.",
+					`vielen Dank, dass Sie sich für Nordkabel entschieden haben. Mit dieser Rechnung berechnen wir Ihnen die monatlichen Grundpreise für ${formatGermanMonth(billingMonth)} sowie die Verbindungen aus dem Vormonat.`,
 				],
 				{ top: cursor },
 			)
@@ -216,18 +239,22 @@ function telecommunicationInvoice(): DocumentSpecification {
 					{ header: "Zeitraum", width: 130 },
 					{ header: "Betrag", width: contentWidth - 375, align: "right" },
 				],
-				rows: telecommunicationCharges.map(([description, period, cents]) => [description, period, formatEuro(cents)]),
+				rows: telecommunicationCharges(billingMonth).map(([description, period, cents]) => [
+					description,
+					period,
+					formatEuro(cents),
+				]),
 				summaryRows: [
 					["Summe netto", "", formatEuro(netCents)],
 					["Umsatzsteuer 19 %", "", formatEuro(taxCents)],
-					["Rechnungsbetrag", "", formatEuro(telecommunicationTotalCents)],
+					["Rechnungsbetrag", "", formatEuro(totalCents)],
 				],
 				bandColor: "#e1efee",
 			})
 			cursor = drawParagraphs(
 				document,
 				[
-					`Bitte überweisen Sie den Rechnungsbetrag von ${formatEuro(telecommunicationTotalCents)} bis zum ${formatGermanDate(dueDate)} unter Angabe der Rechnungsnummer ${telecommunicationInvoiceNumber} auf das folgende Konto:`,
+					`Bitte überweisen Sie den Rechnungsbetrag von ${formatEuro(totalCents)} bis zum ${formatGermanDate(dueDate)} unter Angabe der Rechnungsnummer ${invoiceNumber} auf das folgende Konto:`,
 				],
 				{ top: cursor + 18 },
 			)
@@ -262,8 +289,6 @@ function electricityInvoice(): DocumentSpecification {
 	const invoiceDate = "2026-09-22"
 	const dueDate = "2026-10-06"
 	return {
-		fileStem: "electricity_invoice_scanned",
-		captureMethod: "scanned",
 		pageSize: pageSizeA4,
 		pageCount: 1,
 		language: "de",
@@ -484,8 +509,6 @@ function supermarketReceipt(): DocumentSpecification {
 	const purchaseDate = "2026-10-31"
 	const total = formatGermanDecimal(supermarketTotalCents)
 	return {
-		fileStem: "supermarket_receipt_photograph",
-		captureMethod: "photographed",
 		pageSize: receiptPageSize,
 		pageCount: 1,
 		language: "de",
@@ -548,8 +571,6 @@ function hardwareStoreReceipt(): DocumentSpecification {
 	const totalCents = sumOf(hardwareStoreItems.map((item) => item.cents))
 	const tenderedCents = 10000
 	return {
-		fileStem: "hardware_store_receipt_scanned",
-		captureMethod: "scanned",
 		pageSize: pageSizeA4,
 		pageCount: 1,
 		language: "de",
@@ -616,8 +637,6 @@ function rentalContract(): DocumentSpecification {
 	const serifSections = { headingTypeface: "SerifBold", typeface: "SerifRegular", fontSize: 10 } as const
 	const pageLabel = (page: number) => `Mietvertrag ${rentalContractNumber} · Seite ${page} von 3`
 	return {
-		fileStem: "rental_contract_digital",
-		captureMethod: "digital",
 		pageSize: pageSizeA4,
 		pageCount: 3,
 		language: "de",
@@ -786,8 +805,6 @@ function householdContentsInsurancePolicy(): DocumentSpecification {
 	const insuranceTaxCents = Math.round(netPremiumCents * 0.19)
 	const pageLabel = (page: number) => `Versicherungsschein ${policyNumber} · Seite ${page} von 2`
 	return {
-		fileStem: "household_contents_insurance_policy_scanned",
-		captureMethod: "scanned",
 		pageSize: pageSizeA4,
 		pageCount: 2,
 		language: "de",
@@ -929,8 +946,6 @@ function incomeTaxAssessment(): DocumentSpecification {
 	const dueDate = "2026-10-14"
 	const euroWhole = (euros: number) => `${euros.toLocaleString("de-DE")} €`
 	return {
-		fileStem: "income_tax_assessment_scanned",
-		captureMethod: "scanned",
 		pageSize: pageSizeA4,
 		pageCount: 2,
 		language: "de",
@@ -1062,34 +1077,75 @@ function incomeTaxAssessment(): DocumentSpecification {
 }
 
 const statementAccountIban = computeGermanIban(banks.muehlbach.code, "0471128305")
-const openingBalanceCents = 241837
-const statementTransactions: ReadonlyArray<readonly [string, string, string, string, number]> = [
-	["01.10.", "Dauerauftrag", wohnungsbau.name, `Miete Oktober 2026, ${rentalContractNumber}`, -rentTotalCents],
-	["02.10.", "Überweisung", stadtwerke.name, `Nachzahlung ${electricityInvoiceNumber}`, -electricityBalanceCents],
-	["02.10.", "Kartenzahlung", "Talbrücker Backstube", "Debitkarte 4417, 02.10. 07:31", -840],
-	["05.10.", "Lastschrift", "Stadt Talbrück", "Hortbeitrag Oktober 2026, Lena Becker", -9500],
-	["06.10.", "Kartenzahlung", "Frischemarkt Talbrück", "Debitkarte 4417, 06.10. 18:12", -5418],
-	["08.10.", "Auszahlung", "Geldautomat Mühlbach Bank", "Talbrück Marktplatz, 08.10. 12:04", -10000],
-	["09.10.", "Kartenzahlung", "Apotheke am Lindenhang", "Debitkarte 4417, 09.10. 16:47", -1295],
-	["12.10.", "Gutschrift", "Mira Wiśniewska", "Anteil Miete Oktober 2026", Math.round(rentTotalCents / 2)],
-	["13.10.", "Überweisung", finanzamt.name, `${taxNumber} ESt 2025`, -taxBalanceCents],
-	["14.10.", "Kartenzahlung", "Tankstelle Talbrück Nord", "Debitkarte 4417, 14.10. 07:55", -6137],
-	["16.10.", "Kartenzahlung", "Frischemarkt Talbrück", "Debitkarte 4417, 16.10. 19:03", -3862],
-	["19.10.", "Überweisung", nordkabel.name, `Rechnung ${telecommunicationInvoiceNumber}`, -telecommunicationTotalCents],
-	["20.10.", "Kartenzahlung", "Buchhandlung am Markt", "Debitkarte 4417, 20.10. 11:26", -2490],
-	["22.10.", "Lastschrift", "TSV Talbrück 1908 e. V.", "Mitgliedsbeitrag Oktober 2026", -1500],
-	["23.10.", "Kartenzahlung", "Frischemarkt Talbrück", "Debitkarte 4417, 23.10. 17:58", -4731],
-	["26.10.", "Kartenzahlung", "Talbrücker Backstube", "Debitkarte 4417, 26.10. 07:28", -680],
-	["27.10.", "Dauerauftrag", "Jonas Becker", "Umbuchung auf Tagesgeldkonto", -20000],
-	["29.10.", "Gutschrift", "Brenner & Hollmann Ingenieure GmbH", "Gehalt Oktober 2026", 368420],
-	["30.10.", "Kartenzahlung", "Tankstelle Talbrück Nord", "Debitkarte 4417, 30.10. 18:21", -5804],
-	["30.10.", "Entgelt", muehlbachBank.name, "Kontoführung Oktober 2026", -490],
-	["31.10.", "Kartenzahlung", "Frischemarkt Talbrück", "Debitkarte 4417, 31.10. 17:42", -supermarketTotalCents],
-]
+const statementTransactions = {
+	"2026-09": [
+		["01.09.", "Dauerauftrag", wohnungsbau.name, `Miete September 2026, ${rentalContractNumber}`, -rentTotalCents],
+		["02.09.", "Kartenzahlung", "Talbrücker Backstube", "Debitkarte 4417, 02.09. 07:34", -760],
+		["04.09.", "Lastschrift", "Stadt Talbrück", "Hortbeitrag September 2026, Lena Becker", -9500],
+		["05.09.", "Kartenzahlung", "Frischemarkt Talbrück", "Debitkarte 4417, 05.09. 10:22", -6214],
+		["08.09.", "Kartenzahlung", "Apotheke am Lindenhang", "Debitkarte 4417, 08.09. 17:15", -845],
+		["10.09.", "Gutschrift", "Mira Wiśniewska", "Anteil Miete September 2026", Math.round(rentTotalCents / 2)],
+		["11.09.", "Auszahlung", "Geldautomat Mühlbach Bank", "Talbrück Marktplatz, 11.09. 17:40", -5000],
+		["12.09.", "Kartenzahlung", "Frischemarkt Talbrück", "Debitkarte 4417, 12.09. 09:51", -4377],
+		["15.09.", "Kartenzahlung", "Tankstelle Talbrück Nord", "Debitkarte 4417, 15.09. 07:48", -5912],
+		[
+			"18.09.",
+			"Überweisung",
+			nordkabel.name,
+			`Rechnung ${telecommunicationBillingMonths["2026-09"].invoiceNumber}`,
+			-telecommunicationTotalCents("2026-09"),
+		],
+		["19.09.", "Kartenzahlung", "Frischemarkt Talbrück", "Debitkarte 4417, 19.09. 18:30", -5106],
+		["22.09.", "Lastschrift", "TSV Talbrück 1908 e. V.", "Mitgliedsbeitrag September 2026", -1500],
+		["25.09.", "Kartenzahlung", "Talbrücker Backstube", "Debitkarte 4417, 25.09. 07:30", -920],
+		["26.09.", "Kartenzahlung", "Frischemarkt Talbrück", "Debitkarte 4417, 26.09. 11:05", -6833],
+		["28.09.", "Dauerauftrag", "Jonas Becker", "Umbuchung auf Tagesgeldkonto", -20000],
+		["29.09.", "Gutschrift", "Brenner & Hollmann Ingenieure GmbH", "Gehalt September 2026", 368420],
+		["30.09.", "Entgelt", muehlbachBank.name, "Kontoführung September 2026", -490],
+	],
+	"2026-10": [
+		["01.10.", "Dauerauftrag", wohnungsbau.name, `Miete Oktober 2026, ${rentalContractNumber}`, -rentTotalCents],
+		["02.10.", "Überweisung", stadtwerke.name, `Nachzahlung ${electricityInvoiceNumber}`, -electricityBalanceCents],
+		["02.10.", "Kartenzahlung", "Talbrücker Backstube", "Debitkarte 4417, 02.10. 07:31", -840],
+		["05.10.", "Lastschrift", "Stadt Talbrück", "Hortbeitrag Oktober 2026, Lena Becker", -9500],
+		["06.10.", "Kartenzahlung", "Frischemarkt Talbrück", "Debitkarte 4417, 06.10. 18:12", -5418],
+		["08.10.", "Auszahlung", "Geldautomat Mühlbach Bank", "Talbrück Marktplatz, 08.10. 12:04", -10000],
+		["09.10.", "Kartenzahlung", "Apotheke am Lindenhang", "Debitkarte 4417, 09.10. 16:47", -1295],
+		["12.10.", "Gutschrift", "Mira Wiśniewska", "Anteil Miete Oktober 2026", Math.round(rentTotalCents / 2)],
+		["13.10.", "Überweisung", finanzamt.name, `${taxNumber} ESt 2025`, -taxBalanceCents],
+		["14.10.", "Kartenzahlung", "Tankstelle Talbrück Nord", "Debitkarte 4417, 14.10. 07:55", -6137],
+		["16.10.", "Kartenzahlung", "Frischemarkt Talbrück", "Debitkarte 4417, 16.10. 19:03", -3862],
+		[
+			"19.10.",
+			"Überweisung",
+			nordkabel.name,
+			`Rechnung ${telecommunicationBillingMonths["2026-10"].invoiceNumber}`,
+			-telecommunicationTotalCents("2026-10"),
+		],
+		["20.10.", "Kartenzahlung", "Buchhandlung am Markt", "Debitkarte 4417, 20.10. 11:26", -2490],
+		["22.10.", "Lastschrift", "TSV Talbrück 1908 e. V.", "Mitgliedsbeitrag Oktober 2026", -1500],
+		["23.10.", "Kartenzahlung", "Frischemarkt Talbrück", "Debitkarte 4417, 23.10. 17:58", -4731],
+		["26.10.", "Kartenzahlung", "Talbrücker Backstube", "Debitkarte 4417, 26.10. 07:28", -680],
+		["27.10.", "Dauerauftrag", "Jonas Becker", "Umbuchung auf Tagesgeldkonto", -20000],
+		["29.10.", "Gutschrift", "Brenner & Hollmann Ingenieure GmbH", "Gehalt Oktober 2026", 368420],
+		["30.10.", "Kartenzahlung", "Tankstelle Talbrück Nord", "Debitkarte 4417, 30.10. 18:21", -5804],
+		["30.10.", "Entgelt", muehlbachBank.name, "Kontoführung Oktober 2026", -490],
+		["31.10.", "Kartenzahlung", "Frischemarkt Talbrück", "Debitkarte 4417, 31.10. 17:42", -supermarketTotalCents],
+	],
+} as const satisfies Record<IsoMonth, ReadonlyArray<readonly [string, string, string, string, number]>>
+type StatementMonth = keyof typeof statementTransactions
 
-function bankStatement(): DocumentSpecification {
-	const statementDate = "2026-10-31"
-	const closingBalanceCents = openingBalanceCents + sumOf(statementTransactions.map(([, , , , cents]) => cents))
+const transactionTotalCents = (month: StatementMonth): number =>
+	sumOf(statementTransactions[month].map(([, , , , cents]) => cents))
+const openingBalanceCents: Record<StatementMonth, number> = {
+	"2026-09": 241837 - transactionTotalCents("2026-09"),
+	"2026-10": 241837,
+}
+
+function bankStatement(month: StatementMonth): DocumentSpecification {
+	const statementDate = lastDayOfMonth(month)
+	const statementNumber = `${Number(month.slice(5))}/${month.slice(0, 4)}`
+	const closingBalanceCents = openingBalanceCents[month] + transactionTotalCents(month)
 	const signedAmount = (cents: number) => `${cents > 0 ? "+" : ""}${formatGermanDecimal(cents)}`
 	const columns = [
 		{ header: "Buchung", width: 48 },
@@ -1097,15 +1153,13 @@ function bankStatement(): DocumentSpecification {
 		{ header: "Vorgang", width: 290 },
 		{ header: "Betrag EUR", width: contentWidth - 386, align: "right" as const },
 	]
-	const transactionRows = statementTransactions.map(([date, kind, counterparty, purpose, cents]) => [
+	const transactionRows = statementTransactions[month].map(([date, kind, counterparty, purpose, cents]) => [
 		date,
 		date,
 		`${kind} ${counterparty}\n${purpose}`,
 		signedAmount(cents),
 	])
 	return {
-		fileStem: "bank_statement_digital",
-		captureMethod: "digital",
 		pageSize: pageSizeA4,
 		pageCount: 2,
 		language: "de",
@@ -1113,7 +1167,7 @@ function bankStatement(): DocumentSpecification {
 		sender: muehlbachBank.name,
 		person: "Jonas Becker",
 		documentDate: germanDateField(statementDate),
-		titleHint: "Mühlbach Bank Account Statement October 2026",
+		titleHint: `Mühlbach Bank Account Statement ${formatEnglishMonth(month)}`,
 		fields: {
 			iban: ibanField(statementAccountIban),
 		},
@@ -1126,10 +1180,10 @@ function bankStatement(): DocumentSpecification {
 					["Kontoart", "Girokonto Komfort"],
 					["IBAN", groupIban(statementAccountIban)],
 					["Auszugsdatum", formatGermanDate(statementDate)],
-					["Zeitraum", "01.10.2026 – 31.10.2026"],
+					["Zeitraum", formatGermanPeriod(month)],
 					["Seite", "1 von 2"],
 				],
-				subject: "Kontoauszug Nr. 10/2026",
+				subject: `Kontoauszug Nr. ${statementNumber}`,
 			})
 			cursor = drawTable(document, {
 				left: leftMargin,
@@ -1137,7 +1191,12 @@ function bankStatement(): DocumentSpecification {
 				fontSize: 8.5,
 				columns,
 				rows: [
-					["", "", "Alter Kontostand am 30.09.2026", signedAmount(openingBalanceCents)],
+					[
+						"",
+						"",
+						`Alter Kontostand am ${formatGermanDate(lastDayOfMonth(precedingMonth(month)))}`,
+						signedAmount(openingBalanceCents[month]),
+					],
 					...transactionRows.slice(0, 12),
 				],
 				bandColor: "#f3e4e6",
@@ -1150,10 +1209,15 @@ function bankStatement(): DocumentSpecification {
 			document
 				.font("SansRegular")
 				.fontSize(8.5)
-				.text(`Kontoauszug Nr. 10/2026 · IBAN ${groupIban(statementAccountIban)} · Seite 2 von 2`, leftMargin, 90, {
-					width: contentWidth,
-					align: "right",
-				})
+				.text(
+					`Kontoauszug Nr. ${statementNumber} · IBAN ${groupIban(statementAccountIban)} · Seite 2 von 2`,
+					leftMargin,
+					90,
+					{
+						width: contentWidth,
+						align: "right",
+					},
+				)
 			cursor = drawTable(document, {
 				left: leftMargin,
 				top: 115,
@@ -1210,8 +1274,6 @@ function dentalInvoice(): DocumentSpecification {
 	)
 	const totalCents = sumOf(lineCents)
 	return {
-		fileStem: "dental_invoice_scanned",
-		captureMethod: "scanned",
 		pageSize: pageSizeA4,
 		pageCount: 1,
 		language: "de",
@@ -1299,8 +1361,6 @@ function dentalInvoice(): DocumentSpecification {
 function residenceRegistrationCertificate(): DocumentSpecification {
 	const issueDate = "2026-05-04"
 	return {
-		fileStem: "residence_registration_certificate_scanned",
-		captureMethod: "scanned",
 		pageSize: pageSizeA4,
 		pageCount: 1,
 		language: "de",
@@ -1413,8 +1473,6 @@ function softwareSubscriptionInvoice(): DocumentSpecification {
 		monogram: "PL",
 	}
 	return {
-		fileStem: "software_subscription_invoice_digital",
-		captureMethod: "digital",
 		pageSize: pageSizeA4,
 		pageCount: 1,
 		language: "en",
@@ -1506,8 +1564,6 @@ function generalTermsAndConditions(): DocumentSpecification {
 	const effectiveDate = "2026-07-01"
 	const sectionOptions = { headingTypeface: "SansBold", fontSize: 9, gap: 0.35 } as const
 	return {
-		fileStem: "general_terms_and_conditions_digital",
-		captureMethod: "digital",
 		pageSize: pageSizeA4,
 		pageCount: 2,
 		language: "de",
@@ -1622,17 +1678,45 @@ function generalTermsAndConditions(): DocumentSpecification {
 	}
 }
 
-export const documentCatalog: ReadonlyArray<DocumentSpecification> = [
-	telecommunicationInvoice(),
-	electricityInvoice(),
-	supermarketReceipt(),
-	hardwareStoreReceipt(),
-	rentalContract(),
-	householdContentsInsurancePolicy(),
-	incomeTaxAssessment(),
-	bankStatement(),
-	dentalInvoice(),
-	residenceRegistrationCertificate(),
-	softwareSubscriptionInvoice(),
-	generalTermsAndConditions(),
+type CaptureMethod = "digital" | "scanned" | "photographed"
+
+export interface CataloguedDocument {
+	fileStem: string
+	captureMethod: CaptureMethod
+	specification: DocumentSpecification
+}
+
+export const documentCatalog: ReadonlyArray<CataloguedDocument> = [
+	{
+		fileStem: "telecommunication_invoice_digital",
+		captureMethod: "digital",
+		specification: telecommunicationInvoice("2026-10"),
+	},
+	{ fileStem: "electricity_invoice_scanned", captureMethod: "scanned", specification: electricityInvoice() },
+	{ fileStem: "supermarket_receipt_photograph", captureMethod: "photographed", specification: supermarketReceipt() },
+	{ fileStem: "hardware_store_receipt_scanned", captureMethod: "scanned", specification: hardwareStoreReceipt() },
+	{ fileStem: "rental_contract_digital", captureMethod: "digital", specification: rentalContract() },
+	{
+		fileStem: "household_contents_insurance_policy_scanned",
+		captureMethod: "scanned",
+		specification: householdContentsInsurancePolicy(),
+	},
+	{ fileStem: "income_tax_assessment_scanned", captureMethod: "scanned", specification: incomeTaxAssessment() },
+	{ fileStem: "bank_statement_digital", captureMethod: "digital", specification: bankStatement("2026-10") },
+	{ fileStem: "dental_invoice_scanned", captureMethod: "scanned", specification: dentalInvoice() },
+	{
+		fileStem: "residence_registration_certificate_scanned",
+		captureMethod: "scanned",
+		specification: residenceRegistrationCertificate(),
+	},
+	{
+		fileStem: "software_subscription_invoice_digital",
+		captureMethod: "digital",
+		specification: softwareSubscriptionInvoice(),
+	},
+	{
+		fileStem: "general_terms_and_conditions_digital",
+		captureMethod: "digital",
+		specification: generalTermsAndConditions(),
+	},
 ]

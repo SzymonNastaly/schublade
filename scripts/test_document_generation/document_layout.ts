@@ -18,8 +18,6 @@ type FieldKey =
 	| "renewal_date"
 	| "cancellation_period"
 
-export type CaptureMethod = "digital" | "scanned" | "photographed"
-
 export const householdMembers = ["Mira Wiśniewska", "Jonas Becker", "Lena Becker"] as const
 type PersonAssignment = (typeof householdMembers)[number] | "household"
 
@@ -40,8 +38,6 @@ export interface PrintedMatter {
 }
 
 export interface DocumentSpecification extends PrintedMatter {
-	fileStem: string
-	captureMethod: CaptureMethod
 	language: "de" | "en"
 	category: Category
 	sender: string
@@ -98,10 +94,45 @@ const englishMonthNames = [
 	"December",
 ]
 
+const germanMonthNames = [
+	"Januar",
+	"Februar",
+	"März",
+	"April",
+	"Mai",
+	"Juni",
+	"Juli",
+	"August",
+	"September",
+	"Oktober",
+	"November",
+	"Dezember",
+]
+
 export function formatEnglishDate(isoDate: string): string {
 	const [year, month, day] = isoDate.split("-")
 	return `${englishMonthNames[Number(month) - 1]} ${Number(day)}, ${year}`
 }
+
+export type IsoMonth = `${number}-${number}`
+
+export const formatEnglishMonth = (month: IsoMonth): string =>
+	`${englishMonthNames[Number(month.slice(5)) - 1]} ${month.slice(0, 4)}`
+export const formatGermanMonth = (month: IsoMonth): string =>
+	`${germanMonthNames[Number(month.slice(5)) - 1]} ${month.slice(0, 4)}`
+
+export function lastDayOfMonth(month: IsoMonth): string {
+	const dayCount = new Date(Date.UTC(Number(month.slice(0, 4)), Number(month.slice(5)), 0)).getUTCDate()
+	return `${month}-${String(dayCount).padStart(2, "0")}`
+}
+
+export function precedingMonth(month: IsoMonth): IsoMonth {
+	const firstDay = new Date(Date.UTC(Number(month.slice(0, 4)), Number(month.slice(5)) - 2, 1))
+	return firstDay.toISOString().slice(0, 7) as IsoMonth
+}
+
+export const formatGermanPeriod = (month: IsoMonth): string =>
+	`${formatGermanDate(`${month}-01`)} – ${formatGermanDate(lastDayOfMonth(month))}`
 
 export const groupIban = (iban: string): string => iban.replace(/(.{4})/g, "$1 ").trim()
 

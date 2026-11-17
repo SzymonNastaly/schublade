@@ -17,7 +17,8 @@ import {
 	renderSourcePdf,
 	verifySourcePdf,
 } from "./test_document_generation/document_rendering.ts"
-import type { CaptureMethod, DocumentSpecification } from "./test_document_generation/document_layout.ts"
+import type { CataloguedDocument } from "./test_document_generation/document_catalog.ts"
+import type { DocumentSpecification } from "./test_document_generation/document_layout.ts"
 import type { PdfInformation, Pdfium } from "./test_document_generation/document_rendering.ts"
 
 const outputDirectory = fileURLToPath(new URL("../test_fixtures/documents/", import.meta.url))
@@ -28,7 +29,10 @@ const captureFormats = {
 	digital: { extension: "pdf", mediaType: "application/pdf", hasTextLayer: true },
 	scanned: { extension: "pdf", mediaType: "application/pdf", hasTextLayer: false },
 	photographed: { extension: "jpg", mediaType: "image/jpeg", hasTextLayer: false },
-} as const satisfies Record<CaptureMethod, { extension: string; mediaType: string; hasTextLayer: boolean }>
+} as const satisfies Record<
+	CataloguedDocument["captureMethod"],
+	{ extension: string; mediaType: string; hasTextLayer: boolean }
+>
 
 const pdfInformation = (specification: DocumentSpecification): PdfInformation => ({
 	creator: "scripts/generate_test_documents.ts",
@@ -37,11 +41,11 @@ const pdfInformation = (specification: DocumentSpecification): PdfInformation =>
 
 async function captureDocument(
 	pdfium: Pdfium,
-	specification: DocumentSpecification,
+	{ fileStem, captureMethod, specification }: CataloguedDocument,
 	sourcePdf: Buffer,
 ): Promise<Buffer> {
-	const random = createRandomSource(specification.fileStem)
-	switch (specification.captureMethod) {
+	const random = createRandomSource(fileStem)
+	switch (captureMethod) {
 		case "digital":
 			return sourcePdf
 		case "scanned": {
@@ -53,37 +57,40 @@ async function captureDocument(
 		}
 		case "photographed": {
 			const [receipt] = rasterizePages(pdfium, sourcePdf, photographResolutionDotsPerInch)
-			if (!receipt) throw new Error(`${specification.fileStem} rendered no page to photograph`)
+			if (!receipt) throw new Error(`${fileStem} rendered no page to photograph`)
 			return encodeJpeg(simulateReceiptPhotograph(receipt, random), 80)
 		}
 	}
 }
 
-function verifyCapturedDocument(pdfium: Pdfium, specification: DocumentSpecification, bytes: Buffer): void {
-	const format = captureFormats[specification.captureMethod]
+function verifyCapturedDocument(
+	pdfium: Pdfium,
+	{ fileStem, captureMethod, specification }: CataloguedDocument,
+	bytes: Buffer,
+): void {
+	const format = captureFormats[captureMethod]
 	if (format.mediaType === "image/jpeg") {
-		if (bytes[0] !== 0xff || bytes[1] !== 0xd8)
-			throw new Error(`${specification.fileStem}: output is not a JPEG stream`)
+		if (bytes[0] !== 0xff || bytes[1] !== 0xd8) throw new Error(`${fileStem}: output is not a JPEG stream`)
 		return
 	}
 	const characterCounts = extractPageTexts(pdfium, bytes).map((text) => text.replace(/\s/g, "").length)
 	if (characterCounts.length !== specification.pageCount)
-		throw new Error(`${specification.fileStem}: output has ${characterCounts.length} pages`)
+		throw new Error(`${fileStem}: output has ${characterCounts.length} pages`)
 	const textLayerMatches = format.hasTextLayer
 		? characterCounts.every((count) => count > 0)
 		: characterCounts.every((count) => count === 0)
 	if (!textLayerMatches)
 		throw new Error(
-			`${specification.fileStem}: text characters per page ${characterCounts.join(", ")} contradict has_text_layer ${format.hasTextLayer}`,
+			`${fileStem}: text characters per page ${characterCounts.join(", ")} contradict has_text_layer ${format.hasTextLayer}`,
 		)
 }
 
-function describeExpectedExtraction(specification: DocumentSpecification) {
-	const format = captureFormats[specification.captureMethod]
+function describeExpectedExtraction({ fileStem, captureMethod, specification }: CataloguedDocument) {
+	const format = captureFormats[captureMethod]
 	return {
-		file_name: `${specification.fileStem}.${format.extension}`,
+		file_name: `${fileStem}.${format.extension}`,
 		media_type: format.mediaType,
-		capture_method: specification.captureMethod,
+		capture_method: captureMethod,
 		has_text_layer: format.hasTextLayer,
 		page_count: specification.pageCount,
 		language: specification.language,
@@ -99,12 +106,12 @@ function describeExpectedExtraction(specification: DocumentSpecification) {
 const pdfium = await loadPdfium()
 const generatedFiles: Array<{ fileName: string; bytes: Buffer }> = []
 const expectations = []
-for (const specification of documentCatalog) {
-	const sourcePdf = await renderSourcePdf(specification, pdfInformation(specification))
-	verifySourcePdf(specification.fileStem, specification, extractPageTexts(pdfium, sourcePdf))
-	const captured = await captureDocument(pdfium, specification, sourcePdf)
-	verifyCapturedDocument(pdfium, specification, captured)
-	const expectation = describeExpectedExtraction(specification)
+for (const entry of documentCatalog) {
+	const sourcePdf = await renderSourcePdf(entry.specification, pdfInformation(entry.specification))
+	verifySourcePdf(entry.fileStem, entry.specification, extractPageTexts(pdfium, sourcePdf))
+	const captured = await captureDocument(pdfium, entry, sourcePdf)
+	verifyCapturedDocument(pdfium, entry, captured)
+	const expectation = describeExpectedExtraction(entry)
 	generatedFiles.push({ fileName: expectation.file_name, bytes: captured })
 	expectations.push(expectation)
 }
