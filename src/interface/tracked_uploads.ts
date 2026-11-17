@@ -92,7 +92,7 @@ export function reduceTrackedUploads(
 					: upload,
 			)
 		case "document_deleted":
-			return uploads.filter((upload) => upload.stage !== "tracked" || upload.documentId !== event.documentId)
+			return uploads.filter((upload) => !("documentId" in upload) || upload.documentId !== event.documentId)
 		case "dismissed":
 			return uploads.filter((upload) => upload.key !== event.key)
 		case "finished_cleared":

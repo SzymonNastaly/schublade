@@ -73,6 +73,20 @@ test("a status record updates its row and a retry makes the failed row unfinishe
 	})
 })
 
+test("a deleted document removes every row that links to it, the already archived ones included", () => {
+	const uploads: Array<TrackedUpload> = [
+		trackedRow("deleted", { status: "failed", failureReason: "processing_error" }),
+		{ key: "copy", fileName: "copy.pdf", stage: "already_archived", documentId: "deleted" },
+		{ key: "known", fileName: "known.pdf", stage: "already_archived", documentId: "kept" },
+		{ key: "refused", fileName: "refused.txt", stage: "refused", reason: "Too large" },
+		trackedRow("kept", {}),
+	]
+
+	expect(
+		reduceTrackedUploads(uploads, { kind: "document_deleted", documentId: "deleted" }).map((upload) => upload.key),
+	).toEqual(["known", "refused", "kept"])
+})
+
 test("clearing finished uploads keeps only the uploads still running", () => {
 	const uploads: Array<TrackedUpload> = [
 		{ key: "sending", fileName: "sending.pdf", stage: "uploading" },
