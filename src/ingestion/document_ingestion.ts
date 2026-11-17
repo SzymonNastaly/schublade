@@ -15,6 +15,7 @@ import { classifyDocument } from "../inference/document_classifier"
 import { indexDocument } from "../search/document_indexing"
 import { UnopenablePdfError, inspectPages, rasterizePage } from "../inference/page_rasterizer"
 import { countDistinctWords, createMoondreamRecognizer, normalizeRecognitionImage } from "../inference/text_recognizer"
+import { claimContent, sha256Hexadecimal } from "./content_identity"
 import { findStandardCategory } from "./document_classification"
 import {
 	assembleDocumentMarkdown,
@@ -240,15 +241,26 @@ async function renderStoredMail(
 	await environment.DOCUMENT_STORAGE.put(storageObjectKey, content, {
 		httpMetadata: { contentType: sourceFile.mediaType },
 	})
-	await database
-		.update(documents)
-		.set({ storageObjectKey, mimeType: sourceFile.mediaType, byteSize: content.byteLength, status: "processing" })
-		.where(
-			and(
-				eq(documents.id, documentId),
-				inArray(documents.status, [...predecessorStatuses("processing"), "processing"]),
+	// The printed PDF is the content the document shows, so it is digested and claimed like an upload.
+	const sha256 = await sha256Hexadecimal(content)
+	await database.batch([
+		database
+			.update(documents)
+			.set({
+				storageObjectKey,
+				mimeType: sourceFile.mediaType,
+				byteSize: content.byteLength,
+				originalSha256: sha256,
+				status: "processing",
+			})
+			.where(
+				and(
+					eq(documents.id, documentId),
+					inArray(documents.status, [...predecessorStatuses("processing"), "processing"]),
+				),
 			),
-		)
+		claimContent(database, sha256, documentId),
+	])
 	await announceArchiveChange(environment)
 	return {
 		kind: "rendered",

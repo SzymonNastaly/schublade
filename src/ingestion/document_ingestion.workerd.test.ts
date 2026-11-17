@@ -8,7 +8,7 @@ import recording from "../../test_fixtures/inference_recordings/electricity_invo
 import { connectToArchiveChanges } from "../archive/archive_changes"
 import { queryDocumentListing } from "../archive/document_listing"
 import { connectDatabase } from "../database/client"
-import { categories, documents, extractedFields, senders, tags } from "../database/schema"
+import { categories, contents, documents, extractedFields, senders, tags } from "../database/schema"
 import { ingestDocument, retryDocumentIngestion, startWaitingMailRendering } from "./document_ingestion"
 import { contentObjectKey } from "./source_file"
 import type { WorkflowStep } from "cloudflare:workers"
@@ -360,7 +360,7 @@ async function storeMessage(documentId: string, message: string) {
 	return database
 }
 
-test("ingestDocument prints a stored email to a PDF, archives that, and keeps the message", async () => {
+test("ingestDocument prints a stored email to a PDF, archives that with its digest, and keeps the message", async () => {
 	const documentId = "f1000000-0000-4000-8000-000000000001"
 	const database = await storeMessage(documentId, receiptMessage)
 	const { stepNames, step } = createRecordingStep()
@@ -368,7 +368,12 @@ test("ingestDocument prints a stored email to a PDF, archives that, and keeps th
 	await ingestDocument(step, recordedEnvironment, documentId)
 
 	const [document] = await database
-		.select({ status: documents.status, mimeType: documents.mimeType, storageObjectKey: documents.storageObjectKey })
+		.select({
+			status: documents.status,
+			mimeType: documents.mimeType,
+			storageObjectKey: documents.storageObjectKey,
+			originalSha256: documents.originalSha256,
+		})
 		.from(documents)
 		.where(eq(documents.id, documentId))
 	const objects = (await env.DOCUMENT_STORAGE.list({ prefix: `documents/${documentId}/` })).objects.map(
@@ -377,6 +382,7 @@ test("ingestDocument prints a stored email to a PDF, archives that, and keeps th
 	expect({
 		firstSteps: stepNames.slice(0, 2),
 		document,
+		contents: await database.select({ sha256: contents.sha256, documentId: contents.documentId }).from(contents),
 		objects,
 		renderings: browserRenderings.map(({ action, scripts }) => ({ action, scripts })),
 		printedSubject: browserRenderings[0]?.html.includes("Fwd: Your receipt from Paperlark"),
@@ -388,7 +394,10 @@ test("ingestDocument prints a stored email to a PDF, archives that, and keeps th
 			status: "archived",
 			mimeType: "application/pdf",
 			storageObjectKey: `documents/${documentId}/original.pdf`,
+			// The SHA-256 of the stored PDF that the browser rendering answers with.
+			originalSha256: "3551f8806c62a6b604bfbeab63ececeac46ee9df4e7db1ff5835377ff07ab0ed",
 		},
+		contents: [{ sha256: "3551f8806c62a6b604bfbeab63ececeac46ee9df4e7db1ff5835377ff07ab0ed", documentId }],
 		objects: [
 			`documents/${documentId}/content.md`,
 			`documents/${documentId}/original.eml`,

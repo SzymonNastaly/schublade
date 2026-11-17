@@ -88,9 +88,9 @@ async function recordContentDigest(
  * Records the digest of up to 25 documents archived before digests existed, oldest first, and
  * claims each content for its document. Documents it cannot digest are passed over, so they never
  * hold back the ones after them. Only an original of an accepted kind is digested: a stored
- * message awaits its rendering, after which the document shows the printed PDF. Recording the
- * digest is no revision of the document, so updated_at keeps its value and AI Search does not
- * upload the document again.
+ * message awaits its rendering, which records the digest of the printed PDF. Recording the digest
+ * is no revision of the document, so updated_at keeps its value and AI Search does not upload the
+ * document again.
  */
 export async function recordMissingContentDigests(database: ArchiveDatabase, storage: R2Bucket): Promise<DigestReport> {
 	const report: DigestReport = {
