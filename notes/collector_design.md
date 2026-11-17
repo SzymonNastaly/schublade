@@ -541,7 +541,22 @@ Decisions the owner made on 2026-11-17:
 
 ## Implementation reconciliation
 
-Nothing to reconcile yet.
+The first part of the implementation (the server's 409, the workspace, the pure machines, the store, the planner, and the archive seam, committed 2026-11-17) departs from the sketch in these places. Each is the smallest version that compiled and tested; none changes a state's meaning.
+
+1. **The server refuses a deleted content before it reads the body.** `serveContentSubmission` looks the path's digest up first and answers 409 without reading the PUT body, so a collector pays no upload for the refusal. The residual gap is the moment between that lookup and `archiveContent`'s claim, which the 10-minute lookup validity already bounds.
+2. **`FileSignature` nanoseconds are `i64`**, not `i128`, because SQLite stores 64-bit integers and Unix nanoseconds fit until 2262.
+3. **`DocumentStatus` has `AwaitingRendering`**, the server's first status, so every status answer parses.
+4. **`reconcile_directory` takes stored child directories as `DirectoryKey`s**, not names. The store derives them from normalized keys, and a listed name normalizes to the same key, so a decomposed name from FSEvents matches.
+5. **`reconcile_directory` leaves a vanished or unreadable root untouched itself.** Fix 1 holds as a property of the function, whatever the coordinator routes to it.
+6. **`PathEvent::SourceVerificationFailed` carries `based_on`**, so a stale source failure falls through as `Unchanged` like a stale digest result. A vanished file (`current: None`) in either event is `Unchanged`; only the next listing removes the row, so the coordinator should list the directory after such a result.
+7. **422 is `ArchiveCondition::DigestDisagreement`**, not a `SubmissionOutcome`, and the consequences table turns it into `SubmissionFailed(DigestDisagreement)` as the table above says. `SubmissionOutcome::Deleted` is the 409.
+8. **`consequences` takes an `ArchiveAnswer`**, the whole result of one request with the content it was about, successes included, and returns `Consequences { connection, contents }`. One table covers every answer.
+9. **`ConnectionState::Probing` carries `since`**, so a failed probe keeps the time the archive became unreachable; the retry time is the failure time plus the back-off. A credential answer or a 503 moves the connection from any state but Unconfigured and Suspended, because it is a fact about the archive whatever request brought it.
+10. **Schema.** `watched_folders` has no `backlog_decision` and `contents` no `declined_at` (the owner's decision). `path_observations` gains `unreadable_since`. `content_sightings` holds `relative_path` as the normalized key text of the path, and a row that leaves Digested withdraws its sighting as `NotListed` does, because the content is no longer at that path.
+11. **`Reservations` holds `ContentReservation::LookingUp(LookupBatch)`**, and a lane's occupancy is derived from the sets, with one lookup batch counted once. The coordinator numbers the batches.
+12. **Store API.** `work_candidates` takes the available folders, because a listing below a missing root would read as vanished and a missing folder admits no source. `remove_subtrees` replaces `apply_reconciliation_removals`. `directory_contents` returns `DirectoryContents`. `apply_path` takes the event time. `store_standing` always writes. Stale absent contents come from the store's lookup query, limited to 1000 per batch, so a restart refreshes thousands of stale answers in a few lookups instead of two per planning round.
+13. **`ArchiveClient` is a trait** (graft 2) with `HttpArchiveClient` and `ScriptedArchive`. `ArchiveAddress::parse` returns `ArchiveAddressRefusal` until `CommandRefusal` arrives with the coordinator. `VerifiedContent::from_bytes` computes the digest from the bytes it holds; the signature checks before and after the read belong to `read_submission_source`.
+14. **`Clock` lives in `clock.rs`** with `SystemClock` and `ManualClock`. `status_report.rs` holds only `BacklogSummary` (with `files_refused_by_archive`), `StateCounts`, and `Receipt`, which gets its link from the coordinator, the only holder of the origin.
 
 ## Open questions and risks
 
