@@ -16,10 +16,10 @@ interface ApplicationHeaderProperties {
 /** The archive's blue header with the drawer, and the tabs once the collector is set up. */
 export function ApplicationHeader({ tab, onTabChange }: ApplicationHeaderProperties) {
 	return (
-		<header className="shrink-0 bg-application-header px-4 pt-3" data-tauri-drag-region>
-			<div className="flex items-center gap-2.5 pb-3" data-tauri-drag-region>
+		<header className="shrink-0 bg-application-header px-4 pt-3">
+			<div className="flex items-center gap-2.5 pb-3">
 				<DrawerEmblem className="h-[34px] w-[38px]" />
-				<span className="flex flex-col" data-tauri-drag-region>
+				<span className="flex flex-col">
 					<span className="font-heading text-[22px] leading-6 font-bold text-on-header">Schublade Collector</span>
 					<span className="text-[10px] font-bold tracking-[1.4px] text-header-caption">
 						FILLS YOUR ARCHIVE FROM THIS MAC
