@@ -348,23 +348,36 @@ impl FolderWatcher {
         Ok(FolderWatcher { watcher, roots })
     }
 
-    /// Fails while the root is missing; the coordinator tries again at each walk.
+    /// Fails while the root is missing; the coordinator tries again at each walk. Events are
+    /// matched against the root as given and as canonicalized, because FSEvents reports real
+    /// paths (`/private/var/...` for a root named `/var/...`) while inotify reports the watched one.
     pub fn watch(&mut self, folder: FolderIdentifier, root: &Path) -> notify::Result<()> {
         self.watcher.watch(root, RecursiveMode::Recursive)?;
-        self.roots
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .insert(root.to_path_buf(), folder);
+        let mut roots = self.roots.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        for spelling in root_spellings(root) {
+            roots.insert(spelling, folder);
+        }
         Ok(())
     }
 
     pub fn unwatch(&mut self, root: &Path) {
-        self.roots
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .remove(root);
+        let mut roots = self.roots.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        for spelling in root_spellings(root) {
+            roots.remove(&spelling);
+        }
+        drop(roots);
         let _ = self.watcher.unwatch(root);
     }
+}
+
+fn root_spellings(root: &Path) -> Vec<PathBuf> {
+    let mut spellings = vec![root.to_path_buf()];
+    if let Ok(canonical) = root.canonicalize()
+        && canonical != root
+    {
+        spellings.push(canonical);
+    }
+    spellings
 }
 
 /// The directory to list for each event path: the path itself when it is a watched root, else
@@ -379,6 +392,10 @@ fn hints_of(event: &notify::Event, roots: &BTreeMap<PathBuf, FolderIdentifier>) 
                 recursive: true,
             })
             .collect();
+    }
+    // A read of a file (inotify reports opens and closes) changes no listing.
+    if matches!(event.kind, notify::EventKind::Access(_)) {
+        return Vec::new();
     }
     let mut hints = Vec::new();
     for path in &event.paths {
@@ -605,10 +622,18 @@ mod tests {
         );
     }
 
+    /// The root is watched through a symbolic link, so the platform may report the link's path
+    /// (inotify) or the real one (FSEvents); both must find the folder.
     #[test]
     fn the_watcher_turns_an_event_into_a_hint_naming_the_directory_of_the_entry() {
         let temporary = tempfile::tempdir().unwrap();
-        let root = temporary.path().canonicalize().unwrap();
+        let real = temporary.path().join("real");
+        std::fs::create_dir(&real).unwrap();
+        let root = temporary.path().join("link");
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(&real, &root).unwrap();
+        #[cfg(not(unix))]
+        let root = real;
         std::fs::create_dir(root.join("Scans")).unwrap();
         let (sender, receiver) = mpsc::channel();
         let mut watcher = FolderWatcher::new(move |hint| {

@@ -17,6 +17,8 @@ struct Script {
     documents: BTreeMap<DocumentIdentifier, DocumentStatus>,
     /// Each request takes the next condition instead of answering, until the queue is empty.
     conditions: VecDeque<ArchiveCondition>,
+    /// The next lookup of a digest answers this instead of the archive's record, once per entry.
+    lookup_overrides: BTreeMap<ContentDigest, VecDeque<LookupAnswer>>,
     lookups: Vec<Vec<ContentDigest>>,
     submissions: Vec<ContentDigest>,
     status_reads: Vec<DocumentIdentifier>,
@@ -60,6 +62,21 @@ impl ScriptedArchive {
         self.script().conditions.push_back(condition);
     }
 
+    /// The next lookup of this digest answers as given, whatever the archive records: the
+    /// window in which another device uploaded, or the owner deleted, between lookup and PUT.
+    pub fn answer_next_lookup(&self, digest: ContentDigest, answer: LookupAnswer) {
+        self.script()
+            .lookup_overrides
+            .entry(digest)
+            .or_default()
+            .push_back(answer);
+    }
+
+    /// Whether the archive holds a document for this content.
+    pub fn holds(&self, digest: &ContentDigest) -> bool {
+        matches!(self.script().contents.get(digest), Some(LookupAnswer::Present(_)))
+    }
+
     pub fn submission_count(&self, digest: &ContentDigest) -> usize {
         self.script()
             .submissions
@@ -98,15 +115,14 @@ impl ArchiveClient for ScriptedArchive {
         if let Some(condition) = script.conditions.pop_front() {
             return Err(condition);
         }
-        Ok(digests
-            .iter()
-            .map(|digest| {
-                (
-                    *digest,
-                    script.contents.get(digest).cloned().unwrap_or(LookupAnswer::Absent),
-                )
-            })
-            .collect())
+        let mut answers = Vec::with_capacity(digests.len());
+        for digest in digests {
+            let overridden = script.lookup_overrides.get_mut(digest).and_then(VecDeque::pop_front);
+            let answer =
+                overridden.unwrap_or_else(|| script.contents.get(digest).cloned().unwrap_or(LookupAnswer::Absent));
+            answers.push((*digest, answer));
+        }
+        Ok(answers)
     }
 
     fn submit(
@@ -230,6 +246,20 @@ mod tests {
         assert_eq!(archive.look_up(&[digest]).unwrap().len(), 1);
         assert_eq!(archive.submission_count(&digest), 3);
         assert_eq!(archive.lookups().len(), 5);
+
+        archive.answer_next_lookup(digest, LookupAnswer::Absent);
+        assert_eq!(
+            archive.look_up(&[digest]).unwrap(),
+            vec![(digest, LookupAnswer::Absent)]
+        );
+        assert_eq!(
+            archive.look_up(&[digest]).unwrap(),
+            vec![(digest, LookupAnswer::Deleted)]
+        );
+        assert!(!archive.holds(&digest));
+        let held = VerifiedContent::from_bytes(b"%PDF-1.7 held".to_vec());
+        archive.submit(authorization(held.digest()), held.clone()).unwrap();
+        assert!(archive.holds(&held.digest()));
         assert_eq!(archive.status_reads(), vec![document.clone(), document]);
     }
 }

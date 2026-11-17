@@ -8,3 +8,8 @@ edition = "2024"
 rust-version = "1.89"
 license = "MIT"
 publish = false
+
+# Dependencies run optimized in test builds, because SHA-256 and SQLite compiled without
+# optimization make a corpus scenario take seconds instead of a fraction of one.
+[profile.dev.package."*"]
+opt-level = 2
