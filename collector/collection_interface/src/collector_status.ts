@@ -219,6 +219,34 @@ export function parseCollectorStatus(wire: WireCollectorStatus): CollectorStatus
 	}
 }
 
+const applicationRefusalKinds: Record<ApplicationRefusal["kind"], true> = {
+	AddressInvalid: true,
+	TokenRefused: true,
+	TokenInsufficient: true,
+	ArchiveUnreachable: true,
+	ArchiveUnavailable: true,
+	ArchiveFailed: true,
+	NotAnArchive: true,
+	PreferenceNotApplied: true,
+	CollectorNotStarted: true,
+	CommandRefused: true,
+}
+
+/**
+ * The refusal a rejected command carries, or null for any other rejection, such as the plain text
+ * Tauri rejects with when it cannot run a command at all.
+ */
+export function refusalOf(rejection: unknown): Refusal | null {
+	const kind =
+		typeof rejection === "string"
+			? rejection
+			: typeof rejection === "object" && rejection !== null
+				? Object.keys(rejection)[0]
+				: undefined
+	if (kind === undefined || !Object.hasOwn(applicationRefusalKinds, kind)) return null
+	return parseRefusal(rejection as WireApplicationRefusal)
+}
+
 export function parseRefusal(wire: WireApplicationRefusal): Refusal {
 	const refusal = fromExternalTag<ApplicationRefusal>(wire)
 	switch (refusal.kind) {

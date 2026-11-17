@@ -2,6 +2,7 @@ import { useState } from "react"
 import { useCollectorStatus } from "./collector_queries"
 import { RefusalError } from "./collector_status"
 import { FailureMessage } from "./controls/form_fields"
+import { failureSentence } from "./failure_sentence"
 import { ApplicationHeader } from "./screens/application_header"
 import { BacklogConfirmationScreen } from "./screens/backlog_confirmation_screen"
 import { FoldersScreen } from "./screens/folders_screen"
@@ -19,29 +20,34 @@ export function Application() {
 	const status = useCollectorStatus()
 	const [tab, setTab] = useState<ApplicationTab>("status")
 
-	if (status.isPending) return <ApplicationHeader />
-	if (status.isError) {
-		if (status.error instanceof RefusalError && status.error.refusal.kind === "CollectorNotStarted") {
-			return (
-				<>
-					<ApplicationHeader />
-					<StartFailureScreen failure={status.error.refusal.failure} />
-				</>
-			)
-		}
+	if (status.data === undefined) {
+		if (!status.isError) return <ApplicationHeader />
+		const refusal = status.error instanceof RefusalError ? status.error.refusal : null
 		return (
 			<>
 				<ApplicationHeader />
-				<main className="p-4">
-					<FailureMessage>The collector did not answer: {status.error.message}</FailureMessage>
-				</main>
+				{refusal?.kind === "CollectorNotStarted" ? (
+					<StartFailureScreen failure={refusal.failure} />
+				) : (
+					<main className="p-4">
+						<FailureMessage>The collector did not answer: {failureSentence(status.error, undefined)}</FailureMessage>
+					</main>
+				)}
 			</>
 		)
 	}
+	// A failed reread keeps the status already shown and says so above it.
+	const rereadFailure =
+		status.error === null ? null : (
+			<FailureMessage>
+				The collector did not answer just now: {failureSentence(status.error, status.data)}
+			</FailureMessage>
+		)
 	if (status.data.connection.kind === "Unconfigured") {
 		return (
 			<>
 				<ApplicationHeader />
+				{rereadFailure !== null && <div className="mx-auto max-w-[520px] px-6 pt-4">{rereadFailure}</div>}
 				<SetupScreen />
 			</>
 		)
@@ -53,6 +59,7 @@ export function Application() {
 		return (
 			<>
 				<ApplicationHeader />
+				{rereadFailure !== null && <div className="mx-auto max-w-[600px] px-6 pt-4">{rereadFailure}</div>}
 				<BacklogConfirmationScreen folder={awaiting} backlog={awaiting.backlog} status={status.data} />
 			</>
 		)
@@ -61,6 +68,7 @@ export function Application() {
 		<div className="flex h-full flex-col">
 			<ApplicationHeader tab={tab} onTabChange={setTab} />
 			<main className="min-h-0 flex-1 overflow-y-auto p-4">
+				{rereadFailure !== null && <div className="mx-auto mb-3 max-w-[760px]">{rereadFailure}</div>}
 				{tab === "status" && <StatusScreen status={status.data} onOpenTab={setTab} />}
 				{tab === "folders" && <FoldersScreen status={status.data} />}
 				{tab === "settings" && <SettingsScreen status={status.data} />}

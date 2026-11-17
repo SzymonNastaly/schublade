@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { parseCollectorStatus, parseRefusal } from "./collector_status"
+import { parseCollectorStatus, parseRefusal, refusalOf } from "./collector_status"
 import { attentionSentence, connectionSentence, folderState, refusalSentence } from "./status_sentences"
 import type { WireCollectorStatus } from "./collector_status"
 
@@ -108,5 +108,12 @@ describe("the status sentences", () => {
 		expect(refusalSentence(parseRefusal("TokenRefused"), status)).toBe(
 			"Schublade refused this token. Check that you copied all of it and that it was not revoked.",
 		)
+	})
+
+	it("tells a refusal from the plain text Tauri rejects with when it cannot run a command", () => {
+		expect(refusalOf("ArchiveUnreachable")).toEqual({ kind: "ArchiveUnreachable" })
+		expect(refusalOf({ CommandRefused: { refusal: "CollectorStopped" } })).toEqual({ kind: "CollectorStopped" })
+		expect(refusalOf("state not managed for field `presence` on command `read_collector_status`")).toBeNull()
+		expect(refusalOf({ toString: "not a refusal" })).toBeNull()
 	})
 })
