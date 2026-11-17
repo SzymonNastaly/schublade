@@ -52,6 +52,11 @@ impl IngestToken {
         IngestToken(token.trim().to_owned())
     }
 
+    /// The token itself, for the credential store and the request header only.
+    pub fn secret(&self) -> &str {
+        &self.0
+    }
+
     /// SHA-256 of the token as hexadecimal, the only form the database holds.
     pub fn fingerprint(&self) -> String {
         Sha256::digest(self.0.as_bytes())

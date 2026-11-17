@@ -619,26 +619,32 @@ mod tests {
 
         write(&root.join("Scans/scan_0001.pdf"), b"%PDF-1.7 scan");
 
-        let hint = receiver
-            .recv_timeout(Duration::from_secs(10))
-            .expect("a hint for the write");
-        assert_eq!(
-            hint,
-            DirectoryHint {
-                folder: FOLDER,
-                directory: DirectoryKey::from_relative_path(Path::new("Scans")),
-                recursive: false,
-            }
+        // The platform may also report the directory's own change, a hint for the root, so the
+        // hints are judged as a set: the entry's directory is among them, and nothing else is.
+        let expected = DirectoryHint {
+            folder: FOLDER,
+            directory: DirectoryKey::from_relative_path(Path::new("Scans")),
+            recursive: false,
+        };
+        let mut hints = Vec::new();
+        while !hints.contains(&expected) {
+            hints.push(
+                receiver
+                    .recv_timeout(Duration::from_secs(10))
+                    .expect("a hint for the write"),
+            );
+        }
+        assert!(
+            hints.iter().all(|hint| {
+                hint.folder == FOLDER && !hint.recursive && ["", "Scans"].contains(&hint.directory.as_str())
+            }),
+            "{hints:?}"
         );
 
         watcher.unwatch(&root);
         write(&root.join("Invoice.pdf"), b"%PDF-1.7 invoice");
         while let Ok(late) = receiver.recv_timeout(Duration::from_millis(300)) {
-            assert_eq!(
-                late.directory.as_str(),
-                "Scans",
-                "only hints from before the unwatch arrive"
-            );
+            assert_ne!(late.directory.as_str(), "", "no hint for the write after the unwatch");
         }
     }
 

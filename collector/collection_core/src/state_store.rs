@@ -2,7 +2,7 @@
 //! coordinator turns them into the machines' states and back. `PRAGMA user_version` names the
 //! schema version, and the embedded migrations run in order at open.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
 use rusqlite::{Connection, OptionalExtension, Row, named_params, params};
@@ -18,7 +18,7 @@ use crate::domain_types::{
 };
 use crate::folder_admission::{FolderAdmission, SurveyProgress};
 use crate::path_lifecycle::{PathState, PathTransition};
-use crate::status_report::{BacklogSummary, Receipt, StateCounts};
+use crate::status_report::{BacklogSummary, ContentAttention, Receipt, StateCounts};
 use crate::work_planning::{
     Lane, LaneCapacity, MAXIMUM_FOLLOWED_DOCUMENTS, MAXIMUM_LOOKUP_DIGESTS, Reservations, WorkCandidates,
 };
@@ -347,9 +347,11 @@ impl StateStore {
             .pragma_query_value(None, "user_version", |row| row.get(0))
     }
 
-    pub fn begin(&mut self) -> rusqlite::Result<StoreTransaction<'_>> {
+    /// One transaction at a time; the coordinator, the only caller, opens one per batch. The
+    /// store's reads stay callable while it is open and see its uncommitted writes.
+    pub fn begin(&self) -> rusqlite::Result<StoreTransaction<'_>> {
         Ok(StoreTransaction {
-            transaction: self.connection.transaction()?,
+            transaction: self.connection.unchecked_transaction()?,
         })
     }
 
@@ -644,8 +646,21 @@ impl StateStore {
         )
     }
 
-    /// Counts over the named folders; distinct contents are counted once across them.
+    /// Counts over the named folders; distinct contents are counted once across them. The
+    /// disregarded entries have no rows, so the coordinator adds them from its listings.
     pub fn backlog_summary(&self, folders: &[FolderIdentifier]) -> rusqlite::Result<BacklogSummary> {
+        let mut by_reason = self.connection.prepare(
+            "SELECT exclusion_reason, COUNT(*) FROM path_observations WHERE lifecycle = 'excluded' \
+             AND folder_identifier IN (SELECT value FROM json_each(?1)) GROUP BY exclusion_reason",
+        )?;
+        let excluded_files_by_reason = by_reason
+            .query_map(params![folder_list(folders)], |row| {
+                Ok((
+                    stored_variant(STORED_EXCLUSION_REASONS, &row.get::<_, String>(0)?)?,
+                    row.get::<_, i64>(1)? as u64,
+                ))
+            })?
+            .collect::<rusqlite::Result<BTreeMap<_, _>>>()?;
         self.connection.query_row(
             "SELECT COUNT(*) FILTER (WHERE p.lifecycle = 'digested'), \
                     COUNT(*) FILTER (WHERE c.archive_standing = 'present'), \
@@ -670,6 +685,8 @@ impl StateStore {
                     files_new: count(4)?,
                     new_contents: count(5)?,
                     excluded_files: count(6)?,
+                    excluded_files_by_reason,
+                    disregarded_files: BTreeMap::new(),
                     unreadable_files: count(7)?,
                     files_under_examination: count(8)?,
                 })
@@ -709,16 +726,22 @@ impl StateStore {
         })
     }
 
-    /// Documents this collector received, newest first, each named by its newest sighting.
+    /// The newest sighting of a content, withdrawn ones last, as the status names a file.
+    const NEWEST_SIGHTING: &'static str = "(SELECT s.relative_path FROM content_sightings s \
+        WHERE s.content_digest = c.content_digest ORDER BY s.withdrawn_at IS NOT NULL, s.last_seen_at DESC LIMIT 1)";
+
+    /// Documents this collector received, newest first, each named by its newest sighting and
+    /// linked under the stored archive origin.
     pub fn recent_receipts(&self, limit: usize) -> rusqlite::Result<Vec<Receipt>> {
-        let mut statement = self.connection.prepare(
+        let mut statement = self.connection.prepare(&format!(
             "SELECT c.content_digest, c.document_identifier, c.document_status, c.failure_reason, c.received_at, \
-                    (SELECT s.relative_path FROM content_sightings s WHERE s.content_digest = c.content_digest \
-                     ORDER BY s.withdrawn_at IS NOT NULL, s.last_seen_at DESC LIMIT 1) AS relative_path \
+                    {} AS relative_path, (SELECT archive_origin FROM archive_connection) AS archive_origin \
              FROM contents c WHERE c.received_at IS NOT NULL ORDER BY c.received_at DESC, c.content_digest LIMIT ?1",
-        )?;
+            StateStore::NEWEST_SIGHTING
+        ))?;
         let receipts = statement.query_map(params![i64::try_from(limit).unwrap_or(i64::MAX)], |row| {
             let identifier: String = row.get("document_identifier")?;
+            let origin: Option<String> = row.get("archive_origin")?;
             let status = match row.get::<_, Option<String>>("document_status")? {
                 Some(name) => Some(
                     DocumentStatus::parse(&name, row.get("failure_reason")?)
@@ -727,6 +750,7 @@ impl StateStore {
                 None => None,
             };
             Ok(Receipt {
+                document_link: format!("{}/documents/{identifier}", origin.unwrap_or_default()),
                 document: DocumentIdentifier::parse(&identifier)
                     .ok_or_else(|| invalid_row(format!("malformed document identifier {identifier}")))?,
                 file_name: row
@@ -739,20 +763,51 @@ impl StateStore {
         receipts.collect()
     }
 
-    /// The earliest stabilization, unreadable retry, or submission retry: when the coordinator must
-    /// wake for the store's sake.
-    pub fn next_deadline(&self, timing: &TimingPolicy) -> rusqlite::Result<Option<Timestamp>> {
+    /// Contents the archive refused for good, and absent contents with three or more failures,
+    /// each named by its newest sighting.
+    pub fn contents_needing_attention(&self) -> rusqlite::Result<Vec<ContentAttention>> {
+        let mut statement = self.connection.prepare(&format!(
+            "SELECT c.content_digest, c.refusal_reason, c.submission_failures, {} AS relative_path FROM contents c \
+             WHERE c.archive_standing = 'refused' OR (c.archive_standing = 'absent' AND c.submission_failures >= 3) \
+             ORDER BY c.content_digest",
+            StateStore::NEWEST_SIGHTING
+        ))?;
+        let contents = statement.query_map([], |row| {
+            let refusal = match row.get::<_, Option<String>>("refusal_reason")? {
+                Some(reason) => Some(stored_variant(STORED_REFUSAL_REASONS, &reason)?),
+                None => None,
+            };
+            Ok(ContentAttention {
+                file_name: row
+                    .get::<_, Option<String>>("relative_path")?
+                    .unwrap_or_else(|| row.get("content_digest").unwrap_or_default()),
+                refusal,
+                failures: row.get::<_, i64>("submission_failures")?.try_into().unwrap_or(u32::MAX),
+            })
+        })?;
+        contents.collect()
+    }
+
+    /// The earliest stabilization, unreadable retry, submission retry, or document status read:
+    /// when the coordinator must wake for the store's sake.
+    pub fn next_deadline(&self, now: Timestamp, timing: &TimingPolicy) -> rusqlite::Result<Option<Timestamp>> {
         self.connection
             .query_row(
                 "SELECT MIN(deadline) FROM (\
-                    SELECT observed_at + ?1 AS deadline FROM path_observations WHERE lifecycle = 'stabilizing' \
-                    UNION ALL SELECT unreadable_since + ?2 FROM path_observations WHERE lifecycle = 'unreadable' \
+                    SELECT observed_at + :stabilization AS deadline FROM path_observations WHERE lifecycle = 'stabilizing' \
+                    UNION ALL SELECT unreadable_since + :retry FROM path_observations WHERE lifecycle = 'unreadable' \
                     UNION ALL SELECT retry_not_before FROM contents \
-                        WHERE archive_standing = 'absent' AND retry_not_before IS NOT NULL)",
-                params![
-                    milliseconds(timing.stabilization_interval),
-                    milliseconds(timing.unreadable_retry_interval)
-                ],
+                        WHERE archive_standing = 'absent' AND retry_not_before IS NOT NULL \
+                    UNION ALL SELECT COALESCE(status_read_at + :follow, received_at) FROM contents \
+                        WHERE archive_standing = 'present' AND received_at IS NOT NULL AND received_at + :window > :now \
+                          AND (document_status IS NULL OR document_status NOT IN ('archived', 'failed')))",
+                named_params! {
+                    ":stabilization": milliseconds(timing.stabilization_interval),
+                    ":retry": milliseconds(timing.unreadable_retry_interval),
+                    ":follow": milliseconds(timing.document_follow_interval),
+                    ":window": milliseconds(timing.document_follow_window),
+                    ":now": now.0,
+                },
                 |row| row.get::<_, Option<i64>>(0),
             )
             .map(|deadline| deadline.map(Timestamp))
@@ -1023,6 +1078,7 @@ impl StoreTransaction<'_> {
 #[cfg(test)]
 mod tests {
     use std::collections::BTreeMap;
+    use std::time::Duration;
 
     use super::*;
     use crate::content_synchronization::{PresentDocument, SubmissionFailures};
@@ -1062,7 +1118,7 @@ mod tests {
     }
 
     fn store_with_folder(root: &str) -> (StateStore, FolderIdentifier) {
-        let mut store = StateStore::open_in_memory().unwrap();
+        let store = StateStore::open_in_memory().unwrap();
         let transaction = store.begin().unwrap();
         let folder = transaction.enroll_folder(Path::new(root), Timestamp(1)).unwrap();
         transaction.commit().unwrap();
@@ -1415,7 +1471,7 @@ mod tests {
 
     /// Three folders: one collecting and available, one surveying, one collecting but unavailable.
     fn populated_store(now: Timestamp) -> (StateStore, [FolderIdentifier; 3]) {
-        let mut store = StateStore::open_in_memory().unwrap();
+        let store = StateStore::open_in_memory().unwrap();
         let transaction = store.begin().unwrap();
         let collecting = transaction
             .enroll_folder(Path::new("/collecting"), Timestamp(1))
@@ -1585,6 +1641,26 @@ mod tests {
                 ),
             )
             .unwrap();
+        store_path(&key(surveying, "", "refused.pdf"), digested(23, 0x1E), 10 * MINUTE);
+        store_path(&key(surveying, "", "failing.pdf"), digested(24, 0x1F), 10 * MINUTE);
+        transaction
+            .store_standing(&digest(0x1E), &ArchiveStanding::Refused(RefusalReason::UnacceptedKind))
+            .unwrap();
+        transaction
+            .store_standing(
+                &digest(0x1F),
+                &ArchiveStanding::Absent {
+                    looked_up_at: Timestamp(now.0 - MINUTE),
+                    failures: SubmissionFailures {
+                        count: 3,
+                        retry_not_before: Some(Timestamp(now.0 + 10 * MINUTE)),
+                    },
+                },
+            )
+            .unwrap();
+        transaction
+            .store_connection("https://archive.example.org", "fingerprint")
+            .unwrap();
         transaction.commit().unwrap();
         (store, [collecting, surveying, unavailable])
     }
@@ -1688,6 +1764,8 @@ mod tests {
                 files_new: 5,
                 new_contents: 4,
                 excluded_files: 0,
+                excluded_files_by_reason: BTreeMap::new(),
+                disregarded_files: BTreeMap::new(),
                 unreadable_files: 0,
                 files_under_examination: 6,
             }
@@ -1697,29 +1775,32 @@ mod tests {
             StateCounts {
                 paths_stabilizing: 3,
                 paths_awaiting_digest: 4,
-                paths_digested: 13,
+                paths_digested: 15,
                 paths_excluded: 0,
                 paths_unreadable: 0,
                 contents_unresolved: 4,
-                contents_awaiting_submission: 6,
+                contents_awaiting_submission: 7,
                 contents_present: 4,
                 contents_deleted: 0,
-                contents_refused: 0,
-                contents_failing: 0,
+                contents_refused: 1,
+                contents_failing: 1,
             }
         );
         let receipts = store.recent_receipts(2).unwrap();
+        let link = |last: char| format!("https://archive.example.org/documents/{}", document(last).as_str());
         assert_eq!(
             receipts,
             vec![
                 Receipt {
                     document: document('c'),
+                    document_link: link('c'),
                     file_name: digest(0x1C).hexadecimal(),
                     received_at: Timestamp(now.0 - MINUTE),
                     status: Some(DocumentStatus::Processing),
                 },
                 Receipt {
                     document: document('d'),
+                    document_link: link('d'),
                     file_name: digest(0x1D).hexadecimal(),
                     received_at: Timestamp(now.0 - MINUTE),
                     status: Some(DocumentStatus::Archived),
@@ -1728,8 +1809,40 @@ mod tests {
         );
         assert_eq!(store.recent_receipts(3).unwrap()[2].file_name, "received.pdf");
         assert_eq!(
-            store.next_deadline(&timing).unwrap(),
+            store.next_deadline(now, &timing).unwrap(),
             Some(Timestamp(milliseconds(timing.stabilization_interval)))
+        );
+        assert_eq!(
+            store.contents_needing_attention().unwrap(),
+            vec![
+                ContentAttention {
+                    file_name: "refused.pdf".to_owned(),
+                    refusal: Some(RefusalReason::UnacceptedKind),
+                    failures: 0,
+                },
+                ContentAttention {
+                    file_name: "failing.pdf".to_owned(),
+                    refusal: None,
+                    failures: 3,
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn the_next_deadline_includes_the_follow_of_a_received_document() {
+        let now = Timestamp(100 * MINUTE);
+        let (store, _) = populated_store(now);
+        let timing = TimingPolicy {
+            stabilization_interval: Duration::from_secs(1_000_000),
+            unreadable_retry_interval: Duration::from_secs(1_000_000),
+            ..TimingPolicy::default()
+        };
+        assert_eq!(
+            store.next_deadline(now, &timing).unwrap(),
+            Some(Timestamp(
+                now.0 - MINUTE + milliseconds(timing.document_follow_interval)
+            ))
         );
     }
 
