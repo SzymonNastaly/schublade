@@ -12,3 +12,4 @@ schublade.deploy.json
 .claude/worktrees/
 collector/target/
 collector/collection_interface/distribution/
+collector/collection_application/gen/

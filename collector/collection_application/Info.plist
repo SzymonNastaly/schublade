@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>NSDownloadsFolderUsageDescription</key>
+	<string>Schublade Collector uploads the PDFs and images in the folders you add to your Schublade archive.</string>
+	<key>NSDesktopFolderUsageDescription</key>
+	<string>Schublade Collector uploads the PDFs and images in the folders you add to your Schublade archive.</string>
+	<key>NSDocumentsFolderUsageDescription</key>
+	<string>Schublade Collector uploads the PDFs and images in the folders you add to your Schublade archive.</string>
+	<key>NSNetworkVolumesUsageDescription</key>
+	<string>Schublade Collector uploads the PDFs and images in the folders you add to your Schublade archive.</string>
+	<key>NSRemovableVolumesUsageDescription</key>
+	<string>Schublade Collector uploads the PDFs and images in the folders you add to your Schublade archive.</string>
+</dict>
+</plist>

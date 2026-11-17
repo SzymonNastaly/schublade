@@ -19,7 +19,8 @@
 		"format": "prettier --write .",
 		"format:check": "prettier --check .",
 		"test": "vitest run",
-		"check": "tsc --noEmit && eslint . && prettier --check . && vitest run"
+		"check": "tsc --noEmit && eslint . && prettier --check . && vitest run",
+		"icons:generate": "node generate_application_icons.ts"
 	},
 	"dependencies": {
 		"@fontsource-variable/source-sans-3": "5.3.1",
@@ -35,6 +36,7 @@
 		"@tailwindcss/vite": "4.3.4",
 		"@tanstack/eslint-config": "0.4.0",
 		"@tauri-apps/cli": "2.12.5",
+		"@types/node": "24.19.2",
 		"@types/react": "19.3.0",
 		"@types/react-dom": "19.3.0",
 		"@vitejs/plugin-react": "6.2.1",

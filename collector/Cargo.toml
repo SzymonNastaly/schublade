@@ -1,6 +1,9 @@
 [workspace]
 resolver = "3"
-members = ["collection_core", "collection_command"]
+members = ["collection_core", "collection_command", "collection_application"]
+# The app links WebKit through Tauri and builds only on macOS, so plain cargo commands leave it out
+# and the Mac adds it with --workspace.
+default-members = ["collection_core", "collection_command"]
 
 [workspace.package]
 version = "0.1.0"

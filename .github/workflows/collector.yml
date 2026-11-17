@@ -18,7 +18,12 @@ jobs:
   check:
     strategy:
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        include:
+          # The Tauri app links WebKit and builds only on macOS; Linux checks the core and the program.
+          - os: ubuntu-latest
+            members: ""
+          - os: macos-latest
+            members: --workspace
     runs-on: ${{ matrix.os }}
     timeout-minutes: 20
     defaults:
@@ -33,5 +38,24 @@ jobs:
         with:
           workspaces: collector
       - run: cargo fmt --check
-      - run: cargo clippy --all-targets --locked -- -D warnings
-      - run: cargo test --locked
+      - run: cargo clippy ${{ matrix.members }} --all-targets --locked -- -D warnings
+      - run: cargo test ${{ matrix.members }} --locked
+
+  window:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: collector/collection_interface
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@v6
+        with:
+          package_json_file: collector/collection_interface/package.json
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+          cache-dependency-path: collector/collection_interface/pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run check

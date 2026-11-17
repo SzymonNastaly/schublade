@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+	<defs>
+		<linearGradient id="body" x1="0" y1="0" x2="0" y2="1">
+			<stop offset="0" stop-color="#2c68c4"/>
+			<stop offset="0.58" stop-color="#1a4fa6"/>
+			<stop offset="1" stop-color="#123f8c"/>
+		</linearGradient>
+		<radialGradient id="shine" cx="0.58" cy="0" r="0.75" gradientTransform="matrix(1 0 0 0.35 0 0)">
+			<stop offset="0" stop-color="#cde4ff" stop-opacity="0.85"/>
+			<stop offset="0.72" stop-color="#cde4ff" stop-opacity="0"/>
+		</radialGradient>
+	</defs>
+	<rect x="100" y="100" width="824" height="824" rx="185" fill="url(#body)"/>
+	<rect x="100" y="100" width="824" height="824" rx="185" fill="url(#shine)"/>
+	<g transform="translate(231.5 231.5) scale(8.5)" stroke="#0b2447" stroke-linejoin="round">
+		<path d="M6 34 L14 24 H52 L60 34 Z" fill="#c46f10" stroke-width="2.4"/>
+		<path d="M21 36 L24 8 L50 11 L47 36 Z" fill="#ffffff" stroke-width="2.2"/>
+		<path d="M13 36 L12 16 L34 13.5 L38 36 Z" fill="#fff3cf" stroke-width="2.2"/>
+		<rect x="6" y="34" width="54" height="24" rx="3" fill="#ffb53d" stroke-width="2.4"/>
+		<rect x="23" y="43" width="20" height="7" rx="3.5" fill="#fff3cf" stroke-width="2"/>
+	</g>
+</svg>
