@@ -15,7 +15,7 @@ export type UploadEnvironment = Pick<
 // A Worker isolate has 128 MB of memory. Text extraction holds an original three times at once,
 // in the R2 read, the Blob for Markdown conversion, and the PDFium heap, so 25 MB per file
 // keeps that step near 75 MB.
-const MAXIMUM_DOCUMENT_BYTES = 25_000_000
+export const MAXIMUM_DOCUMENT_BYTES = 25_000_000
 // The parsed request stays in memory while each file is buffered once more for R2, so 50 MB
 // per request keeps the upload near 75 MB as well.
 const MAXIMUM_REQUEST_BYTES = 50_000_000
@@ -23,7 +23,7 @@ const MAXIMUM_REQUEST_BYTES = 50_000_000
 // upload request or one mail message starts at most this many of each.
 export const MAXIMUM_FILES_PER_SUBMISSION = 20
 
-const UNACCEPTED_FILE_KIND = "Only PDF, JPEG, PNG, and WebP files can be archived."
+export const UNACCEPTED_FILE_KIND = "Only PDF, JPEG, PNG, and WebP files can be archived."
 
 /**
  * An accepted file became a new document. An already archived file's bytes belong to a document
@@ -37,7 +37,7 @@ export type UploadOutcome =
 	| { kind: "failed"; fileName: string; reason: string }
 
 /** The bytes of one file with the kind and the digest its sender established. */
-interface ContentSubmission {
+export interface ContentSubmission {
 	content: Uint8Array<ArrayBuffer>
 	sourceFile: SourceFile
 	sha256: string
@@ -62,7 +62,7 @@ type ContentArchival = { kind: "accepted" | "already_archived"; documentId: stri
  * the document it recorded and answers with the winner. A content whose document was deleted is
  * archived again.
  */
-async function archiveContent(
+export async function archiveContent(
 	environment: UploadEnvironment,
 	{ content, sourceFile, sha256 }: ContentSubmission,
 	{ documentId, mailContext }: DocumentOrigin = { documentId: crypto.randomUUID() },
@@ -156,6 +156,19 @@ function limitRequestBody(request: Request, maximumBytes: number) {
 		}),
 	)
 	return { body, exceeded: () => receivedBytes > maximumBytes }
+}
+
+type DocumentBody = { kind: "body"; content: Uint8Array<ArrayBuffer> } | { kind: "too_large" }
+
+/** The body of a request that sends one file as is, or too_large beyond MAXIMUM_DOCUMENT_BYTES. */
+export async function readDocumentBody(request: Request): Promise<DocumentBody> {
+	const { body, exceeded } = limitRequestBody(request, MAXIMUM_DOCUMENT_BYTES)
+	try {
+		return { kind: "body", content: new Uint8Array(await new Response(body).arrayBuffer()) }
+	} catch (error) {
+		if (exceeded()) return { kind: "too_large" }
+		throw error
+	}
 }
 
 type MultipartBody = { kind: "form"; formData: FormData } | { kind: "too_large" } | { kind: "malformed" }

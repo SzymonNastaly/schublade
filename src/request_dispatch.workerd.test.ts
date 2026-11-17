@@ -100,6 +100,11 @@ test("every other path requires an Access assertion even with a valid token, and
 		await dispatch(uploadRequest("/api/documents", bearer), environment),
 		await dispatch(uploadRequest("/api/documents/ingest/", bearer), environment),
 		await dispatch(uploadRequest("/api/documents/ingestion", bearer), environment),
+		await dispatch(uploadRequest("/api/v1/contents/lookup/", bearer), environment),
+		await dispatch(uploadRequest(`/api/v1/contents/${"A".repeat(64)}`, bearer), environment),
+		await dispatch(uploadRequest("/api/v1/documents/not-an-identifier", bearer), environment),
+		await dispatch(uploadRequest("/api/v1/x", bearer), environment),
+		await dispatch(uploadRequest("/api/v1", bearer), environment),
 		await dispatch(new Request("https://archive.test/settings", { headers: bearer }), environment),
 		await dispatch(new Request("https://archive.test/authorize", { headers: bearer }), environment),
 		await dispatch(uploadRequest("/mcp/", bearer), environment),
@@ -113,9 +118,48 @@ test("every other path requires an Access assertion even with a valid token, and
 	]
 
 	expect(await Promise.all(responses.map(outcome))).toEqual([
-		...Array.from({ length: 9 }, () => ({ status: 403, body: "Access denied: assertion_missing" })),
+		...Array.from({ length: 14 }, () => ({ status: 403, body: "Access denied: assertion_missing" })),
 		{ status: 403, body: "Cross-site request refused: https://elsewhere.example" },
 	])
+})
+
+test("the collector routes authenticate a bearer token without an Access assertion, and refuse another method with 405", async () => {
+	const { environment, token } = await prepareArchive()
+	const bearer = { Authorization: `Bearer ${token}` }
+	const lookupBody = JSON.stringify({ sha256: ["b60d823ff8fc9d5e3f8979eb7be7fd57d31bcb959dcc0ec5260c4daf6ec98150"] })
+	const unknownDocument = "/api/v1/documents/00000000-0000-4000-8000-000000000000"
+
+	const responses = [
+		await dispatch(
+			new Request("https://archive.test/api/v1/contents/lookup", { method: "POST", headers: bearer, body: lookupBody }),
+			environment,
+		),
+		await dispatch(
+			new Request(
+				"https://archive.test/api/v1/contents/3551f8806c62a6b604bfbeab63ececeac46ee9df4e7db1ff5835377ff07ab0ed",
+				{ method: "PUT", headers: bearer, body: scannedInvoice },
+			),
+			environment,
+		),
+		await dispatch(new Request(`https://archive.test${unknownDocument}`, { headers: bearer }), environment),
+		await dispatch(new Request("https://archive.test/api/v1/contents/lookup", { headers: bearer }), environment),
+		await dispatch(
+			new Request("https://archive.test/api/v1/contents/lookup", { method: "POST", body: lookupBody }),
+			environment,
+		),
+	]
+
+	expect({
+		statuses: responses.map((response) => response.status),
+		allow: responses[3]?.headers.get("Allow"),
+		challenge: responses[4]?.headers.get("WWW-Authenticate"),
+		problemTypes: responses.slice(3).map((response) => response.headers.get("Content-Type")),
+	}).toEqual({
+		statuses: [200, 202, 404, 405, 401],
+		allow: "POST",
+		challenge: "Bearer",
+		problemTypes: ["application/problem+json", "application/problem+json"],
+	})
 })
 
 test("the archive changes socket needs an Access assertion", async () => {
