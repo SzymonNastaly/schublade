@@ -212,8 +212,8 @@ Recognized text and Clef responses are cached on disk under the content hash, so
 
 1. Install the Rust toolchain on the development server. Done on 2026-11-17 with rustup 1.29.3: rustc 1.100.0 and cargo 1.100.0, minimal profile with clippy and rustfmt, under `~/.cargo` and `~/.rustup`. rustup added one line to `~/.profile` and `~/.bashrc`. A trial program with `notify` 8.2.2 reported `Create(File)` for a file written into a watched directory. The server is replaceable, so a new server needs this step again.
 2. The collection corpus generator and its manifest. Built on 2026-11-17 on the branch `collection-corpus`, not yet on `main`. `pnpm generate:collection-corpus` writes 40 files of 21 documents in 16 cases (4.40 MiB, about 70 seconds) to `test_fixtures/collection_corpus/` and the manifest to `test_fixtures/expected_collection.json`. The oversized file is left to the collector tests, which create it at run time.
-3. **Next task.** The API with exact deduplication.
-4. The collector with the byte hash and the text-layer fingerprint.
+3. The API with exact deduplication. Built on 2026-11-17 and deployed to staging. `POST /api/v1/contents/lookup`, `PUT /api/v1/contents/{sha256}`, and `GET /api/v1/documents/{id}` take the ingest tokens from Settings. Every way into the archive (browser, token upload, mail, the API) keeps one document per SHA-256 of the bytes, and a deleted document's content stays known. Collectors get 503 with `Retry-After` until every older document has a digest. Pairing codes and sightings come with the collector.
+4. **Next task.** The collector with the byte hash and the text-layer fingerprint.
 5. The duplicate judge and the set-aside question on Clef, with `pnpm evaluate:duplicates`.
 6. Recognition on the client, tried with `kreuzberg`.
 7. The iPhone app.
