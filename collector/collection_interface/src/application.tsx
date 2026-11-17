@@ -1,5 +1,5 @@
 import { useState } from "react"
-import { useCollectorEvents, useCollectorStatus } from "./collector_queries"
+import { useCollectorStatus } from "./collector_queries"
 import { RefusalError } from "./collector_status"
 import { FailureMessage } from "./controls/form_fields"
 import { ApplicationHeader } from "./screens/application_header"
@@ -16,7 +16,6 @@ import type { ApplicationTab } from "./screens/application_header"
  * while a surveyed folder awaits its decision, and otherwise the tab the person chose.
  */
 export function Application() {
-	useCollectorEvents()
 	const status = useCollectorStatus()
 	const [tab, setTab] = useState<ApplicationTab>("status")
 
