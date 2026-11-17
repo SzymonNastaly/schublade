@@ -6,7 +6,7 @@ import betterTailwindcss from "eslint-plugin-better-tailwindcss"
 const classListLiterals = [{ match: "strings" }, { match: "objectValues" }]
 
 export default [
-	{ ignores: ["src/routeTree.gen.ts", ".cloudflare/", ".tanstack/", ".claude/worktrees/"] },
+	{ ignores: ["src/routeTree.gen.ts", ".cloudflare/", ".tanstack/", ".claude/worktrees/", "collector/"] },
 	...tanstackConfig,
 	{
 		files: ["src/interface/**/*.{ts,tsx}", "src/routes/**/*.{ts,tsx}"],

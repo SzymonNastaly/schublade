@@ -3,3 +3,5 @@ src/routeTree.gen.ts
 test_fixtures/
 *.md
 drizzle/
+# The collector's window is its own pnpm project with its own checks.
+collector/

@@ -1,0 +1,4 @@
+# Its own workspace root, so pnpm here never reads the archive's workspace one directory up, and the
+# archive's `pnpm check` never installs or lints the collector's window.
+onlyBuiltDependencies:
+  - esbuild

@@ -11,3 +11,4 @@ schublade.deploy.json
 .tanstack/
 .claude/worktrees/
 collector/target/
+collector/collection_interface/distribution/
