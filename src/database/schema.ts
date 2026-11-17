@@ -102,6 +102,9 @@ export const documents = sqliteTable(
 		storageObjectKey: text("storage_object_key").notNull(),
 		mimeType: text("mime_type").notNull(),
 		byteSize: integer("byte_size").notNull(),
+		// The SHA-256 of the original, as lowercase hexadecimal. Null for a document archived before
+		// the digests were recorded, until the scheduled backfill fills it.
+		originalSha256: text("original_sha256"),
 		pageCount: integer("page_count"),
 		status: text("status", { enum: documentStatuses }).notNull().default("processing"),
 		// Null unless the status is failed.
@@ -124,6 +127,21 @@ export const documents = sqliteTable(
 		index("documents_person_member_id_index").on(table.personMemberId),
 		index("documents_status_index").on(table.status),
 	],
+)
+
+/**
+ * Every byte sequence the archive has received, named by its SHA-256. The row outlives its
+ * document, so a file whose document was deleted stays known and no collector sends it again.
+ */
+export const contents = sqliteTable(
+	"contents",
+	{
+		sha256: text("sha256").primaryKey(),
+		// Null once the document was deleted.
+		documentId: text("document_id").references(() => documents.id, { onDelete: "set null" }),
+		createdAt: creationTime(),
+	},
+	(table) => [index("contents_document_id_index").on(table.documentId)],
 )
 
 export const documentTags = sqliteTable(
@@ -209,11 +227,18 @@ export const tagInsertSchema = createInsertSchema(tags, {
 	colorHex: (schema) => schema.regex(/^#[0-9a-f]{6}$/),
 }).omit(managedColumns)
 
+export const sha256Pattern = /^[0-9a-f]{64}$/
+
 export const documentInsertSchema = createInsertSchema(documents, {
 	documentDate: z.iso.date(),
 	byteSize: (schema) => schema.int().nonnegative(),
+	originalSha256: (schema) => schema.regex(sha256Pattern),
 	pageCount: (schema) => schema.int().positive(),
 }).omit({ ...managedColumns, updatedAt: true, indexedAt: true, recognitionQuarterTurns: true })
+
+export const contentInsertSchema = createInsertSchema(contents, {
+	sha256: (schema) => schema.regex(sha256Pattern),
+}).omit({ createdAt: true })
 
 export const documentTagInsertSchema = createInsertSchema(documentTags)
 

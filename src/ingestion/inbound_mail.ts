@@ -2,6 +2,7 @@ import { inArray } from "drizzle-orm"
 import { addressParser } from "postal-mime"
 import { connectDatabase } from "../database/client"
 import { documents } from "../database/schema"
+import { sha256Hexadecimal } from "./content_identity"
 import { startDocumentIngestion } from "./document_ingestion"
 import { MAXIMUM_FILES_PER_SUBMISSION, acceptDocumentUpload } from "./document_upload"
 import { mailContextOf, parseMailWithinLimits } from "./mail_message"
@@ -135,11 +136,6 @@ function headerSection(raw: Uint8Array<ArrayBuffer>): Uint8Array<ArrayBuffer> {
 		if (raw[index + 1] === 0x0d && raw[index + 2] === 0x0a) return raw.subarray(0, index + 3)
 	}
 	return raw
-}
-
-async function sha256Hexadecimal(content: Uint8Array<ArrayBuffer>): Promise<string> {
-	const digest = await crypto.subtle.digest("SHA-256", content)
-	return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("")
 }
 
 /**

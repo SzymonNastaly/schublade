@@ -53,6 +53,7 @@ test("the migrations turn an archive written under the first schema into the cur
 				status: documents.status,
 				updatedAt: documents.updatedAt,
 				indexedAt: documents.indexedAt,
+				originalSha256: documents.originalSha256,
 			})
 			.from(documents)
 			.orderBy(asc(documents.createdAt)),
@@ -68,6 +69,7 @@ test("the migrations turn an archive written under the first schema into the cur
 			"0003_record_document_failure_reason.sql",
 			"0004_document_recognition_quarter_turns.sql",
 			"0005_remove_taxonomy_confirmation_and_verification_reason.sql",
+			"0006_record_content_identity.sql",
 		],
 		categories: [
 			{
@@ -109,18 +111,21 @@ test("the migrations turn an archive written under the first schema into the cur
 				status: "archived",
 				updatedAt: new Date(1793100000_000),
 				indexedAt: new Date(1793100000_000),
+				originalSha256: null,
 			},
 			{
 				id: unreadableId,
 				status: "archived",
 				updatedAt: new Date(1793100600_000),
 				indexedAt: new Date(1793100600_000),
+				originalSha256: null,
 			},
 			{
 				id: classifyingId,
 				status: "classifying",
 				updatedAt: new Date(1793100900_000),
 				indexedAt: null,
+				originalSha256: null,
 			},
 		],
 		fields: [{ documentId: invoiceId, valueNumber: 72.09 }],
