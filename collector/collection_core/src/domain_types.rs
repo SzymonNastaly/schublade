@@ -217,7 +217,7 @@ pub struct FileSignature {
 }
 
 /// A UUID as the archive writes it, validated against the server's pattern at the boundary.
-#[derive(Clone, Debug, PartialEq, Eq, Hash, serde::Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, serde::Serialize)]
 pub struct DocumentIdentifier(String);
 
 impl DocumentIdentifier {
