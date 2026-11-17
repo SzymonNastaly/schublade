@@ -5,12 +5,12 @@ use std::path::PathBuf;
 
 use collection_core::archive_connection::ArchiveCondition;
 use collection_core::{
-    ArchiveAddress, CollectorStatus, CommandRefusal, ConnectionStatus, FolderIdentifier, HttpArchiveClient, IngestToken,
+    ArchiveAddress, CollectorStatus, CommandRefusal, FolderIdentifier, HttpArchiveClient, IngestToken,
 };
 use tauri::{AppHandle, State};
 use tauri_plugin_autostart::ManagerExt;
 
-use crate::application_preferences::{self, StoredPreferences};
+use crate::application_preferences;
 use crate::collector_presence::{CollectorPresence, CollectorStartFailure};
 use crate::window_presence;
 
@@ -71,8 +71,8 @@ pub async fn read_collector_status(
 }
 
 /// Tries the address and token against the archive before the core stores either, so a wrong token
-/// is refused on the setup screen instead of suspending the collector later. The first connection
-/// also turns on start at login.
+/// is refused on the setup screen instead of suspending the collector later. The first successful
+/// connection on this Mac also turns on start at login, once.
 #[tauri::command]
 pub async fn connect_archive(
     application: AppHandle,
@@ -86,10 +86,13 @@ pub async fn connect_archive(
             .map_err(|refusal| ApplicationRefusal::AddressInvalid { detail: refusal.detail })?;
         let token = IngestToken::new(token);
         HttpArchiveClient::new(&address, &token).verify_credential()?;
-        let first_connection = collector.status()?.connection == ConnectionStatus::Unconfigured;
         collector.connect_archive(address, token)?;
-        if first_connection {
-            let _ = application.autolaunch().enable();
+        if !application_preferences::read(&application).start_at_login_established
+            && application.autolaunch().enable().is_ok()
+        {
+            let _ = application_preferences::update(&application, |stored| {
+                stored.start_at_login_established = true;
+            });
         }
         Ok(())
     })
@@ -163,16 +166,15 @@ pub fn change_application_preferences(
             launcher.disable()
         };
         changed.map_err(|error| not_applied(error.to_string()))?;
+        application_preferences::update(&application, |stored| stored.start_at_login_established = true)
+            .map_err(not_applied)?;
     }
     if preferences.menu_bar_item_shown != current.menu_bar_item_shown {
         window_presence::show_menu_bar_item(&application, preferences.menu_bar_item_shown)
             .map_err(|error| not_applied(error.to_string()))?;
-        application_preferences::write(
-            &application,
-            StoredPreferences {
-                menu_bar_item_shown: preferences.menu_bar_item_shown,
-            },
-        )
+        application_preferences::update(&application, |stored| {
+            stored.menu_bar_item_shown = preferences.menu_bar_item_shown;
+        })
         .map_err(not_applied)?;
     }
     current_preferences(&application)

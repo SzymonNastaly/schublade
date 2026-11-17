@@ -13,8 +13,8 @@ mod window_presence;
 use std::sync::Arc;
 
 use collector_presence::CollectorPresence;
-use tauri::{Emitter, Manager, RunEvent, WindowEvent};
-use tauri_plugin_autostart::MacosLauncher;
+use tauri::{ActivationPolicy, Emitter, Manager, RunEvent, WindowEvent};
+use tauri_plugin_autostart::{MacosLauncher, ManagerExt};
 
 /// Passed by the login item, so a start at login collects without opening the window.
 const STARTED_AT_LOGIN_ARGUMENT: &str = "--started-at-login";
@@ -28,7 +28,8 @@ fn main() {
         DEVELOPMENT_IDENTIFIER.clone_into(&mut context.config_mut().identifier);
     }
     let identifier = context.config().identifier.clone();
-    let application = tauri::Builder::default()
+    let started_at_login = std::env::args().any(|argument| argument == STARTED_AT_LOGIN_ARGUMENT);
+    let mut application = tauri::Builder::default()
         // First, so a second launch hands over and exits before it starts anything.
         .plugin(tauri_plugin_single_instance::init(
             |application, arguments, _directory| {
@@ -56,8 +57,13 @@ fn main() {
             application_commands::change_application_preferences,
             application_commands::quit_application,
         ])
-        .setup(|application| {
+        .setup(move |application| {
             let handle = application.handle().clone();
+            // The login item names the executable's path, which goes stale when the app moves.
+            if handle.autolaunch().is_enabled().unwrap_or(false) {
+                let _ = handle.autolaunch().enable();
+            }
+
             let data_directory = handle.path().app_data_dir().map_err(|error| error.to_string());
             // The command-line program keeps its own service, so connecting one never replaces the
             // other's token.
@@ -83,7 +89,7 @@ fn main() {
             let preferences = application_preferences::read(&handle);
             window_presence::show_menu_bar_item(&handle, preferences.menu_bar_item_shown)?;
             // A failure shows the window even at login, so the collector never stops unseen.
-            if collecting && std::env::args().any(|argument| argument == STARTED_AT_LOGIN_ARGUMENT) {
+            if collecting && started_at_login {
                 window_presence::hide_main_window(&handle)?;
             } else {
                 window_presence::show_main_window(&handle)?;
@@ -99,6 +105,11 @@ fn main() {
         })
         .build(context)
         .expect("the Tauri application could not be built");
+    // Set before the event loop launches the app, which applies it while finishing the launch;
+    // set in setup, it would follow the launch and the Dock icon would appear first.
+    if started_at_login {
+        application.set_activation_policy(ActivationPolicy::Accessory);
+    }
 
     application.run(|handle, event| {
         // A click on the Dock icon, or opening the app again from Finder while it runs.
