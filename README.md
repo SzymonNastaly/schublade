@@ -38,7 +38,25 @@ Schublade accepts PDF, JPEG, PNG, and WebP files, up to 20 files at once, 25 MB 
 curl -X POST -H "Authorization: Bearer <token>" -F "files=@invoice.pdf;type=application/pdf" https://<host>/api/documents/ingest
 ```
 
+- **Collector.** A program that watches your folders asks which files the archive lacks and sends only those. It uses the same token as a script. Each file is named by the SHA-256 of its bytes.
+
+| Request                                     | Body                                     | Answer                                                                       |
+| ------------------------------------------- | ---------------------------------------- | ---------------------------------------------------------------------------- |
+| `POST /api/v1/contents/lookup`              | `{"sha256": ["<digest>", ...]}`, up to 1000 | `absent`, `present` with its `document_id`, or `deleted` for each digest |
+| `PUT /api/v1/contents/<digest>`             | The file itself                          | 202 for a new document, 200 for one the archive holds, with its `Location`   |
+| `GET /api/v1/documents/<id>`                | None                                     | The document's status                                                        |
+
+```bash
+curl -X PUT -H "Authorization: Bearer <token>" --data-binary @invoice.pdf https://<host>/api/v1/contents/$(shasum -a 256 invoice.pdf | cut -d' ' -f1)
+```
+
+Errors arrive as `application/problem+json`. A body whose digest differs from the one in the path is refused with 422.
+
 Every document enters the archive as soon as it is processed. A file that Schublade cannot process, such as one it cannot open or a page it cannot read, appears under **Failed documents**, where you retry or delete it.
+
+Schublade keeps one document per file, whichever way the file arrives. Sending the same bytes again returns the document that holds them, and the upload panel says the file is already in the archive. Identity covers the bytes only, so a renamed or moved copy is the same file, while another scan of the same letter is a new one. After you delete a document, Schublade remembers its file, so a collector never sends it back. Uploading it yourself archives it again.
+
+An archive that predates this records the digest of each older document in the background, 25 every 15 minutes. Until it has finished, the collector requests answer 503 with `Retry-After`. Run `pnpm run provision` once after upgrading, so that sign-in lets collectors reach `/api/v1`.
 
 ## Connect an AI client
 
