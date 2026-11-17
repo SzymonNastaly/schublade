@@ -2,6 +2,9 @@
 //! rows stored for that directory. Events from the watcher, the walker, a rescan flag, and the
 //! start of the app all become listings, so a lost event costs latency and never correctness.
 
+use std::collections::BTreeMap;
+
+use crate::candidate_classification::DisregardReason;
 use crate::domain_types::{DirectoryKey, EntryName, FileSignature, FolderIdentifier, PathKey, Timestamp};
 use crate::path_lifecycle::{PathEvent, PathState};
 
@@ -15,10 +18,12 @@ pub struct DirectoryListing {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ListingOutcome {
-    /// Entries that passed `classify_entry_name`. Disregarded names never appear here.
+    /// Entries that passed `classify_entry_name`. Disregarded names never appear here; they are
+    /// counted per reason, so the backlog summary can say what it skipped.
     Listed {
         files: Vec<(EntryName, FileSignature)>,
         subdirectories: Vec<EntryName>,
+        disregarded: BTreeMap<DisregardReason, u64>,
     },
     /// The directory exists and could not be read. Removes nothing.
     Unreadable { cause: String },
@@ -54,7 +59,9 @@ pub fn reconcile_directory(
 ) -> Reconciliation {
     let mut reconciliation = Reconciliation::default();
     let (files, subdirectories) = match &listing.outcome {
-        ListingOutcome::Listed { files, subdirectories } => (files, subdirectories),
+        ListingOutcome::Listed {
+            files, subdirectories, ..
+        } => (files, subdirectories),
         ListingOutcome::Unreadable { .. } => return reconciliation,
         ListingOutcome::Vanished => {
             if !listing.directory.is_root() {
@@ -155,6 +162,7 @@ mod tests {
                     (name("Rechnung.pdf"), signature(2)),
                 ],
                 subdirectories: vec![name("Scans"), name("Archive")],
+                disregarded: BTreeMap::new(),
             },
         );
         let stored_files = [(name("Invoice.pdf"), stable(1)), (name("Old.pdf"), stable(9))];
@@ -196,6 +204,7 @@ mod tests {
             ListingOutcome::Listed {
                 files: vec![],
                 subdirectories: vec![name("Vertra\u{0308}ge")],
+                disregarded: BTreeMap::new(),
             },
         );
         let stored = [root.child(&name("Vertr\u{00E4}ge"))];

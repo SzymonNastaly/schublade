@@ -3,7 +3,7 @@
 //! nothing reads a clock, a file, or the network.
 
 use std::ffi::{OsStr, OsString};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use unicode_normalization::UnicodeNormalization;
@@ -135,6 +135,17 @@ impl DirectoryKey {
     pub fn as_str(&self) -> &str {
         &self.0
     }
+
+    /// The path below the folder root that this key names. Escaped bytes are restored, so a
+    /// non-UTF-8 name round-trips; a normalized name reaches the file system in NFC, which the
+    /// macOS file systems treat as the same name.
+    pub fn relative_path(&self) -> PathBuf {
+        self.0
+            .split('/')
+            .filter(|component| !component.is_empty())
+            .map(|component| os_string_from_bytes(unescape_component(component)))
+            .collect()
+    }
 }
 
 /// A `%` is escaped in every component, so an escaped byte of a non-UTF-8 name can never read
@@ -144,6 +155,24 @@ fn normalize_component(name: &OsStr) -> String {
         Some(text) => text.nfc().collect::<String>().replace('%', "%25"),
         None => os_str_bytes(name).iter().map(|byte| format!("%{byte:02X}")).collect(),
     }
+}
+
+fn unescape_component(component: &str) -> Vec<u8> {
+    let mut bytes = Vec::with_capacity(component.len());
+    let mut remaining = component.as_bytes();
+    while let Some((&first, rest)) = remaining.split_first() {
+        match (first, rest.get(..2).and_then(|pair| std::str::from_utf8(pair).ok())) {
+            (b'%', Some(pair)) if let Ok(byte) = u8::from_str_radix(pair, 16) => {
+                bytes.push(byte);
+                remaining = &rest[2..];
+            }
+            _ => {
+                bytes.push(first);
+                remaining = rest;
+            }
+        }
+    }
+    bytes
 }
 
 #[cfg(unix)]
@@ -391,6 +420,12 @@ mod tests {
         let literal_percent = EntryName::new("caf%E9");
         assert_eq!(DirectoryKey::root().child(&invalid).as_str(), "%63%61%66%E9");
         assert_eq!(DirectoryKey::root().child(&literal_percent).as_str(), "caf%25E9");
+        let nested = DirectoryKey::root().child(&invalid).child(&literal_percent);
+        assert_eq!(
+            nested.relative_path(),
+            PathBuf::from(OsStr::from_bytes(b"caf\xE9")).join("caf%E9")
+        );
+        assert_eq!(DirectoryKey::root().relative_path(), PathBuf::new());
     }
 
     #[test]

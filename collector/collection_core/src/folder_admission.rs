@@ -165,6 +165,7 @@ mod tests {
         let listed = ListingOutcome::Listed {
             files: vec![],
             subdirectories: vec![],
+            disregarded: Default::default(),
         };
         assert_eq!(availability_after_root_listing(&listed), FolderAvailability::Available);
         assert_eq!(
