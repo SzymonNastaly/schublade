@@ -6,3 +6,8 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 publish.workspace = true
+
+# Every version is an exact pin, and Cargo.lock is committed, so each machine builds the same code.
+[dependencies]
+serde = { version = "=1.0.229", features = ["derive"] }
+unicode-normalization = "=0.1.26"
