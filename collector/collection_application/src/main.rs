@@ -18,16 +18,31 @@ use tauri_plugin_autostart::MacosLauncher;
 
 /// Passed by the login item, so a start at login collects without opening the window.
 const STARTED_AT_LOGIN_ARGUMENT: &str = "--started-at-login";
-/// The Keychain service of the command-line program as well, so both read one token.
-const KEYCHAIN_SERVICE: &str = "Schublade collector";
+/// A debug build is another app: its data directory, Keychain service, login item, and
+/// single-instance socket all follow the identifier, so it never shares the installed app's.
+const DEVELOPMENT_IDENTIFIER: &str = "org.schublade.collector.development";
 
 fn main() {
+    let mut context = tauri::generate_context!();
+    if cfg!(debug_assertions) {
+        DEVELOPMENT_IDENTIFIER.clone_into(&mut context.config_mut().identifier);
+    }
+    let identifier = context.config().identifier.clone();
     let application = tauri::Builder::default()
+        // First, so a second launch hands over and exits before it starts anything.
+        .plugin(tauri_plugin_single_instance::init(
+            |application, arguments, _directory| {
+                if !arguments.iter().any(|argument| argument == STARTED_AT_LOGIN_ARGUMENT) {
+                    let _ = window_presence::show_main_window(application);
+                }
+            },
+        ))
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_opener::init())
         .plugin(
             tauri_plugin_autostart::Builder::new()
                 .macos_launcher(MacosLauncher::LaunchAgent)
+                .app_name(&identifier)
                 .args([STARTED_AT_LOGIN_ARGUMENT])
                 .build(),
         )
@@ -44,7 +59,9 @@ fn main() {
         .setup(|application| {
             let handle = application.handle().clone();
             let data_directory = handle.path().app_data_dir().map_err(|error| error.to_string());
-            let started = collector_presence::start_collector(data_directory, KEYCHAIN_SERVICE);
+            // The command-line program keeps its own service, so connecting one never replaces the
+            // other's token.
+            let started = collector_presence::start_collector(data_directory, &handle.config().identifier);
             let collecting = started.is_ok();
             match started {
                 Ok((collector, events)) => {
@@ -79,7 +96,7 @@ fn main() {
                 let _ = window_presence::hide_main_window(window.app_handle());
             }
         })
-        .build(tauri::generate_context!())
+        .build(context)
         .expect("the Tauri application could not be built");
 
     application.run(|handle, event| {
