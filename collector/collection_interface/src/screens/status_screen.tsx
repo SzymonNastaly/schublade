@@ -33,8 +33,8 @@ export function StatusScreen({ status, onOpenTab }: StatusScreenProperties) {
 		<div className="mx-auto flex max-w-[760px] flex-col gap-3">
 			{attention.length > 0 && (
 				<SectionPanel section="attention" heading="Needs your attention">
-					{attention.map(({ sentence, action }) => (
-						<PanelRow key={sentence}>
+					{attention.map(({ sentence, action }, index) => (
+						<PanelRow key={index}>
 							<div className="flex items-center justify-between gap-3">
 								<p>{sentence}</p>
 								{action !== null && (

@@ -14,15 +14,14 @@ interface ConnectionFormProperties {
 export function ConnectionForm({ initialAddress, submitLabel }: ConnectionFormProperties) {
 	const [address, setAddress] = useState(initialAddress)
 	const [token, setToken] = useState("")
-	const connection = useCollectorCommand((entered: { address: string; token: string }) =>
-		collectorBridge.connectArchive(entered.address, entered.token),
-	)
+	// The token stays out of the mutation's variables, which the mutation cache keeps after it ends.
+	const connection = useCollectorCommand(() => collectorBridge.connectArchive(address.trim(), token.trim()))
 	return (
 		<form
 			className="flex flex-col gap-3"
 			onSubmit={(event) => {
 				event.preventDefault()
-				connection.mutate({ address: address.trim(), token: token.trim() }, { onSuccess: () => setToken("") })
+				connection.mutate(undefined, { onSuccess: () => setToken("") })
 			}}
 		>
 			<TextField

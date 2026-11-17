@@ -60,7 +60,12 @@ export function Application() {
 			<>
 				<ApplicationHeader />
 				{rereadFailure !== null && <div className="mx-auto max-w-[600px] px-6 pt-4">{rereadFailure}</div>}
-				<BacklogConfirmationScreen folder={awaiting} backlog={awaiting.backlog} status={status.data} />
+				<BacklogConfirmationScreen
+					key={awaiting.folder}
+					folder={awaiting}
+					backlog={awaiting.backlog}
+					status={status.data}
+				/>
 			</>
 		)
 	}
