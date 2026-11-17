@@ -126,7 +126,8 @@ if (missingFixtures.length > 0) {
 	const { outcomes } = uploadResponseSchema.parse(
 		await requestJson(`${baseUrl}/api/documents`, { method: "POST", body: formData }),
 	)
-	const rejected = outcomes.filter((outcome) => outcome.kind !== "accepted")
+	// An already archived file names a document that is not archived yet, which the loop below awaits.
+	const rejected = outcomes.filter((outcome) => outcome.kind !== "accepted" && outcome.kind !== "already_archived")
 	if (rejected.length > 0) throw new Error(`The server did not accept ${rejected.map((outcome) => outcome.fileName)}`)
 	while (fileNameById.size < fixtures.length) {
 		if (Date.now() - startedAt > timeoutMilliseconds) throw new Error("The test documents were not archived in time")

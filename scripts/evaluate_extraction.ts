@@ -59,6 +59,7 @@ const uploadResponseSchema = z.object({
 	outcomes: z.array(
 		z.discriminatedUnion("kind", [
 			z.object({ kind: z.literal("accepted"), fileName: z.string(), documentId: z.string() }),
+			z.object({ kind: z.literal("already_archived"), fileName: z.string(), documentId: z.string() }),
 			z.object({ kind: z.literal("rejected"), fileName: z.string(), reason: z.string() }),
 			z.object({ kind: z.literal("failed"), fileName: z.string(), reason: z.string() }),
 		]),
@@ -171,7 +172,10 @@ async function uploadDocuments(expectedDocuments: Array<ExpectedDocument>): Prom
 	)
 	const documentIds = new Map<string, string>()
 	for (const outcome of response.outcomes) {
-		if (outcome.kind !== "accepted") throw new Error(`The server did not accept ${outcome.fileName}: ${outcome.reason}`)
+		if (outcome.kind === "rejected" || outcome.kind === "failed") {
+			throw new Error(`The server did not accept ${outcome.fileName}: ${outcome.reason}`)
+		}
+		if (outcome.kind === "already_archived") console.log(`${outcome.fileName} is already archived`)
 		documentIds.set(outcome.fileName, outcome.documentId)
 	}
 	return documentIds
