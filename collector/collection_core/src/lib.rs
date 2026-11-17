@@ -202,6 +202,11 @@ impl std::fmt::Display for StartFailure {
                 "The state database was unreadable and was renamed to {}",
                 renamed_to.display()
             ),
+            StartFailure::Store(StoreOpenFailure::InUse { lock_path }) => write!(
+                formatter,
+                "Another collector is using the state database; it holds {}",
+                lock_path.display()
+            ),
             StartFailure::Store(StoreOpenFailure::Inaccessible(error)) => {
                 write!(formatter, "The state database is inaccessible: {error}")
             }

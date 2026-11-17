@@ -586,6 +586,7 @@ The third part (the Tauri app, `collection_application` with its window `collect
 Two reviews of the app (2026-11-17) changed the core in these further places.
 
 33. **`connect_archive` refuses another origin once anything is recorded.** Content standings and receipts describe the connected archive. On another origin, a file the first archive holds would stay Present and never upload, and old receipts would link into the new archive. `CommandRefusal::ArchiveOriginDiffers` therefore answers a different origin while any folder is enrolled or any content row exists, withdrawn folders' contents included. A new token for the same origin, or any origin before the first folder, is still accepted. Starting over means removing the state database.
+34. **One collector per state database.** `StateStore::open` takes an exclusive advisory lock (`flock`, through `File::try_lock`) on `<database>.lock` before it opens SQLite, and holds it for the store's lifetime, so a second collector on the same file fails with `StoreOpenFailure::InUse` instead of running a second coordinator over the same rows. A debug build and the installed app, or a start at login and a reopen, could otherwise both collect. The operating system ends the lock with the process, so a crash leaves nothing to clean up.
 
 ## Open questions and risks
 

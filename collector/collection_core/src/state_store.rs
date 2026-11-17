@@ -31,6 +31,9 @@ pub const MIGRATIONS: &[&str] = &[include_str!("migrations/0001_collector_state.
 #[derive(Debug)]
 pub struct StateStore {
     connection: Connection,
+    /// The exclusive lock on `<database>.lock`, held while the store lives. Declared after the
+    /// connection, so the connection closes before another collector may open the file.
+    _exclusive_lock: Option<std::fs::File>,
 }
 
 #[derive(Debug)]
@@ -39,6 +42,10 @@ pub enum StoreOpenFailure {
     /// not created, so the caller decides whether to start over.
     Unreadable {
         renamed_to: PathBuf,
+    },
+    /// Another collector, in this process or another, holds the lock beside the database.
+    InUse {
+        lock_path: PathBuf,
     },
     Inaccessible(std::io::Error),
     NewerSchema {
@@ -293,6 +300,25 @@ fn content_record_from_row(row: &Row<'_>) -> rusqlite::Result<ContentRecord> {
     })
 }
 
+/// Locks `<database>.lock` with the operating system's advisory lock, which ends with the process,
+/// so a crash leaves no stale lock behind.
+fn lock_beside(database: &Path) -> Result<std::fs::File, StoreOpenFailure> {
+    let mut lock_path = database.as_os_str().to_owned();
+    lock_path.push(".lock");
+    let lock_path = PathBuf::from(lock_path);
+    let file = std::fs::OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .write(true)
+        .open(&lock_path)
+        .map_err(StoreOpenFailure::Inaccessible)?;
+    match file.try_lock() {
+        Ok(()) => Ok(file),
+        Err(std::fs::TryLockError::WouldBlock) => Err(StoreOpenFailure::InUse { lock_path }),
+        Err(std::fs::TryLockError::Error(error)) => Err(StoreOpenFailure::Inaccessible(error)),
+    }
+}
+
 /// Zero while the folder has no decision, so a surveyed folder's paths are all backlog. Arrivals
 /// after the decision sort first, then the backlog in discovery order.
 const ARRIVAL_ORDER: &str = "CASE WHEN w.decided_at IS NOT NULL AND p.first_observed_at > w.decided_at THEN 0 ELSE 1 END, \
@@ -302,6 +328,7 @@ impl StateStore {
     /// WAL journal, `foreign_keys = ON`, migrations applied. A file that fails `PRAGMA quick_check`
     /// is renamed to `<name>.unreadable-<seconds>` and reported.
     pub fn open(path: &Path) -> Result<StateStore, StoreOpenFailure> {
+        let exclusive_lock = lock_beside(path)?;
         let connection = Connection::open(path)?;
         let check: rusqlite::Result<String> = connection.query_row("PRAGMA quick_check", [], |row| row.get(0));
         if check.as_deref().ok() != Some("ok") {
@@ -317,22 +344,25 @@ impl StateStore {
             return Err(StoreOpenFailure::Unreadable { renamed_to });
         }
         connection.pragma_update(None, "journal_mode", "WAL")?;
-        StateStore::prepare(connection)
+        StateStore::prepare(connection, Some(exclusive_lock))
     }
 
     /// A store that lives in memory, for tests.
     pub fn open_in_memory() -> Result<StateStore, StoreOpenFailure> {
-        StateStore::prepare(Connection::open_in_memory()?)
+        StateStore::prepare(Connection::open_in_memory()?, None)
     }
 
-    fn prepare(connection: Connection) -> Result<StateStore, StoreOpenFailure> {
+    fn prepare(connection: Connection, exclusive_lock: Option<std::fs::File>) -> Result<StateStore, StoreOpenFailure> {
         connection.pragma_update(None, "foreign_keys", "ON")?;
         let found: u32 = connection.pragma_query_value(None, "user_version", |row| row.get(0))?;
         let supported = u32::try_from(MIGRATIONS.len()).unwrap_or(u32::MAX);
         if found > supported {
             return Err(StoreOpenFailure::NewerSchema { found, supported });
         }
-        let mut store = StateStore { connection };
+        let mut store = StateStore {
+            connection,
+            _exclusive_lock: exclusive_lock,
+        };
         for (index, migration) in MIGRATIONS.iter().enumerate().skip(found as usize) {
             let transaction = store.connection.transaction()?;
             transaction.execute_batch(migration)?;

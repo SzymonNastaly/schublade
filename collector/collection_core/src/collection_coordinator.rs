@@ -1223,6 +1223,31 @@ mod tests {
     }
 
     #[test]
+    fn a_second_collector_on_one_database_is_refused_until_the_first_stops() {
+        let temporary = tempfile::tempdir().unwrap();
+        let database = temporary.path().join("collector.sqlite");
+        let archive = Arc::new(ScriptedArchive::new());
+        let clock = Arc::new(ManualClock::starting_at(Timestamp(1_700_000_000_000)));
+        let (first, _events) = start(&database, &archive, &clock);
+
+        let second = Collector::start(CollectorSettings::with_fixed_archive(
+            database.clone(),
+            archive.clone(),
+            clock.clone(),
+            timing(),
+        ));
+        assert!(matches!(
+            second,
+            Err(crate::StartFailure::Store(crate::state_store::StoreOpenFailure::InUse { lock_path }))
+                if lock_path == temporary.path().join("collector.sqlite.lock")
+        ));
+
+        first.shutdown();
+        let (third, _events) = start(&database, &archive, &clock);
+        assert!(third.status().is_ok());
+    }
+
+    #[test]
     fn another_archive_is_refused_once_the_collector_holds_records_of_the_connected_one() {
         let temporary = tempfile::tempdir().unwrap();
         let downloads = temporary.path().join("Downloads");
