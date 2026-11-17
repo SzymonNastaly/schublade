@@ -1,0 +1,947 @@
+{
+	"documents": [
+		{
+			"document_key": "paperlark_invoice_2026_10",
+			"displayed_path": "Downloads/Invoice-PLK-2026-004817.pdf",
+			"related_documents": [],
+			"sender": "Paperlark Software Ltd.",
+			"document_date": "2026-10-03",
+			"fields": {
+				"amount": {
+					"value": 42.84,
+					"printed": "$42.84"
+				},
+				"currency": {
+					"value": "USD",
+					"printed": "USD"
+				},
+				"due_date": {
+					"value": "2026-10-17",
+					"printed": "October 17, 2026"
+				},
+				"invoice_number": {
+					"value": "PLK-2026-004817",
+					"printed": "PLK-2026-004817"
+				}
+			}
+		},
+		{
+			"document_key": "nordkabel_terms_2026_07",
+			"displayed_path": "Downloads/AGB_Nordkabel.pdf",
+			"related_documents": [],
+			"sender": "Nordkabel Kommunikation GmbH",
+			"document_date": "2026-07-01",
+			"fields": {}
+		},
+		{
+			"document_key": "stadtwerke_annual_statement_2026",
+			"displayed_path": "Downloads/Jahresabrechnung_Strom_2026.pdf",
+			"related_documents": [],
+			"sender": "Stadtwerke Talbrück GmbH",
+			"document_date": "2026-09-22",
+			"fields": {
+				"amount": {
+					"value": 72.09,
+					"printed": "72,09 €"
+				},
+				"currency": {
+					"value": "EUR",
+					"printed": "€"
+				},
+				"due_date": {
+					"value": "2026-10-06",
+					"printed": "06.10.2026"
+				},
+				"iban": {
+					"value": "DE12970113200300418225",
+					"printed": "DE12 9701 1320 0300 4182 25"
+				},
+				"invoice_number": {
+					"value": "JA-2026-0381547",
+					"printed": "JA-2026-0381547"
+				}
+			}
+		},
+		{
+			"document_key": "vossberg_dental_invoice_2026_08",
+			"displayed_path": "Downloads/Rechnung_ZA-2026-0193.pdf",
+			"related_documents": [],
+			"sender": "Zahnarztpraxis Dr. Henrike Vossberg",
+			"document_date": "2026-08-27",
+			"fields": {
+				"amount": {
+					"value": 91.84,
+					"printed": "91,84 €"
+				},
+				"currency": {
+					"value": "EUR",
+					"printed": "€"
+				},
+				"due_date": {
+					"value": "2026-09-26",
+					"printed": "26.09.2026"
+				},
+				"iban": {
+					"value": "DE80970113200605190031",
+					"printed": "DE80 9701 1320 0605 1900 31"
+				},
+				"invoice_number": {
+					"value": "ZA-2026-0193",
+					"printed": "ZA-2026-0193"
+				}
+			}
+		},
+		{
+			"document_key": "income_tax_assessment_2025",
+			"displayed_path": "Documents/Scans/scan_0016.pdf",
+			"related_documents": [],
+			"sender": "Finanzamt Talbrück",
+			"document_date": "2026-09-08",
+			"fields": {
+				"amount": {
+					"value": 341,
+					"printed": "341,00 €"
+				},
+				"currency": {
+					"value": "EUR",
+					"printed": "€"
+				},
+				"due_date": {
+					"value": "2026-10-14",
+					"printed": "14.10.2026"
+				},
+				"iban": {
+					"value": "DE75960512400031846000",
+					"printed": "DE75 9605 1240 0031 8460 00"
+				}
+			}
+		},
+		{
+			"document_key": "residence_registration_certificate_2026",
+			"displayed_path": "Downloads/Meldebescheinigung.pdf",
+			"related_documents": [],
+			"sender": "Stadt Talbrück",
+			"document_date": "2026-05-04",
+			"fields": {}
+		},
+		{
+			"document_key": "wohnungsbau_rental_contract_2026",
+			"displayed_path": "Cloud Storage/Verträge/Mietvertrag_Am_Lindenhang_7.pdf",
+			"related_documents": [],
+			"sender": "Talbrücker Wohnungsbau GmbH",
+			"document_date": "2026-03-12",
+			"fields": {
+				"policy_number": {
+					"value": "MV-0417-2026",
+					"printed": "MV-0417-2026"
+				},
+				"cancellation_period": {
+					"value": "P3M",
+					"printed": "drei Monate"
+				}
+			}
+		},
+		{
+			"document_key": "lindenhain_household_contents_policy_2026",
+			"displayed_path": "Downloads/Versicherungsschein_Hausrat.pdf",
+			"related_documents": [],
+			"sender": "Lindenhain Versicherung AG",
+			"document_date": "2026-02-20",
+			"fields": {
+				"policy_number": {
+					"value": "HR-7731-0482-19",
+					"printed": "HR-7731-0482-19"
+				},
+				"renewal_date": {
+					"value": "2027-03-01",
+					"printed": "01.03.2027"
+				},
+				"cancellation_period": {
+					"value": "P3M",
+					"printed": "drei Monate"
+				}
+			}
+		},
+		{
+			"document_key": "frischemarkt_receipt_2026_10_31",
+			"displayed_path": "Documents/Scans/scan_0012.pdf",
+			"related_documents": [],
+			"sender": "Frischemarkt Talbrück GmbH",
+			"document_date": "2026-10-31",
+			"fields": {
+				"amount": {
+					"value": 29.63,
+					"printed": "29,63"
+				},
+				"currency": {
+					"value": "EUR",
+					"printed": "EUR"
+				},
+				"invoice_number": {
+					"value": "4471",
+					"printed": "4471"
+				}
+			}
+		},
+		{
+			"document_key": "nordkabel_invoice_2026_05",
+			"displayed_path": "Downloads/Rechnung.pdf",
+			"related_documents": [],
+			"sender": "Nordkabel Kommunikation GmbH",
+			"document_date": "2026-05-05",
+			"fields": {
+				"amount": {
+					"value": 66.45,
+					"printed": "66,45 €"
+				},
+				"currency": {
+					"value": "EUR",
+					"printed": "€"
+				},
+				"due_date": {
+					"value": "2026-05-20",
+					"printed": "20.05.2026"
+				},
+				"iban": {
+					"value": "DE28930245800418820037",
+					"printed": "DE28 9302 4580 0418 8200 37"
+				},
+				"invoice_number": {
+					"value": "NK-2026-0547-3391",
+					"printed": "NK-2026-0547-3391"
+				}
+			}
+		},
+		{
+			"document_key": "nordkabel_invoice_2026_06",
+			"displayed_path": "Downloads/Rechnung (1).pdf",
+			"related_documents": [],
+			"sender": "Nordkabel Kommunikation GmbH",
+			"document_date": "2026-06-05",
+			"fields": {
+				"amount": {
+					"value": 68.89,
+					"printed": "68,89 €"
+				},
+				"currency": {
+					"value": "EUR",
+					"printed": "€"
+				},
+				"due_date": {
+					"value": "2026-06-20",
+					"printed": "20.06.2026"
+				},
+				"iban": {
+					"value": "DE28930245800418820037",
+					"printed": "DE28 9302 4580 0418 8200 37"
+				},
+				"invoice_number": {
+					"value": "NK-2026-0652-3391",
+					"printed": "NK-2026-0652-3391"
+				}
+			}
+		},
+		{
+			"document_key": "nordkabel_invoice_2026_07",
+			"displayed_path": "Downloads/Rechnung (2).pdf",
+			"related_documents": [],
+			"sender": "Nordkabel Kommunikation GmbH",
+			"document_date": "2026-07-05",
+			"fields": {
+				"amount": {
+					"value": 65.58,
+					"printed": "65,58 €"
+				},
+				"currency": {
+					"value": "EUR",
+					"printed": "€"
+				},
+				"due_date": {
+					"value": "2026-07-20",
+					"printed": "20.07.2026"
+				},
+				"iban": {
+					"value": "DE28930245800418820037",
+					"printed": "DE28 9302 4580 0418 8200 37"
+				},
+				"invoice_number": {
+					"value": "NK-2026-0749-3391",
+					"printed": "NK-2026-0749-3391"
+				}
+			}
+		},
+		{
+			"document_key": "nordkabel_invoice_2026_08",
+			"displayed_path": "Downloads/Rechnung (3).pdf",
+			"related_documents": [],
+			"sender": "Nordkabel Kommunikation GmbH",
+			"document_date": "2026-08-05",
+			"fields": {
+				"amount": {
+					"value": 76.7,
+					"printed": "76,70 €"
+				},
+				"currency": {
+					"value": "EUR",
+					"printed": "€"
+				},
+				"due_date": {
+					"value": "2026-08-20",
+					"printed": "20.08.2026"
+				},
+				"iban": {
+					"value": "DE28930245800418820037",
+					"printed": "DE28 9302 4580 0418 8200 37"
+				},
+				"invoice_number": {
+					"value": "NK-2026-0850-3391",
+					"printed": "NK-2026-0850-3391"
+				}
+			}
+		},
+		{
+			"document_key": "nordkabel_invoice_2026_09",
+			"displayed_path": "Downloads/Rechnung (4).pdf",
+			"related_documents": [],
+			"sender": "Nordkabel Kommunikation GmbH",
+			"document_date": "2026-09-05",
+			"fields": {
+				"amount": {
+					"value": 67.51,
+					"printed": "67,51 €"
+				},
+				"currency": {
+					"value": "EUR",
+					"printed": "€"
+				},
+				"due_date": {
+					"value": "2026-09-20",
+					"printed": "20.09.2026"
+				},
+				"iban": {
+					"value": "DE28930245800418820037",
+					"printed": "DE28 9302 4580 0418 8200 37"
+				},
+				"invoice_number": {
+					"value": "NK-2026-0946-3391",
+					"printed": "NK-2026-0946-3391"
+				}
+			}
+		},
+		{
+			"document_key": "nordkabel_invoice_2026_10",
+			"displayed_path": "Downloads/Rechnung (5).pdf",
+			"related_documents": [],
+			"sender": "Nordkabel Kommunikation GmbH",
+			"document_date": "2026-10-05",
+			"fields": {
+				"amount": {
+					"value": 67.13,
+					"printed": "67,13 €"
+				},
+				"currency": {
+					"value": "EUR",
+					"printed": "€"
+				},
+				"due_date": {
+					"value": "2026-10-20",
+					"printed": "20.10.2026"
+				},
+				"iban": {
+					"value": "DE28930245800418820037",
+					"printed": "DE28 9302 4580 0418 8200 37"
+				},
+				"invoice_number": {
+					"value": "NK-2026-1048-3391",
+					"printed": "NK-2026-1048-3391"
+				}
+			}
+		},
+		{
+			"document_key": "ostermann_invoice_2026_0871",
+			"displayed_path": "Documents/Scans/scan_0019.pdf",
+			"related_documents": [],
+			"sender": "Haustechnik Ostermann GmbH",
+			"document_date": "2026-11-04",
+			"fields": {
+				"amount": {
+					"value": 214.73,
+					"printed": "214,73 €"
+				},
+				"currency": {
+					"value": "EUR",
+					"printed": "€"
+				},
+				"due_date": {
+					"value": "2026-11-18",
+					"printed": "18.11.2026"
+				},
+				"iban": {
+					"value": "DE39970113200740512268",
+					"printed": "DE39 9701 1320 0740 5122 68"
+				},
+				"invoice_number": {
+					"value": "HT-2026-0871",
+					"printed": "HT-2026-0871"
+				}
+			}
+		},
+		{
+			"document_key": "ostermann_invoice_2026_0872",
+			"displayed_path": "Documents/Scans/scan_0020.pdf",
+			"related_documents": [],
+			"sender": "Haustechnik Ostermann GmbH",
+			"document_date": "2026-11-04",
+			"fields": {
+				"amount": {
+					"value": 244.73,
+					"printed": "244,73 €"
+				},
+				"currency": {
+					"value": "EUR",
+					"printed": "€"
+				},
+				"due_date": {
+					"value": "2026-11-18",
+					"printed": "18.11.2026"
+				},
+				"iban": {
+					"value": "DE39970113200740512268",
+					"printed": "DE39 9701 1320 0740 5122 68"
+				},
+				"invoice_number": {
+					"value": "HT-2026-0872",
+					"printed": "HT-2026-0872"
+				}
+			}
+		},
+		{
+			"document_key": "ostermann_invoice_2026_0655",
+			"displayed_path": "Downloads/Ostermann_Rechnung_HT-2026-0655.pdf",
+			"related_documents": [],
+			"sender": "Haustechnik Ostermann GmbH",
+			"document_date": "2026-09-15",
+			"fields": {
+				"amount": {
+					"value": 293.49,
+					"printed": "293,49 €"
+				},
+				"currency": {
+					"value": "EUR",
+					"printed": "€"
+				},
+				"due_date": {
+					"value": "2026-09-29",
+					"printed": "29.09.2026"
+				},
+				"iban": {
+					"value": "DE39970113200740512268",
+					"printed": "DE39 9701 1320 0740 5122 68"
+				},
+				"invoice_number": {
+					"value": "HT-2026-0655",
+					"printed": "HT-2026-0655"
+				}
+			}
+		},
+		{
+			"document_key": "ostermann_invoice_2026_0679",
+			"displayed_path": "Downloads/Ostermann_Rechnung_HT-2026-0679.pdf",
+			"related_documents": [
+				{
+					"relation": "corrects",
+					"document_key": "ostermann_invoice_2026_0655"
+				}
+			],
+			"sender": "Haustechnik Ostermann GmbH",
+			"document_date": "2026-09-22",
+			"fields": {
+				"amount": {
+					"value": 273.49,
+					"printed": "273,49 €"
+				},
+				"currency": {
+					"value": "EUR",
+					"printed": "€"
+				},
+				"due_date": {
+					"value": "2026-10-06",
+					"printed": "06.10.2026"
+				},
+				"iban": {
+					"value": "DE39970113200740512268",
+					"printed": "DE39 9701 1320 0740 5122 68"
+				},
+				"invoice_number": {
+					"value": "HT-2026-0679",
+					"printed": "HT-2026-0679"
+				}
+			}
+		},
+		{
+			"document_key": "muehlbach_statement_2026_09",
+			"displayed_path": "Cloud Storage/Bank/Kontoauszug_0471128305_202609.pdf",
+			"related_documents": [],
+			"sender": "Mühlbach Bank AG",
+			"document_date": "2026-09-30",
+			"fields": {
+				"iban": {
+					"value": "DE72960512400471128305",
+					"printed": "DE72 9605 1240 0471 1283 05"
+				}
+			}
+		},
+		{
+			"document_key": "muehlbach_statement_2026_10",
+			"displayed_path": "Cloud Storage/Bank/Kontoauszug_0471128305_202610.pdf",
+			"related_documents": [],
+			"sender": "Mühlbach Bank AG",
+			"document_date": "2026-10-31",
+			"fields": {
+				"iban": {
+					"value": "DE72960512400471128305",
+					"printed": "DE72 9605 1240 0471 1283 05"
+				}
+			}
+		}
+	],
+	"files": [
+		{
+			"path": "Downloads/Invoice-PLK-2026-004817.pdf",
+			"sha256": "b60d823ff8fc9d5e3f8979eb7be7fd57d31bcb959dcc0ec5260c4daf6ec98150",
+			"byte_size": 37713,
+			"rendition": "digital",
+			"case_key": "identical_file_in_three_folders",
+			"outcome": {
+				"kind": "archived",
+				"document_key": "paperlark_invoice_2026_10"
+			}
+		},
+		{
+			"path": "Desktop/Invoice-PLK-2026-004817.pdf",
+			"sha256": "b60d823ff8fc9d5e3f8979eb7be7fd57d31bcb959dcc0ec5260c4daf6ec98150",
+			"byte_size": 37713,
+			"rendition": "digital",
+			"case_key": "identical_file_in_three_folders",
+			"outcome": {
+				"kind": "archived",
+				"document_key": "paperlark_invoice_2026_10"
+			}
+		},
+		{
+			"path": "Cloud Storage/Rechnungen/Invoice-PLK-2026-004817.pdf",
+			"sha256": "b60d823ff8fc9d5e3f8979eb7be7fd57d31bcb959dcc0ec5260c4daf6ec98150",
+			"byte_size": 37713,
+			"rendition": "digital",
+			"case_key": "identical_file_in_three_folders",
+			"outcome": {
+				"kind": "archived",
+				"document_key": "paperlark_invoice_2026_10"
+			}
+		},
+		{
+			"path": "Downloads/AGB_Nordkabel.pdf",
+			"sha256": "02c3a75f63e2360d94f6bbdac64be9225c1fc0427e1bde46a226be2bb049567c",
+			"byte_size": 50111,
+			"rendition": "digital",
+			"case_key": "rewritten_digital_document",
+			"outcome": {
+				"kind": "archived",
+				"document_key": "nordkabel_terms_2026_07"
+			}
+		},
+		{
+			"path": "Cloud Storage/Verträge/Nordkabel AGB.pdf",
+			"sha256": "9e78cb2fb9a8b90c89da0d0a69a8b5c7077d0c521ed6abc9ec0c14a89208aa0e",
+			"byte_size": 50111,
+			"rendition": "digital_rewritten",
+			"case_key": "rewritten_digital_document",
+			"outcome": {
+				"kind": "archived",
+				"document_key": "nordkabel_terms_2026_07"
+			}
+		},
+		{
+			"path": "Downloads/Jahresabrechnung_Strom_2026.pdf",
+			"sha256": "983f75b57ab0267c6ee15107d090c462a299950074dfa3dff28c8285163f4f34",
+			"byte_size": 46793,
+			"rendition": "digital",
+			"case_key": "digital_document_and_flatbed_scan",
+			"outcome": {
+				"kind": "archived",
+				"document_key": "stadtwerke_annual_statement_2026"
+			}
+		},
+		{
+			"path": "Documents/Scans/scan_0011.pdf",
+			"sha256": "7a0b6ccfa0b0c47a77cd4cd001000a3a7de1a3580945ce0a0d56ecf6a3732112",
+			"byte_size": 190274,
+			"rendition": "flatbed_scan",
+			"case_key": "digital_document_and_flatbed_scan",
+			"outcome": {
+				"kind": "archived",
+				"document_key": "stadtwerke_annual_statement_2026"
+			}
+		},
+		{
+			"path": "Downloads/Rechnung_ZA-2026-0193.pdf",
+			"sha256": "29abffe49af4b52d3f803534e479ec83f1789e703487d8976fdc06a79fec5b37",
+			"byte_size": 67592,
+			"rendition": "digital",
+			"case_key": "digital_document_and_photograph",
+			"outcome": {
+				"kind": "archived",
+				"document_key": "vossberg_dental_invoice_2026_08"
+			}
+		},
+		{
+			"path": "Desktop/IMG_4821.jpg",
+			"sha256": "3334b962080e233a1dcc76c03adba51b92c933652da43e827f320bb3510528b6",
+			"byte_size": 424464,
+			"rendition": "photograph",
+			"case_key": "digital_document_and_photograph",
+			"outcome": {
+				"kind": "archived",
+				"document_key": "vossberg_dental_invoice_2026_08"
+			}
+		},
+		{
+			"path": "Documents/Scans/scan_0003.pdf",
+			"sha256": "f44221235358244a3b99033fe59f862d2f55b04b22bc9f70a0bd06f5113d89aa",
+			"byte_size": 201133,
+			"rendition": "flatbed_scan",
+			"case_key": "two_flatbed_scans_of_one_document",
+			"outcome": {
+				"kind": "archived",
+				"document_key": "income_tax_assessment_2025"
+			}
+		},
+		{
+			"path": "Documents/Scans/scan_0016.pdf",
+			"sha256": "7ac261f8fad7010e45a396e226d8b2bcbfd15d61650fec4e8297c69914a82fe5",
+			"byte_size": 354248,
+			"rendition": "flatbed_scan",
+			"case_key": "two_flatbed_scans_of_one_document",
+			"outcome": {
+				"kind": "archived",
+				"document_key": "income_tax_assessment_2025"
+			}
+		},
+		{
+			"path": "Downloads/Meldebescheinigung.pdf",
+			"sha256": "cc43acf63c6c16ecbba33ff99434909abef548c2278714602ed129f1ddb4bb37",
+			"byte_size": 34794,
+			"rendition": "digital",
+			"case_key": "duplex_scan_with_blank_reverse_side",
+			"outcome": {
+				"kind": "archived",
+				"document_key": "residence_registration_certificate_2026"
+			}
+		},
+		{
+			"path": "Documents/Scans/scan_0008.pdf",
+			"sha256": "44cd9f98bc14dd94af326b5db67c264d27ef6899b955cf440cb1814aca3943ea",
+			"byte_size": 284708,
+			"rendition": "flatbed_scan",
+			"case_key": "duplex_scan_with_blank_reverse_side",
+			"outcome": {
+				"kind": "archived",
+				"document_key": "residence_registration_certificate_2026"
+			}
+		},
+		{
+			"path": "Cloud Storage/Verträge/Mietvertrag_Am_Lindenhang_7.pdf",
+			"sha256": "4ecf1565011516d55a0df26e859554adf3ccf8aff3b2e440f4092f118806cd72",
+			"byte_size": 78396,
+			"rendition": "digital",
+			"case_key": "scan_with_reordered_pages",
+			"outcome": {
+				"kind": "archived",
+				"document_key": "wohnungsbau_rental_contract_2026"
+			}
+		},
+		{
+			"path": "Documents/Scans/scan_0014.pdf",
+			"sha256": "1d83111665d1046631b3932459cb1e8dcfd148789cd452ad9359a48b31a8b3d3",
+			"byte_size": 566604,
+			"rendition": "flatbed_scan",
+			"case_key": "scan_with_reordered_pages",
+			"outcome": {
+				"kind": "archived",
+				"document_key": "wohnungsbau_rental_contract_2026"
+			}
+		},
+		{
+			"path": "Downloads/Versicherungsschein_Hausrat.pdf",
+			"sha256": "8797186b69d479cf3df41ff086bc9238e6ec8a17bcf07e0478e4a36f88e20ef9",
+			"byte_size": 57462,
+			"rendition": "digital",
+			"case_key": "rotated_scans",
+			"outcome": {
+				"kind": "archived",
+				"document_key": "lindenhain_household_contents_policy_2026"
+			}
+		},
+		{
+			"path": "Documents/Scans/scan_0006.pdf",
+			"sha256": "54ce0253b87d52943bebc09f69e1dd30a31bc5c56138feaa0204658bd437637a",
+			"byte_size": 373068,
+			"rendition": "flatbed_scan",
+			"case_key": "rotated_scans",
+			"outcome": {
+				"kind": "archived",
+				"document_key": "lindenhain_household_contents_policy_2026"
+			}
+		},
+		{
+			"path": "Cloud Storage/Kamera-Uploads/IMG_5307.jpg",
+			"sha256": "7f7dc9ecc3b9076c3e39c9409e8c7d5f08809c5c3f28d19acb9942d672d8354e",
+			"byte_size": 253092,
+			"rendition": "photograph",
+			"case_key": "rotated_scans",
+			"outcome": {
+				"kind": "archived",
+				"document_key": "frischemarkt_receipt_2026_10_31"
+			}
+		},
+		{
+			"path": "Documents/Scans/scan_0012.pdf",
+			"sha256": "fd97a8fe0c99fd785eae88ca5005165d9bec3c2e00f24b7548ba19d859ec23cc",
+			"byte_size": 60670,
+			"rendition": "flatbed_scan",
+			"case_key": "rotated_scans",
+			"outcome": {
+				"kind": "archived",
+				"document_key": "frischemarkt_receipt_2026_10_31"
+			}
+		},
+		{
+			"path": "Downloads/Rechnung.pdf",
+			"sha256": "9072840b6271885a396c667255f23472698dfc5e8df16031c1ac75048844fcfa",
+			"byte_size": 42432,
+			"rendition": "digital",
+			"case_key": "monthly_invoice_series",
+			"outcome": {
+				"kind": "archived",
+				"document_key": "nordkabel_invoice_2026_05"
+			}
+		},
+		{
+			"path": "Downloads/Rechnung (1).pdf",
+			"sha256": "8ca13211b5dc7631ae4cec1695b98b83e830ad67bae886abdb64f5f4f5ded81f",
+			"byte_size": 42472,
+			"rendition": "digital",
+			"case_key": "monthly_invoice_series",
+			"outcome": {
+				"kind": "archived",
+				"document_key": "nordkabel_invoice_2026_06"
+			}
+		},
+		{
+			"path": "Downloads/Rechnung (2).pdf",
+			"sha256": "0a6f8dab055fe135762bcdee8cdc105de3ea25525fc24ab3839e45eb4a72c8df",
+			"byte_size": 42520,
+			"rendition": "digital",
+			"case_key": "monthly_invoice_series",
+			"outcome": {
+				"kind": "archived",
+				"document_key": "nordkabel_invoice_2026_07"
+			}
+		},
+		{
+			"path": "Downloads/Rechnung (3).pdf",
+			"sha256": "ae654fdd3a43dedaccdd45cb83ed72e6db8a50a33fdfbb4a309c5ea29f49dae0",
+			"byte_size": 42123,
+			"rendition": "digital",
+			"case_key": "monthly_invoice_series",
+			"outcome": {
+				"kind": "archived",
+				"document_key": "nordkabel_invoice_2026_08"
+			}
+		},
+		{
+			"path": "Downloads/Rechnung (4).pdf",
+			"sha256": "577a441227181a802bdf1be26db862868fa9a39b2a8e951ee354ea1cf6dd4a71",
+			"byte_size": 42910,
+			"rendition": "digital",
+			"case_key": "monthly_invoice_series",
+			"outcome": {
+				"kind": "archived",
+				"document_key": "nordkabel_invoice_2026_09"
+			}
+		},
+		{
+			"path": "Downloads/Rechnung (5).pdf",
+			"sha256": "1c3e3aae66aa30f8c441766b575fd3a878a0720abd6cbf1a5f2354fb36bfb900",
+			"byte_size": 42768,
+			"rendition": "digital",
+			"case_key": "monthly_invoice_series",
+			"outcome": {
+				"kind": "archived",
+				"document_key": "nordkabel_invoice_2026_10"
+			}
+		},
+		{
+			"path": "Documents/Scans/scan_0019.pdf",
+			"sha256": "173f79313b7042097092ee17e3a9490eb651f8a9db18745af0368d8deaa571ad",
+			"byte_size": 180700,
+			"rendition": "flatbed_scan",
+			"case_key": "invoices_differing_in_one_digit",
+			"outcome": {
+				"kind": "archived",
+				"document_key": "ostermann_invoice_2026_0871"
+			}
+		},
+		{
+			"path": "Documents/Scans/scan_0020.pdf",
+			"sha256": "e4290b946ccc56c834271be2a7e9303978fa9c732ca0a2b33b1acaa3433ec8ff",
+			"byte_size": 179313,
+			"rendition": "flatbed_scan",
+			"case_key": "invoices_differing_in_one_digit",
+			"outcome": {
+				"kind": "archived",
+				"document_key": "ostermann_invoice_2026_0872"
+			}
+		},
+		{
+			"path": "Downloads/Ostermann_Rechnung_HT-2026-0655.pdf",
+			"sha256": "89d9f8caf320e8a430d07aa0ca37890a38269c78874f38724b97c3a2ee56fea7",
+			"byte_size": 42923,
+			"rendition": "digital",
+			"case_key": "invoice_and_corrected_invoice",
+			"outcome": {
+				"kind": "archived",
+				"document_key": "ostermann_invoice_2026_0655"
+			}
+		},
+		{
+			"path": "Downloads/Ostermann_Rechnung_HT-2026-0679.pdf",
+			"sha256": "b26665a0e5f8abb5b87635ce65255543038bd0eb4761ec35d068a18b2b6b90c9",
+			"byte_size": 44752,
+			"rendition": "digital",
+			"case_key": "invoice_and_corrected_invoice",
+			"outcome": {
+				"kind": "archived",
+				"document_key": "ostermann_invoice_2026_0679"
+			}
+		},
+		{
+			"path": "Cloud Storage/Bank/Kontoauszug_0471128305_202609.pdf",
+			"sha256": "ee8727a8f4906596c5cbfb489f8cc9f7c0c84ad56ef5f36e3dd7cad0d9e428d1",
+			"byte_size": 63154,
+			"rendition": "digital",
+			"case_key": "consecutive_bank_statements",
+			"outcome": {
+				"kind": "archived",
+				"document_key": "muehlbach_statement_2026_09"
+			}
+		},
+		{
+			"path": "Cloud Storage/Bank/Kontoauszug_0471128305_202610.pdf",
+			"sha256": "db1462bde50b2d9a9c3e157767055fa8436fe9afb90d6cfa133246e99928b649",
+			"byte_size": 67470,
+			"rendition": "digital",
+			"case_key": "consecutive_bank_statements",
+			"outcome": {
+				"kind": "archived",
+				"document_key": "muehlbach_statement_2026_10"
+			}
+		},
+		{
+			"path": "Downloads/Nordbox_7_Bedienungsanleitung.pdf",
+			"sha256": "12a696bbef763ad135c0069e9d356c430c4e251a33e71155b3ec49ffe6c60d37",
+			"byte_size": 57452,
+			"rendition": "digital",
+			"case_key": "publications_outside_the_household",
+			"outcome": {
+				"kind": "set_aside"
+			}
+		},
+		{
+			"path": "Downloads/marwitz_kerber_2026.pdf",
+			"sha256": "6e6c8cbbac59702d5ca6d30b0856342ac2403075932cf56cfc136cf14976c5c4",
+			"byte_size": 61892,
+			"rendition": "digital",
+			"case_key": "publications_outside_the_household",
+			"outcome": {
+				"kind": "set_aside"
+			}
+		},
+		{
+			"path": "Desktop/Leseprobe_Die_Uhrmacherin_von_Talbrueck.pdf",
+			"sha256": "6c02acec13fb3f001d768f9edefdfa91266e134f6032f41b234a5a2f3f6c9f85",
+			"byte_size": 45908,
+			"rendition": "digital",
+			"case_key": "publications_outside_the_household",
+			"outcome": {
+				"kind": "set_aside"
+			}
+		},
+		{
+			"path": "Downloads/Unconfirmed 418273.crdownload",
+			"sha256": "4ed63bd43124e4e18428cd4389608063cd41c5f2db1432652066edebebe66bfa",
+			"byte_size": 24756,
+			"rendition": "not_a_document",
+			"case_key": "incomplete_downloads",
+			"outcome": {
+				"kind": "ignored",
+				"reason": "incomplete_download"
+			}
+		},
+		{
+			"path": "Downloads/Kontoauszug_0471128305_202610.pdf.download/Kontoauszug_0471128305_202610.pdf",
+			"sha256": "2ef6ae659cf65ddd126eb4dbdd10cfa2d32f86909d1a4cf2d28782f444733298",
+			"byte_size": 16867,
+			"rendition": "not_a_document",
+			"case_key": "incomplete_downloads",
+			"outcome": {
+				"kind": "ignored",
+				"reason": "incomplete_download"
+			}
+		},
+		{
+			"path": "Downloads/Kontoauszug_0471128305_202610.pdf.download/Info.plist",
+			"sha256": "472b5246f369ce878049e55133631c0a064ca07f20a2e20d147a5686fa5384ca",
+			"byte_size": 533,
+			"rendition": "not_a_document",
+			"case_key": "incomplete_downloads",
+			"outcome": {
+				"kind": "ignored",
+				"reason": "incomplete_download"
+			}
+		},
+		{
+			"path": "Desktop/Unbenannt.pdf",
+			"sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+			"byte_size": 0,
+			"rendition": "not_a_document",
+			"case_key": "empty_and_mislabeled_files",
+			"outcome": {
+				"kind": "ignored",
+				"reason": "empty_file"
+			}
+		},
+		{
+			"path": "Downloads/Rechnungsadresse.pdf",
+			"sha256": "f52a7fb21c15e509438636eb2c1d56422ba416078e846c6e57d3b6b0f20fc8c2",
+			"byte_size": 197,
+			"rendition": "not_a_document",
+			"case_key": "empty_and_mislabeled_files",
+			"outcome": {
+				"kind": "ignored",
+				"reason": "unrecognized_content"
+			}
+		},
+		{
+			"path": "Documents/Scans/scan_0009.pdf",
+			"sha256": "267868454a16b0c4e49d36b18c6ce2fa369fbcafadfff79c6c67c4a7bc05eebc",
+			"byte_size": 366823,
+			"rendition": "flatbed_scan",
+			"case_key": "two_documents_in_one_stack_scan",
+			"outcome": {
+				"kind": "unspecified",
+				"reason": "several_documents_in_one_scan"
+			}
+		}
+	]
+}

@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>DownloadEntryIdentifier</key>
+	<string>5C1E0B7A-3D42-4F0E-9A61-2B8D7C4E1F93</string>
+	<key>DownloadEntryPath</key>
+	<string>~/Downloads/Kontoauszug_0471128305_202610.pdf.download/Kontoauszug_0471128305_202610.pdf</string>
+	<key>DownloadEntryURL</key>
+	<string>https://banking.muehlbach-bank.example/postbox/statements/2026-10.pdf</string>
+</dict>
+</plist>
