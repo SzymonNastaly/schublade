@@ -2,7 +2,7 @@ import { applyD1Migrations, env, reset } from "cloudflare:test"
 import { asc, eq } from "drizzle-orm"
 import { expect, inject, test } from "vitest"
 import { connectDatabase } from "../database/client"
-import { categories, documentTags, documents, extractedFields, senders, tags } from "../database/schema"
+import { categories, contents, documentTags, documents, extractedFields, senders, tags } from "../database/schema"
 import { contentObjectKey } from "../ingestion/source_file"
 import { indexDocument } from "../search/document_indexing"
 import { createInMemorySearchIndex } from "../search/in_memory_search_index"
@@ -137,6 +137,32 @@ test("deleteDocument removes the index item, every R2 object, and the rows of a 
 		links: await database.select().from(documentTags),
 		tags: await database.select({ id: tags.id }).from(tags),
 	}).toEqual({ items: [], objects: 0, documents: [], fields: [], links: [], tags: [{ id: groceriesTagId }] })
+})
+
+test("deleting the holder of bytes that another document shares passes the content to it, and deleting the last one marks it deleted", async () => {
+	const { database, searchIndex } = await prepareReceipt()
+	const copyId = "2a9e4c6b-8d1f-4e3a-b572-0c4d6e8f1a3b"
+	const receiptSha256 = "5f2c8e1a9b4d7c3e6f0a2b5d8e1c4f7a0b3d6e9c2f5a8b1d4e7c0f3a6b9d2e5c"
+	await database.update(documents).set({ originalSha256: receiptSha256 }).where(eq(documents.id, receiptId))
+	await database.insert(documents).values({
+		id: copyId,
+		storageObjectKey: `documents/${copyId}/original.jpg`,
+		mimeType: "image/jpeg",
+		byteSize: 2048,
+		originalSha256: receiptSha256,
+		status: "archived",
+	})
+	await database.insert(contents).values({ sha256: receiptSha256, documentId: receiptId })
+	const holder = () => database.select({ sha256: contents.sha256, documentId: contents.documentId }).from(contents)
+
+	await deleteDocument({ database, storage: env.DOCUMENT_STORAGE, searchIndex }, receiptId)
+	const afterHolderDeletion = await holder()
+	await deleteDocument({ database, storage: env.DOCUMENT_STORAGE, searchIndex }, copyId)
+
+	expect({ afterHolderDeletion, afterLastDeletion: await holder() }).toEqual({
+		afterHolderDeletion: [{ sha256: receiptSha256, documentId: copyId }],
+		afterLastDeletion: [{ sha256: receiptSha256, documentId: null }],
+	})
 })
 
 test("deleteDocument removes the index item from any page of the listing", async () => {

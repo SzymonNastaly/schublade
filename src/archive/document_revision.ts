@@ -2,6 +2,7 @@ import { and, eq, inArray, sql } from "drizzle-orm"
 import { z } from "zod"
 import {
 	categories,
+	contents,
 	documentTags,
 	documents,
 	extractedFields,
@@ -185,7 +186,8 @@ export async function reviseDocument(
 
 /**
  * Deletes a settled document: its AI Search item, its R2 objects, its D1 rows, whose tags and
- * fields cascade, and then its AI Search item again. A backfill that read the row before it went
+ * fields cascade, and then its AI Search item again. A content it held passes to another document
+ * with the same bytes, or else stays known as deleted. A backfill that read the row before it went
  * can upload the document after the first removal, and the second removal deletes that item. A
  * deletion that fails part way, even after the row went, converges when it runs again.
  */
@@ -200,6 +202,16 @@ export async function deleteDocument({ database, storage, searchIndex }: Archive
 	await removeDocumentFromIndex(searchIndex, documentId)
 	const { objects } = await storage.list({ prefix: documentObjectPrefix(documentId) })
 	if (objects.length > 0) await storage.delete(objects.map((object) => object.key))
-	await database.delete(documents).where(eq(documents.id, documentId))
+	// Archives older than content identity can hold the same bytes in several documents, so a
+	// content passes to the oldest other one before it counts as deleted.
+	await database.batch([
+		database
+			.update(contents)
+			.set({
+				documentId: sql`(SELECT ${documents.id} FROM ${documents} WHERE ${documents.originalSha256} = ${contents.sha256} AND ${documents.id} <> ${documentId} ORDER BY ${documents.createdAt}, ${documents.id} LIMIT 1)`,
+			})
+			.where(eq(contents.documentId, documentId)),
+		database.delete(documents).where(eq(documents.id, documentId)),
+	])
 	await removeDocumentFromIndex(searchIndex, documentId)
 }
