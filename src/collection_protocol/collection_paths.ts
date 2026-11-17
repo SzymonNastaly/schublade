@@ -13,8 +13,6 @@ export type CollectionRoute =
 	| { kind: "content_submission"; method: "PUT"; sha256: string }
 	| { kind: "document_status"; method: "GET"; documentId: string }
 
-// Each pattern is anchored at both ends, so a subpath, a trailing slash, or uppercase hexadecimal
-// matches nothing and stays behind Access.
 const collectionRoutes: ReadonlyArray<{ pattern: RegExp; route: (parameter: string) => CollectionRoute }> = [
 	{
 		pattern: new RegExp(`^${COLLECTION_PATH_PREFIX}/contents/lookup$`),

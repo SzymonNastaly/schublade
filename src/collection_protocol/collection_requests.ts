@@ -17,7 +17,6 @@ import type { ArchiveDatabase } from "../database/client"
 import type { UploadEnvironment } from "../ingestion/document_upload"
 import type { CollectionRoute } from "./collection_paths"
 
-// A lookup binds its digests as one JSON parameter, so the limit bounds the parameter, not the count.
 const MAXIMUM_LOOKUP_DIGESTS = 1000
 
 const contentLookupSchema = z.strictObject({
@@ -43,7 +42,6 @@ const problemTitles = {
 
 type ProblemStatus = keyof typeof problemTitles
 
-/** A problem details answer, RFC 9457, as application/problem+json. */
 function problem(status: ProblemStatus, detail: string, headers: Record<string, string> = {}): Response {
 	return Response.json(
 		{ type: "about:blank", title: problemTitles[status], status, detail },
@@ -51,7 +49,6 @@ function problem(status: ProblemStatus, detail: string, headers: Record<string, 
 	)
 }
 
-/** The document a collector reads or just sent, in the shape of GET /api/v1/documents/{id}. */
 async function documentStatusResponse(
 	database: ArchiveDatabase,
 	documentId: string,
@@ -86,10 +83,8 @@ async function serveContentLookup(database: ArchiveDatabase, request: Request): 
 	})
 }
 
-/**
- * Archives the body as one file. The digest in the path names the content, so bytes with another
- * digest were corrupted on the way or sent in error, and are refused before their kind is read.
- */
+// A digest other than the one in the path means the bytes were corrupted on the way or sent in error,
+// so they are refused before their kind is read, which corrupted bytes could fail for good.
 async function serveContentSubmission(
 	environment: UploadEnvironment,
 	database: ArchiveDatabase,

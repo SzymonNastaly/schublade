@@ -4,7 +4,6 @@ import { contents, documents } from "../database/schema"
 import { acceptedMediaTypes } from "./source_file"
 import type { ArchiveDatabase } from "../database/client"
 
-// Each document costs one R2 read and one D1 batch, so one scheduled run digests a bounded number.
 const DIGEST_BATCH_SIZE = 25
 
 /** The SHA-256 of a byte sequence as lowercase hexadecimal, the name of a content throughout the archive. */

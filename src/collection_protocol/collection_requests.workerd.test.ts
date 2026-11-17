@@ -11,9 +11,8 @@ import { acceptDocumentUpload } from "../ingestion/document_upload"
 import { createRequestDispatcher } from "../request_dispatch"
 import { createInMemorySearchIndex } from "../search/in_memory_search_index"
 
-// The digest of Invoice-PLK-2026-004817.pdf, from test_fixtures/expected_collection.json.
+// The digests are the sha256 values of test_fixtures/expected_collection.json and of `sha256sum` on the fixture.
 const INVOICE_SHA256 = "b60d823ff8fc9d5e3f8979eb7be7fd57d31bcb959dcc0ec5260c4daf6ec98150"
-// The digest of test_fixtures/documents/electricity_invoice_scanned.pdf.
 const SCANNED_INVOICE_SHA256 = "3551f8806c62a6b604bfbeab63ececeac46ee9df4e7db1ff5835377ff07ab0ed"
 const UNKNOWN_SHA256 = "0000000000000000000000000000000000000000000000000000000000000000"
 const UNKNOWN_DOCUMENT_ID = "00000000-0000-4000-8000-000000000000"
@@ -151,7 +150,6 @@ test("PUT /api/v1/contents/{sha256} refuses a digest mismatch, an unaccepted fil
 	const mismatch = await collect("PUT", `/api/v1/contents/${UNKNOWN_SHA256}`, downloadsInvoice)
 	const unaccepted = await collect(
 		"PUT",
-		// The digest of the five bytes of the body.
 		"/api/v1/contents/185f8db32271fe25f561a6fc938b2e264306ec304eda518007d1764826381969",
 		new TextEncoder().encode("Hello"),
 	)

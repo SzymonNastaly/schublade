@@ -9,7 +9,6 @@ import { recordMissingContentDigests } from "./content_identity"
 const digestedId = "7a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d"
 const withoutOriginalId = "8b2c3d4e-5f60-4b7c-9d8e-0f1a2b3c4d5e"
 const awaitingRenderingId = "9c3d4e5f-6071-4c8d-ae9f-1a2b3c4d5e6f"
-// The digest of test_fixtures/documents/electricity_invoice_scanned.pdf.
 const SCANNED_INVOICE_SHA256 = "3551f8806c62a6b604bfbeab63ececeac46ee9df4e7db1ff5835377ff07ab0ed"
 
 test("the backfill digests a document archived before digests existed, keeps its revision, and skips one without an original", async () => {

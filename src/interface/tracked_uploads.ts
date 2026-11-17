@@ -6,7 +6,6 @@ import type { UploadOutcome } from "../ingestion/document_upload"
 export type TrackedUpload =
 	| { key: string; fileName: string; stage: "uploading" }
 	| { key: string; fileName: string; stage: "refused"; reason: string }
-	/** The bytes of the file belong to a document the archive holds, so the file became no new document. */
 	| { key: string; fileName: string; stage: "already_archived"; documentId: string }
 	| {
 			key: string

@@ -102,8 +102,7 @@ export const documents = sqliteTable(
 		storageObjectKey: text("storage_object_key").notNull(),
 		mimeType: text("mime_type").notNull(),
 		byteSize: integer("byte_size").notNull(),
-		// The SHA-256 of the original, as lowercase hexadecimal. Null for a document archived before
-		// the digests were recorded, until the scheduled backfill fills it.
+		// Null for a document archived before digests were recorded, until the scheduled backfill fills it.
 		originalSha256: text("original_sha256"),
 		pageCount: integer("page_count"),
 		status: text("status", { enum: documentStatuses }).notNull().default("processing"),
@@ -129,15 +128,11 @@ export const documents = sqliteTable(
 	],
 )
 
-/**
- * Every byte sequence the archive has received, named by its SHA-256. The row outlives its
- * document, so a file whose document was deleted stays known and no collector sends it again.
- */
+// The row outlives its document, so a file whose document was deleted stays known and no collector sends it again.
 export const contents = sqliteTable(
 	"contents",
 	{
 		sha256: text("sha256").primaryKey(),
-		// Null once the document was deleted.
 		documentId: text("document_id").references(() => documents.id, { onDelete: "set null" }),
 		createdAt: creationTime(),
 	},

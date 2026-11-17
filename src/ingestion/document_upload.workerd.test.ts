@@ -11,9 +11,8 @@ import { contents, documents } from "../database/schema"
 import { createInMemorySearchIndex } from "../search/in_memory_search_index"
 import { acceptDocumentUpload, receiveDocumentUploads } from "./document_upload"
 
-// The digest of Invoice-PLK-2026-004817.pdf, from test_fixtures/expected_collection.json.
+// The digests are the sha256 values of test_fixtures/expected_collection.json and of `sha256sum` on the fixture.
 const INVOICE_SHA256 = "b60d823ff8fc9d5e3f8979eb7be7fd57d31bcb959dcc0ec5260c4daf6ec98150"
-// The digest of test_fixtures/documents/electricity_invoice_scanned.pdf.
 const SCANNED_INVOICE_SHA256 = "3551f8806c62a6b604bfbeab63ececeac46ee9df4e7db1ff5835377ff07ab0ed"
 
 async function prepareArchive(failingWorkflowCreations = 0) {
@@ -131,7 +130,6 @@ test("receiveDocumentUploads rejects an oversized file and reports a failed one 
 
 test("receiveDocumentUploads archives the first 20 files of a request and rejects the others", async () => {
 	const { workflowInstances, environment } = await prepareArchive()
-	// Each receipt differs in its last byte, so no two carry the same content.
 	const receipts = Array.from(
 		{ length: 21 },
 		(_, index) =>
@@ -271,7 +269,6 @@ test("a content whose document was deleted stays known and is archived again by 
 	const contentRows = () => database.select({ sha256: contents.sha256, documentId: contents.documentId }).from(contents)
 	const first = await acceptDocumentUpload(environment, new File([scannedInvoice], "scan.pdf"))
 	if (first.kind !== "accepted") throw new Error(`The first upload was ${first.kind}`)
-	// A document is deleted once its ingestion has settled.
 	await database.update(documents).set({ status: "archived" }).where(eq(documents.id, first.documentId))
 
 	await deleteDocument({ database, storage: env.DOCUMENT_STORAGE, searchIndex }, first.documentId)

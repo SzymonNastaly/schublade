@@ -74,9 +74,8 @@ export async function archiveContent(
 	await environment.DOCUMENT_STORAGE.put(storageObjectKey, content, {
 		httpMetadata: { contentType: sourceFile.mediaType },
 	})
-	let recorded: Array<{ id: string }>
-	try {
-		;[recorded] = await database.batch([
+	const [recorded] = await database
+		.batch([
 			database
 				.insert(documents)
 				.values({
@@ -91,23 +90,22 @@ export async function archiveContent(
 				.returning({ id: documents.id }),
 			claimContent(database, sha256, documentId),
 		])
-	} catch (error) {
-		// Without its row, nothing would list or remove the stored original.
-		await environment.DOCUMENT_STORAGE.delete(storageObjectKey)
-		throw error
-	}
-	const inserted = recorded.length > 0
+		.catch(async (error: unknown) => {
+			// Without its row, nothing would list or remove the stored original.
+			await environment.DOCUMENT_STORAGE.delete(storageObjectKey)
+			throw error
+		})
+	const recordedByThisCall = recorded.length > 0
 	const [claimed] = await lookupContents(database, [sha256])
 	if (claimed?.state === "present" && claimed.documentId !== documentId) {
-		// Only what this call recorded is removed. A retried mail delivery recorded nothing.
-		if (inserted) {
+		if (recordedByThisCall) {
 			await database.delete(documents).where(eq(documents.id, documentId))
 			await environment.DOCUMENT_STORAGE.delete(storageObjectKey)
 		}
 		return { kind: "already_archived", documentId: claimed.documentId }
 	}
 	// A concurrent delivery of the same message recorded the document and started its workflow.
-	if (!inserted) return { kind: "accepted", documentId }
+	if (!recordedByThisCall) return { kind: "accepted", documentId }
 	await startDocumentIngestion(environment, {
 		id: documentId,
 		params: mailContext === undefined ? { documentId } : { documentId, mailContext },
@@ -173,7 +171,6 @@ export async function readDocumentBody(request: Request): Promise<DocumentBody> 
 
 type MultipartBody = { kind: "form"; formData: FormData } | { kind: "too_large" } | { kind: "malformed" }
 
-/** Parses the multipart body as it streams and reports a body over MAXIMUM_REQUEST_BYTES as too large. */
 async function readLimitedFormData(request: Request): Promise<MultipartBody> {
 	const { body, exceeded } = limitRequestBody(request, MAXIMUM_REQUEST_BYTES)
 	const contentType = request.headers.get("Content-Type") ?? ""
