@@ -171,7 +171,7 @@ const telecommunicationBillingMonths = {
 	"2026-09": { invoiceNumber: "NK-2026-0946-3391", usageCents: 254 },
 	"2026-10": { invoiceNumber: "NK-2026-1048-3391", usageCents: 216 },
 } as const satisfies Record<IsoMonth, { invoiceNumber: string; usageCents: number }>
-type TelecommunicationBillingMonth = keyof typeof telecommunicationBillingMonths
+export type TelecommunicationBillingMonth = keyof typeof telecommunicationBillingMonths
 
 function telecommunicationCharges(billingMonth: TelecommunicationBillingMonth): Array<[string, string, number]> {
 	const servicePeriod = formatGermanPeriod(billingMonth)
@@ -189,7 +189,7 @@ function telecommunicationCharges(billingMonth: TelecommunicationBillingMonth): 
 const telecommunicationTotalCents = (billingMonth: TelecommunicationBillingMonth): number =>
 	sumOf(telecommunicationCharges(billingMonth).map(([, , cents]) => cents))
 
-function telecommunicationInvoice(billingMonth: TelecommunicationBillingMonth): DocumentSpecification {
+export function telecommunicationInvoice(billingMonth: TelecommunicationBillingMonth): DocumentSpecification {
 	const invoiceNumber = telecommunicationBillingMonths[billingMonth].invoiceNumber
 	const invoiceDate = `${billingMonth}-05`
 	const dueDate = `${billingMonth}-20`
@@ -285,7 +285,7 @@ const electricityTaxCents = Math.round(electricityNetCents * 0.19)
 const electricityGrossCents = electricityNetCents + electricityTaxCents
 const electricityBalanceCents = electricityGrossCents - 12 * electricityInstallmentCents
 
-function electricityInvoice(): DocumentSpecification {
+export function electricityInvoice(): DocumentSpecification {
 	const invoiceDate = "2026-09-22"
 	const dueDate = "2026-10-06"
 	return {
@@ -504,7 +504,7 @@ const supermarketItems: ReadonlyArray<ReceiptItem> = [
 const supermarketTotalCents = sumOf(supermarketItems.map((item) => item.cents))
 const receiptPageSize = [80 * millimetre, 172 * millimetre] as const
 
-function supermarketReceipt(): DocumentSpecification {
+export function supermarketReceipt(): DocumentSpecification {
 	const receiptNumber = "4471"
 	const purchaseDate = "2026-10-31"
 	const total = formatGermanDecimal(supermarketTotalCents)
@@ -632,7 +632,7 @@ const rentComponents: ReadonlyArray<readonly [string, number]> = [
 ]
 const rentTotalCents = sumOf(rentComponents.map(([, cents]) => cents))
 
-function rentalContract(): DocumentSpecification {
+export function rentalContract(): DocumentSpecification {
 	const signatureDate = "2026-03-12"
 	const serifSections = { headingTypeface: "SerifBold", typeface: "SerifRegular", fontSize: 10 } as const
 	const pageLabel = (page: number) => `Mietvertrag ${rentalContractNumber} · Seite ${page} von 3`
@@ -796,7 +796,7 @@ function rentalContract(): DocumentSpecification {
 	}
 }
 
-function householdContentsInsurancePolicy(): DocumentSpecification {
+export function householdContentsInsurancePolicy(): DocumentSpecification {
 	const policyNumber = "HR-7731-0482-19"
 	const issueDate = "2026-02-20"
 	const coverageStart = "2026-03-01"
@@ -941,7 +941,7 @@ const incomeTaxCents = 1147400
 const withheldWageTaxCents = 1113300
 const taxBalanceCents = incomeTaxCents - withheldWageTaxCents
 
-function incomeTaxAssessment(): DocumentSpecification {
+export function incomeTaxAssessment(): DocumentSpecification {
 	const assessmentDate = "2026-09-08"
 	const dueDate = "2026-10-14"
 	const euroWhole = (euros: number) => `${euros.toLocaleString("de-DE")} €`
@@ -1133,7 +1133,7 @@ const statementTransactions = {
 		["31.10.", "Kartenzahlung", "Frischemarkt Talbrück", "Debitkarte 4417, 31.10. 17:42", -supermarketTotalCents],
 	],
 } as const satisfies Record<IsoMonth, ReadonlyArray<readonly [string, string, string, string, number]>>
-type StatementMonth = keyof typeof statementTransactions
+export type StatementMonth = keyof typeof statementTransactions
 
 const transactionTotalCents = (month: StatementMonth): number =>
 	sumOf(statementTransactions[month].map(([, , , , cents]) => cents))
@@ -1142,7 +1142,7 @@ const openingBalanceCents: Record<StatementMonth, number> = {
 	"2026-10": 241837,
 }
 
-function bankStatement(month: StatementMonth): DocumentSpecification {
+export function bankStatement(month: StatementMonth): DocumentSpecification {
 	const statementDate = lastDayOfMonth(month)
 	const statementNumber = `${Number(month.slice(5))}/${month.slice(0, 4)}`
 	const closingBalanceCents = openingBalanceCents[month] + transactionTotalCents(month)
@@ -1265,7 +1265,7 @@ const dentalProcedures: ReadonlyArray<{
 	{ code: "1020", description: "Lokale Fluoridierung", teeth: "OK, UK", quantity: 1, points: 50, factor: 2.3 },
 ]
 
-function dentalInvoice(): DocumentSpecification {
+export function dentalInvoice(): DocumentSpecification {
 	const invoiceNumber = "ZA-2026-0193"
 	const invoiceDate = "2026-08-27"
 	const dueDate = "2026-09-26"
@@ -1358,7 +1358,7 @@ function dentalInvoice(): DocumentSpecification {
 	}
 }
 
-function residenceRegistrationCertificate(): DocumentSpecification {
+export function residenceRegistrationCertificate(): DocumentSpecification {
 	const issueDate = "2026-05-04"
 	return {
 		pageSize: pageSizeA4,
@@ -1456,7 +1456,7 @@ function residenceRegistrationCertificate(): DocumentSpecification {
 	}
 }
 
-function softwareSubscriptionInvoice(): DocumentSpecification {
+export function softwareSubscriptionInvoice(): DocumentSpecification {
 	const invoiceNumber = "PLK-2026-004817"
 	const issueDate = "2026-10-03"
 	const dueDate = "2026-10-17"
@@ -1560,7 +1560,7 @@ function softwareSubscriptionInvoice(): DocumentSpecification {
 	}
 }
 
-function generalTermsAndConditions(): DocumentSpecification {
+export function generalTermsAndConditions(): DocumentSpecification {
 	const effectiveDate = "2026-07-01"
 	const sectionOptions = { headingTypeface: "SansBold", fontSize: 9, gap: 0.35 } as const
 	return {
@@ -1674,6 +1674,127 @@ function generalTermsAndConditions(): DocumentSpecification {
 				{ ...sectionOptions, top: 60 },
 			)
 			drawPageLabel(document, `${nordkabel.name} · Allgemeine Geschäftsbedingungen · Seite 2 von 2`)
+		},
+	}
+}
+
+const ostermann: Organization = {
+	name: "Haustechnik Ostermann GmbH",
+	addressLines: ["Mühlenweg 31", "31846 Talbrück"],
+	contactLines: ["service@ostermann.example", "Kundendienst und Notdienst", "rund um die Uhr"],
+	registrationLines: ["Geschäftsführer:", "Malte Ostermann", "Amtsgericht Talbrück HRB 1934"],
+	bankName: banks.kreditverein.name,
+	iban: computeGermanIban(banks.kreditverein.code, "0740512268"),
+	accentColor: "#b4441c",
+	monogram: "HO",
+}
+
+interface ServiceInvoiceItem {
+	description: string
+	quantity: number
+	unit: string
+	unitCents: number
+}
+
+export interface ServiceInvoice {
+	invoiceNumber: string
+	invoiceDate: string
+	orderDate: string
+	serviceDate: string
+	work: string
+	items: ReadonlyArray<ServiceInvoiceItem>
+	replacedInvoice?: { invoiceNumber: string; invoiceDate: string; reason: string }
+}
+
+const serviceItemCents = (item: ServiceInvoiceItem): number => Math.round(item.quantity * item.unitCents)
+
+export function heatingEngineerInvoice(invoice: ServiceInvoice): DocumentSpecification {
+	const dueDate = new Date(Date.parse(`${invoice.invoiceDate}T00:00:00Z`) + 14 * 86_400_000).toISOString().slice(0, 10)
+	const totalCents = sumOf(invoice.items.map(serviceItemCents))
+	const { netCents, taxCents } = vatIncludedInGross(totalCents, 19)
+	const replaced = invoice.replacedInvoice
+	return {
+		pageSize: pageSizeA4,
+		pageCount: 1,
+		language: "de",
+		category: "Invoice",
+		sender: ostermann.name,
+		person: "Mira Wiśniewska",
+		documentDate: germanDateField(invoice.invoiceDate),
+		titleHint: `Haustechnik Ostermann Invoice ${invoice.invoiceNumber}`,
+		fields: {
+			amount: euroField(totalCents),
+			currency: euroCurrency,
+			due_date: germanDateField(dueDate),
+			iban: ibanField(ostermann.iban),
+			invoice_number: literalField(invoice.invoiceNumber),
+		},
+		render(document) {
+			document.addPage()
+			let cursor = drawLetterhead(document, ostermann, {
+				recipientLines: ["Frau", "Mira Wiśniewska", ...householdAddressLines],
+				referenceRows: [
+					["Kundennummer", "K-20417"],
+					["Rechnungsnummer", invoice.invoiceNumber],
+					["Rechnungsdatum", formatGermanDate(invoice.invoiceDate)],
+					["Leistungsdatum", formatGermanDate(invoice.serviceDate)],
+				],
+				subject: replaced
+					? `Rechnungskorrektur Nr. ${invoice.invoiceNumber} zu Rechnung Nr. ${replaced.invoiceNumber}`
+					: `Rechnung Nr. ${invoice.invoiceNumber}`,
+			})
+			cursor = drawParagraphs(
+				document,
+				[
+					"Sehr geehrte Frau Wiśniewska,",
+					`für ${invoice.work} am ${formatGermanDate(invoice.serviceDate)} in Ihrer Wohnung Am Lindenhang 7 berechnen wir Ihnen gemäß Ihrem Auftrag vom ${formatGermanDate(invoice.orderDate)} die folgenden Leistungen:`,
+					...(replaced
+						? [
+								`Diese Rechnung ersetzt unsere Rechnung Nr. ${replaced.invoiceNumber} vom ${formatGermanDate(replaced.invoiceDate)}, die damit ihre Gültigkeit verliert. ${replaced.reason} Bitte überweisen Sie ausschließlich den hier genannten Betrag.`,
+							]
+						: []),
+				],
+				{ top: cursor },
+			)
+			cursor = drawTable(document, {
+				left: leftMargin,
+				top: cursor + 4,
+				columns: [
+					{ header: "Leistung", width: 230 },
+					{ header: "Menge", width: 70, align: "right" },
+					{ header: "Einzelpreis", width: 75, align: "right" },
+					{ header: "Betrag", width: contentWidth - 375, align: "right" },
+				],
+				rows: invoice.items.map((item) => [
+					item.description,
+					`${item.quantity.toLocaleString("de-DE")} ${item.unit}`,
+					formatEuro(item.unitCents),
+					formatEuro(serviceItemCents(item)),
+				]),
+				summaryRows: [
+					["Summe netto", "", "", formatEuro(netCents)],
+					["Umsatzsteuer 19 %", "", "", formatEuro(taxCents)],
+					["Rechnungsbetrag", "", "", formatEuro(totalCents)],
+				],
+				bandColor: "#f6e3da",
+			})
+			cursor = drawParagraphs(
+				document,
+				[
+					`Bitte überweisen Sie den Rechnungsbetrag von ${formatEuro(totalCents)} bis zum ${formatGermanDate(dueDate)} unter Angabe der Rechnungsnummer ${invoice.invoiceNumber} auf das folgende Konto:`,
+				],
+				{ top: cursor + 18 },
+			)
+			cursor = drawBankDetails(document, ostermann, cursor + 2)
+			drawParagraphs(
+				document,
+				[
+					"Auf die in der Rechnung enthaltenen Arbeitskosten können Sie eine Steuerermäßigung für Handwerkerleistungen nach § 35a EStG geltend machen.",
+					"Mit freundlichen Grüßen\nIhre Haustechnik Ostermann",
+				],
+				{ top: cursor + 14 },
+			)
+			drawLetterFooter(document, ostermann)
 		},
 	}
 }

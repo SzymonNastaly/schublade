@@ -143,6 +143,26 @@ export function simulateFlatbedScan(page: GrayscaleRaster, random: RandomSource)
 	return { width, height, rgba }
 }
 
+function exposeCameraSensor(
+	channels: readonly [Float32Array, Float32Array, Float32Array],
+	width: number,
+	height: number,
+	random: RandomSource,
+): ColorRaster {
+	const softened = channels.map((channel) => blurChannel(channel, width, height))
+	const rgba = new Uint8Array(width * height * 4)
+	for (let index = 0; index < width * height; index++) {
+		const luminanceNoise = standardNormalSample(random) * 4
+		for (let channel = 0; channel < 3; channel++) {
+			rgba[index * 4 + channel] = clampByte(
+				softened[channel]![index]! + luminanceNoise + standardNormalSample(random) * 1.5,
+			)
+		}
+		rgba[index * 4 + 3] = 255
+	}
+	return { width, height, rgba }
+}
+
 export function simulateReceiptPhotograph(receipt: GrayscaleRaster, random: RandomSource): ColorRaster {
 	const width = 1200
 	const height = 1600
@@ -210,16 +230,100 @@ export function simulateReceiptPhotograph(receipt: GrayscaleRaster, random: Rand
 		}
 	}
 
-	const softened = channels.map((channel) => blurChannel(channel, width, height))
-	const rgba = new Uint8Array(width * height * 4)
-	for (let index = 0; index < width * height; index++) {
-		const luminanceNoise = standardNormalSample(random) * 4
-		for (let channel = 0; channel < 3; channel++) {
-			rgba[index * 4 + channel] = clampByte(
-				softened[channel]![index]! + luminanceNoise + standardNormalSample(random) * 1.5,
+	return exposeCameraSensor(channels, width, height, random)
+}
+
+export function simulatePagePhotograph(page: GrayscaleRaster, random: RandomSource): ColorRaster {
+	const width = 1536
+	const height = 2048
+	if (page.width > width * 0.85 || page.height > height * 0.9)
+		throw new Error(`a ${page.width} x ${page.height} page does not fit a ${width} x ${height} photograph`)
+	const angle = ((random() < 0.5 ? -1 : 1) * (0.8 + random() * 1.4) * Math.PI) / 180
+	const cosine = Math.cos(angle)
+	const sine = Math.sin(angle)
+	const centerX = width / 2 + (random() * 2 - 1) * 24
+	const centerY = height / 2 + (random() * 2 - 1) * 20
+	const keystone = 0.025 + random() * 0.025
+	const shadowOffsetX = 7
+	const shadowOffsetY = 11
+	const deskTexture = createValueNoise(random, 7, 9)
+	const deskGrain = createValueNoise(random, 90, 6)
+	const paperBlotches = createValueNoise(random, 6, 8)
+	const handShadowSlope = 0.6 + random() * 0.8
+	const handShadowOffset = 0.75 + random() * 0.15
+	const inkColor = [38, 38, 46] as const
+
+	// The camera leans back from the page, so its far edge reaches the sensor narrower than its near edge.
+	const toPageCoordinates = (x: number, y: number): [number, number] => {
+		const scale = 1 + keystone * ((y - centerY) / (height / 2))
+		const offsetX = (x - centerX) / scale
+		const offsetY = y - centerY
+		return [cosine * offsetX + sine * offsetY + page.width / 2, -sine * offsetX + cosine * offsetY + page.height / 2]
+	}
+	const insideDistance = (column: number, row: number) => Math.min(column, page.width - column, row, page.height - row)
+
+	const channels = [
+		new Float32Array(width * height),
+		new Float32Array(width * height),
+		new Float32Array(width * height),
+	] as const
+	for (let y = 0; y < height; y++) {
+		for (let x = 0; x < width; x++) {
+			const index = y * width + x
+			const texture = deskTexture(x / width, y / height) * 0.6 + deskGrain(x / width, y / height) * 0.4
+			const [shadowColumn, shadowRow] = toPageCoordinates(x - shadowOffsetX, y - shadowOffsetY)
+			const shadow = 1 - 0.45 * smoothstep(clampUnit((insideDistance(shadowColumn, shadowRow) + 18) / 36))
+			let red = (128 + 34 * texture) * shadow
+			let green = (104 + 28 * texture) * shadow
+			let blue = (82 + 22 * texture) * shadow
+
+			const [column, row] = toPageCoordinates(x, y)
+			const coverage = clampUnit(insideDistance(column, row) + 0.5)
+			if (coverage > 0) {
+				const ink = (255 - sampleBilinear(page, column, row)) / 255
+				const paper = 0.97 + 0.03 * paperBlotches(column / page.width, row / page.height)
+				const paperColor = [246 * paper, 244 * paper, 238 * paper] as const
+				red = red * (1 - coverage) + (paperColor[0] * (1 - ink) + inkColor[0] * ink) * coverage
+				green = green * (1 - coverage) + (paperColor[1] * (1 - ink) + inkColor[1] * ink) * coverage
+				blue = blue * (1 - coverage) + (paperColor[2] * (1 - ink) + inkColor[2] * ink) * coverage
+			}
+
+			const radial = ((x - width / 2) ** 2 + (y - height / 2) ** 2) / ((width / 2) ** 2 + (height / 2) ** 2)
+			const handShadow =
+				1 - 0.16 * smoothstep(clampUnit((x / width + handShadowSlope * (y / height) - handShadowOffset) * 6))
+			const lighting = (1 - 0.22 * radial) * (1.04 - 0.08 * (y / height)) * handShadow
+			channels[0][index] = red * lighting * 1.03
+			channels[1][index] = green * lighting
+			channels[2][index] = blue * lighting * 0.95
+		}
+	}
+	return exposeCameraSensor(channels, width, height, random)
+}
+
+export function rotateClockwise(raster: ColorRaster, quarterTurns: 0 | 1 | 2 | 3): ColorRaster {
+	const swapsAxes = quarterTurns % 2 === 1
+	const width = swapsAxes ? raster.height : raster.width
+	const height = swapsAxes ? raster.width : raster.height
+	const rgba = new Uint8Array(raster.rgba.length)
+	for (let y = 0; y < height; y++) {
+		for (let x = 0; x < width; x++) {
+			const [sourceX, sourceY] = [
+				[x, y],
+				[y, raster.height - 1 - x],
+				[raster.width - 1 - x, raster.height - 1 - y],
+				[raster.width - 1 - y, x],
+			][quarterTurns]!
+			rgba.set(
+				raster.rgba.subarray((sourceY! * raster.width + sourceX!) * 4, (sourceY! * raster.width + sourceX!) * 4 + 4),
+				(y * width + x) * 4,
 			)
 		}
-		rgba[index * 4 + 3] = 255
 	}
 	return { width, height, rgba }
 }
+
+export const blankSheet = (width: number, height: number): GrayscaleRaster => ({
+	width,
+	height,
+	luminance: new Uint8Array(width * height).fill(255),
+})
