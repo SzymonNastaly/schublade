@@ -139,6 +139,12 @@ impl HttpArchiveClient {
         }
     }
 
+    /// Tries a pasted address and token before they are stored: one lookup of a digest that no
+    /// file has, which every route answers only for a token with the ingest level.
+    pub fn verify_credential(&self) -> Result<(), ArchiveCondition> {
+        self.look_up(&[ContentDigest::from_bytes([0; 32])]).map(|_| ())
+    }
+
     fn answer_of(
         &self,
         sent: Result<ureq::http::Response<ureq::Body>, ureq::Error>,

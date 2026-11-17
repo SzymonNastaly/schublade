@@ -98,8 +98,9 @@ pub enum CollectorEvent {
     DocumentReceived { document_link: String, file_name: String },
 }
 
-/// Why a command was not carried out. Every variant is a sentence the app can show.
-#[derive(Clone, Debug, PartialEq, Eq)]
+/// Why a command was not carried out. Every variant is a sentence the app can show, and the app
+/// receives the variant itself to word it with the folder's name.
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize)]
 pub enum CommandRefusal {
     ArchiveAddressInvalid {
         detail: String,

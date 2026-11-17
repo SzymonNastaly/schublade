@@ -56,6 +56,9 @@ pub struct FolderStatus {
     pub availability: FolderAvailability,
     /// Paths still Stabilizing or Stable, and contents still Unresolved: "examining 12 files".
     pub files_under_examination: u64,
+    /// This folder's own counts while it awaits its decision, for a confirmation asked once per
+    /// folder; None in every other admission.
+    pub backlog: Option<BacklogSummary>,
 }
 
 /// "1,240 files: 310 already in the archive, 930 new, holding 902 distinct contents."

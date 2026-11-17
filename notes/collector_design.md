@@ -576,6 +576,12 @@ The second part (the file system observation, the coordinator, the credential st
 27. **The watcher matches events against the root as given and as canonicalized.** FSEvents reports real paths, so a root enrolled as `/var/folders/...` (the Mac's temporary directory, a link to `/private/var/...`) or through any symbolic link produced no hints until the canonical spelling was matched too; inotify reports the watched spelling. Found by the corpus scenario that writes a file after the decision, which passed on Linux and made no progress on the Mac.
 28. **Dependencies build with `opt-level = 2` in the dev profile**, because unoptimized SHA-256 and SQLite made a corpus scenario take six seconds of CPU; the ten scenarios now run in 5 to 18 seconds together on an 8-core Linux machine, most of it the parallel digests of ten corpus copies.
 
+The third part (the Tauri app, `collection_application` with its window `collection_interface`, committed 2026-11-17) added three small things to the core. The app holds no collection logic of its own.
+
+29. **Each folder carries its own backlog.** `FolderStatus.backlog` holds the folder's `BacklogSummary` while it is AwaitingDecision and is None otherwise. The confirmation is asked once per folder, and `CollectorStatus.backlog` sums every waiting folder, so a second folder that finished its survey would have changed the counts of the first folder's dialog. `CollectorStatus.backlog` stays for the command-line program.
+30. **`HttpArchiveClient::verify_credential`** tries an address and token before they are stored. It sends one lookup of the all-zero digest, which no file has. The setup screen can then say "the token was refused" or "the archive could not be reached" at once. Without it, `connect_archive` stores any token, and a wrong one shows only as a suspension after the first folder's survey. The check runs on the app's command thread, not in the coordinator, so a slow network never holds a batch.
+31. **`CommandRefusal` serializes.** The window receives the variant with its folder identifier and words it with the folder's name. The identifier in the `Display` text means nothing to a person.
+
 ## Open questions and risks
 
 1. Should the archive refuse a PUT of a `deleted` content (for example 409 with a problem document)? Today it revives the document, and the collector's 10-minute validity only narrows the window in which another device could have uploaded and the owner could have deleted the content. A server change closes it for every collector, the iPhone app included.

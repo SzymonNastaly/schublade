@@ -345,3 +345,34 @@ fn a_silent_server_times_out_and_a_closed_port_is_a_connection_failure() {
         Err(ArchiveCondition::ConnectionFailed)
     );
 }
+
+#[test]
+fn a_credential_is_verified_by_one_lookup_that_names_no_file() {
+    let zero_digest = "0".repeat(64);
+    let archive = TestArchive::start(vec![
+        json(
+            200,
+            &format!(r#"{{"contents":[{{"sha256":"{zero_digest}","state":"absent"}}]}}"#),
+        ),
+        problem(401, "Send a valid API token"),
+        problem(403, "The API token does not permit ingesting documents"),
+        problem(404, "Not found"),
+    ]);
+    let client = archive.client();
+
+    let answers: Vec<_> = (0..4).map(|_| client.verify_credential()).collect();
+
+    assert_eq!(
+        answers,
+        vec![
+            Ok(()),
+            Err(ArchiveCondition::CredentialRefused),
+            Err(ArchiveCondition::CredentialInsufficient),
+            Err(ArchiveCondition::ProtocolViolation {
+                detail: "404: Not found".to_owned()
+            }),
+        ]
+    );
+    let sent: serde_json::Value = serde_json::from_slice(&archive.requests()[0].body).unwrap();
+    assert_eq!(sent, serde_json::json!({ "sha256": [zero_digest] }));
+}

@@ -332,6 +332,24 @@ fn the_survey_counts_the_backlog_and_submits_nothing_before_the_decision() {
     );
     assert_eq!(status.counts.contents_present, 1);
     assert_eq!(status.counts.contents_awaiting_submission, 32);
+    let own_backlogs: Vec<(Vec<FolderIdentifier>, u64, u64)> = status
+        .folders
+        .iter()
+        .map(|folder| {
+            let own = folder.backlog.as_ref().expect("each folder has its own counts");
+            (own.folders.clone(), own.candidate_files, own.files_new)
+        })
+        .collect();
+    let folder = |index: usize| vec![scenario.folders[index]];
+    assert_eq!(
+        own_backlogs,
+        vec![
+            (folder(0), 16, 15),
+            (folder(1), 3, 2),
+            (folder(2), 10, 10),
+            (folder(3), 6, 5)
+        ]
+    );
 }
 
 #[test]

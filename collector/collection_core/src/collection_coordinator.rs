@@ -950,12 +950,17 @@ impl VolatileState {
                 .copied()
                 .unwrap_or(FolderAvailability::Available);
             let progress = store.survey_progress(record.folder)?;
+            let backlog = match record.admission {
+                FolderAdmission::AwaitingDecision => Some(self.backlog_summary(store, &[record.folder])?),
+                FolderAdmission::Surveying | FolderAdmission::Collecting { .. } => None,
+            };
             folders.push(FolderStatus {
                 folder: record.folder,
                 root: record.root.clone(),
                 admission: record.admission,
                 availability,
                 files_under_examination: progress.paths_stabilizing_or_stable + progress.contents_unresolved,
+                backlog,
             });
             if availability != FolderAvailability::Available {
                 attention.push(AttentionItem::FolderUnavailable {
@@ -1129,6 +1134,7 @@ mod tests {
             (backlog.candidate_files, backlog.files_new, backlog.new_contents),
             (1, 1, 1)
         );
+        assert_eq!(surveyed.folders[0].backlog.as_ref(), Some(&backlog));
         assert_eq!(
             surveyed.attention,
             vec![AttentionItem::BacklogAwaitsDecision { folders: vec![folder] }]
