@@ -199,22 +199,24 @@ collector/                               The desktop collector, a Cargo workspac
 		http_archive_client.rs               The HTTP client against a local tiny_http server
 	collection_command/src/main.rs         `schublade-collector`: connect, enroll, survey, decide, collect, status
 	collection_application/                Schublade Collector, the Tauri 2 app for macOS; it holds no collection logic
-		src/main.rs                          One Collector (database in the app data directory, token in the Keychain), the event forwarding as `collector_event`, start at login, the Reopen event
-		src/application_commands.rs          The window's commands, one per Collector method, run off the main thread; ApplicationRefusal; the token tried with verify_credential before connect_archive stores it
+		src/main.rs                          The single-instance hand-over, the development identifier, the event forwarding as `collector_event`, the login item rewritten at each launch, the Accessory policy before a login start, the menu handler, the Reopen event
+		src/collector_presence.rs            CollectorPresence: the running Collector (database in the app data directory, token in the Keychain under the app's identifier) or the CollectorStartFailure the window shows
+		src/application_commands.rs          The window's commands, one per Collector method, run off the main thread; the preference change, synchronous so it runs on the main thread; quit_application; ApplicationRefusal; the token tried with verify_credential before connect_archive stores it
 		src/window_presence.rs               The window and the menu bar item; the activation policy is Regular with the window and Accessory without it
-		src/application_preferences.rs       Whether the menu bar item shows, in the app config directory; start at login is read from the login item
-		tauri.conf.json, Info.plist          The bundle (identifier org.schublade.collector) and the folder usage descriptions merged into its Info.plist
-		capabilities/main_window.json        The window may use core, the folder picker, and opening http(s) links
+		src/application_preferences.rs       Whether the menu bar item shows and whether start at login was ever set, in the app config directory; start at login itself is read from the login item
+		tauri.conf.json, Info.plist          The bundle (identifier org.schublade.collector), the content security policy, and the folder usage descriptions merged into its Info.plist
+		capabilities/main_window.json        The window may listen to events, open the folder picker, and open http and https links; its own commands need no permission
 		icons/                               application_icon.svg and menu_bar_template.svg, and the PNG and icns files `pnpm run icons:generate` renders from them
 	collection_interface/                  The app's window: React, TanStack Query, Tailwind; its own pnpm project, not a member of the archive's workspace
 		src/collector_status.ts              The status and refusals as the window uses them, derived from the core's externally tagged serde format; the one parse
 		src/collector_bridge.ts              CollectorBridge, everything the window asks of the app; `#collector_bridge` picks the implementation
 		src/tauri_bridge.ts                  The bridge over invoke, listen, and the dialog and opener plugins
-		src/collector_queries.ts             The status query, invalidated by every collector event, and the command mutations
+		src/status_following.ts              The status query and its following: the highest announced revision, rereads that never cancel a read in flight; tested
+		src/collector_queries.ts             The status hook, the following that `main.tsx` starts once, and the command mutations
 		src/backlog_confirmation_wording.ts  The confirmation's sentences from a folder's counts; tested
 		src/status_sentences.ts              Connection, activity, attention, folder state, and refusal sentences; tested
-		src/screens/, src/controls/          The setup, folders, confirmation, status, and settings screens, and the controls they compose
-		stand_in/                            Fixed statuses for a plain browser (`pnpm run serve:stand_in`, `?screen=setup|confirmation|folders|status`); never in the app bundle
+		src/screens/, src/controls/          The setup, folders, confirmation, status, settings, and start failure screens, and the controls they compose
+		stand_in/                            Fixed statuses for a plain browser (`pnpm run serve:stand_in`, `?screen=setup|confirmation|folders|status|start_failure`); never in the app bundle
 		generate_application_icons.ts        `pnpm run icons:generate`: renders the app's icons with `tauri icon`
 test_fixtures/
 	documents/                             Synthetic test documents and expected_extraction.json
@@ -299,8 +301,13 @@ eslint.config.js, .prettierrc.json, knip.json, tsconfig.json
 - **The window reads the core's serde format through one parse.** The core serializes its enums with serde's external tagging (`"Surveying"`, `{ "Collecting": { "decided_at": 1 } }`). `collector_status.ts` writes each union with a `kind` and derives the wire type from it with `ExternallyTagged`, and `parseCollectorStatus` converts once. A new field or variant in `status_report.rs` needs the same change there, and the stand-in statuses follow from the types.
 - **The stand-in never reaches the bundle.** `#collector_bridge` in `package.json` `imports` resolves to `stand_in/stand_in_bridge.ts` only under the `stand_in` condition, which `vite --mode stand_in` adds. Every other build resolves `src/tauri_bridge.ts`. Keep stand-in code under `stand_in/` and import it only through `#collector_bridge`.
 - **The confirmation is per folder.** `FolderStatus.backlog` holds one folder's counts while it awaits its decision, and the window passes exactly that folder to `decide_backlog`. `CollectorStatus.backlog` sums every waiting folder for the program; the window never reads it.
-- **A new token is tried before it is stored.** `connect_archive` in `application_commands.rs` calls `HttpArchiveClient::verify_credential`, one lookup of the all-zero digest, and stores the token only when the archive answers it. The first connection also turns on start at login.
-- **The app and the program are two collectors.** Both read the Keychain service `Schublade collector`, but the app keeps its database in `~/Library/Application Support/org.schublade.collector` and the program in `~/Library/Application Support/Schublade collector`. Do not run both on the same folders.
+- **A new token is tried before it is stored.** `connect_archive` in `application_commands.rs` calls `HttpArchiveClient::verify_credential`, one lookup of the all-zero digest, and stores the token only when the archive answers it. The first successful connection on a Mac turns on start at login once; `start_at_login_established` in the app's preferences keeps a later connection from overriding the person's choice.
+- **A collector stays with its first archive.** The core refuses `connect_archive` with another origin (`ArchiveOriginDiffers`) once any folder is enrolled or any content recorded, because standings and receipts belong to the connected archive. Starting over means removing the app's data directory.
+- **One collector per database.** `StateStore::open` locks `<database>.lock`, and a second collector fails with `StoreOpenFailure::InUse`, which the window shows as a start failure. A start failure never ends the app: the window says what happened, even at a login start.
+- **A debug build is another app.** `main.rs` sets the identifier `org.schublade.collector.development` under `debug_assertions`, and the data directory, the Keychain service, the login item (`~/Library/LaunchAgents/<identifier>.plist`), and the single-instance socket follow it. The release bundle keeps `org.schublade.collector`.
+- **The app and the program are two collectors.** The app's Keychain service is its identifier and the program's is `Schublade collector`, so connecting one never replaces the other's token. The app keeps its database in `~/Library/Application Support/org.schublade.collector` and the program in `~/Library/Application Support/Schublade collector`. Do not run both on the same folders.
+- **The window follows the status by revision.** Every `StatusChanged` carries the revision the next status read reports. `status_following.ts` invalidates with `cancelRefetch: false` and reads again when a read ends older than the newest announcement, because cancelling starved every read while a busy collector announced every 250 ms, and an invalidation during the first read folded into it. A command's success still cancels and rereads once.
+- **The menu bar item belongs to the main thread.** Add or remove it only from setup or a synchronous command, which Tauri runs on the main thread. Its menu handler is registered once on the builder, because `TrayIconBuilder::on_menu_event` adds a global listener on every rebuild.
 - **The Mac runner copies the tree at launch.** `scripts/execute_on_macintosh.sh` rsyncs what git tracks before it runs the command, so a file written after the launch is not on the Mac, and `cargo fmt --check` there judges the copy, not your working tree.
 
 ## Commands
@@ -333,7 +340,7 @@ scripts/execute_on_macintosh.sh bash -c 'cd collector && cargo clippy --workspac
 The collector's window is checked in `collector/collection_interface`:
 
 ```bash
-pnpm run check                  # typecheck, lint, format:check, tests of the wording
+pnpm run check                  # typecheck, lint, format:check (with collection_application's JSON), tests of the wording and the status following
 pnpm run serve:stand_in         # the window in a plain browser on http://localhost:1420/?screen=status with fixed statuses
 pnpm run application:bundle     # macOS only: builds the window and collector/target/release/bundle/macos/Schublade Collector.app (unsigned)
 pnpm run application:develop    # macOS only: the app with the window from the Vite server
