@@ -39,6 +39,7 @@ const problemTitles = {
 	403: "Forbidden",
 	404: "Not Found",
 	405: "Method Not Allowed",
+	409: "Conflict",
 	413: "Content Too Large",
 	415: "Unsupported Media Type",
 	422: "Unprocessable Content",
@@ -96,6 +97,9 @@ async function serveContentLookup(database: ArchiveDatabase, request: Request): 
 	})
 }
 
+// A content the owner deleted is refused by the digest in the path, before the body is read, so no
+// collector can bring the document back and none pays an upload for the refusal. A person's upload
+// through the browser, a token, or mail still goes through archiveContent, which archives it again.
 // A digest other than the one in the path means the bytes were corrupted on the way or sent in error,
 // so they are refused before their kind is read, which corrupted bytes could fail for good.
 async function serveContentSubmission(
@@ -104,6 +108,10 @@ async function serveContentSubmission(
 	request: Request,
 	sha256: string,
 ): Promise<Response> {
+	const [known] = await lookupContents(database, [sha256])
+	if (known?.state === "deleted") {
+		return problem(409, "The owner deleted this document. Only an upload through the browser brings it back.")
+	}
 	const body = await readDocumentBody(request)
 	if (body.kind === "too_large") {
 		return problem(413, `The file is larger than ${MAXIMUM_DOCUMENT_BYTES / 1_000_000} MB`)

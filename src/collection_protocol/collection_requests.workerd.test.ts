@@ -219,6 +219,37 @@ test("PUT /api/v1/contents/{sha256} archives new bytes with 202 and answers 200 
 	})
 })
 
+test("PUT /api/v1/contents/{sha256} refuses the content of a deleted document with 409, and a browser upload archives it again", async () => {
+	const { database, environment, collect } = await prepareArchive()
+	const upload = await acceptDocumentUpload(environment, new File([scannedInvoice], "scan.pdf"))
+	if (upload.kind !== "accepted") throw new Error(`The upload was ${upload.kind}`)
+	await database.update(documents).set({ status: "archived" }).where(eq(documents.id, upload.documentId))
+	await deleteDocument(
+		{ database, storage: env.DOCUMENT_STORAGE, searchIndex: createInMemorySearchIndex().searchIndex },
+		upload.documentId,
+	)
+
+	const refused = await collect("PUT", `/api/v1/contents/${SCANNED_INVOICE_SHA256}`, scannedInvoice)
+	const documentsAfterRefusal = await database.select({ id: documents.id }).from(documents)
+	const revived = await acceptDocumentUpload(environment, new File([scannedInvoice], "scan.pdf"))
+
+	expect({ refused: await answer(refused), documentsAfterRefusal, revived: revived.kind }).toEqual({
+		refused: {
+			status: 409,
+			contentType: "application/problem+json",
+			location: null,
+			body: {
+				type: "about:blank",
+				title: "Conflict",
+				status: 409,
+				detail: "The owner deleted this document. Only an upload through the browser brings it back.",
+			},
+		},
+		documentsAfterRefusal: [],
+		revived: "accepted",
+	})
+})
+
 test("PUT /api/v1/contents/{sha256} refuses a digest mismatch, an unaccepted file, and an oversized body without storing anything", async () => {
 	const { database, collect } = await prepareArchive()
 	const oversizedPdf = new Uint8Array(25_000_001)

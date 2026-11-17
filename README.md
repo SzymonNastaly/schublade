@@ -43,7 +43,7 @@ curl -X POST -H "Authorization: Bearer <token>" -F "files=@invoice.pdf;type=appl
 | Request                                     | Body                                     | Answer                                                                       |
 | ------------------------------------------- | ---------------------------------------- | ---------------------------------------------------------------------------- |
 | `POST /api/v1/contents/lookup`              | `{"sha256": ["<digest>", ...]}`, up to 1000 | `absent`, `present` with its `document_id`, or `deleted` for each digest |
-| `PUT /api/v1/contents/<digest>`             | The file itself                          | 202 for a new document, 200 for one the archive holds, with its `Location`   |
+| `PUT /api/v1/contents/<digest>`             | The file itself                          | 202 for a new document, 200 for one the archive holds, with its `Location`, 409 for one you deleted |
 | `GET /api/v1/documents/<id>`                | None                                     | The document's status                                                        |
 
 ```bash
