@@ -7,6 +7,7 @@ const uploadingRows = reduceTrackedUploads([], {
 	uploads: [
 		{ key: "first", fileName: "invoice.pdf" },
 		{ key: "second", fileName: "notes.txt" },
+		{ key: "third", fileName: "invoice-copy.pdf" },
 	],
 })
 
@@ -21,13 +22,14 @@ const trackedRow = (key: string, overrides: Partial<Extract<TrackedUpload, { sta
 	...overrides,
 })
 
-test("an answered request tracks each accepted file by its position and refuses the others", () => {
+test("an answered request tracks each accepted file by its position, points an already archived one at its document, and refuses the others", () => {
 	const answered = reduceTrackedUploads(uploadingRows, {
 		kind: "answered",
-		keys: ["first", "second"],
+		keys: ["first", "second", "third"],
 		outcomes: [
 			{ kind: "accepted", fileName: "invoice.pdf", documentId: "invoice" },
 			{ kind: "rejected", fileName: "notes.txt", reason: "The content of the file is not accepted" },
+			{ kind: "already_archived", fileName: "invoice-copy.pdf", documentId: "invoice" },
 		],
 	})
 
@@ -47,6 +49,7 @@ test("an answered request tracks each accepted file by its position and refuses 
 			stage: "refused",
 			reason: "The content of the file is not accepted",
 		},
+		{ key: "third", fileName: "invoice-copy.pdf", stage: "already_archived", documentId: "invoice" },
 	])
 })
 
@@ -74,6 +77,7 @@ test("clearing finished uploads keeps only the uploads still running", () => {
 	const uploads: Array<TrackedUpload> = [
 		{ key: "sending", fileName: "sending.pdf", stage: "uploading" },
 		{ key: "refused", fileName: "refused.txt", stage: "refused", reason: "Too large" },
+		{ key: "known", fileName: "known.pdf", stage: "already_archived", documentId: "archived" },
 		trackedRow("archived", { status: "archived" }),
 		trackedRow("failed", { status: "failed", failureReason: "processing_error" }),
 		trackedRow("extracting", { status: "extracting" }),

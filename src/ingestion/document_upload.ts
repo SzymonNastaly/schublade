@@ -1,8 +1,11 @@
+import { eq } from "drizzle-orm"
 import { connectDatabase } from "../database/client"
 import { documents } from "../database/schema"
+import { claimContent, lookupContents, sha256Hexadecimal } from "./content_identity"
 import { startDocumentIngestion } from "./document_ingestion"
 import { identifySourceFile, originalObjectKey } from "./source_file"
 import type { MailContext } from "./classification_prompt"
+import type { SourceFile } from "./source_file"
 
 export type UploadEnvironment = Pick<
 	Env,
@@ -20,11 +23,25 @@ const MAXIMUM_REQUEST_BYTES = 50_000_000
 // upload request or one mail message starts at most this many of each.
 export const MAXIMUM_FILES_PER_SUBMISSION = 20
 
-/** A rejected file cannot be archived as sent. A failed file met a storage error and may succeed again. */
+const UNACCEPTED_FILE_KIND = "Only PDF, JPEG, PNG, and WebP files can be archived."
+
+/**
+ * An accepted file became a new document. An already archived file's bytes belong to a document
+ * the archive holds, which may still be in ingestion. A rejected file cannot be archived as sent.
+ * A failed file met a storage error and may succeed again.
+ */
 export type UploadOutcome =
 	| { kind: "accepted"; fileName: string; documentId: string }
+	| { kind: "already_archived"; fileName: string; documentId: string }
 	| { kind: "rejected"; fileName: string; reason: string }
 	| { kind: "failed"; fileName: string; reason: string }
+
+/** The bytes of one file with the kind and the digest its sender established. */
+interface ContentSubmission {
+	content: Uint8Array<ArrayBuffer>
+	sourceFile: SourceFile
+	sha256: string
+}
 
 /**
  * Inbound mail derives the document identifier from the message, so a retried delivery finds the
@@ -35,11 +52,74 @@ interface DocumentOrigin {
 	mailContext?: MailContext
 }
 
-/** Checks one file, stores the original in R2, records the document as processing, and starts its workflow. */
+type ContentArchival = { kind: "accepted" | "already_archived"; documentId: string }
+
+/**
+ * Archives a content once, whichever way its bytes arrive. Bytes a document holds answer with
+ * that document before anything is written. Otherwise the original goes to R2, and one D1
+ * transaction records the document and claims the content for it. Two uploads of the same bytes
+ * can reach that transaction together, so the claim is read back, and the one that lost removes
+ * the document it recorded and answers with the winner. A content whose document was deleted is
+ * archived again.
+ */
+async function archiveContent(
+	environment: UploadEnvironment,
+	{ content, sourceFile, sha256 }: ContentSubmission,
+	{ documentId, mailContext }: DocumentOrigin = { documentId: crypto.randomUUID() },
+): Promise<ContentArchival> {
+	const database = connectDatabase(environment.DATABASE)
+	const [known] = await lookupContents(database, [sha256])
+	if (known?.state === "present") return { kind: "already_archived", documentId: known.documentId }
+	const storageObjectKey = originalObjectKey(documentId, sourceFile)
+	await environment.DOCUMENT_STORAGE.put(storageObjectKey, content, {
+		httpMetadata: { contentType: sourceFile.mediaType },
+	})
+	let recorded: Array<{ id: string }>
+	try {
+		;[recorded] = await database.batch([
+			database
+				.insert(documents)
+				.values({
+					id: documentId,
+					storageObjectKey,
+					mimeType: sourceFile.mediaType,
+					byteSize: content.byteLength,
+					originalSha256: sha256,
+					status: "processing",
+				})
+				.onConflictDoNothing()
+				.returning({ id: documents.id }),
+			claimContent(database, sha256, documentId),
+		])
+	} catch (error) {
+		// Without its row, nothing would list or remove the stored original.
+		await environment.DOCUMENT_STORAGE.delete(storageObjectKey)
+		throw error
+	}
+	const inserted = recorded.length > 0
+	const [claimed] = await lookupContents(database, [sha256])
+	if (claimed?.state === "present" && claimed.documentId !== documentId) {
+		// Only what this call recorded is removed. A retried mail delivery recorded nothing.
+		if (inserted) {
+			await database.delete(documents).where(eq(documents.id, documentId))
+			await environment.DOCUMENT_STORAGE.delete(storageObjectKey)
+		}
+		return { kind: "already_archived", documentId: claimed.documentId }
+	}
+	// A concurrent delivery of the same message recorded the document and started its workflow.
+	if (!inserted) return { kind: "accepted", documentId }
+	await startDocumentIngestion(environment, {
+		id: documentId,
+		params: mailContext === undefined ? { documentId } : { documentId, mailContext },
+	})
+	return { kind: "accepted", documentId }
+}
+
+/** Checks one file, then archives its content under the origin's document identifier. */
 export async function acceptDocumentUpload(
 	environment: UploadEnvironment,
 	file: File,
-	{ documentId, mailContext }: DocumentOrigin = { documentId: crypto.randomUUID() },
+	origin?: DocumentOrigin,
 ): Promise<UploadOutcome> {
 	if (file.size > MAXIMUM_DOCUMENT_BYTES) {
 		return {
@@ -51,70 +131,46 @@ export async function acceptDocumentUpload(
 	// R2 rejects a stream of unknown length, so the upload is buffered.
 	const content = new Uint8Array(await file.arrayBuffer())
 	const sourceFile = identifySourceFile(content)
-	if (!sourceFile) {
-		return {
-			kind: "rejected",
-			fileName: file.name,
-			reason: "Only PDF, JPEG, PNG, and WebP files can be archived.",
-		}
-	}
-	const database = connectDatabase(environment.DATABASE)
-	const storageObjectKey = originalObjectKey(documentId, sourceFile)
-	await environment.DOCUMENT_STORAGE.put(storageObjectKey, content, {
-		httpMetadata: { contentType: sourceFile.mediaType },
-	})
-	let recorded: Array<{ id: string }>
-	try {
-		recorded = await database
-			.insert(documents)
-			.values({
-				id: documentId,
-				storageObjectKey,
-				mimeType: sourceFile.mediaType,
-				byteSize: file.size,
-				status: "processing",
-			})
-			.onConflictDoNothing()
-			.returning({ id: documents.id })
-	} catch (error) {
-		// Without its row, nothing would list or remove the stored original.
-		await environment.DOCUMENT_STORAGE.delete(storageObjectKey)
-		throw error
-	}
-	// A concurrent delivery of the same message recorded the document and started its workflow.
-	if (recorded.length === 0) return { kind: "accepted", fileName: file.name, documentId }
-	await startDocumentIngestion(environment, {
-		id: documentId,
-		params: mailContext === undefined ? { documentId } : { documentId, mailContext },
-	})
-	return { kind: "accepted", fileName: file.name, documentId }
+	if (!sourceFile) return { kind: "rejected", fileName: file.name, reason: UNACCEPTED_FILE_KIND }
+	const archival = await archiveContent(
+		environment,
+		{ content, sourceFile, sha256: await sha256Hexadecimal(content) },
+		origin,
+	)
+	return { ...archival, fileName: file.name }
 }
 
-type MultipartBody = { kind: "form"; formData: FormData } | { kind: "too_large" } | { kind: "malformed" }
-
 /**
- * Parses the multipart body and reports a body over MAXIMUM_REQUEST_BYTES as too large. The bytes
- * are counted as they arrive, because a request need not declare its length in Content-Length.
+ * The body with its bytes counted as they arrive, because a request need not declare its length
+ * in Content-Length. The stream fails once the count passes the limit, and exceeded() says so.
  */
-async function readLimitedFormData(request: Request): Promise<MultipartBody> {
+function limitRequestBody(request: Request, maximumBytes: number) {
 	let receivedBytes = 0
-	const limitedBody = request.body?.pipeThrough(
+	const body = request.body?.pipeThrough(
 		new TransformStream<Uint8Array, Uint8Array>({
 			transform(chunk, controller) {
 				receivedBytes += chunk.byteLength
-				if (receivedBytes > MAXIMUM_REQUEST_BYTES) controller.error(new RangeError("The upload exceeds the limit"))
+				if (receivedBytes > maximumBytes) controller.error(new RangeError("The upload exceeds the limit"))
 				else controller.enqueue(chunk)
 			},
 		}),
 	)
+	return { body, exceeded: () => receivedBytes > maximumBytes }
+}
+
+type MultipartBody = { kind: "form"; formData: FormData } | { kind: "too_large" } | { kind: "malformed" }
+
+/** Parses the multipart body as it streams and reports a body over MAXIMUM_REQUEST_BYTES as too large. */
+async function readLimitedFormData(request: Request): Promise<MultipartBody> {
+	const { body, exceeded } = limitRequestBody(request, MAXIMUM_REQUEST_BYTES)
 	const contentType = request.headers.get("Content-Type") ?? ""
 	try {
 		return {
 			kind: "form",
-			formData: await new Response(limitedBody, { headers: { "Content-Type": contentType } }).formData(),
+			formData: await new Response(body, { headers: { "Content-Type": contentType } }).formData(),
 		}
 	} catch (error) {
-		if (receivedBytes > MAXIMUM_REQUEST_BYTES) return { kind: "too_large" }
+		if (exceeded()) return { kind: "too_large" }
 		// workerd raises a TypeError for a body that is not multipart or URL-encoded form data.
 		if (error instanceof TypeError) return { kind: "malformed" }
 		throw error

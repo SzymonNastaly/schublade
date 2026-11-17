@@ -6,6 +6,8 @@ import type { UploadOutcome } from "../ingestion/document_upload"
 export type TrackedUpload =
 	| { key: string; fileName: string; stage: "uploading" }
 	| { key: string; fileName: string; stage: "refused"; reason: string }
+	/** The bytes of the file belong to a document the archive holds, so the file became no new document. */
+	| { key: string; fileName: string; stage: "already_archived"; documentId: string }
 	| {
 			key: string
 			fileName: string
@@ -27,7 +29,15 @@ export type TrackedUploadEvent =
 	| { kind: "finished_cleared" }
 
 export function isFinishedUpload(upload: TrackedUpload): boolean {
-	return upload.stage === "refused" || (upload.stage === "tracked" && isSettledStatus(upload.status))
+	switch (upload.stage) {
+		case "uploading":
+			return false
+		case "refused":
+		case "already_archived":
+			return true
+		case "tracked":
+			return isSettledStatus(upload.status)
+	}
 }
 
 export function unfinishedDocumentIds(uploads: ReadonlyArray<TrackedUpload>): Array<string> {
@@ -37,15 +47,22 @@ export function unfinishedDocumentIds(uploads: ReadonlyArray<TrackedUpload>): Ar
 }
 
 function answeredUpload({ key, fileName }: TrackedUpload, outcome: UploadOutcome): TrackedUpload {
-	if (outcome.kind !== "accepted") return { key, fileName, stage: "refused", reason: outcome.reason }
-	return {
-		key,
-		fileName,
-		stage: "tracked",
-		documentId: outcome.documentId,
-		title: null,
-		status: "processing",
-		failureReason: null,
+	switch (outcome.kind) {
+		case "accepted":
+			return {
+				key,
+				fileName,
+				stage: "tracked",
+				documentId: outcome.documentId,
+				title: null,
+				status: "processing",
+				failureReason: null,
+			}
+		case "already_archived":
+			return { key, fileName, stage: "already_archived", documentId: outcome.documentId }
+		case "rejected":
+		case "failed":
+			return { key, fileName, stage: "refused", reason: outcome.reason }
 	}
 }
 

@@ -3,6 +3,7 @@ import { expect, inject, test, vi } from "vitest"
 import scannedInvoice from "../../test_fixtures/documents/electricity_invoice_scanned.pdf"
 import { connectDatabase } from "../database/client"
 import { documents } from "../database/schema"
+import { acceptDocumentUpload } from "./document_upload"
 import { receiveInboundMail } from "./inbound_mail"
 
 const INGESTION_ADDRESS = "documents@archive.test"
@@ -510,5 +511,34 @@ test("receiveInboundMail adds nothing when Email Routing delivers a message with
 		documentIdentifiers: [document?.id],
 		workflowInstanceIdentifiers: [document?.id],
 		originalRewritten: false,
+	})
+})
+
+test("receiveInboundMail reports an attachment the archive already holds and prints no page for the message", async () => {
+	const { environment, workflowInstances } = await prepareArchive()
+	const upload = await acceptDocumentUpload(environment, new File([scannedInvoice], "scan.pdf"))
+	const logged: Array<string> = []
+	const log = vi.spyOn(console, "log").mockImplementation((...parts: Array<unknown>) => logged.push(parts.join(" ")))
+
+	const rejections = await deliver(environment, forwardedInvoice)
+
+	log.mockRestore()
+	const documentId = upload.kind === "accepted" ? upload.documentId : undefined
+	const outcomeLine = logged.find((line) =>
+		line.startsWith(`Inbound mail <invoice-4471@example.com> from ${MEMBER_ADDRESS} `),
+	)
+	expect({
+		rejections,
+		documentIdentifiers: (await storedDocuments()).map((document) => document.id),
+		workflowInstances: workflowInstances.length,
+		outcomes: JSON.parse(outcomeLine?.slice(outcomeLine.indexOf("{")) ?? "null"),
+	}).toEqual({
+		rejections: [],
+		documentIdentifiers: [documentId],
+		workflowInstances: 1,
+		outcomes: {
+			outcomes: [{ kind: "already_archived", fileName: "Rechnung.pdf", documentId }],
+			awaitingRendering: null,
+		},
 	})
 })

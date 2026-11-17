@@ -129,25 +129,24 @@ function RowFrame({ name, trailing, children }: { name: string; trailing: ReactN
 	)
 }
 
+function DocumentLink({ documentId }: { documentId: string }) {
+	return (
+		<Link
+			to="/documents/$documentId"
+			params={{ documentId }}
+			className={`inline-flex min-h-11 items-center md:min-h-0 ${textLinkClasses}`}
+		>
+			Open
+		</Link>
+	)
+}
+
 function TrackedDocumentRow({ upload }: { upload: Extract<TrackedUpload, { stage: "tracked" }> }) {
 	const name = upload.title ?? upload.fileName
 	const badge = documentStatusBadges[upload.status]
 	switch (upload.status) {
 		case "archived":
-			return (
-				<RowFrame
-					name={name}
-					trailing={
-						<Link
-							to="/documents/$documentId"
-							params={{ documentId: upload.documentId }}
-							className={`inline-flex min-h-11 items-center md:min-h-0 ${textLinkClasses}`}
-						>
-							Open
-						</Link>
-					}
-				/>
-			)
+			return <RowFrame name={name} trailing={<DocumentLink documentId={upload.documentId} />} />
 		case "failed":
 			return (
 				<RowFrame name={name} trailing={<StatusBadge tone={badge.tone}>{badge.label}</StatusBadge>}>
@@ -182,6 +181,12 @@ function UploadRow({ upload }: { upload: TrackedUpload }) {
 					}
 				>
 					<FailureMessage>{upload.reason}</FailureMessage>
+				</RowFrame>
+			)
+		case "already_archived":
+			return (
+				<RowFrame name={upload.fileName} trailing={<DocumentLink documentId={upload.documentId} />}>
+					<p className="text-fine text-caption">This file is already in the archive.</p>
 				</RowFrame>
 			)
 		case "tracked":
