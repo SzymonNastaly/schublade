@@ -1,0 +1,12 @@
+[package]
+name = "collection_command"
+description = "schublade-collector, the command-line program of the Schublade collector"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "schublade-collector"
+path = "src/main.rs"

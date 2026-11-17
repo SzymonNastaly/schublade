@@ -1,0 +1,8 @@
+[package]
+name = "collection_core"
+description = "The state machines, persistence, and archive client of the Schublade collector"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
