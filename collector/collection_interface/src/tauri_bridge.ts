@@ -36,6 +36,7 @@ export const collectorBridge: CollectorBridge = {
 	readPreferences: () => command<ApplicationPreferences>("read_application_preferences"),
 	changePreferences: (preferences) =>
 		command<ApplicationPreferences>("change_application_preferences", { preferences }),
+	quitApplication: () => command("quit_application"),
 	subscribe: async (listener) =>
 		listen<WireCollectorEvent>(COLLECTOR_EVENT, (event) => listener(fromExternalTag<CollectorEvent>(event.payload))),
 }

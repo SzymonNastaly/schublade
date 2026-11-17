@@ -1,11 +1,13 @@
 import { useState } from "react"
 import { useCollectorEvents, useCollectorStatus } from "./collector_queries"
+import { RefusalError } from "./collector_status"
 import { FailureMessage } from "./controls/form_fields"
 import { ApplicationHeader } from "./screens/application_header"
 import { BacklogConfirmationScreen } from "./screens/backlog_confirmation_screen"
 import { FoldersScreen } from "./screens/folders_screen"
 import { SettingsScreen } from "./screens/settings_screen"
 import { SetupScreen } from "./screens/setup_screen"
+import { StartFailureScreen } from "./screens/start_failure_screen"
 import { StatusScreen } from "./screens/status_screen"
 import type { ApplicationTab } from "./screens/application_header"
 
@@ -20,6 +22,14 @@ export function Application() {
 
 	if (status.isPending) return <ApplicationHeader />
 	if (status.isError) {
+		if (status.error instanceof RefusalError && status.error.refusal.kind === "CollectorNotStarted") {
+			return (
+				<>
+					<ApplicationHeader />
+					<StartFailureScreen failure={status.error.refusal.failure} />
+				</>
+			)
+		}
 		return (
 			<>
 				<ApplicationHeader />

@@ -133,9 +133,17 @@ export type CommandRefusal =
 	| { kind: "CollectorStopped" }
 	| { kind: "StoreFailed"; detail: string }
 
+/** `CollectorStartFailure` of the application: why the collector did not start. */
+export type CollectorStartFailure =
+	| { kind: "DataDirectoryUnavailable"; detail: string }
+	| { kind: "DatabaseInUse" }
+	| { kind: "DatabaseNewerThanApplication" }
+	| { kind: "DatabaseUnusable"; detail: string }
+	| { kind: "WatcherUnavailable"; detail: string }
+
 /**
  * The application's refusals: a connection attempt that failed before anything was stored, a
- * preference it could not apply, or a refusal of the core.
+ * preference it could not apply, a collector that never started, or a refusal of the core.
  */
 type ApplicationRefusal =
 	| { kind: "AddressInvalid"; detail: string }
@@ -146,9 +154,13 @@ type ApplicationRefusal =
 	| { kind: "ArchiveFailed" }
 	| { kind: "NotAnArchive"; detail: string }
 	| { kind: "PreferenceNotApplied"; detail: string }
+	| { kind: "CollectorNotStarted"; failure: ExternallyTagged<CollectorStartFailure> }
 	| { kind: "CommandRefused"; refusal: ExternallyTagged<CommandRefusal> }
 
-export type Refusal = CommandRefusal | Exclude<ApplicationRefusal, { kind: "CommandRefused" }>
+export type Refusal =
+	| CommandRefusal
+	| Exclude<ApplicationRefusal, { kind: "CommandRefused" | "CollectorNotStarted" }>
+	| { kind: "CollectorNotStarted"; failure: CollectorStartFailure }
 
 type WireBacklogSummary = BacklogSummary
 
@@ -209,7 +221,14 @@ export function parseCollectorStatus(wire: WireCollectorStatus): CollectorStatus
 
 export function parseRefusal(wire: WireApplicationRefusal): Refusal {
 	const refusal = fromExternalTag<ApplicationRefusal>(wire)
-	return refusal.kind === "CommandRefused" ? fromExternalTag<CommandRefusal>(refusal.refusal) : refusal
+	switch (refusal.kind) {
+		case "CommandRefused":
+			return fromExternalTag<CommandRefusal>(refusal.refusal)
+		case "CollectorNotStarted":
+			return { kind: refusal.kind, failure: fromExternalTag<CollectorStartFailure>(refusal.failure) }
+		default:
+			return refusal
+	}
 }
 
 /** Thrown by the bridge when the collector refused a command, carrying the refusal itself. */

@@ -7,11 +7,12 @@ compile_error!("collection_application is a macOS app; build collection_command 
 
 mod application_commands;
 mod application_preferences;
+mod collector_presence;
 mod window_presence;
 
 use std::sync::Arc;
 
-use collection_core::{Collector, CollectorSettings, KeychainCredentialStore, StartFailure};
+use collector_presence::CollectorPresence;
 use tauri::{Emitter, Manager, RunEvent, WindowEvent};
 use tauri_plugin_autostart::MacosLauncher;
 
@@ -38,26 +39,34 @@ fn main() {
             application_commands::decide_backlog,
             application_commands::read_application_preferences,
             application_commands::change_application_preferences,
+            application_commands::quit_application,
         ])
         .setup(|application| {
             let handle = application.handle().clone();
-            let data_directory = handle.path().app_data_dir()?;
-            std::fs::create_dir_all(&data_directory)?;
-            let (collector, events) = start_collector(data_directory.join("collector.sqlite"))?;
-            application.manage(Arc::new(collector));
-
-            let emitter = handle.clone();
-            std::thread::Builder::new()
-                .name("collector-events".to_owned())
-                .spawn(move || {
-                    for event in events {
-                        let _ = emitter.emit("collector_event", &event);
-                    }
-                })?;
+            let data_directory = handle.path().app_data_dir().map_err(|error| error.to_string());
+            let started = collector_presence::start_collector(data_directory, KEYCHAIN_SERVICE);
+            let collecting = started.is_ok();
+            match started {
+                Ok((collector, events)) => {
+                    application.manage(CollectorPresence::Running(Arc::new(collector)));
+                    let emitter = handle.clone();
+                    std::thread::Builder::new()
+                        .name("collector-events".to_owned())
+                        .spawn(move || {
+                            for event in events {
+                                let _ = emitter.emit("collector_event", &event);
+                            }
+                        })?;
+                }
+                Err(failure) => {
+                    application.manage(CollectorPresence::NotStarted(failure));
+                }
+            }
 
             let preferences = application_preferences::read(&handle);
             window_presence::show_menu_bar_item(&handle, preferences.menu_bar_item_shown)?;
-            if std::env::args().any(|argument| argument == STARTED_AT_LOGIN_ARGUMENT) {
+            // A failure shows the window even at login, so the collector never stops unseen.
+            if collecting && std::env::args().any(|argument| argument == STARTED_AT_LOGIN_ARGUMENT) {
                 window_presence::hide_main_window(&handle)?;
             } else {
                 window_presence::show_main_window(&handle)?;
@@ -79,23 +88,4 @@ fn main() {
             let _ = window_presence::show_main_window(handle);
         }
     });
-}
-
-/// A database that fails its check is renamed aside by the core, which then refuses to start; the
-/// second start opens a fresh one, and the window returns to setup.
-fn start_collector(
-    database_path: std::path::PathBuf,
-) -> Result<(Collector, std::sync::mpsc::Receiver<collection_core::CollectorEvent>), StartFailure> {
-    let settings = || {
-        CollectorSettings::new(
-            database_path.clone(),
-            Box::new(KeychainCredentialStore::new(KEYCHAIN_SERVICE)),
-        )
-    };
-    match Collector::start(settings()) {
-        Err(StartFailure::Store(collection_core::state_store::StoreOpenFailure::Unreadable { .. })) => {
-            Collector::start(settings())
-        }
-        started => started,
-    }
 }

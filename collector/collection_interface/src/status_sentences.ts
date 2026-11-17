@@ -2,6 +2,7 @@ import { byteSize, countOf } from "./number_wording"
 import type {
 	Activity,
 	AttentionItem,
+	CollectorStartFailure,
 	CollectorStatus,
 	ConnectionStatus,
 	DocumentStatus,
@@ -176,6 +177,54 @@ export function documentStatusLabel(status: DocumentStatus | null): { label: str
 	}
 }
 
+export interface StartFailureWording {
+	/** What went wrong, in plain words. */
+	explanation: string
+	/** What the person can do about it. */
+	remedy: string
+	/** The system's own words, for whoever helps; null when the explanation says it all. */
+	detail: string | null
+}
+
+const reopenRemedy = "Quit Schublade Collector and open it again. If this keeps happening, restart your Mac."
+
+export function startFailureWording(failure: CollectorStartFailure): StartFailureWording {
+	switch (failure.kind) {
+		case "DatabaseInUse":
+			return {
+				explanation: "Another copy of Schublade Collector is already collecting on this Mac with the same data.",
+				remedy:
+					"Quit the other copy from its drawer in the menu bar or from Activity Monitor. Then quit this one and open Schublade Collector again.",
+				detail: null,
+			}
+		case "DatabaseNewerThanApplication":
+			return {
+				explanation:
+					"A newer version of Schublade Collector ran on this Mac before, and this older version cannot read what it saved.",
+				remedy: "Install the newest version of Schublade Collector and open it.",
+				detail: null,
+			}
+		case "DataDirectoryUnavailable":
+			return {
+				explanation: "Schublade Collector could not create its folder in Application Support.",
+				remedy: `Check that your disk has free space. ${reopenRemedy}`,
+				detail: failure.detail,
+			}
+		case "DatabaseUnusable":
+			return {
+				explanation: "Schublade Collector could not open the file where it keeps track of your folders.",
+				remedy: reopenRemedy,
+				detail: failure.detail,
+			}
+		case "WatcherUnavailable":
+			return {
+				explanation: "Schublade Collector could not start watching your folders for new files.",
+				remedy: reopenRemedy,
+				detail: failure.detail,
+			}
+	}
+}
+
 export function refusalSentence(refusal: Refusal, status: Pick<CollectorStatus, "folders"> | undefined): string {
 	const names = folderNames(status ?? { folders: [] })
 	switch (refusal.kind) {
@@ -196,6 +245,8 @@ export function refusalSentence(refusal: Refusal, status: Pick<CollectorStatus, 
 			return "The archive had a problem answering. Try again in a few minutes."
 		case "NotAnArchive":
 			return "This address answers, but not like a Schublade archive. Check that it is the address of your archive."
+		case "CollectorNotStarted":
+			return startFailureWording(refusal.failure).explanation
 		case "PreferenceNotApplied":
 			return `The setting could not be changed: ${refusal.detail}`
 		case "CredentialStorageFailed":

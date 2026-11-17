@@ -1,18 +1,17 @@
-//! The commands the window invokes. Each maps to one method of the core's `Collector`, runs off the
-//! main thread, and answers a refusal the window words in plain sentences.
+//! The commands the window invokes. The collector's commands each map to one method of the core's
+//! `Collector`, run off the main thread, and answer a refusal the window words in plain sentences.
 
 use std::path::PathBuf;
-use std::sync::Arc;
 
 use collection_core::archive_connection::ArchiveCondition;
 use collection_core::{
-    ArchiveAddress, Collector, CollectorStatus, CommandRefusal, ConnectionStatus, FolderIdentifier, HttpArchiveClient,
-    IngestToken,
+    ArchiveAddress, CollectorStatus, CommandRefusal, ConnectionStatus, FolderIdentifier, HttpArchiveClient, IngestToken,
 };
 use tauri::{AppHandle, State};
 use tauri_plugin_autostart::ManagerExt;
 
 use crate::application_preferences::{self, StoredPreferences};
+use crate::collector_presence::{CollectorPresence, CollectorStartFailure};
 use crate::window_presence;
 
 /// Every way a command can fail, serialized with serde's external tagging like the core's types.
@@ -26,6 +25,7 @@ pub enum ApplicationRefusal {
     ArchiveFailed,
     NotAnArchive { detail: String },
     PreferenceNotApplied { detail: String },
+    CollectorNotStarted { failure: CollectorStartFailure },
     CommandRefused { refusal: CommandRefusal },
 }
 
@@ -50,8 +50,6 @@ impl From<ArchiveCondition> for ApplicationRefusal {
     }
 }
 
-type SharedCollector = Arc<Collector>;
-
 /// Runs blocking work on Tauri's blocking pool, so neither the main thread nor an async worker waits
 /// on the coordinator or the network.
 async fn off_main_thread<Answer: Send + 'static>(
@@ -66,9 +64,9 @@ async fn off_main_thread<Answer: Send + 'static>(
 
 #[tauri::command]
 pub async fn read_collector_status(
-    collector: State<'_, SharedCollector>,
+    presence: State<'_, CollectorPresence>,
 ) -> Result<CollectorStatus, ApplicationRefusal> {
-    let collector = Arc::clone(&collector);
+    let collector = presence.collector()?;
     off_main_thread(move || Ok(collector.status()?)).await
 }
 
@@ -78,11 +76,11 @@ pub async fn read_collector_status(
 #[tauri::command]
 pub async fn connect_archive(
     application: AppHandle,
-    collector: State<'_, SharedCollector>,
+    presence: State<'_, CollectorPresence>,
     address: String,
     token: String,
 ) -> Result<(), ApplicationRefusal> {
-    let collector = Arc::clone(&collector);
+    let collector = presence.collector()?;
     off_main_thread(move || {
         let address = ArchiveAddress::parse(&address)
             .map_err(|refusal| ApplicationRefusal::AddressInvalid { detail: refusal.detail })?;
@@ -99,24 +97,24 @@ pub async fn connect_archive(
 }
 
 #[tauri::command]
-pub async fn enroll_folder(collector: State<'_, SharedCollector>, root: PathBuf) -> Result<(), ApplicationRefusal> {
-    let collector = Arc::clone(&collector);
+pub async fn enroll_folder(presence: State<'_, CollectorPresence>, root: PathBuf) -> Result<(), ApplicationRefusal> {
+    let collector = presence.collector()?;
     off_main_thread(move || Ok(collector.enroll_folder(root).map(|_| ())?)).await
 }
 
 #[tauri::command]
-pub async fn withdraw_folder(collector: State<'_, SharedCollector>, folder: i64) -> Result<(), ApplicationRefusal> {
-    let collector = Arc::clone(&collector);
+pub async fn withdraw_folder(presence: State<'_, CollectorPresence>, folder: i64) -> Result<(), ApplicationRefusal> {
+    let collector = presence.collector()?;
     off_main_thread(move || Ok(collector.withdraw_folder(FolderIdentifier::new(folder))?)).await
 }
 
 /// The window names exactly the folders whose counts it showed.
 #[tauri::command]
 pub async fn decide_backlog(
-    collector: State<'_, SharedCollector>,
+    presence: State<'_, CollectorPresence>,
     folders: Vec<i64>,
 ) -> Result<(), ApplicationRefusal> {
-    let collector = Arc::clone(&collector);
+    let collector = presence.collector()?;
     let folders: Vec<FolderIdentifier> = folders.into_iter().map(FolderIdentifier::new).collect();
     off_main_thread(move || Ok(collector.decide_backlog(&folders)?)).await
 }
@@ -177,4 +175,10 @@ pub async fn change_application_preferences(
         .map_err(not_applied)?;
     }
     current_preferences(&application)
+}
+
+/// Offered by the window when the collector could not start, since closing the window only hides it.
+#[tauri::command]
+pub fn quit_application(application: AppHandle) {
+    application.exit(0);
 }

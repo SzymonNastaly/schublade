@@ -22,6 +22,8 @@ export interface CollectorBridge {
 	openDocument: (link: string) => Promise<void>
 	readPreferences: () => Promise<ApplicationPreferences>
 	changePreferences: (preferences: ApplicationPreferences) => Promise<ApplicationPreferences>
+	/** Offered when the collector could not start, because closing the window only hides it. */
+	quitApplication: () => Promise<void>
 	/** Resolves once the listener is registered; the returned function removes it. */
 	subscribe: (listener: (event: CollectorEvent) => void) => Promise<() => void>
 }
