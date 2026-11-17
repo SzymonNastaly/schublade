@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest"
 import { parseCollectorStatus, parseRefusal, refusalOf } from "./collector_status"
-import { attentionSentence, connectionSentence, folderState, refusalSentence } from "./status_sentences"
+import {
+	attentionSentence,
+	connectionSentence,
+	folderState,
+	refusalSentence,
+	restingSentence,
+} from "./status_sentences"
 import type { WireCollectorStatus } from "./collector_status"
 
 const emptyCounts = {
@@ -78,6 +84,22 @@ describe("the status sentences", () => {
 			["Downloads", "Collecting"],
 			["Scans", "Missing"],
 		])
+	})
+
+	it("says everything is collected only while nothing waits, nothing is checked, and the archive answers", () => {
+		const connected = {
+			...status,
+			connection: { kind: "Connected", archive_origin: "https://archive.example.org" },
+		} as const
+		expect(restingSentence(connected)).toBe("Everything is collected. Watching 2 folders for new files.")
+		expect(restingSentence(status)).toBe("Watching 2 folders for new files.")
+		expect(restingSentence({ ...connected, counts: { ...emptyCounts, contents_awaiting_submission: 3 } })).toBe(
+			"Watching 2 folders for new files.",
+		)
+		expect(restingSentence({ ...connected, counts: { ...emptyCounts, paths_stabilizing: 1 } })).toBe(
+			"Watching 2 folders for new files.",
+		)
+		expect(restingSentence({ ...connected, folders: [] })).toBe("Add a folder to start collecting.")
 	})
 
 	it("says why the connection is paused", () => {

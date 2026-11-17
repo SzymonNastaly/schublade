@@ -120,9 +120,14 @@ export function activitySentence(activity: Activity, status: Pick<CollectorStatu
 	}
 }
 
+/** Files still settling, being read, or waiting for the archive's answer about their content. */
+function filesUnderExamination(counts: StateCounts): number {
+	return counts.paths_stabilizing + counts.paths_awaiting_digest + counts.contents_unresolved
+}
+
 /** The counts a person cares about, from the core's state counts. */
 export function progressSentences(counts: StateCounts): Array<string> {
-	const examining = counts.paths_stabilizing + counts.paths_awaiting_digest + counts.contents_unresolved
+	const examining = filesUnderExamination(counts)
 	return [
 		`${countOf(counts.contents_present, "document")} in Schublade`,
 		...(counts.contents_awaiting_submission > 0
@@ -130,6 +135,20 @@ export function progressSentences(counts: StateCounts): Array<string> {
 			: []),
 		...(examining > 0 ? [`${countOf(examining, "file")} being checked`] : []),
 	]
+}
+
+/**
+ * What the collector says while nothing is in flight. Everything is collected only once nothing
+ * waits to upload or is being checked and the archive answers; every enrolled folder is watched.
+ */
+export function restingSentence(status: Pick<CollectorStatus, "connection" | "folders" | "counts">): string {
+	if (status.folders.length === 0) return "Add a folder to start collecting."
+	const watching = `Watching ${countOf(status.folders.length, "folder")} for new files.`
+	const collected =
+		status.connection.kind === "Connected" &&
+		status.counts.contents_awaiting_submission === 0 &&
+		filesUnderExamination(status.counts) === 0
+	return collected ? `Everything is collected. ${watching}` : watching
 }
 
 export interface FolderState {
@@ -162,7 +181,11 @@ export function folderState(folder: FolderStatus): FolderState {
 		case "AwaitingDecision":
 			return { label: "Awaiting your decision", tone: "attention", detail: null }
 		case "Collecting":
-			return { label: "Collecting", tone: "success", detail: "New PDFs and images upload automatically." }
+			return {
+				label: "Collecting",
+				tone: "success",
+				detail: "New PDF, JPEG, PNG, and WebP files upload automatically.",
+			}
 	}
 }
 

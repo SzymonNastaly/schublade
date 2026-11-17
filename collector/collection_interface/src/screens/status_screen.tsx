@@ -9,6 +9,7 @@ import {
 	connectionSentence,
 	documentStatusLabel,
 	progressSentences,
+	restingSentence,
 } from "../status_sentences"
 import { clockTime, receiptTime } from "../time_wording"
 import type { CollectorStatus } from "../collector_status"
@@ -28,7 +29,6 @@ interface StatusScreenProperties {
 
 export function StatusScreen({ status, onOpenTab }: StatusScreenProperties) {
 	const attention = status.attention.map((item) => attentionSentence(item, status))
-	const collecting = status.folders.filter((folder) => folder.admission.kind === "Collecting").length
 	return (
 		<div className="mx-auto flex max-w-[760px] flex-col gap-3">
 			{attention.length > 0 && (
@@ -51,11 +51,7 @@ export function StatusScreen({ status, onOpenTab }: StatusScreenProperties) {
 				<PanelRow>
 					<p className="font-bold text-heading">{connectionSentence(status.connection, clockTime)}</p>
 					{status.activities.length === 0 ? (
-						<p>
-							{status.folders.length === 0
-								? "Add a folder to start collecting."
-								: `Everything is collected. Watching ${collecting === 1 ? "1 folder" : `${collecting} folders`} for new files.`}
-						</p>
+						<p>{restingSentence(status)}</p>
 					) : (
 						<ul className="flex flex-col gap-0.5">
 							{status.activities.map((activity, index) => (

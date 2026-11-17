@@ -45,8 +45,8 @@ export function FoldersScreen({ status }: { status: CollectorStatus }) {
 			</SectionPanel>
 			{enrollment.isError && <FailureMessage>{failureSentence(enrollment.error, status)}</FailureMessage>}
 			<p className="px-1 text-fine text-caption">
-				The collector reads PDFs and images in these folders and their subfolders. It never changes, moves, or deletes
-				your files, and removing a folder here keeps what Schublade received.
+				The collector reads the PDF, JPEG, PNG, and WebP files in these folders and their subfolders. It never changes,
+				moves, or deletes your files, and removing a folder here keeps what Schublade received.
 			</p>
 		</div>
 	)
