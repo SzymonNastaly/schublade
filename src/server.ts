@@ -30,11 +30,15 @@ export default {
 	// Only the Cron Trigger in cloudflare.config.ts invokes this handler. No request reaches it,
 	// so no Access assertion applies.
 	scheduled: async (_controller, environment) => {
-		await Promise.all([
-			indexMissingDocumentsOnSchedule(environment),
-			startWaitingMailRendering(environment),
-			recordMissingContentDigestsOnSchedule(environment),
-		])
+		// Each task logs its own failure instead of rejecting, so one failure does not end the run before the others finish.
+		const tasks: Array<[string, Promise<void>]> = [
+			["search indexing", indexMissingDocumentsOnSchedule(environment)],
+			["mail rendering", startWaitingMailRendering(environment)],
+			["content digests", recordMissingContentDigestsOnSchedule(environment)],
+		]
+		await Promise.all(
+			tasks.map(([name, task]) => task.catch((error: unknown) => console.error(`Scheduled ${name} failed`, error))),
+		)
 	},
 	// Email Routing delivers mail sent to the ingestion address. No request reaches this handler,
 	// so the sender allowlist and DMARC take the place of the Access assertion.

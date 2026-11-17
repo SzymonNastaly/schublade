@@ -1,4 +1,4 @@
-import { and, asc, count, eq, inArray, isNull, sql } from "drizzle-orm"
+import { and, asc, count, eq, gt, inArray, isNull, or, sql } from "drizzle-orm"
 import { connectDatabase } from "../database/client"
 import { contents, documents } from "../database/schema"
 import { acceptedMediaTypes } from "./source_file"
@@ -58,52 +58,86 @@ export interface DigestReport {
 	recordedDocumentIds: Array<string>
 	/** Documents whose original R2 lacks. They are skipped and attempted again on the next run. */
 	missingOriginalDocumentIds: Array<string>
-	/** Documents still without a digest after this run, the skipped ones included. */
+	/** Documents whose digest could not be recorded, such as one deleted during the run. */
+	failedDocumentIds: Array<string>
+	/** Documents still without a digest after this run, the skipped and failed ones included. */
 	remainingDocumentCount: number
 }
 
+const undigestedDocuments = and(isNull(documents.originalSha256), inArray(documents.mimeType, acceptedMediaTypes))
+
+async function recordContentDigest(
+	database: ArchiveDatabase,
+	storage: R2Bucket,
+	{ id, storageObjectKey }: { id: string; storageObjectKey: string },
+): Promise<"recorded" | "missing_original"> {
+	const original = await storage.get(storageObjectKey)
+	if (!original) return "missing_original"
+	const sha256 = await sha256Hexadecimal(new Uint8Array(await original.arrayBuffer()))
+	await database.batch([
+		database
+			.update(documents)
+			.set({ originalSha256: sha256, updatedAt: sql`${documents.updatedAt}` })
+			.where(and(eq(documents.id, id), isNull(documents.originalSha256))),
+		claimContent(database, sha256, id),
+	])
+	return "recorded"
+}
+
 /**
- * Records the digest of documents archived before digests existed, oldest first, and claims
- * each content for its document. Only an original of an accepted kind is digested: a stored
+ * Records the digest of up to 25 documents archived before digests existed, oldest first, and
+ * claims each content for its document. Documents it cannot digest are passed over, so they never
+ * hold back the ones after them. Only an original of an accepted kind is digested: a stored
  * message awaits its rendering, after which the document shows the printed PDF. Recording the
  * digest is no revision of the document, so updated_at keeps its value and AI Search does not
  * upload the document again.
  */
 export async function recordMissingContentDigests(database: ArchiveDatabase, storage: R2Bucket): Promise<DigestReport> {
-	const undigested = and(isNull(documents.originalSha256), inArray(documents.mimeType, acceptedMediaTypes))
-	const [pending, [remaining]] = await Promise.all([
-		database
-			.select({ id: documents.id, storageObjectKey: documents.storageObjectKey })
+	const report: DigestReport = {
+		recordedDocumentIds: [],
+		missingOriginalDocumentIds: [],
+		failedDocumentIds: [],
+		remainingDocumentCount: 0,
+	}
+	let pageEnd: { id: string; createdAt: Date } | undefined
+	while (report.recordedDocumentIds.length < DIGEST_BATCH_SIZE) {
+		const page = await database
+			.select({ id: documents.id, storageObjectKey: documents.storageObjectKey, createdAt: documents.createdAt })
 			.from(documents)
-			.where(undigested)
+			.where(
+				pageEnd === undefined
+					? undigestedDocuments
+					: and(
+							undigestedDocuments,
+							or(
+								gt(documents.createdAt, pageEnd.createdAt),
+								and(eq(documents.createdAt, pageEnd.createdAt), gt(documents.id, pageEnd.id)),
+							),
+						),
+			)
 			.orderBy(asc(documents.createdAt), asc(documents.id))
-			.limit(DIGEST_BATCH_SIZE),
-		database.select({ count: count() }).from(documents).where(undigested),
-	])
-	const recordedDocumentIds: Array<string> = []
-	const missingOriginalDocumentIds: Array<string> = []
-	for (const { id, storageObjectKey } of pending) {
-		const original = await storage.get(storageObjectKey)
-		if (!original) {
-			console.warn(`Document ${id} has no original at ${storageObjectKey}, so its digest cannot be recorded`)
-			missingOriginalDocumentIds.push(id)
-			continue
+			.limit(DIGEST_BATCH_SIZE)
+		for (const document of page.slice(0, DIGEST_BATCH_SIZE - report.recordedDocumentIds.length)) {
+			try {
+				const outcome = await recordContentDigest(database, storage, document)
+				if (outcome === "recorded") report.recordedDocumentIds.push(document.id)
+				else {
+					console.warn(
+						`Document ${document.id} has no original at ${document.storageObjectKey}, so its digest cannot be recorded`,
+					)
+					report.missingOriginalDocumentIds.push(document.id)
+				}
+			} catch (error) {
+				console.error(`Recording the digest of document ${document.id} failed`, error)
+				report.failedDocumentIds.push(document.id)
+			}
 		}
-		const sha256 = await sha256Hexadecimal(new Uint8Array(await original.arrayBuffer()))
-		await database.batch([
-			database
-				.update(documents)
-				.set({ originalSha256: sha256, updatedAt: sql`${documents.updatedAt}` })
-				.where(and(eq(documents.id, id), isNull(documents.originalSha256))),
-			claimContent(database, sha256, id),
-		])
-		recordedDocumentIds.push(id)
+		pageEnd = page.at(-1)
+		if (page.length < DIGEST_BATCH_SIZE) break
 	}
-	return {
-		recordedDocumentIds,
-		missingOriginalDocumentIds,
-		remainingDocumentCount: (remaining?.count ?? 0) - recordedDocumentIds.length,
-	}
+	const [remaining] = await database.select({ count: count() }).from(documents).where(undigestedDocuments)
+	report.remainingDocumentCount = remaining?.count ?? 0
+	return report
 }
 
 /** The scheduled run of the digest backfill, which logs one line per run. */
@@ -112,8 +146,10 @@ export async function recordMissingContentDigestsOnSchedule(
 ): Promise<void> {
 	const report = await recordMissingContentDigests(connectDatabase(environment.DATABASE), environment.DOCUMENT_STORAGE)
 	const missing = report.missingOriginalDocumentIds
+	const failed = report.failedDocumentIds
 	console.log(
 		`Scheduled content digests: ${report.recordedDocumentIds.length} recorded, ${missing.length} without original, ` +
-			`${report.remainingDocumentCount} remaining${missing.length > 0 ? `. Without original: ${missing.join(", ")}` : ""}`,
+			`${failed.length} failed, ${report.remainingDocumentCount} remaining` +
+			`${missing.length > 0 ? `. Without original: ${missing.join(", ")}` : ""}`,
 	)
 }

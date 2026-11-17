@@ -63,6 +63,7 @@ test("the backfill digests a document archived before digests existed, keeps its
 		report: {
 			recordedDocumentIds: [digestedId],
 			missingOriginalDocumentIds: [withoutOriginalId],
+			failedDocumentIds: [],
 			remainingDocumentCount: 1,
 		},
 		warnings: [
@@ -74,5 +75,65 @@ test("the backfill digests a document archived before digests existed, keeps its
 			{ id: awaitingRenderingId, originalSha256: null, updatedAt: new Date(1793100200_000) },
 		],
 		contents: [{ sha256: SCANNED_INVOICE_SHA256, documentId: digestedId }],
+	})
+})
+
+test("the backfill passes over a full batch of documents without an original and one whose read fails", async () => {
+	await reset()
+	await applyD1Migrations(env.DATABASE, inject("databaseMigrations"))
+	const database = connectDatabase(env.DATABASE)
+	const withoutOriginalIds = Array.from(
+		{ length: 25 },
+		(_, index) => `00000000-0000-4000-8000-${index.toString().padStart(12, "0")}`,
+	)
+	const unreadableId = "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d"
+	// D1 binds at most 100 parameters per statement, so each row is its own insert.
+	const rows = [
+		...withoutOriginalIds.map((id) => ({
+			id,
+			storageObjectKey: `documents/${id}/original.pdf`,
+			mimeType: "application/pdf",
+			byteSize: 1024,
+			createdAt: new Date(1793000000_000),
+		})),
+		{
+			id: unreadableId,
+			storageObjectKey: `documents/${unreadableId}/original.pdf`,
+			mimeType: "application/pdf",
+			byteSize: 1024,
+			createdAt: new Date(1793000100_000),
+		},
+		{
+			id: digestedId,
+			storageObjectKey: `documents/${digestedId}/original.pdf`,
+			mimeType: "application/pdf",
+			byteSize: scannedInvoice.byteLength,
+			createdAt: new Date(1793000200_000),
+		},
+	]
+	for (const row of rows) await database.insert(documents).values({ ...row, status: "archived" })
+	await env.DOCUMENT_STORAGE.put(`documents/${digestedId}/original.pdf`, scannedInvoice)
+	const storage = {
+		get: (key: string) =>
+			key === `documents/${unreadableId}/original.pdf`
+				? Promise.reject(new Error("R2 is unavailable"))
+				: env.DOCUMENT_STORAGE.get(key),
+	}
+	const errors: Array<string> = []
+	const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined)
+	const error = vi.spyOn(console, "error").mockImplementation((message: unknown) => errors.push(String(message)))
+
+	const report = await recordMissingContentDigests(database, storage as unknown as R2Bucket)
+
+	warn.mockRestore()
+	error.mockRestore()
+	expect({ report, errors }).toEqual({
+		report: {
+			recordedDocumentIds: [digestedId],
+			missingOriginalDocumentIds: withoutOriginalIds,
+			failedDocumentIds: [unreadableId],
+			remainingDocumentCount: 26,
+		},
+		errors: [`Recording the digest of document ${unreadableId} failed`],
 	})
 })
