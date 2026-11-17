@@ -289,3 +289,39 @@ test("a content whose document was deleted stays known and is archived again by 
 	})
 	expect(second.documentId).not.toBe(first.documentId)
 })
+
+test("the loser of two concurrent uploads of the same bytes is failed, not left processing, when its cleanup fails", async () => {
+	const { workflowInstances, environment } = await prepareArchive()
+	const failingDeletion = {
+		prepare: (query: string) => {
+			if (query.startsWith('delete from "documents"')) throw new Error("D1 is unavailable")
+			return env.DATABASE.prepare(query)
+		},
+		batch: (statements: Array<D1PreparedStatement>) => env.DATABASE.batch(statements),
+	}
+	const racingEnvironment = { ...environment, DATABASE: failingDeletion as unknown as D1Database }
+
+	const outcomes = await Promise.allSettled([
+		acceptDocumentUpload(racingEnvironment, new File([downloadsInvoice], "Invoice-PLK-2026-004817.pdf")),
+		acceptDocumentUpload(racingEnvironment, new File([desktopInvoice], "Invoice-PLK-2026-004817.pdf")),
+	])
+
+	const database = connectDatabase(env.DATABASE)
+	const storedDocuments = await database
+		.select({ id: documents.id, status: documents.status, failureReason: documents.failureReason })
+		.from(documents)
+	const [holder] = await database.select({ documentId: contents.documentId }).from(contents)
+	expect({
+		outcomes: outcomes.map((outcome) => (outcome.status === "fulfilled" ? outcome.value.kind : outcome.status)).sort(),
+		holder: storedDocuments.find((document) => document.id === holder?.documentId)?.status,
+		loser: storedDocuments
+			.filter((document) => document.id !== holder?.documentId)
+			.map(({ status, failureReason }) => ({ status, failureReason })),
+		workflowInstances: workflowInstances.length,
+	}).toEqual({
+		outcomes: ["accepted", "rejected"],
+		holder: "processing",
+		loser: [{ status: "failed", failureReason: "processing_error" }],
+		workflowInstances: 1,
+	})
+})

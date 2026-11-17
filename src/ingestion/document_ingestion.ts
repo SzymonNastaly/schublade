@@ -140,12 +140,14 @@ export async function startDocumentIngestion(
 	try {
 		await environment.DOCUMENT_INGESTION_WORKFLOW.create(instance)
 	} catch (error) {
-		await recordDocumentStatus(environment, instance.params.documentId, {
-			status: "failed",
-			failureReason: "processing_error",
-		})
+		await recordIngestionStartFailure(environment, instance.params.documentId)
 		throw error
 	}
+}
+
+/** Fails a recorded document whose workflow did not start, so a member can retry or delete it. */
+export function recordIngestionStartFailure(environment: StatusRecordEnvironment, documentId: string): Promise<void> {
+	return recordDocumentStatus(environment, documentId, { status: "failed", failureReason: "processing_error" })
 }
 
 /**

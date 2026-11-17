@@ -1,8 +1,8 @@
 import { eq } from "drizzle-orm"
 import { connectDatabase } from "../database/client"
-import { documents } from "../database/schema"
+import { contents, documents } from "../database/schema"
 import { claimContent, lookupContents, sha256Hexadecimal } from "./content_identity"
-import { startDocumentIngestion } from "./document_ingestion"
+import { recordIngestionStartFailure, startDocumentIngestion } from "./document_ingestion"
 import { identifySourceFile, originalObjectKey } from "./source_file"
 import type { MailContext } from "./classification_prompt"
 import type { SourceFile } from "./source_file"
@@ -57,10 +57,10 @@ type ContentArchival = { kind: "accepted" | "already_archived"; documentId: stri
 /**
  * Archives a content once, whichever way its bytes arrive. Bytes a document holds answer with
  * that document before anything is written. Otherwise the original goes to R2, and one D1
- * transaction records the document and claims the content for it. Two uploads of the same bytes
- * can reach that transaction together, so the claim is read back, and the one that lost removes
- * the document it recorded and answers with the winner. A content whose document was deleted is
- * archived again.
+ * transaction records the document, claims the content for it, and reads which document holds
+ * the content. Two uploads of the same bytes can reach that transaction together, and the one
+ * that lost removes the document it recorded and answers with the winner. A content whose
+ * document was deleted is archived again.
  */
 export async function archiveContent(
 	environment: UploadEnvironment,
@@ -74,7 +74,7 @@ export async function archiveContent(
 	await environment.DOCUMENT_STORAGE.put(storageObjectKey, content, {
 		httpMetadata: { contentType: sourceFile.mediaType },
 	})
-	const [recorded] = await database
+	const [recorded, , [claim]] = await database
 		.batch([
 			database
 				.insert(documents)
@@ -89,28 +89,36 @@ export async function archiveContent(
 				.onConflictDoNothing()
 				.returning({ id: documents.id }),
 			claimContent(database, sha256, documentId),
+			database.select({ documentId: contents.documentId }).from(contents).where(eq(contents.sha256, sha256)),
 		])
 		.catch(async (error: unknown) => {
 			// Without its row, nothing would list or remove the stored original.
 			await environment.DOCUMENT_STORAGE.delete(storageObjectKey)
 			throw error
 		})
-	const recordedByThisCall = recorded.length > 0
-	const [claimed] = await lookupContents(database, [sha256])
-	if (claimed?.state === "present" && claimed.documentId !== documentId) {
-		if (recordedByThisCall) {
-			await database.delete(documents).where(eq(documents.id, documentId))
-			await environment.DOCUMENT_STORAGE.delete(storageObjectKey)
-		}
-		return { kind: "already_archived", documentId: claimed.documentId }
-	}
+	// The claim in the same transaction leaves the content held, so the fallback never applies.
+	const holderId = claim?.documentId ?? documentId
 	// A concurrent delivery of the same message recorded the document and started its workflow.
-	if (!recordedByThisCall) return { kind: "accepted", documentId }
-	await startDocumentIngestion(environment, {
-		id: documentId,
-		params: mailContext === undefined ? { documentId } : { documentId, mailContext },
-	})
-	return { kind: "accepted", documentId }
+	if (recorded.length === 0) {
+		return { kind: holderId === documentId ? "accepted" : "already_archived", documentId: holderId }
+	}
+	try {
+		if (holderId !== documentId) {
+			// The original goes before its row, so no failure leaves an original that no row lists.
+			await environment.DOCUMENT_STORAGE.delete(storageObjectKey)
+			await database.delete(documents).where(eq(documents.id, documentId))
+			return { kind: "already_archived", documentId: holderId }
+		}
+		await startDocumentIngestion(environment, {
+			id: documentId,
+			params: mailContext === undefined ? { documentId } : { documentId, mailContext },
+		})
+		return { kind: "accepted", documentId }
+	} catch (error) {
+		// A document left processing without a workflow could be neither retried nor deleted, so it fails.
+		await recordIngestionStartFailure(environment, documentId)
+		throw error
+	}
 }
 
 /** Checks one file, then archives its content under the origin's document identifier. */
