@@ -113,6 +113,33 @@ test("POST /api/v1/contents/lookup answers absent, present, and deleted in reque
 	})
 })
 
+test("POST /api/v1/contents/lookup reads 1000 indented digests and refuses a body larger than 128 KB with 413", async () => {
+	const { collect } = await prepareArchive()
+	const digests = Array.from({ length: 1000 }, (_, index) => index.toString(16).padStart(64, "0"))
+
+	const largest = await collect("POST", "/api/v1/contents/lookup", JSON.stringify({ sha256: digests }, null, "\t"))
+	const oversized = await collect("POST", "/api/v1/contents/lookup", " ".repeat(128_001))
+
+	const largestBody = await largest.json<{ contents: Array<unknown> }>()
+	expect({
+		largest: { status: largest.status, contents: largestBody.contents.length },
+		oversized: await answer(oversized),
+	}).toEqual({
+		largest: { status: 200, contents: 1000 },
+		oversized: {
+			status: 413,
+			contentType: "application/problem+json",
+			location: null,
+			body: {
+				type: "about:blank",
+				title: "Content Too Large",
+				status: 413,
+				detail: "The lookup is larger than 128 KB. Send at most 1000 digests.",
+			},
+		},
+	})
+})
+
 test("PUT /api/v1/contents/{sha256} archives new bytes with 202 and answers 200 for bytes a document holds", async () => {
 	const { database, workflowInstances, collect } = await prepareArchive()
 

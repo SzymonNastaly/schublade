@@ -9,6 +9,7 @@ import {
 	MAXIMUM_DOCUMENT_BYTES,
 	UNACCEPTED_FILE_KIND,
 	archiveContent,
+	limitRequestBody,
 	readDocumentBody,
 } from "../ingestion/document_upload"
 import { identifySourceFile } from "../ingestion/source_file"
@@ -18,6 +19,8 @@ import type { UploadEnvironment } from "../ingestion/document_upload"
 import type { CollectionRoute } from "./collection_paths"
 
 const MAXIMUM_LOOKUP_DIGESTS = 1000
+// 1000 digests take 67 KB as compact JSON, so this leaves room for indentation and line breaks.
+const MAXIMUM_LOOKUP_BYTES = 128_000
 
 const contentLookupSchema = z.strictObject({
 	sha256: z.array(z.string().regex(sha256Pattern)).min(1).max(MAXIMUM_LOOKUP_DIGESTS),
@@ -63,7 +66,14 @@ async function documentStatusResponse(
 }
 
 async function serveContentLookup(database: ArchiveDatabase, request: Request): Promise<Response> {
-	const body: unknown = await request.json().catch(() => undefined)
+	const limited = limitRequestBody(request, MAXIMUM_LOOKUP_BYTES)
+	const body: unknown = await new Response(limited.body).json().catch(() => undefined)
+	if (limited.exceeded()) {
+		return problem(
+			413,
+			`The lookup is larger than ${MAXIMUM_LOOKUP_BYTES / 1000} KB. Send at most ${MAXIMUM_LOOKUP_DIGESTS} digests.`,
+		)
+	}
 	const lookup = contentLookupSchema.safeParse(body)
 	if (!lookup.success) {
 		return problem(

@@ -142,7 +142,7 @@ export async function acceptDocumentUpload(
  * The body with its bytes counted as they arrive, because a request need not declare its length
  * in Content-Length. The stream fails once the count passes the limit, and exceeded() says so.
  */
-function limitRequestBody(request: Request, maximumBytes: number) {
+export function limitRequestBody(request: Request, maximumBytes: number) {
 	let receivedBytes = 0
 	const body = request.body?.pipeThrough(
 		new TransformStream<Uint8Array, Uint8Array>({
