@@ -1,0 +1,26 @@
+#!/bin/bash
+# The one check of the Mac application: the collector's cargo checks, SwiftFormat, SwiftLint, the
+# build of every target in both configurations, and the end-to-end test.
+#   collector/macintosh_application/scripts/check_application.sh
+set -euo pipefail
+export PATH="/opt/homebrew/bin:$HOME/.cargo/bin:$PATH"
+cd "$(dirname "$0")/.."
+
+(cd .. && cargo fmt --check && cargo clippy --all-targets --locked -- -D warnings && cargo test --locked)
+
+swiftformat --lint --quiet .
+swiftlint lint --strict --quiet
+interface_builder_files="$(find . -path ./build -prune -o \( -name "*.xib" -o -name "*.storyboard" \) -print)"
+if [ -n "$interface_builder_files" ]; then
+	echo "error: the interface is built in code, so no Interface Builder file belongs here:" >&2
+	echo "$interface_builder_files" >&2
+	exit 1
+fi
+
+xcodegen generate --quiet
+project=(-project SchubladeCollector.xcodeproj -scheme SchubladeCollector -derivedDataPath build
+	-destination "platform=macOS,arch=arm64")
+xcodebuild -quiet "${project[@]}" -configuration Release build
+# Not quiet, so that the test's own result lines show. The filter keeps every diagnostic.
+xcodebuild "${project[@]}" -configuration Debug test 2>&1 |
+	grep -E "^(/.*: (error|warning)|error|warning|ld: |Test Case|[[:space:]]+Executed|\*\* TEST)"

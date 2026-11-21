@@ -1,0 +1,124 @@
+# XcodeGen writes SchubladeCollector.xcodeproj from this file on every script run, and git ignores
+# the project.
+name: SchubladeCollector
+options:
+  deploymentTarget:
+    macOS: "14.0"
+  createIntermediateGroups: true
+configFiles:
+  Debug: configuration/signing.xcconfig
+  Release: configuration/signing.xcconfig
+settings:
+  base:
+    # Every name a person sees derives from this name and the two bundle identifiers below.
+    APPLICATION_DISPLAY_NAME: Schublade Collector
+    ARCHS: arm64
+    SWIFT_VERSION: "6.0"
+    SWIFT_STRICT_CONCURRENCY: complete
+    SWIFT_APPROACHABLE_CONCURRENCY: YES
+    SWIFT_TREAT_WARNINGS_AS_ERRORS: YES
+    GCC_TREAT_WARNINGS_AS_ERRORS: YES
+    SWIFT_INCLUDE_PATHS: $(SRCROOT)/generated_bindings/foreign_function_interface
+  configs:
+    Debug:
+      APPLICATION_PRODUCT_NAME: $(APPLICATION_DISPLAY_NAME) Development
+      APPLICATION_BUNDLE_IDENTIFIER: org.schublade.collector.development
+      CARGO_PROFILE: dev
+      CARGO_PROFILE_DIRECTORY: debug
+    Release:
+      APPLICATION_PRODUCT_NAME: $(APPLICATION_DISPLAY_NAME)
+      APPLICATION_BUNDLE_IDENTIFIER: org.schublade.collector
+      CARGO_PROFILE: release
+      CARGO_PROFILE_DIRECTORY: release
+
+targets:
+  CollectionBindings:
+    type: library.static
+    platform: macOS
+    sources:
+      - path: generated_bindings/collection_bindings.swift
+        optional: true
+        buildPhase: sources
+    preBuildScripts:
+      - name: Produce the collector bindings
+        script: '"$SRCROOT/scripts/produce_collector_bindings.sh"'
+        basedOnDependencyAnalysis: false
+        outputFiles:
+          - $(SRCROOT)/generated_bindings/collection_bindings.swift
+          - $(SRCROOT)/generated_bindings/foreign_function_interface/collection_bindingsFFI.h
+          - $(SRCROOT)/generated_bindings/foreign_function_interface/module.modulemap
+    settings:
+      base:
+        # The generated Swift does not compile with MainActor default isolation, and a module of
+        # one file is otherwise parsed as a script.
+        SWIFT_DEFAULT_ACTOR_ISOLATION: nonisolated
+        OTHER_SWIFT_FLAGS: -parse-as-library
+        ENABLE_USER_SCRIPT_SANDBOXING: NO
+
+  CollectorInterface:
+    type: library.static
+    platform: macOS
+    sources: [collector_interface]
+    dependencies:
+      - target: CollectionBindings
+    settings:
+      base:
+        SWIFT_DEFAULT_ACTOR_ISOLATION: MainActor
+
+  SchubladeCollector:
+    type: application
+    platform: macOS
+    sources: [application]
+    dependencies:
+      - target: CollectorInterface
+      - target: CollectionBindings
+    info:
+      path: application/Info.plist
+      properties:
+        CFBundleDisplayName: $(PRODUCT_NAME)
+        LSUIElement: true
+        LSMultipleInstancesProhibited: true
+        NSPrincipalClass: NSApplication
+        NSDownloadsFolderUsageDescription: &folder_usage_description
+          $(APPLICATION_DISPLAY_NAME) uploads the PDFs and images in the folders you add to your Schublade archive.
+        NSDesktopFolderUsageDescription: *folder_usage_description
+        NSDocumentsFolderUsageDescription: *folder_usage_description
+        NSNetworkVolumesUsageDescription: *folder_usage_description
+        NSRemovableVolumesUsageDescription: *folder_usage_description
+    settings:
+      base:
+        PRODUCT_NAME: $(APPLICATION_PRODUCT_NAME)
+        PRODUCT_BUNDLE_IDENTIFIER: $(APPLICATION_BUNDLE_IDENTIFIER)
+        PRODUCT_MODULE_NAME: SchubladeCollector
+        SWIFT_DEFAULT_ACTOR_ISOLATION: MainActor
+        LIBRARY_SEARCH_PATHS: $(SRCROOT)/../target/aarch64-apple-darwin/$(CARGO_PROFILE_DIRECTORY)
+        # Security for the Keychain store, CoreServices for FSEvents. A linker warning fails the
+        # build, so a Rust object built for a newer system than the deployment target does too.
+        OTHER_LDFLAGS: >-
+          -lcollection_bindings -framework Security -framework CoreFoundation -framework CoreServices -liconv
+          -Wl,-fatal_warnings
+
+  ApplicationEndToEndTests:
+    type: bundle.unit-test
+    platform: macOS
+    sources: [application_end_to_end_tests]
+    dependencies:
+      - target: SchubladeCollector
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+        PRODUCT_BUNDLE_IDENTIFIER: $(APPLICATION_BUNDLE_IDENTIFIER).application-end-to-end-tests
+        TEST_HOST: $(BUILT_PRODUCTS_DIR)/$(APPLICATION_PRODUCT_NAME).app/Contents/MacOS/$(APPLICATION_PRODUCT_NAME)
+        BUNDLE_LOADER: $(TEST_HOST)
+
+schemes:
+  SchubladeCollector:
+    build:
+      targets:
+        SchubladeCollector: all
+        ApplicationEndToEndTests: [test]
+    test:
+      config: Debug
+      targets: [ApplicationEndToEndTests]
+      environmentVariables:
+        SCHUBLADE_COLLECTOR_ENVIRONMENT: isolated

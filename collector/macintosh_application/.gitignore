@@ -1,0 +1,5 @@
+SchubladeCollector.xcodeproj/
+build/
+generated_bindings/
+application/Info.plist
+configuration/local_signing.xcconfig
