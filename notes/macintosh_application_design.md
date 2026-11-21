@@ -259,6 +259,18 @@ Rejected from candidate 2: `#[uniffi::remote]` mirrors of the core's status with
 
 ## Implementation reconciliation
 
+Unit 1, the bindings crate, accepted these changes on 2026-11-22.
+
+- `status_after` waits before it reads. A call with a revision waits for an announcement above that revision, or for the coordinator's end, and then reads the status. The read-then-compare loop of the first sketch never waited, because the core counted every status read as a revision. The core no longer counts `ReadStatus` and `WaitUntilIdle`, so any number of callers can follow.
+- The exported methods take `self: Arc<Self>`, so the closure given to `blocking::unblock` owns the object. Swift sees the same functions.
+- The core sits in an `RwLock<Option<collection_core::Collector>>`. Every call holds the read lock while the core answers. `shutdown` takes the core out under the write lock and calls the consuming `shutdown(self)` on a blocking thread, and a second call finds nothing to do.
+- `FolderStatus` has no `root` of its own, because its `FolderReference` carries it. `Activity::Listing` carries the `FolderReference`.
+- `enroll_folder` and each refusal that names a folder read the status once more for the root, because the core stores the absolute path. A folder withdrawn in between answers `Collector { fault: Unexpected }`.
+- `CollectorFault` is an error type of its own, which `status_after` throws, and also the field of the four refusals.
+- `host` keeps the port, as in `localhost:3000`.
+- The `cfg`-guarded `Keychain` variant compiles and exports on Linux, which settles risk 5.
+- The generated Swift compiles as its own module only with `-parse-as-library`.
+
 ## Open questions and risks
 
 1. Does the login launch of `SMAppService.mainApp` carry `keyAELaunchedAsLogInItem` on macOS 26? The application logs the launch origin at every launch, so one login at the Mac's screen settles it. If the marker is absent, the fallback is an `SMAppService.agent` whose property list passes `--started-at-login`.

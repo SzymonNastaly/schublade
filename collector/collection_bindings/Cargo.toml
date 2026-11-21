@@ -1,0 +1,25 @@
+[package]
+name = "collection_bindings"
+description = "The collector as an application sees it: one object, the published status, and the refusals, exported through UniFFI"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lib]
+# The static library is what an application links. The rlib is what `cargo test` runs.
+crate-type = ["staticlib", "lib"]
+
+[dependencies]
+# Runs each blocking call of the core on a thread of its own pool, so the thread that polls an
+# exported future never waits.
+blocking = "=1.7.0"
+collection_core = { path = "../collection_core" }
+event-listener = "=5.4.2"
+# Proc macros in library mode. `collection_bindings_generator` pins the same version.
+uniffi = "=0.32.2"
+
+[dev-dependencies]
+pollster = "=1.0.3"
+tempfile = "=3.27.0"
