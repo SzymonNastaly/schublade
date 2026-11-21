@@ -350,7 +350,13 @@ impl VolatileState {
         command: CollectorCommand,
         outcome: &mut BatchOutcome,
     ) -> rusqlite::Result<()> {
-        self.revision += 1;
+        // A read changes nothing a status shows, so only the four commands count as a revision.
+        if !matches!(
+            command,
+            CollectorCommand::ReadStatus { .. } | CollectorCommand::WaitUntilIdle { .. }
+        ) {
+            self.revision += 1;
+        }
         match command {
             CollectorCommand::ConnectArchive { address, token, reply } => {
                 let result = self.connect_archive(store, transaction, address, token);
