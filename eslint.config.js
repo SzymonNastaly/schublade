@@ -22,6 +22,22 @@ export default [
 		rules: { "better-tailwindcss/no-unknown-classes": "error" },
 	},
 	{
+		files: ["src/**/*.{ts,tsx}", "scripts/**/*.ts"],
+		rules: {
+			"no-restricted-syntax": [
+				"error",
+				...[
+					"Literal[value=/OR\\s+REPLACE|REPLACE\\s+INTO/i]",
+					"TemplateElement[value.raw=/OR\\s+REPLACE|REPLACE\\s+INTO/i]",
+				].map((selector) => ({
+					selector,
+					message:
+						"REPLACE deletes the row it replaces without firing its delete trigger, because D1 runs with recursive_triggers off, so the change journal never records the deletion. Use INSERT ... ON CONFLICT DO UPDATE.",
+				})),
+			],
+		},
+	},
+	{
 		files: ["src/**/*.{ts,tsx}"],
 		ignores: ["src/interface/controls/**"],
 		rules: {

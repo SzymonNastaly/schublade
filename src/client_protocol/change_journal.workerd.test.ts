@@ -179,34 +179,129 @@ async function listedByArchive(database: ArchiveDatabase, authorizationScope?: A
 	return listing.sort((left, right) => left.id.localeCompare(right.id))
 }
 
-test("every table is journaled or listed as not replicated, and every journaled table has its three triggers", async () => {
+const recordOrder = (left: JournaledRecord, right: JournaledRecord) =>
+	`${left.kind} ${left.id}`.localeCompare(`${right.kind} ${right.id}`)
+
+/** The household members, senders, categories, and tags of a replica of the whole archive. */
+function taxonomyOf({ records }: Replica): Array<JournaledRecord> {
+	return [...records.values()].filter((record) => record.kind !== "document").sort(recordOrder)
+}
+
+async function taxonomyOfArchive(database: ArchiveDatabase): Promise<Array<JournaledRecord>> {
+	const [memberRows, senderRows, categoryRows, tagRows] = await database.batch([
+		database.select({ id: householdMembers.id, displayName: householdMembers.displayName }).from(householdMembers),
+		database.select({ id: senders.id, name: senders.name }).from(senders),
+		database
+			.select({ id: categories.id, name: categories.name, expectedFields: categories.expectedFields })
+			.from(categories),
+		database.select({ id: tags.id, name: tags.name, colorHex: tags.colorHex }).from(tags),
+	])
+	return [
+		...memberRows.map((member) => ({ kind: "household_member" as const, ...member })),
+		...senderRows.map((sender) => ({ kind: "sender" as const, ...sender })),
+		...categoryRows.map((category) => ({ kind: "category" as const, ...category })),
+		...tagRows.map((tag) => ({ kind: "tag" as const, ...tag })),
+	].sort(recordOrder)
+}
+
+/** A raw statement on a row of one journaled table, and the records whose entries it must move. */
+type JournaledWrite = [statement: string, movedRecords: Array<string>]
+
+/**
+ * An insert, an update, and a delete of each journaled table, run in this order on the rows of
+ * the test below. A link or a field belongs to its document, and an update that moves one moves
+ * both documents.
+ */
+const writesOfEachTable = {
+	documents: [
+		[
+			"INSERT INTO documents (id, storage_object_key, mime_type, byte_size) VALUES ('d3', 'k3', 'application/pdf', 1)",
+			["document d3"],
+		],
+		["UPDATE documents SET title = 'Revised' WHERE id = 'd3'", ["document d3"]],
+		["DELETE FROM documents WHERE id = 'd3'", ["document d3"]],
+	],
+	document_tags: [
+		["INSERT INTO document_tags (document_id, tag_id) VALUES ('d1', 't1')", ["document d1"]],
+		["UPDATE document_tags SET document_id = 'd2' WHERE document_id = 'd1'", ["document d1", "document d2"]],
+		["DELETE FROM document_tags WHERE document_id = 'd2'", ["document d2"]],
+	],
+	extracted_fields: [
+		[
+			"INSERT INTO extracted_fields (id, document_id, field_key, field_type) VALUES ('f1', 'd1', 'amount', 'number')",
+			["document d1"],
+		],
+		["UPDATE extracted_fields SET document_id = 'd2' WHERE id = 'f1'", ["document d1", "document d2"]],
+		["DELETE FROM extracted_fields WHERE id = 'f1'", ["document d2"]],
+	],
+	household_members: [
+		[
+			"INSERT INTO household_members (id, display_name, addressee_names_json) VALUES ('m1', 'Jonas', '[]')",
+			["household_member m1"],
+		],
+		["UPDATE household_members SET display_name = 'Jonas Becker' WHERE id = 'm1'", ["household_member m1"]],
+		["DELETE FROM household_members WHERE id = 'm1'", ["household_member m1"]],
+	],
+	senders: [
+		["INSERT INTO senders (id, name, normalized_name) VALUES ('s1', 'Allianz', 'allianz')", ["sender s1"]],
+		["UPDATE senders SET name = 'Allianz SE' WHERE id = 's1'", ["sender s1"]],
+		["DELETE FROM senders WHERE id = 's1'", ["sender s1"]],
+	],
+	categories: [
+		[
+			"INSERT INTO categories (id, name, normalized_name, expected_fields_json) VALUES ('c1', 'Receipt', 'receipt', '[]')",
+			["category c1"],
+		],
+		["UPDATE categories SET name = 'Receipts' WHERE id = 'c1'", ["category c1"]],
+		["DELETE FROM categories WHERE id = 'c1'", ["category c1"]],
+	],
+	tags: [
+		["INSERT INTO tags (id, name, normalized_name) VALUES ('t2', 'tax', 'tax')", ["tag t2"]],
+		["UPDATE tags SET name = 'Tax' WHERE id = 't2'", ["tag t2"]],
+		["DELETE FROM tags WHERE id = 't2'", ["tag t2"]],
+	],
+} satisfies Record<
+	keyof typeof journaledTables,
+	[insert: JournaledWrite, update: JournaledWrite, deletion: JournaledWrite]
+>
+
+test("every table is journaled or listed as not replicated, and every write to a journaled row moves its record's entry", async () => {
 	await reset()
 	await applyD1Migrations(env.DATABASE, inject("databaseMigrations"))
+	await env.DATABASE.batch(
+		[
+			"INSERT INTO documents (id, storage_object_key, mime_type, byte_size) VALUES ('d1', 'k1', 'application/pdf', 1), ('d2', 'k2', 'application/pdf', 1)",
+			"INSERT INTO tags (id, name, normalized_name) VALUES ('t1', 'groceries', 'groceries')",
+		].map((statement) => env.DATABASE.prepare(statement)),
+	)
 
 	const { results: tables } = await env.DATABASE.prepare(
 		"SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' AND name NOT LIKE '_cf_%' AND name <> 'd1_migrations'",
 	).all<{ name: string }>()
-	const { results: triggers } = await env.DATABASE.prepare(
-		"SELECT tbl_name, sql FROM sqlite_master WHERE type = 'trigger' ORDER BY name",
-	).all<{ tbl_name: string; sql: string }>()
-	const eventsByTable: Record<string, Array<string>> = {}
-	for (const trigger of triggers) {
-		// A trigger with a column list, AFTER UPDATE OF, counts for nothing: it would miss the other columns.
-		const [, event] = /AFTER (INSERT|UPDATE|DELETE) ON/.exec(trigger.sql) ?? []
-		if (event !== undefined) (eventsByTable[trigger.tbl_name] ??= []).push(event)
+	const writes = (Object.keys(journaledTables) as Array<keyof typeof journaledTables>).flatMap(
+		(table) => writesOfEachTable[table],
+	)
+	const movedByEachWrite: Array<JournaledWrite> = []
+	for (const [statement] of writes) {
+		const previousHighest = await env.DATABASE.prepare("SELECT max(sequence_number) FROM change_journal").first<number>(
+			"max(sequence_number)",
+		)
+		await env.DATABASE.prepare(statement).run()
+		const { results: moved } = await env.DATABASE.prepare(
+			"SELECT record_kind || ' ' || record_identifier AS record FROM change_journal WHERE sequence_number > ? ORDER BY record",
+		)
+			.bind(previousHighest)
+			.all<{ record: string }>()
+		movedByEachWrite.push([statement, moved.map(({ record }) => record)])
 	}
 
-	expect({ tables: tables.map((table) => table.name).sort(), eventsByTable }).toEqual({
+	expect({ tables: tables.map((table) => table.name).sort(), movedByEachWrite }).toEqual({
 		tables: [...Object.keys(journaledTables), ...tablesNotReplicated].sort(),
-		eventsByTable: Object.fromEntries(
-			Object.keys(journaledTables)
-				.sort()
-				.map((table) => [table, ["DELETE", "INSERT", "UPDATE"]]),
-		),
+		movedByEachWrite: writes,
 	})
 })
 
-test("a client that pages from any earlier cursor ends with the state the listing reports", async () => {
+test("a client that pages from any earlier cursor ends with the documents the listing reports and every record of the taxonomy tables", async () => {
 	const database = await prepareArchive()
 	const { searchIndex } = createInMemorySearchIndex()
 	const archive = { database, storage: env.DOCUMENT_STORAGE, searchIndex }
@@ -269,7 +364,10 @@ test("a client that pages from any earlier cursor ends with the state the listin
 		replicas.push(structuredClone(current))
 		await write()
 		receivedAfterEachWrite.push(await follow(database, wholeArchive, current))
-		expect(listedBy(current)).toEqual(await listedByArchive(database))
+		expect({ listing: listedBy(current), taxonomy: taxonomyOf(current) }).toEqual({
+			listing: await listedByArchive(database),
+			taxonomy: await taxonomyOfArchive(database),
+		})
 	}
 	const laggingCursor = replicas[1]?.cursor
 	const repeatedPages = [
@@ -310,7 +408,10 @@ test("a client that pages from any earlier cursor ends with the state the listin
 		],
 	})
 	expect(repeatedPages[0]).toEqual(repeatedPages[1])
-	for (const replica of replicas) expect(listedBy(replica)).toEqual(listing)
+	const taxonomy = await taxonomyOfArchive(database)
+	for (const replica of replicas) {
+		expect({ listing: listedBy(replica), taxonomy: taxonomyOf(replica) }).toEqual({ listing, taxonomy })
+	}
 })
 
 test("a restricted client receives only what its scope admits, and a removal for what leaves it", async () => {
