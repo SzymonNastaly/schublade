@@ -2,10 +2,11 @@
 //! `GET /api/v1/changes` never leaves this module.
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::io::Write;
 
 use archive_access::{
-    ArchiveAddress, ArchiveAuthorization, ArchiveCondition, ArchiveExchange, ArchiveToken, ContentDigest,
-    DocumentIdentifier, Timestamp, read_authorization,
+    ArchiveAddress, ArchiveAuthorization, ArchiveCondition, ArchiveDownload, ArchiveExchange, ArchiveToken,
+    ContentDigest, DocumentIdentifier, DownloadFailure, Timestamp, read_authorization,
 };
 
 use crate::replica_records::{
@@ -22,6 +23,24 @@ pub enum PageAnswer {
     JournalReplaced,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum OriginalAnswer {
+    /// The destination holds the original.
+    Received,
+    /// 404: the archive holds no such document, or the token no longer sees it.
+    DocumentAbsent,
+    /// 409: the document is an email that the archive has not printed as a PDF yet.
+    NotPrinted,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ThumbnailAnswer {
+    /// The destination holds the picture.
+    Received,
+    /// 404, or a picture above the size a client keeps: the document is shown without one.
+    Absent,
+}
+
 /// What a copy reads from its archive. `HttpArchiveReader` speaks the routes, and the scripted
 /// archive answers them in a scenario.
 pub trait ArchiveReader: Send + Sync {
@@ -30,12 +49,36 @@ pub trait ArchiveReader: Send + Sync {
 
     /// `GET /api/v1/changes`: the page after the cursor, or the journal's first page without one.
     fn read_changes(&self, after: Option<&JournalCursor>) -> Result<PageAnswer, ArchiveCondition>;
+
+    /// `GET /api/v1/documents/{id}/text`: the extracted Markdown, or `None` for a 404, which a
+    /// document without a stored text answers.
+    fn read_text(&self, document: &DocumentIdentifier) -> Result<Option<String>, ArchiveCondition>;
+
+    /// `GET /api/v1/documents/{id}/original`, written to the destination as it arrives.
+    fn download_original(
+        &self,
+        document: &DocumentIdentifier,
+        destination: &mut dyn Write,
+    ) -> Result<OriginalAnswer, DownloadFailure>;
+
+    /// `GET /api/v1/documents/{id}/thumbnail`, written to the destination as it arrives.
+    fn download_thumbnail(
+        &self,
+        document: &DocumentIdentifier,
+        destination: &mut dyn Write,
+    ) -> Result<ThumbnailAnswer, DownloadFailure>;
 }
 
 /// A page covers 250 journal entries today, by the server's choice, and the records their
 /// documents refer to. A document with its summary and fields takes about 2,000 bytes, so this is
 /// many times such a page.
 const MAXIMUM_PAGE_BYTES: u64 = 8_000_000;
+/// The text of a document of several hundred pages stays below this.
+const MAXIMUM_TEXT_BYTES: u64 = 8_000_000;
+/// The archive accepts no larger upload.
+const MAXIMUM_ORIGINAL_BYTES: u64 = 25_000_000;
+/// The archive answers an image original as its own thumbnail, which can be several megabytes.
+const MAXIMUM_THUMBNAIL_BYTES: u64 = 1_000_000;
 
 pub struct HttpArchiveReader {
     exchange: ArchiveExchange,
@@ -66,6 +109,51 @@ impl ArchiveReader for HttpArchiveReader {
                 .ok_or_else(|| response.protocol_violation()),
             410 => Ok(PageAnswer::JournalReplaced),
             _ => Err(response.protocol_violation()),
+        }
+    }
+
+    fn read_text(&self, document: &DocumentIdentifier) -> Result<Option<String>, ArchiveCondition> {
+        let path = format!("/api/v1/documents/{}/text", document.as_str());
+        let response = self.exchange.get_within(&path, MAXIMUM_TEXT_BYTES)?;
+        match response.status() {
+            200 => Ok(Some(response.body().to_owned())),
+            404 => Ok(None),
+            _ => Err(response.protocol_violation()),
+        }
+    }
+
+    fn download_original(
+        &self,
+        document: &DocumentIdentifier,
+        destination: &mut dyn Write,
+    ) -> Result<OriginalAnswer, DownloadFailure> {
+        let path = format!("/api/v1/documents/{}/original", document.as_str());
+        match self.exchange.download(&path, destination, MAXIMUM_ORIGINAL_BYTES)? {
+            ArchiveDownload::Written => Ok(OriginalAnswer::Received),
+            ArchiveDownload::LimitExceeded => Err(DownloadFailure::Archive(ArchiveCondition::ProtocolViolation {
+                detail: format!("200: the original holds more than {MAXIMUM_ORIGINAL_BYTES} bytes"),
+            })),
+            ArchiveDownload::Answered(response) => match response.status() {
+                404 => Ok(OriginalAnswer::DocumentAbsent),
+                409 => Ok(OriginalAnswer::NotPrinted),
+                _ => Err(DownloadFailure::Archive(response.protocol_violation())),
+            },
+        }
+    }
+
+    fn download_thumbnail(
+        &self,
+        document: &DocumentIdentifier,
+        destination: &mut dyn Write,
+    ) -> Result<ThumbnailAnswer, DownloadFailure> {
+        let path = format!("/api/v1/documents/{}/thumbnail", document.as_str());
+        match self.exchange.download(&path, destination, MAXIMUM_THUMBNAIL_BYTES)? {
+            ArchiveDownload::Written => Ok(ThumbnailAnswer::Received),
+            ArchiveDownload::LimitExceeded => Ok(ThumbnailAnswer::Absent),
+            ArchiveDownload::Answered(response) => match response.status() {
+                404 => Ok(ThumbnailAnswer::Absent),
+                _ => Err(DownloadFailure::Archive(response.protocol_violation())),
+            },
         }
     }
 }

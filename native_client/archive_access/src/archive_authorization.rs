@@ -4,11 +4,13 @@
 
 use crate::archive_exchange::{ArchiveCondition, ArchiveExchange};
 
-/// The levels of a token in the server's order. Each grants every permission of those before it.
+/// The levels of a token in the server's order. Each grants every permission of those before it:
+/// a token of the level `Ingest` only adds documents, and one of the level `Read` also reads the
+/// archive.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum PermissionLevel {
-    Read,
     Ingest,
+    Read,
     Modify,
     Administer,
 }

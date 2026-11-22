@@ -22,7 +22,7 @@ CREATE TABLE mirror (
 	fill_complete           INTEGER NOT NULL DEFAULT 0 CHECK (fill_complete IN (0, 1)),
 	-- Milliseconds since 1970 of the last page that reached the journal's end.
 	synchronized_at         INTEGER,
-	-- Rises in every transaction that changes a record.
+	-- Rises in every transaction that changes a record or a text.
 	content_revision        INTEGER NOT NULL DEFAULT 0
 ) STRICT;
 
@@ -72,6 +72,11 @@ CREATE TABLE documents (
 	original_sha256    TEXT,
 	-- Milliseconds since 1970.
 	arrived_at         INTEGER NOT NULL,
+	-- The document's `amount` and `currency` fields once more, which a row of a list shows. A
+	-- listing reads them here, because two lookups among the fields for every document took a
+	-- third of its time.
+	amount             REAL,
+	currency           TEXT,
 	-- The order of the archive's own listing: a document without a date takes the day it arrived.
 	listing_date       TEXT GENERATED ALWAYS AS (coalesce(document_date, date(arrived_at / 1000, 'unixepoch'))) STORED,
 	CHECK ((person_assignment = 'member') = (member_id IS NOT NULL)),
@@ -104,3 +109,33 @@ CREATE TABLE extracted_fields (
 	CHECK ((field_type = 'number') = (value_number IS NOT NULL)),
 	CHECK ((field_type = 'number') = (value_text IS NULL))
 ) STRICT, WITHOUT ROWID;
+
+-- The extracted Markdown of an archived document. An archived document without a row awaits its
+-- text. A row without Markdown says that the archive holds none, so it is not asked again.
+-- replica_store.rs removes the row when the document's original_sha256 changes.
+CREATE TABLE extracted_texts (
+	document_row  INTEGER PRIMARY KEY REFERENCES documents (document_row) ON DELETE CASCADE,
+	markdown      TEXT
+) STRICT;
+
+-- The search index, one row per document under its document_row. Neither table keeps what it
+-- indexes, and no trigger feeds them: replica_store.rs writes the rows with every record.
+--
+-- What a person sees of a document without opening it, by trigrams, so that a term is found
+-- inside a word, as "versicherung" in "Haftpflichtversicherung". A trigram needs a term of at
+-- least three characters.
+CREATE VIRTUAL TABLE document_detail_search USING fts5 (
+	title, sender, category, tags, person, fields, summary,
+	content = '', contentless_delete = 1,
+	tokenize = 'trigram remove_diacritics 1'
+);
+
+-- The extracted text by words and their beginnings, which keeps the index of 8,000 bytes per
+-- document small. The prefix indexes answer a beginning of two or three characters as a person
+-- types it.
+CREATE VIRTUAL TABLE document_text_search USING fts5 (
+	markdown,
+	content = '', contentless_delete = 1,
+	tokenize = 'unicode61 remove_diacritics 2',
+	prefix = '2 3'
+);

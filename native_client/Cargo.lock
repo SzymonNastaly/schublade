@@ -61,6 +61,7 @@ dependencies = [
  "scripted_archive",
  "serde",
  "serde_json",
+ "sha2",
  "tempfile",
  "tiny_http",
 ]

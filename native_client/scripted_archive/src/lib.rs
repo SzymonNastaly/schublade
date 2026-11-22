@@ -2,23 +2,25 @@
 //! journal by the server's rules, as `notes/client_protocol.md` states them: one entry per record
 //! that ever existed, moved to a number above every number ever issued by each write, kept as the
 //! record of a deletion, and read in pages of present states that carry what their documents
-//! refer to. A script changes the archive through its writes, and a copy reads it through
-//! `ArchiveReader`.
+//! refer to. It keeps the text, the original, and the picture a script gives a document, and
+//! answers them as the three representation routes do. A script changes the archive through its
+//! writes, and a copy reads it through `ArchiveReader`.
 //!
 //! The collector's scenarios still use `collection_core::scripted_archive`, which keeps contents
 //! and no journal. This crate becomes the one model of an archive once it answers the collector's
 //! three routes as well, so that a submitted content appears in the journal.
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::io::Write;
 use std::sync::{Mutex, MutexGuard, PoisonError};
 
-use archive_access::{ArchiveAuthorization, ArchiveCondition, DocumentIdentifier, PermissionLevel};
+use archive_access::{ArchiveAuthorization, ArchiveCondition, DocumentIdentifier, DownloadFailure, PermissionLevel};
 use archive_replica::replica_records::{
     ArchiveRecords, CategoryIdentifier, CategoryRecord, DocumentCondition, DocumentRecord, JournalCursor, JournalPage,
     MemberIdentifier, MemberRecord, PersonAssignment, RemovedRecord, SenderIdentifier, SenderRecord, TagIdentifier,
     TagRecord,
 };
-use archive_replica::{ArchiveReader, PageAnswer};
+use archive_replica::{ArchiveReader, OriginalAnswer, PageAnswer, ThumbnailAnswer};
 use sha2::{Digest, Sha256};
 
 /// What a token may see: the four lists of the server's `AuthorizationScope`. A scope without a
@@ -77,6 +79,11 @@ struct Archive {
     categories: BTreeMap<CategoryIdentifier, CategoryRecord>,
     tags: BTreeMap<TagIdentifier, TagRecord>,
     documents: BTreeMap<DocumentIdentifier, DocumentRecord>,
+    texts: BTreeMap<DocumentIdentifier, String>,
+    originals: BTreeMap<DocumentIdentifier, Vec<u8>>,
+    thumbnails: BTreeMap<DocumentIdentifier, Vec<u8>>,
+    /// The originals the archive has sent.
+    original_downloads: u64,
     scope: ArchiveScope,
     page_entries: usize,
 }
@@ -202,6 +209,12 @@ impl Archive {
         (records, removed)
     }
 
+    /// The document as the representation routes see it: one that exists and that the scope
+    /// admits.
+    fn represented(&self, document: &DocumentIdentifier) -> Option<&DocumentRecord> {
+        self.documents.get(document).filter(|document| self.admits(document))
+    }
+
     fn admitted_documents(&self) -> impl Iterator<Item = &DocumentRecord> {
         self.documents.values().filter(|document| self.admits(document))
     }
@@ -286,6 +299,10 @@ impl ScriptedArchive {
                 categories: BTreeMap::new(),
                 tags: BTreeMap::new(),
                 documents: BTreeMap::new(),
+                texts: BTreeMap::new(),
+                originals: BTreeMap::new(),
+                thumbnails: BTreeMap::new(),
+                original_downloads: 0,
                 scope: ArchiveScope::default(),
                 page_entries,
             }),
@@ -347,6 +364,28 @@ impl ScriptedArchive {
         );
         archive.journal(JournaledRecord::Document(document.identifier.clone()));
         archive.documents.insert(document.identifier.clone(), document);
+    }
+
+    /// Stores the extracted Markdown of a document, as the step before classification does. It
+    /// writes no record, so the journal does not move.
+    pub fn put_text(&self, document: &DocumentIdentifier, markdown: &str) {
+        self.archive().texts.insert(document.clone(), markdown.to_owned());
+    }
+
+    /// Stores the file of a document. The record names its content, so a script can store bytes
+    /// that the record does not name.
+    pub fn put_original(&self, document: &DocumentIdentifier, bytes: &[u8]) {
+        self.archive().originals.insert(document.clone(), bytes.to_vec());
+    }
+
+    /// Stores the picture of a document's first page.
+    pub fn put_thumbnail(&self, document: &DocumentIdentifier, bytes: &[u8]) {
+        self.archive().thumbnails.insert(document.clone(), bytes.to_vec());
+    }
+
+    /// How many originals the archive has sent.
+    pub fn original_downloads(&self) -> u64 {
+        self.archive().original_downloads
     }
 
     /// Deletes the document. Its journal entry stays as the record of the deletion.
@@ -425,7 +464,7 @@ impl ArchiveReader for ScriptedArchive {
         Ok(ArchiveAuthorization {
             journal_identifier: archive.journal_identifier.clone(),
             token_description: "Scripted token".to_owned(),
-            permission_level: PermissionLevel::Ingest,
+            permission_level: PermissionLevel::Read,
             restricted: archive.scope.is_restricted(),
             scope_digest: archive.scope.digest(),
         })
@@ -433,5 +472,48 @@ impl ArchiveReader for ScriptedArchive {
 
     fn read_changes(&self, after: Option<&JournalCursor>) -> Result<PageAnswer, ArchiveCondition> {
         self.archive().page_after(after)
+    }
+
+    fn read_text(&self, document: &DocumentIdentifier) -> Result<Option<String>, ArchiveCondition> {
+        let archive = self.archive();
+        Ok(archive
+            .represented(document)
+            .and_then(|_| archive.texts.get(document).cloned()))
+    }
+
+    fn download_original(
+        &self,
+        document: &DocumentIdentifier,
+        destination: &mut dyn Write,
+    ) -> Result<OriginalAnswer, DownloadFailure> {
+        let mut archive = self.archive();
+        let Some(record) = archive.represented(document) else {
+            return Ok(OriginalAnswer::DocumentAbsent);
+        };
+        if record.media_type == "message/rfc822" {
+            return Ok(OriginalAnswer::NotPrinted);
+        }
+        let Some(original) = archive.originals.get(document) else {
+            return Ok(OriginalAnswer::DocumentAbsent);
+        };
+        destination.write_all(original).map_err(DownloadFailure::Destination)?;
+        archive.original_downloads += 1;
+        Ok(OriginalAnswer::Received)
+    }
+
+    fn download_thumbnail(
+        &self,
+        document: &DocumentIdentifier,
+        destination: &mut dyn Write,
+    ) -> Result<ThumbnailAnswer, DownloadFailure> {
+        let archive = self.archive();
+        let Some(thumbnail) = archive
+            .represented(document)
+            .and_then(|_| archive.thumbnails.get(document))
+        else {
+            return Ok(ThumbnailAnswer::Absent);
+        };
+        destination.write_all(thumbnail).map_err(DownloadFailure::Destination)?;
+        Ok(ThumbnailAnswer::Received)
     }
 }

@@ -15,6 +15,7 @@ serde = { version = "=1.0.229", features = ["derive"] }
 # `float_roundtrip` reads a number as the nearest double, so an amount such as 72.09 is the value
 # the archive wrote. The default parser may differ in the last bit.
 serde_json = { version = "=1.0.154", features = ["float_roundtrip"] }
+sha2 = "=0.11.1"
 
 [dev-dependencies]
 scripted_archive = { path = "../scripted_archive" }

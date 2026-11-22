@@ -1,13 +1,15 @@
 //! The replica's coordinator: the one thread that owns the store's writing connection and the
 //! synchronization machine. It requests a page itself, so a page is requested and applied in one
-//! step, and a command waits at most for the request in flight. The status is published where a
-//! reader finds it without the coordinator.
+//! step, and a command waits at most for the request in flight. The texts of archived documents
+//! are read by the lanes of `text_retrieval.rs` and written here. The status is published where
+//! a reader finds it without the coordinator.
 
+use std::collections::HashSet;
 use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender, TryRecvError};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
-use archive_access::{ArchiveAddress, ArchiveAuthorization, ArchiveToken, Clock, Timestamp};
+use archive_access::{ArchiveAddress, ArchiveAuthorization, ArchiveToken, Clock, DocumentIdentifier, Timestamp};
 
 use crate::archive_reader::{ArchiveReader, PageAnswer};
 use crate::replica_store::{PageApplication, ReplicaStore};
@@ -15,7 +17,10 @@ use crate::replica_synchronization::{
     Attendance, SynchronizationEffect, SynchronizationInput, SynchronizationState, SynchronizationTiming, WakeReason,
     advance_synchronization,
 };
-use crate::{ArchiveReaderConstructor, MirroredArchive, ReplicaEvent, ReplicaFault, ReplicaStatus};
+use crate::text_retrieval::{
+    AwaitedText, RetrievedText, TEXT_LANES, TEXTS_PER_ASSIGNMENT, TextAssignment, TextLanes, TextReport,
+};
+use crate::{ArchiveReaderConstructor, FollowedArchive, MirroredArchive, ReplicaEvent, ReplicaFault, ReplicaStatus};
 
 /// How long the loop waits at most before it reads the clock again.
 const TICK: Duration = Duration::from_secs(60);
@@ -24,6 +29,10 @@ pub(crate) enum CoordinatorInput {
     Attach(Box<Attachment>),
     Wake(WakeReason),
     Attendance(Attendance),
+    /// A lane ended its assignment.
+    TextsRetrieved(TextReport),
+    /// A reader of one document's text asked the archive for it, ahead of the lanes.
+    TextRead(RetrievedText),
     Shutdown,
 }
 
@@ -64,6 +73,15 @@ pub(crate) struct ReplicaCoordinator {
     pub(crate) store: ReplicaStore,
     /// The archive the machine's requests go to. Present from the first connection on.
     pub(crate) reader: Option<Arc<dyn ArchiveReader>>,
+    /// The same reader, where a call that downloads a representation finds it.
+    pub(crate) followed: FollowedArchive,
+    pub(crate) text_lanes: TextLanes,
+    /// The assignments the lanes have not reported yet, and their documents.
+    pub(crate) text_assignments: usize,
+    pub(crate) texts_in_flight: HashSet<DocumentIdentifier>,
+    /// A text request failed after the last page was applied. Texts are requested again after
+    /// the next page, which shows that the archive answers.
+    pub(crate) texts_interrupted: bool,
     pub(crate) state: SynchronizationState,
     pub(crate) effect: Option<SynchronizationEffect>,
     pub(crate) attendance: Attendance,
@@ -123,6 +141,15 @@ impl ReplicaCoordinator {
                     );
                     attached?;
                 }
+                Ok(CoordinatorInput::TextsRetrieved(report)) => {
+                    self.text_assignments -= 1;
+                    for document in &report.assigned {
+                        self.texts_in_flight.remove(document);
+                    }
+                    self.store.record_texts(&report.retrieved)?;
+                    self.texts_interrupted |= report.interruption.is_some();
+                }
+                Ok(CoordinatorInput::TextRead(text)) => self.store.record_texts(&[text])?,
                 Ok(CoordinatorInput::Wake(reason)) => self.advance(SynchronizationInput::Woken(reason)),
                 // The deadline that runs was set under the earlier attendance and stays.
                 Ok(CoordinatorInput::Attendance(attendance)) => self.attendance = attendance,
@@ -134,6 +161,9 @@ impl ReplicaCoordinator {
                                 .expect("the machine requests a page only after a connection"),
                         );
                         if let Some(input) = exchange_page(&mut self.store, reader.as_ref(), self.clock.now())? {
+                            if matches!(input, SynchronizationInput::PageApplied { .. }) {
+                                self.texts_interrupted = false;
+                            }
                             self.advance(input);
                         }
                     }
@@ -143,13 +173,54 @@ impl ReplicaCoordinator {
                     Some(SynchronizationEffect::AwaitDeadline(_)) | None => {}
                 },
             }
+            self.plan_text_retrieval()?;
             self.publish()?;
         }
     }
 
+    /// Gives each free lane the newest documents that await their text, while the archive
+    /// answers. What awaits is read from the records each time, so nothing is queued.
+    fn plan_text_retrieval(&mut self) -> rusqlite::Result<()> {
+        let answering = match self.state {
+            SynchronizationState::Filling { .. }
+            | SynchronizationState::Following { .. }
+            | SynchronizationState::CatchingUp => !self.texts_interrupted,
+            SynchronizationState::Disconnected
+            | SynchronizationState::Unreachable { .. }
+            | SynchronizationState::Suspended { .. }
+            | SynchronizationState::ArchiveOutdated { .. } => false,
+        };
+        let Some(reader) = self.reader.clone().filter(|_| answering) else {
+            return Ok(());
+        };
+        while self.text_assignments < TEXT_LANES {
+            let documents: Vec<AwaitedText> = self
+                .store
+                .documents_awaiting_text(self.texts_in_flight.len() + TEXTS_PER_ASSIGNMENT)?
+                .into_iter()
+                .filter(|awaited| !self.texts_in_flight.contains(&awaited.document))
+                .take(TEXTS_PER_ASSIGNMENT)
+                .collect();
+            if documents.is_empty() {
+                break;
+            }
+            self.texts_in_flight
+                .extend(documents.iter().map(|awaited| awaited.document.clone()));
+            self.text_assignments += 1;
+            self.text_lanes.assign(TextAssignment {
+                reader: Arc::clone(&reader),
+                documents,
+            });
+        }
+        Ok(())
+    }
+
     /// Follows the archive with this token from where the copy stands.
     pub(crate) fn connect(&mut self, address: &ArchiveAddress, token: &ArchiveToken) -> rusqlite::Result<()> {
-        self.reader = Some((self.archive_readers)(address, token));
+        let reader = (self.archive_readers)(address, token);
+        *self.followed.lock().unwrap_or_else(PoisonError::into_inner) = Some(Arc::clone(&reader));
+        self.reader = Some(reader);
+        self.texts_interrupted = false;
         let fill_complete = self.store.mirror()?.is_some_and(|mirror| mirror.fill_complete);
         self.advance(SynchronizationInput::ConnectionEstablished { fill_complete });
         Ok(())
@@ -170,9 +241,12 @@ impl ReplicaCoordinator {
     /// What a status shows now, with the revision still to be given.
     pub(crate) fn status(&self) -> rusqlite::Result<ReplicaStatus> {
         let mirror = self.store.mirror()?;
+        let extent = self.store.extent()?;
         Ok(ReplicaStatus {
             revision: 0,
             content_revision: mirror.as_ref().map_or(0, |mirror| mirror.content_revision),
+            documents: extent.documents,
+            documents_awaiting_text: extent.documents_awaiting_text,
             archive: mirror.map(|mirror| MirroredArchive {
                 origin: mirror.archive_origin,
                 permission_level: mirror.permission_level,

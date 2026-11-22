@@ -1,3 +1,5 @@
+use crate::archive_identifiers::DocumentIdentifier;
+
 /// An archive origin, `https://` (or `http://` for a local server).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ArchiveAddress(url::Url);
@@ -29,6 +31,11 @@ impl ArchiveAddress {
     /// Without a trailing slash, as `request.url` names it on the server.
     pub fn origin(&self) -> String {
         self.0.origin().ascii_serialization()
+    }
+
+    /// The page of a document in the browser, the one place a link into the archive is composed.
+    pub fn document_page(&self, document: &DocumentIdentifier) -> String {
+        format!("{}/documents/{}", self.origin(), document.as_str())
     }
 }
 

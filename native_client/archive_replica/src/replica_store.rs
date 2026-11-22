@@ -1,8 +1,15 @@
-//! `replica.sqlite`, the one file of the copy, and the only module with SQL. The coordinator
-//! thread owns the one connection that writes. `replica_schema.sql` is the schema.
+//! `replica.sqlite`, the one file of the copy, and every statement that writes it. The coordinator
+//! thread owns the one connection that writes, and `replica_queries.rs` reads for a window on
+//! connections of its own. `replica_schema.sql` is the schema.
 //!
 //! The copy is disposable. Everything in it comes back from the archive, so a file of another
 //! schema version, or one SQLite cannot read, is replaced by an empty one.
+//!
+//! The two search tables have no trigger. `write_document`, `remove_record`, and the upsert of
+//! a member, sender, category, or tag name the documents whose search rows they leave stale,
+//! and `write_page` rewrites those rows before it ends. `record_texts` writes the text search
+//! rows. All of it happens in the transaction of the record, so a search never sees a name the
+//! records no longer hold.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
@@ -16,14 +23,15 @@ use crate::replica_records::{
     ExtractedField, FieldValue, JournalCursor, JournalPage, MemberIdentifier, MemberRecord, PersonAssignment,
     RemovedRecord, SenderIdentifier, SenderRecord, TagIdentifier, TagRecord,
 };
+use crate::text_retrieval::{AwaitedText, RetrievedText};
 
 /// The `user_version` of a file with the schema of `replica_schema.sql`. Raise it with every
 /// change of the schema: a file of another version is replaced and filled again.
-const SCHEMA_VERSION: u32 = 1;
+const SCHEMA_VERSION: u32 = 2;
 const SCHEMA: &str = include_str!("replica_schema.sql");
 
 /// More than the statements this module runs repeatedly, so none is prepared twice.
-const STATEMENT_CACHE_CAPACITY: usize = 48;
+const STATEMENT_CACHE_CAPACITY: usize = 64;
 
 pub struct ReplicaStore {
     connection: Connection,
@@ -43,8 +51,16 @@ pub struct Mirror {
     pub fill_complete: bool,
     /// When a page last reached the journal's end.
     pub synchronized_at: Option<Timestamp>,
-    /// Rises with every transaction that changed a record.
+    /// Rises with every transaction that changed a record or a text.
     pub content_revision: u64,
+}
+
+/// How much the copy holds, for a status line.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct CopyExtent {
+    pub documents: u64,
+    /// The archived documents whose text the copy has not asked the archive for yet.
+    pub documents_awaiting_text: u64,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -219,6 +235,84 @@ impl ReplicaStore {
         transaction.commit()
     }
 
+    /// Keeps each text whose document is still archived with the content the text was retrieved
+    /// for, and makes it searchable. A text that arrives a second time, or for a document that
+    /// changed or left in between, is dropped.
+    pub fn record_texts(&mut self, texts: &[RetrievedText]) -> rusqlite::Result<()> {
+        let transaction = self.connection.transaction()?;
+        let mut recorded = BTreeMap::new();
+        for text in texts {
+            let document_row: Option<i64> = transaction
+                .prepare_cached(
+                    "INSERT INTO extracted_texts (document_row, markdown) \
+                     SELECT document_row, ?3 FROM documents \
+                     WHERE id = ?1 AND status = 'archived' AND original_sha256 IS ?2 \
+                     ON CONFLICT (document_row) DO NOTHING RETURNING document_row",
+                )?
+                .query_row(
+                    params![
+                        text.document.as_str(),
+                        text.original.map(|digest| digest.hexadecimal()),
+                        text.markdown
+                    ],
+                    |row| row.get(0),
+                )
+                .optional()?;
+            if let Some(document_row) = document_row {
+                recorded.insert(document_row, text.markdown.as_deref());
+            }
+        }
+        // The search rows come after every text row and in the order of their rows, for the
+        // reason `StaleSearchRows` gives.
+        for (document_row, markdown) in &recorded {
+            if let Some(markdown) = markdown {
+                run(
+                    &transaction,
+                    "INSERT INTO document_text_search (rowid, markdown) VALUES (?1, ?2)",
+                    params![document_row, markdown],
+                )?;
+            }
+        }
+        if !recorded.is_empty() {
+            run(
+                &transaction,
+                "UPDATE mirror SET content_revision = content_revision + 1",
+                [],
+            )?;
+        }
+        transaction.commit()
+    }
+
+    /// The archived documents without a text row, newest arrival first. Work is derived from the
+    /// records, never queued, so nothing is lost with a process that ends.
+    pub fn documents_awaiting_text(&self, limit: usize) -> rusqlite::Result<Vec<AwaitedText>> {
+        self.connection
+            .prepare_cached(&format!(
+                "SELECT id, original_sha256 FROM documents WHERE {AWAITS_TEXT} \
+                 ORDER BY arrived_at DESC, id DESC LIMIT ?1"
+            ))?
+            .query_map([i64::try_from(limit).unwrap_or(i64::MAX)], |row| {
+                Ok(AwaitedText {
+                    document: stored(row, "id", DocumentIdentifier::parse)?,
+                    original: stored_optional(row, "original_sha256", ContentDigest::parse_hexadecimal)?,
+                })
+            })?
+            .collect()
+    }
+
+    pub fn extent(&self) -> rusqlite::Result<CopyExtent> {
+        self.connection
+            .prepare_cached(&format!(
+                "SELECT count(*) AS documents, count(*) FILTER (WHERE {AWAITS_TEXT}) AS awaiting_text FROM documents"
+            ))?
+            .query_row([], |row| {
+                Ok(CopyExtent {
+                    documents: stored_count(row, "documents")?,
+                    documents_awaiting_text: stored_count(row, "awaiting_text")?,
+                })
+            })
+    }
+
     /// Every record of the copy.
     pub fn records(&self) -> rusqlite::Result<ArchiveRecords> {
         let connection = &self.connection;
@@ -276,12 +370,142 @@ fn run(transaction: &Transaction<'_>, statement: &str, parameters: impl rusqlite
     transaction.prepare_cached(statement)?.execute(parameters)
 }
 
+/// The condition of a document that awaits its text.
+const AWAITS_TEXT: &str = "status = 'archived' AND NOT EXISTS \
+     (SELECT 1 FROM extracted_texts WHERE extracted_texts.document_row = documents.document_row)";
+
+/// A member, sender, category, or tag, whose name the details of its documents show.
+#[derive(Clone, Copy)]
+enum ShownRecord<'identifier> {
+    Member(&'identifier str),
+    Sender(&'identifier str),
+    Category(&'identifier str),
+    Tag(&'identifier str),
+}
+
+/// The rows of the documents that refer to the record.
+fn documents_showing(transaction: &Transaction<'_>, record: ShownRecord<'_>) -> rusqlite::Result<Vec<i64>> {
+    let (statement, identifier) = match record {
+        ShownRecord::Member(member) => ("SELECT document_row FROM documents WHERE member_id = ?1", member),
+        ShownRecord::Sender(sender) => ("SELECT document_row FROM documents WHERE sender_id = ?1", sender),
+        ShownRecord::Category(category) => ("SELECT document_row FROM documents WHERE category_id = ?1", category),
+        ShownRecord::Tag(tag) => (
+            "SELECT documents.document_row FROM document_tags \
+             JOIN documents ON documents.id = document_tags.document_id WHERE document_tags.tag_id = ?1",
+            tag,
+        ),
+    };
+    transaction
+        .prepare_cached(statement)?
+        .query_map([identifier], |row| row.get(0))?
+        .collect()
+}
+
+/// The documents whose search rows a page leaves behind the records, by `document_row`. Every
+/// write of a record names them here, and the page writes them once, after its last record.
+///
+/// FTS5 writes what it has gathered to the file as a segment of its own whenever SQLite opens a
+/// savepoint, which it does for every statement that can change several rows, and whenever a
+/// row comes with a lower rowid than the one before. A page that wrote each search row beside
+/// its record took five times as long as one that writes them together, in the order of their
+/// rows, with statements that change one row each.
+#[derive(Default)]
+struct StaleSearchRows {
+    /// The detail search row is written anew, or removed with a document that is gone.
+    details: BTreeSet<i64>,
+    /// The text search row is removed, because the text is.
+    texts: BTreeSet<i64>,
+}
+
+impl StaleSearchRows {
+    /// After the upsert of a member, sender, category, or tag that changed it: the documents
+    /// that show its name follow.
+    fn follow(
+        &mut self,
+        transaction: &Transaction<'_>,
+        written: usize,
+        record: ShownRecord<'_>,
+    ) -> rusqlite::Result<usize> {
+        if written > 0 {
+            self.details.extend(documents_showing(transaction, record)?);
+        }
+        Ok(written)
+    }
+
+    /// Writes the detail search rows from the records as they stand: the title, the names the
+    /// document refers to, its field values, and its summary. A number is indexed with a full
+    /// stop and with a comma, and a date as the archive writes it and as a German letter prints
+    /// it, because a person types what the paper shows.
+    fn rewrite(self, transaction: &Transaction<'_>) -> rusqlite::Result<()> {
+        for document_row in &self.texts {
+            run(
+                transaction,
+                "DELETE FROM document_text_search WHERE rowid = ?1",
+                [document_row],
+            )?;
+        }
+        for document_row in &self.details {
+            run(
+                transaction,
+                "DELETE FROM document_detail_search WHERE rowid = ?1",
+                [document_row],
+            )?;
+            let details: Option<[Option<String>; 7]> = transaction
+                .prepare_cached(
+                    "SELECT documents.title, senders.name, categories.name, \
+                     (SELECT group_concat(tags.name, char(10)) FROM document_tags \
+                      JOIN tags ON tags.id = document_tags.tag_id WHERE document_tags.document_id = documents.id), \
+                     members.display_name, \
+                     (SELECT group_concat(CASE field_type \
+                      WHEN 'number' THEN printf('%.2f', value_number) || ' ' \
+                      || replace(printf('%.2f', value_number), '.', ',') \
+                      WHEN 'date' THEN value_text || ' ' || substr(value_text, 9, 2) || '.' \
+                      || substr(value_text, 6, 2) || '.' || substr(value_text, 1, 4) \
+                      ELSE value_text END, char(10)) FROM extracted_fields WHERE document_id = documents.id), \
+                     documents.summary \
+                     FROM documents LEFT JOIN senders ON senders.id = documents.sender_id \
+                     LEFT JOIN categories ON categories.id = documents.category_id \
+                     LEFT JOIN members ON members.id = documents.member_id WHERE documents.document_row = ?1",
+                )?
+                .query_row([document_row], |row| {
+                    Ok([
+                        row.get(0)?,
+                        row.get(1)?,
+                        row.get(2)?,
+                        row.get(3)?,
+                        row.get(4)?,
+                        row.get(5)?,
+                        row.get(6)?,
+                    ])
+                })
+                .optional()?;
+            if let Some([title, sender, category, tags, person, fields, summary]) = details {
+                run(
+                    transaction,
+                    "INSERT INTO document_detail_search \
+                     (rowid, title, sender, category, tags, person, fields, summary) \
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+                    params![document_row, title, sender, category, tags, person, fields, summary],
+                )?;
+            }
+        }
+        Ok(())
+    }
+}
+
 /// Empties every record table and resets what the mirror row says of the copy's extent.
 fn start_over(transaction: &Transaction<'_>) -> rusqlite::Result<()> {
     let mut removed = 0;
-    // The documents go first, and their tag links and fields with them.
+    // The documents go first, and their tag links, fields, and texts with them.
     for table in ["documents", "members", "senders", "categories", "tags"] {
         removed += run(transaction, &format!("DELETE FROM {table}"), [])?;
+    }
+    for table in ["document_detail_search", "document_text_search"] {
+        run(
+            transaction,
+            &format!("INSERT INTO {table} ({table}) VALUES ('delete-all')"),
+            [],
+        )?;
     }
     run(
         transaction,
@@ -316,24 +540,27 @@ fn write_page(
     // The records a document refers to are written before it, and the removals come last, so
     // every reference resolves whatever the order of the page's entries was.
     let mut changed = 0;
+    let mut stale = StaleSearchRows::default();
     for member in &page.members {
-        changed += run(
+        let written = run(
             transaction,
             "INSERT INTO members (id, display_name) VALUES (?1, ?2) ON CONFLICT (id) DO UPDATE \
              SET display_name = excluded.display_name WHERE display_name IS NOT excluded.display_name",
             params![member.identifier.as_str(), member.display_name],
         )?;
+        changed += stale.follow(transaction, written, ShownRecord::Member(member.identifier.as_str()))?;
     }
     for sender in &page.senders {
-        changed += run(
+        let written = run(
             transaction,
             "INSERT INTO senders (id, name) VALUES (?1, ?2) ON CONFLICT (id) DO UPDATE \
              SET name = excluded.name WHERE name IS NOT excluded.name",
             params![sender.identifier.as_str(), sender.name],
         )?;
+        changed += stale.follow(transaction, written, ShownRecord::Sender(sender.identifier.as_str()))?;
     }
     for category in &page.categories {
-        changed += run(
+        let written = run(
             transaction,
             "INSERT INTO categories (id, name, expected_fields) VALUES (?1, ?2, ?3) ON CONFLICT (id) DO UPDATE \
              SET name = excluded.name, expected_fields = excluded.expected_fields \
@@ -344,27 +571,34 @@ fn write_page(
                 serde_json::Value::from(category.expected_fields.clone()).to_string()
             ],
         )?;
+        changed += stale.follow(
+            transaction,
+            written,
+            ShownRecord::Category(category.identifier.as_str()),
+        )?;
     }
     for tag in &page.tags {
-        changed += run(
+        let written = run(
             transaction,
             "INSERT INTO tags (id, name, color_hex) VALUES (?1, ?2, ?3) ON CONFLICT (id) DO UPDATE \
              SET name = excluded.name, color_hex = excluded.color_hex \
              WHERE name IS NOT excluded.name OR color_hex IS NOT excluded.color_hex",
             params![tag.identifier.as_str(), tag.name, tag.color_hex],
         )?;
+        changed += stale.follow(transaction, written, ShownRecord::Tag(tag.identifier.as_str()))?;
     }
     for document in &page.documents {
         // A document is delivered again after writes of the archive that a client does not
         // read, and such a delivery must not count as a change of the records.
         if documents(transaction, Some(&document.identifier))?.first() != Some(document) {
-            write_document(transaction, document)?;
+            write_document(transaction, document, &mut stale)?;
             changed += 1;
         }
     }
     for removed in &page.removed {
-        changed += remove_record(transaction, removed)?;
+        changed += remove_record(transaction, removed, &mut stale)?;
     }
+    stale.rewrite(transaction)?;
     if changed > 0 {
         run(
             transaction,
@@ -381,43 +615,82 @@ fn write_page(
 }
 
 /// The row is updated in place, so its `document_row` and whatever else refers to the document
-/// stay.
-fn write_document(transaction: &Transaction<'_>, document: &DocumentRecord) -> rusqlite::Result<()> {
+/// stay. A text that was retrieved for another content goes, so the document awaits its text
+/// again, and the detail search row is written anew.
+fn write_document(
+    transaction: &Transaction<'_>,
+    document: &DocumentRecord,
+    stale: &mut StaleSearchRows,
+) -> rusqlite::Result<()> {
     let (person_assignment, member) = match &document.person {
         PersonAssignment::Household => ("household", None),
         PersonAssignment::Member(member) => ("member", Some(member.as_str())),
         PersonAssignment::Unassigned => ("unassigned", None),
     };
     let identifier = document.identifier.as_str();
-    run(
-        transaction,
-        "INSERT INTO documents (id, status, failure_reason, title, document_date, sender_id, category_id, \
-         person_assignment, member_id, summary, media_type, byte_size, page_count, original_sha256, arrived_at) \
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15) \
+    let original = document.original.map(|digest| digest.hexadecimal());
+    let superseded_text: Option<i64> = transaction
+        .prepare_cached(
+            "SELECT document_row FROM documents JOIN extracted_texts USING (document_row) \
+             WHERE id = ?1 AND original_sha256 IS NOT ?2",
+        )?
+        .query_row(params![identifier, original], |row| row.get(0))
+        .optional()?;
+    if let Some(document_row) = superseded_text {
+        run(
+            transaction,
+            "DELETE FROM extracted_texts WHERE document_row = ?1",
+            [document_row],
+        )?;
+        stale.texts.insert(document_row);
+    }
+    let document_row: i64 = transaction
+        .prepare_cached(
+            "INSERT INTO documents (id, status, failure_reason, title, document_date, sender_id, category_id, \
+         person_assignment, member_id, summary, media_type, byte_size, page_count, original_sha256, arrived_at, \
+         amount, currency) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17) \
          ON CONFLICT (id) DO UPDATE SET status = excluded.status, failure_reason = excluded.failure_reason, \
          title = excluded.title, document_date = excluded.document_date, sender_id = excluded.sender_id, \
          category_id = excluded.category_id, person_assignment = excluded.person_assignment, \
          member_id = excluded.member_id, summary = excluded.summary, media_type = excluded.media_type, \
          byte_size = excluded.byte_size, page_count = excluded.page_count, \
-         original_sha256 = excluded.original_sha256, arrived_at = excluded.arrived_at",
-        params![
-            identifier,
-            document.condition.status_name(),
-            document.condition.failure_reason_name(),
-            document.title,
-            document.document_date.map(|date| date.iso_text()),
-            document.sender.as_ref().map(SenderIdentifier::as_str),
-            document.category.as_ref().map(CategoryIdentifier::as_str),
-            person_assignment,
-            member,
-            document.summary,
-            document.media_type,
-            i64::try_from(document.byte_size).unwrap_or(i64::MAX),
-            document.page_count,
-            document.original.map(|digest| digest.hexadecimal()),
-            document.arrived_at.0
-        ],
-    )?;
+         original_sha256 = excluded.original_sha256, arrived_at = excluded.arrived_at, \
+         amount = excluded.amount, currency = excluded.currency RETURNING document_row",
+        )?
+        .query_row(
+            params![
+                identifier,
+                document.condition.status_name(),
+                document.condition.failure_reason_name(),
+                document.title,
+                document.document_date.map(|date| date.iso_text()),
+                document.sender.as_ref().map(SenderIdentifier::as_str),
+                document.category.as_ref().map(CategoryIdentifier::as_str),
+                person_assignment,
+                member,
+                document.summary,
+                document.media_type,
+                i64::try_from(document.byte_size).unwrap_or(i64::MAX),
+                document.page_count,
+                original,
+                document.arrived_at.0,
+                match document.fields.get("amount") {
+                    Some(ExtractedField {
+                        value: FieldValue::Number(amount),
+                        ..
+                    }) => Some(*amount),
+                    _ => None,
+                },
+                match document.fields.get("currency") {
+                    Some(ExtractedField {
+                        value: FieldValue::Text(currency),
+                        ..
+                    }) => Some(currency.as_str()),
+                    _ => None,
+                }
+            ],
+            |row| row.get(0),
+        )?;
     run(
         transaction,
         "DELETE FROM document_tags WHERE document_id = ?1",
@@ -448,16 +721,47 @@ fn write_document(transaction: &Transaction<'_>, document: &DocumentRecord) -> r
             params![identifier, key, field_type, value_text, value_number, field.confidence],
         )?;
     }
+    stale.details.insert(document_row);
     Ok(())
 }
 
-/// The number of rows removed: one, or none for a record the copy never held.
-fn remove_record(transaction: &Transaction<'_>, removed: &RemovedRecord) -> rusqlite::Result<usize> {
-    match removed {
+/// The number of rows removed: one, or none for a record the copy never held. A document's
+/// search rows go with it, and the documents that showed another record are indexed without it.
+fn remove_record(
+    transaction: &Transaction<'_>,
+    removed: &RemovedRecord,
+    stale: &mut StaleSearchRows,
+) -> rusqlite::Result<usize> {
+    let (shown, statement) = match removed {
         RemovedRecord::Document(document) => {
-            run(transaction, "DELETE FROM documents WHERE id = ?1", [document.as_str()])
+            let document_row: Option<i64> = transaction
+                .prepare_cached("DELETE FROM documents WHERE id = ?1 RETURNING document_row")?
+                .query_row([document.as_str()], |row| row.get(0))
+                .optional()?;
+            let Some(document_row) = document_row else {
+                return Ok(0);
+            };
+            stale.details.insert(document_row);
+            stale.texts.insert(document_row);
+            return Ok(1);
         }
-        RemovedRecord::Member(member) => {
+        RemovedRecord::Member(member) => (
+            ShownRecord::Member(member.as_str()),
+            "DELETE FROM members WHERE id = ?1",
+        ),
+        RemovedRecord::Sender(sender) => (
+            ShownRecord::Sender(sender.as_str()),
+            "DELETE FROM senders WHERE id = ?1",
+        ),
+        RemovedRecord::Category(category) => (
+            ShownRecord::Category(category.as_str()),
+            "DELETE FROM categories WHERE id = ?1",
+        ),
+        RemovedRecord::Tag(tag) => (ShownRecord::Tag(tag.as_str()), "DELETE FROM tags WHERE id = ?1"),
+    };
+    stale.details.extend(documents_showing(transaction, shown)?);
+    let identifier = match shown {
+        ShownRecord::Member(member) => {
             // What the archive says of a document without a member: an archived one concerns the
             // household, and any other is not yet assigned.
             run(
@@ -465,16 +769,15 @@ fn remove_record(transaction: &Transaction<'_>, removed: &RemovedRecord) -> rusq
                 "UPDATE documents SET member_id = NULL, \
                  person_assignment = CASE WHEN status = 'archived' THEN 'household' ELSE 'unassigned' END \
                  WHERE member_id = ?1",
-                [member.as_str()],
+                [member],
             )?;
-            run(transaction, "DELETE FROM members WHERE id = ?1", [member.as_str()])
+            member
         }
-        RemovedRecord::Sender(sender) => run(transaction, "DELETE FROM senders WHERE id = ?1", [sender.as_str()]),
-        RemovedRecord::Category(category) => {
-            run(transaction, "DELETE FROM categories WHERE id = ?1", [category.as_str()])
+        ShownRecord::Sender(identifier) | ShownRecord::Category(identifier) | ShownRecord::Tag(identifier) => {
+            identifier
         }
-        RemovedRecord::Tag(tag) => run(transaction, "DELETE FROM tags WHERE id = ?1", [tag.as_str()]),
-    }
+    };
+    run(transaction, statement, [identifier])
 }
 
 /// One document, or every document in the order of the identifiers.
@@ -503,22 +806,10 @@ fn documents(connection: &Connection, only: Option<&DocumentIdentifier>) -> rusq
     ))?;
     let mut rows = statement.query(rusqlite::params_from_iter(only))?;
     while let Some(row) = rows.next()? {
-        let value = match (
-            row.get::<_, String>("field_type")?.as_str(),
-            row.get::<_, Option<String>>("value_text")?,
-            row.get::<_, Option<f64>>("value_number")?,
-        ) {
-            ("text", Some(text), None) => FieldValue::Text(text),
-            ("number", None, Some(number)) => FieldValue::Number(number),
-            ("date", Some(date), None) => {
-                FieldValue::Date(CalendarDate::parse(&date).ok_or_else(|| unreadable(row, "value_text"))?)
-            }
-            _ => return Err(unreadable(row, "field_type")),
-        };
         fields.entry(row.get("document_id")?).or_default().insert(
             row.get("field_key")?,
             ExtractedField {
-                value,
+                value: stored_field_value(row)?,
                 confidence: row.get("confidence")?,
             },
         );
@@ -563,12 +854,35 @@ fn documents(connection: &Connection, only: Option<&DocumentIdentifier>) -> rusq
     Ok(documents)
 }
 
+/// The value of a row of `extracted_fields`, from its `field_type`, `value_text`, and
+/// `value_number`.
+pub(crate) fn stored_field_value(row: &Row<'_>) -> rusqlite::Result<FieldValue> {
+    Ok(
+        match (
+            row.get::<_, String>("field_type")?.as_str(),
+            row.get::<_, Option<String>>("value_text")?,
+            row.get::<_, Option<f64>>("value_number")?,
+        ) {
+            ("text", Some(text), None) => FieldValue::Text(text),
+            ("number", None, Some(number)) => FieldValue::Number(number),
+            ("date", Some(date), None) => {
+                FieldValue::Date(CalendarDate::parse(&date).ok_or_else(|| unreadable(row, "value_text"))?)
+            }
+            _ => return Err(unreadable(row, "field_type")),
+        },
+    )
+}
+
 /// A text column as the domain value it was written from.
-fn stored<Value>(row: &Row<'_>, column: &str, parse: impl Fn(&str) -> Option<Value>) -> rusqlite::Result<Value> {
+pub(crate) fn stored<Value>(
+    row: &Row<'_>,
+    column: &str,
+    parse: impl Fn(&str) -> Option<Value>,
+) -> rusqlite::Result<Value> {
     stored_optional(row, column, parse)?.ok_or_else(|| unreadable(row, column))
 }
 
-fn stored_optional<Value>(
+pub(crate) fn stored_optional<Value>(
     row: &Row<'_>,
     column: &str,
     parse: impl Fn(&str) -> Option<Value>,
@@ -580,12 +894,12 @@ fn stored_optional<Value>(
 }
 
 /// An integer column that holds a count or a size.
-fn stored_count(row: &Row<'_>, column: &str) -> rusqlite::Result<u64> {
+pub(crate) fn stored_count(row: &Row<'_>, column: &str) -> rusqlite::Result<u64> {
     u64::try_from(row.get::<_, i64>(column)?).map_err(|_| unreadable(row, column))
 }
 
 /// A row that this module did not write.
-fn unreadable(row: &Row<'_>, column: &str) -> rusqlite::Error {
+pub(crate) fn unreadable(row: &Row<'_>, column: &str) -> rusqlite::Error {
     let index = row.as_ref().column_index(column).unwrap_or(0);
     rusqlite::Error::InvalidColumnType(index, column.to_owned(), Type::Text)
 }

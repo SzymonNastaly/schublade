@@ -52,7 +52,7 @@ fn the_reader_parses_the_fixtures_into_the_records_they_hold() {
         Ok(ArchiveAuthorization {
             journal_identifier: "fc26a0aaf01faa9625397c1e4322b36c".to_owned(),
             token_description: "MacBook of Jonas".to_owned(),
-            permission_level: PermissionLevel::Ingest,
+            permission_level: PermissionLevel::Read,
             restricted: false,
             scope_digest: "6cd8cec706fa11110d83fb46f97df1f9be43b4c570f3390e7c7f6a5173f595e6".to_owned(),
         })

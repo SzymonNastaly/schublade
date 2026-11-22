@@ -1,6 +1,7 @@
 //! The authorized exchange with one archive over `ureq`, and the conditions every route answers
 //! alike. A route reads only the statuses it defines itself, from `ArchiveResponse::status`.
 
+use std::io::{ErrorKind, Read, Write};
 use std::time::Duration;
 
 use crate::archive_address::ArchiveAddress;
@@ -57,7 +58,7 @@ fn shared_condition(status: u16, content_type: Option<&str>, retry_after: Option
 }
 
 const BASE_TIMEOUT: Duration = Duration::from_secs(30);
-/// One second of PUT time per this many bytes, on top of the base timeout.
+/// One second of PUT or download time per this many bytes, on top of the base timeout.
 const BYTES_PER_TIMEOUT_SECOND: u64 = 50_000;
 const MAXIMUM_ANSWER_BYTES: u64 = 256_000;
 
@@ -76,8 +77,8 @@ impl ArchiveExchange {
         ArchiveExchange::with_base_timeout(address, token, BASE_TIMEOUT)
     }
 
-    /// `base_timeout` bounds a GET and a POST, and a PUT gets one second more per 50,000 bytes.
-    /// Tests shorten it.
+    /// `base_timeout` bounds a GET and a POST, and a PUT or a download gets one second more per
+    /// 50,000 bytes. Tests shorten it.
     pub fn with_base_timeout(
         address: &ArchiveAddress,
         token: &ArchiveToken,
@@ -110,6 +111,51 @@ impl ArchiveExchange {
             .header("Authorization", &self.authorization_header)
             .call();
         response_of(sent, answer_limit)
+    }
+
+    /// A GET whose 200 answer goes to `destination` as it arrives, so that a file of megabytes
+    /// is never held in memory. An answer of another status is read whole, as `get` reads it.
+    pub fn download(
+        &self,
+        path: &str,
+        destination: &mut dyn Write,
+        answer_limit: u64,
+    ) -> Result<ArchiveDownload, DownloadFailure> {
+        let timeout = self.base_timeout + Duration::from_secs(answer_limit / BYTES_PER_TIMEOUT_SECOND);
+        let sent = self
+            .agent
+            .get(format!("{}{path}", self.origin))
+            .config()
+            .timeout_global(Some(timeout))
+            .build()
+            .header("Authorization", &self.authorization_header)
+            .call();
+        let mut response = match sent {
+            Ok(response) if response.status().as_u16() == 200 => response,
+            sent => {
+                return response_of(sent, MAXIMUM_ANSWER_BYTES)
+                    .map(ArchiveDownload::Answered)
+                    .map_err(DownloadFailure::Archive);
+            }
+        };
+        let mut body = response.body_mut().with_config().limit(answer_limit).reader();
+        let mut received = vec![0; 64 * 1024];
+        loop {
+            match body.read(&mut received) {
+                Ok(0) => return Ok(ArchiveDownload::Written),
+                Ok(count) => destination
+                    .write_all(&received[..count])
+                    .map_err(DownloadFailure::Destination)?,
+                Err(error) if error.kind() == ErrorKind::Interrupted => {}
+                Err(error) => {
+                    return match ureq::Error::from(error) {
+                        ureq::Error::BodyExceedsLimit(_) => Ok(ArchiveDownload::LimitExceeded),
+                        ureq::Error::Timeout(_) => Err(DownloadFailure::Archive(ArchiveCondition::TimedOut)),
+                        _ => Err(DownloadFailure::Archive(ArchiveCondition::ConnectionFailed)),
+                    };
+                }
+            }
+        }
     }
 
     pub fn post_json(&self, path: &str, body: &[u8]) -> Result<ArchiveResponse, ArchiveCondition> {
@@ -170,6 +216,24 @@ fn response_of(
         Some(condition) => Err(condition),
         None => Ok(ArchiveResponse { status, body }),
     }
+}
+
+/// What a download made of the archive's answer.
+pub enum ArchiveDownload {
+    /// 200, and the whole body went to the destination.
+    Written,
+    /// 200 with a body longer than the limit of the request. The destination holds its beginning.
+    LimitExceeded,
+    /// Another status that no route shares, for the route to read.
+    Answered(ArchiveResponse),
+}
+
+/// Why a download ended without an answer of its route.
+#[derive(Debug)]
+pub enum DownloadFailure {
+    Archive(ArchiveCondition),
+    /// The destination refused a write.
+    Destination(std::io::Error),
 }
 
 /// An answer whose status no route shares, read whole, for its route to read.

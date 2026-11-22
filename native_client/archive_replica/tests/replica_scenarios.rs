@@ -2,15 +2,16 @@
 //! The first scenario drives the store and the reader directly, page by page, so that a script
 //! can stop between any two pages. The second runs the whole `Replica`.
 
+mod scenario_support;
+
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Debug;
-use std::sync::mpsc::Receiver;
+use std::io::Write;
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
 
 use archive_access::{
-    ArchiveAddress, ArchiveAuthorization, ArchiveCondition, ArchiveToken, DocumentIdentifier, FixedCredentialStore,
-    ManualClock, PermissionLevel, Timestamp,
+    ArchiveAuthorization, ArchiveCondition, ArchiveToken, DocumentIdentifier, DownloadFailure, PermissionLevel,
+    Timestamp,
 };
 use archive_replica::replica_records::{
     ArchiveRecords, CalendarDate, CategoryIdentifier, CategoryRecord, DocumentCondition, DocumentRecord,
@@ -18,47 +19,17 @@ use archive_replica::replica_records::{
     MemberRecord, PersonAssignment, SenderIdentifier, SenderRecord, TagIdentifier, TagRecord,
 };
 use archive_replica::{
-    ArchiveReader, MirroredArchive, PageAnswer, Replica, ReplicaEvent, ReplicaSettings, ReplicaStatus, ReplicaStore,
-    SynchronizationInput, SynchronizationState, SynchronizationTiming, exchange_page,
+    ArchiveReader, LibraryScope, ListingHeading, ListingRequest, ListingRow, MirroredArchive, OriginalAnswer,
+    PageAnswer, ReplicaStatus, ReplicaStore, RowPassage, SynchronizationInput, SynchronizationState, ThumbnailAnswer,
+    exchange_page,
 };
+use scenario_support::{ARCHIVE_ORIGIN, Generator, START, TOKEN, attach, identifier, start_replica, status_after};
 use scripted_archive::{ArchiveScope, ScriptedArchive};
 
-const START: Timestamp = Timestamp(1_790_000_000_000);
-const ARCHIVE_ORIGIN: &str = "https://archive.example.org";
-const TOKEN: &str = "schublade_scenario_token";
-
-/// SplitMix64: the same numbers for a seed on every machine.
-struct Generator(u64);
-
 impl Generator {
-    fn next(&mut self) -> u64 {
-        self.0 = self.0.wrapping_add(0x9E37_79B9_7F4A_7C15);
-        let mut mixed = self.0;
-        mixed = (mixed ^ (mixed >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
-        mixed = (mixed ^ (mixed >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
-        mixed ^ (mixed >> 31)
-    }
-
-    fn below(&mut self, bound: usize) -> usize {
-        usize::try_from(self.next() % u64::try_from(bound).unwrap()).unwrap()
-    }
-
-    fn chance(&mut self, percent: usize) -> bool {
-        self.below(100) < percent
-    }
-
-    fn pick<'items, Item>(&mut self, items: &'items [Item]) -> Option<&'items Item> {
-        (!items.is_empty()).then(|| &items[self.below(items.len())])
-    }
-
     fn subset<Item: Clone + Ord>(&mut self, items: &[Item]) -> BTreeSet<Item> {
         items.iter().filter(|_| self.chance(40)).cloned().collect()
     }
-}
-
-/// An identifier that names its kind in its first group and its number in its last.
-fn identifier(kind: u8, number: usize) -> String {
-    format!("{kind:08x}-0000-4000-8000-{number:012x}")
 }
 
 /// What a seeded script does to an archive, and what it knows of it.
@@ -309,6 +280,26 @@ impl ArchiveReader for RecordingReader {
         }
         Ok(answer)
     }
+
+    fn read_text(&self, document: &DocumentIdentifier) -> Result<Option<String>, ArchiveCondition> {
+        self.archive.read_text(document)
+    }
+
+    fn download_original(
+        &self,
+        document: &DocumentIdentifier,
+        destination: &mut dyn Write,
+    ) -> Result<OriginalAnswer, DownloadFailure> {
+        self.archive.download_original(document, destination)
+    }
+
+    fn download_thumbnail(
+        &self,
+        document: &DocumentIdentifier,
+        destination: &mut dyn Write,
+    ) -> Result<ThumbnailAnswer, DownloadFailure> {
+        self.archive.download_thumbnail(document, destination)
+    }
 }
 
 /// A copy in a temporary directory, synchronized one page at a time.
@@ -522,22 +513,8 @@ fn a_copy_equals_the_archive_after_any_interleaving() {
     (0..SCRIPT_SEEDS).for_each(follow_seeded_script);
 }
 
-/// Waits for an announcement above the revision a follower holds, then reads the status.
-fn status_after(replica: &Replica, events: &Receiver<ReplicaEvent>, held_revision: u64) -> ReplicaStatus {
-    loop {
-        let ReplicaEvent::StatusChanged { revision } = events
-            .recv_timeout(Duration::from_secs(30))
-            .expect("the replica announces a change");
-        if revision > held_revision {
-            let status = replica.status();
-            assert!(status.revision >= revision, "{} after {revision}", status.revision);
-            return status;
-        }
-    }
-}
-
 #[test]
-fn a_follower_sees_the_fill_complete_and_never_an_older_revision() {
+fn a_follower_sees_the_fill_complete_with_every_text_and_never_an_older_revision() {
     let archive = Arc::new(ScriptedArchive::with_page_entries(2));
     let sender = SenderIdentifier::parse(&identifier(2, 1)).unwrap();
     let tag = TagIdentifier::parse(&identifier(4, 1)).unwrap();
@@ -551,8 +528,9 @@ fn a_follower_sees_the_fill_complete_and_never_an_older_revision() {
         color_hex: None,
     });
     for number in 1..=5 {
+        let document = DocumentIdentifier::parse(&identifier(5, number)).unwrap();
         archive.put_document(DocumentRecord {
-            identifier: DocumentIdentifier::parse(&identifier(5, number)).unwrap(),
+            identifier: document.clone(),
             condition: DocumentCondition::Archived,
             title: Some(format!("Electricity Statement {number}")),
             document_date: CalendarDate::parse("2026-09-22"),
@@ -568,34 +546,37 @@ fn a_follower_sees_the_fill_complete_and_never_an_older_revision() {
             tags: BTreeSet::from([tag.clone()]),
             fields: BTreeMap::new(),
         });
+        archive.put_text(
+            &document,
+            &format!("# Abrechnung\n\nIhr Zählerstand beträgt 4821{number} kWh."),
+        );
     }
     let directory = tempfile::tempdir().unwrap();
-    let database_path = directory.path().join("replica.sqlite");
-    let reader: Arc<dyn ArchiveReader> = archive.clone();
-    let (replica, events) = Replica::start(ReplicaSettings {
-        database_path: database_path.clone(),
-        credential_store: Box::new(FixedCredentialStore::new(None)),
-        archive_readers: Box::new(move |_, _| Arc::clone(&reader)),
-        timing: SynchronizationTiming::default(),
-        clock: Arc::new(ManualClock::starting_at(START)),
-    })
-    .unwrap();
+    let (replica, events) = start_replica(&archive, directory.path(), None);
 
     let mut followed = vec![replica.status()];
-    replica
-        .attach_archive(
-            ArchiveAddress::parse(ARCHIVE_ORIGIN).unwrap(),
-            ArchiveToken::new(TOKEN.to_owned()),
-            archive.read_authorization().unwrap(),
-        )
-        .unwrap();
+    attach(&replica, &archive);
     while !matches!(
-        followed.last().unwrap().synchronization,
-        SynchronizationState::Following { .. }
+        followed.last().unwrap(),
+        ReplicaStatus {
+            synchronization: SynchronizationState::Following { .. },
+            documents_awaiting_text: 0,
+            ..
+        }
     ) {
         let held_revision = followed.last().unwrap().revision;
         followed.push(status_after(&replica, &events, held_revision));
     }
+    // The texts arrived after their documents, and the search reads nothing but the copy.
+    let found = replica
+        .list_documents(
+            &ListingRequest::Search {
+                scope: LibraryScope::AllDocuments,
+                text: "48213".to_owned(),
+            },
+            None,
+        )
+        .unwrap();
     replica.shutdown();
 
     assert_eq!(
@@ -603,6 +584,8 @@ fn a_follower_sees_the_fill_complete_and_never_an_older_revision() {
         Some(&ReplicaStatus {
             revision: 0,
             content_revision: 0,
+            documents: 0,
+            documents_awaiting_text: 0,
             archive: None,
             synchronization: SynchronizationState::Disconnected,
         })
@@ -612,25 +595,52 @@ fn a_follower_sees_the_fill_complete_and_never_an_older_revision() {
         revisions.is_sorted_by(|earlier, later| earlier < later),
         "{revisions:?}"
     );
-    // The attachment, then four pages of two journal entries each, the last with one.
+    // Four pages of two journal entries each, the last with one, changed the records, and the
+    // texts came in one transaction or several, as the two lanes happened to report.
+    let last = followed.last().unwrap();
+    assert!((5..=9).contains(&last.content_revision), "{last:?}");
     assert_eq!(
-        followed.last(),
-        Some(&ReplicaStatus {
-            revision: 5,
-            content_revision: 4,
+        last,
+        &ReplicaStatus {
+            revision: last.revision,
+            content_revision: last.content_revision,
+            documents: 5,
+            documents_awaiting_text: 0,
             archive: Some(MirroredArchive {
                 origin: ARCHIVE_ORIGIN.to_owned(),
-                permission_level: PermissionLevel::Ingest,
+                permission_level: PermissionLevel::Read,
                 fill_complete: true,
                 synchronized_at: Some(START),
             }),
             synchronization: SynchronizationState::Following {
                 next_request_at: Timestamp(START.0 + 15 * 60 * 1_000),
             },
+        }
+    );
+    let found: Vec<(Option<ListingHeading>, Option<RowPassage>)> = found
+        .listing
+        .rows(0, usize::MAX)
+        .iter()
+        .map(|row| match row {
+            ListingRow::Heading(heading) => (Some(*heading), None),
+            ListingRow::Document(row) => (None, row.passage.clone()),
         })
+        .collect();
+    assert_eq!(
+        found,
+        [
+            (Some(ListingHeading::TextMatched), None),
+            (
+                None,
+                Some(RowPassage::Excerpt("Ihr Zählerstand beträgt 48213 kWh.".to_owned()))
+            )
+        ]
     );
     assert_eq!(
-        ReplicaStore::open(&database_path).unwrap().records().unwrap(),
+        ReplicaStore::open(&directory.path().join("replica.sqlite"))
+            .unwrap()
+            .records()
+            .unwrap(),
         archive.records()
     );
 }
