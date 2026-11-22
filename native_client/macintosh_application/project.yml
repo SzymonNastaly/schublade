@@ -41,7 +41,7 @@ targets:
         buildPhase: sources
     preBuildScripts:
       - name: Produce the application bindings
-        script: '"$SRCROOT/scripts/produce_application_bindings.sh"'
+        script: '"$SRCROOT/../scripts/produce_application_bindings.sh"'
         basedOnDependencyAnalysis: false
         outputFiles:
           - $(SRCROOT)/generated_bindings/application_bindings.swift

@@ -145,6 +145,78 @@ impl CredentialStore for KeychainCredentialStore {
     }
 }
 
+/// The iPhone's Keychain: one generic password per archive origin under the given service name,
+/// in the access group the application and its share extension share when one is named. The item
+/// stays readable while the phone is locked after its first unlock, so a background refresh or an
+/// upload's answer can read it, and it never leaves the device.
+#[cfg(target_os = "ios")]
+pub struct SharedKeychainCredentialStore {
+    service: String,
+    access_group: Option<String>,
+}
+
+#[cfg(target_os = "ios")]
+impl SharedKeychainCredentialStore {
+    pub fn new(service: &str, access_group: Option<&str>) -> SharedKeychainCredentialStore {
+        SharedKeychainCredentialStore {
+            service: service.to_owned(),
+            access_group: access_group.map(str::to_owned),
+        }
+    }
+
+    fn item(&self, address: &ArchiveAddress) -> security_framework::passwords::PasswordOptions {
+        let mut options =
+            security_framework::passwords::PasswordOptions::new_generic_password(&self.service, &address.origin());
+        if let Some(group) = &self.access_group {
+            options.set_access_group(group);
+        }
+        options
+    }
+}
+
+#[cfg(target_os = "ios")]
+fn keychain_failure(error: security_framework::base::Error) -> CredentialStorageFailure {
+    CredentialStorageFailure {
+        detail: error.to_string(),
+    }
+}
+
+#[cfg(target_os = "ios")]
+const KEYCHAIN_ITEM_NOT_FOUND: i32 = -25300;
+
+#[cfg(target_os = "ios")]
+impl CredentialStore for SharedKeychainCredentialStore {
+    fn read(&self, address: &ArchiveAddress) -> Result<Option<ArchiveToken>, CredentialStorageFailure> {
+        match security_framework::passwords::generic_password(self.item(address)) {
+            Ok(secret) => String::from_utf8(secret)
+                .map(|secret| Some(ArchiveToken::new(secret)))
+                .map_err(|_| CredentialStorageFailure {
+                    detail: "The stored token is not text".to_owned(),
+                }),
+            Err(error) if error.code() == KEYCHAIN_ITEM_NOT_FOUND => Ok(None),
+            Err(error) => Err(keychain_failure(error)),
+        }
+    }
+
+    /// Removes the item and adds it again, because an update matches on the query, and a query
+    /// that names the accessibility would miss an item written with another.
+    fn write(&self, address: &ArchiveAddress, token: &ArchiveToken) -> Result<(), CredentialStorageFailure> {
+        match security_framework::passwords::delete_generic_password_options(self.item(address)) {
+            Err(error) if error.code() != KEYCHAIN_ITEM_NOT_FOUND => return Err(keychain_failure(error)),
+            _ => {}
+        }
+        let mut item = self.item(address);
+        let accessibility = security_framework::access_control::SecAccessControl::create_with_protection(
+            Some(security_framework::access_control::ProtectionMode::AccessibleAfterFirstUnlockThisDeviceOnly),
+            0,
+        )
+        .map_err(keychain_failure)?;
+        item.set_access_control(accessibility);
+        security_framework::passwords::set_generic_password_options(token.secret().as_bytes(), item)
+            .map_err(keychain_failure)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;

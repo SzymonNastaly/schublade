@@ -17,3 +17,8 @@ url = "=2.5.8"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 keyring = { version = "=3.6.3", default-features = false, features = ["apple-native"] }
+
+# The iPhone's Keychain item lives in an access group that the share extension shares, which
+# keyring cannot name.
+[target.'cfg(target_os = "ios")'.dependencies]
+security-framework = { version = "=3.7.0", default-features = false }

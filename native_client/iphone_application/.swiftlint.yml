@@ -1,0 +1,108 @@
+# check_application.sh runs `swiftlint lint --strict`, so every warning fails the check.
+included:
+  - application
+  - application_end_to_end_tests
+  - application_interface
+excluded:
+  - build
+  - generated_bindings
+
+opt_in_rules:
+  - array_init
+  - closure_spacing
+  - collection_alignment
+  - contains_over_filter_count
+  - contains_over_first_not_nil
+  - convenience_type
+  - discouraged_optional_boolean
+  - empty_collection_literal
+  - empty_count
+  - empty_string
+  - explicit_init
+  - fatal_error_message
+  - file_name
+  - first_where
+  - force_unwrapping
+  - implicitly_unwrapped_optional
+  - last_where
+  - legacy_objc_type
+  - lower_acl_than_parent
+  - modifier_order
+  - multiline_parameters
+  - overridden_super_call
+  - private_action
+  - private_outlet
+  - prohibited_interface_builder
+  - prohibited_super_call
+  - redundant_nil_coalescing
+  - sorted_first_last
+  - strict_fileprivate
+  - toggle_bool
+  - unowned_variable_capture
+  - weak_delegate
+  - yoda_condition
+
+# SwiftFormat writes a comma after the last element of a multiline list, and SwiftLint requires it.
+trailing_comma:
+  mandatory_comma: true
+
+# The naming specification forbids abbreviations, so short names fail.
+identifier_name:
+  min_length: 3
+  max_length: 60
+type_name:
+  min_length: 4
+  max_length: 60
+line_length:
+  warning: 120
+  ignores_urls: true
+# Exhaustive switches over generated Rust enums are intentional and compiler-checked; control-flow
+# branching stays bounded.
+cyclomatic_complexity:
+  ignores_case_statements: true
+
+custom_rules:
+  swiftui_forbidden:
+    name: "Pure UIKit"
+    regex: '^\s*(@preconcurrency\s+)?import\s+SwiftUI\b'
+    message: "The application is pure UIKit, so SwiftUI is imported nowhere."
+    severity: error
+  application_start_outside_gateway:
+    name: "Application start outside the gateway"
+    regex: '\bstartApplicationCore\b'
+    match_kinds: [identifier]
+    excluded: 'application_interface/ApplicationGateway\.swift$'
+    message: "Only ApplicationGateway starts the application core."
+    severity: error
+  bindings_objects_outside_gateway:
+    name: "Bindings objects outside the gateway"
+    regex: '\b(ApplicationCore|ApplicationCoreProtocol|Library|LibraryProtocol|Collector|CollectorProtocol)\b'
+    match_kinds: [typeidentifier]
+    excluded: 'application_interface/ApplicationGateway\.swift$'
+    message: "Only ApplicationGateway holds the bindings objects; call the gateway."
+    severity: error
+  unchecked_sendable_forbidden:
+    name: "Unchecked Sendable"
+    regex: '@unchecked\s+Sendable\b'
+    message: "Make the type Sendable by construction, or keep it on the main actor."
+    severity: error
+  unsafe_nonisolation_forbidden:
+    name: "Unsafe nonisolation"
+    regex: '\bnonisolated\s*\(\s*unsafe\s*\)'
+    message: "Isolate the state to an actor, or make it immutable and Sendable."
+    severity: error
+  preconcurrency_import_forbidden:
+    name: "Preconcurrency import"
+    regex: '@preconcurrency\s+import\b'
+    message: "Every imported module is checked under complete strict concurrency."
+    severity: error
+  main_dispatch_queue_forbidden:
+    name: "Main dispatch queue"
+    regex: '\bDispatchQueue\s*\.\s*main\b'
+    message: "The application modules run on the main actor by default; await instead."
+    severity: error
+  interface_builder_forbidden:
+    name: "Interface Builder"
+    regex: '@IB(Outlet|Action|Designable|Inspectable)\b|\b(UINib|UIStoryboard)\b'
+    message: "The interface is built in code, with no nib, xib, or storyboard."
+    severity: error

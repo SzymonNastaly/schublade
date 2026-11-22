@@ -19,6 +19,8 @@ pub use archive_token::ArchiveToken;
 pub use clock::{Clock, ManualClock, SystemClock, Timestamp};
 #[cfg(target_os = "macos")]
 pub use credential_storage::KeychainCredentialStore;
+#[cfg(target_os = "ios")]
+pub use credential_storage::SharedKeychainCredentialStore;
 pub use credential_storage::{
     CredentialStorageFailure, CredentialStore, FixedCredentialStore, RememberingCredentialStore,
     TOKEN_ENVIRONMENT_VARIABLE,

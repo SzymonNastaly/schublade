@@ -1,0 +1,8 @@
+// The simulator runs with ad hoc signing. A build for a device names its team in
+// local_signing.xcconfig beside this file, which git ignores:
+//     DEVELOPMENT_TEAM = <team identifier>
+//     CODE_SIGN_STYLE = Automatic
+CODE_SIGN_STYLE = Manual
+CODE_SIGN_IDENTITY = -
+DEVELOPMENT_TEAM =
+#include? "local_signing.xcconfig"

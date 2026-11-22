@@ -48,6 +48,7 @@ name = "archive_access"
 version = "0.1.0"
 dependencies = [
  "keyring",
+ "security-framework 3.7.0",
  "serde",
  "serde_json",
  "sha2",

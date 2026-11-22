@@ -1,0 +1,17 @@
+--swiftversion 6.0
+--languagemode 6
+--exclude build,generated_bindings
+
+--indent tab
+--tabwidth 4
+--maxwidth 120
+--wraparguments before-first
+--wrapparameters before-first
+--wrapcollections before-first
+--closingparen balanced
+--commas always
+--self remove
+--importgrouping testable-last
+--stripunusedargs closure-only
+--ifdef no-indent
+--header strip

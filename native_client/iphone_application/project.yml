@@ -1,0 +1,125 @@
+# XcodeGen writes Schublade.xcodeproj from this file on every script run, and git ignores
+# the project.
+name: Schublade
+options:
+  deploymentTarget:
+    # Control Center and Lock Screen controls exist from iOS 18.
+    iOS: "18.0"
+  createIntermediateGroups: true
+configFiles:
+  Debug: configuration/signing.xcconfig
+  Release: configuration/signing.xcconfig
+settings:
+  base:
+    # Every name a person sees derives from this name and the two bundle identifiers below.
+    APPLICATION_DISPLAY_NAME: Schublade
+    ARCHS: arm64
+    TARGETED_DEVICE_FAMILY: "1"
+    SWIFT_VERSION: "6.0"
+    SWIFT_STRICT_CONCURRENCY: complete
+    SWIFT_APPROACHABLE_CONCURRENCY: YES
+    SWIFT_TREAT_WARNINGS_AS_ERRORS: YES
+    GCC_TREAT_WARNINGS_AS_ERRORS: YES
+    SWIFT_INCLUDE_PATHS: $(SRCROOT)/generated_bindings/foreign_function_interface
+    # The Rust library of the platform being built: the device or the simulator.
+    RUST_TARGET_DIRECTORY[sdk=iphoneos*]: $(SRCROOT)/../target/aarch64-apple-ios/$(CARGO_PROFILE_DIRECTORY)
+    RUST_TARGET_DIRECTORY[sdk=iphonesimulator*]: $(SRCROOT)/../target/aarch64-apple-ios-sim/$(CARGO_PROFILE_DIRECTORY)
+    APPLICATION_BINDINGS_LINKER_FLAGS: >-
+      -lapplication_bindings -framework Security -framework CoreFoundation -framework CoreServices
+      -framework SystemConfiguration -liconv -Wl,-fatal_warnings
+  configs:
+    Debug:
+      APPLICATION_PRODUCT_NAME: $(APPLICATION_DISPLAY_NAME) Development
+      APPLICATION_BUNDLE_IDENTIFIER: org.schublade.iphone.development
+      CARGO_PROFILE: dev
+      CARGO_PROFILE_DIRECTORY: debug
+    Release:
+      APPLICATION_PRODUCT_NAME: $(APPLICATION_DISPLAY_NAME)
+      APPLICATION_BUNDLE_IDENTIFIER: org.schublade.iphone
+      CARGO_PROFILE: release
+      CARGO_PROFILE_DIRECTORY: release
+
+targets:
+  ApplicationBindings:
+    type: library.static
+    platform: iOS
+    sources:
+      - path: generated_bindings/application_bindings.swift
+        optional: true
+        buildPhase: sources
+    preBuildScripts:
+      - name: Produce the application bindings
+        script: '"$SRCROOT/../scripts/produce_application_bindings.sh"'
+        basedOnDependencyAnalysis: false
+        outputFiles:
+          - $(SRCROOT)/generated_bindings/application_bindings.swift
+          - $(SRCROOT)/generated_bindings/foreign_function_interface/application_bindingsFFI.h
+          - $(SRCROOT)/generated_bindings/foreign_function_interface/module.modulemap
+    settings:
+      base:
+        # The generated Swift does not compile with MainActor default isolation, and a module of
+        # one file is otherwise parsed as a script.
+        SWIFT_DEFAULT_ACTOR_ISOLATION: nonisolated
+        OTHER_SWIFT_FLAGS: -parse-as-library
+        ENABLE_USER_SCRIPT_SANDBOXING: NO
+
+  ApplicationInterface:
+    type: library.static
+    platform: iOS
+    sources: [application_interface]
+    dependencies:
+      - target: ApplicationBindings
+    settings:
+      base:
+        SWIFT_DEFAULT_ACTOR_ISOLATION: MainActor
+
+  Schublade:
+    type: application
+    platform: iOS
+    sources: [application]
+    dependencies:
+      - target: ApplicationInterface
+      - target: ApplicationBindings
+    info:
+      path: application/Info.plist
+      properties:
+        CFBundleDisplayName: $(PRODUCT_NAME)
+        UILaunchScreen: {}
+        UIApplicationSceneManifest:
+          UIApplicationSupportsMultipleScenes: false
+        # A phone application in portrait, which the system allows only for one that fills the screen.
+        UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait]
+        UIRequiresFullScreen: true
+    settings:
+      base:
+        PRODUCT_NAME: $(APPLICATION_PRODUCT_NAME)
+        PRODUCT_BUNDLE_IDENTIFIER: $(APPLICATION_BUNDLE_IDENTIFIER)
+        PRODUCT_MODULE_NAME: Schublade
+        SWIFT_DEFAULT_ACTOR_ISOLATION: MainActor
+        LIBRARY_SEARCH_PATHS: $(RUST_TARGET_DIRECTORY)
+        OTHER_LDFLAGS: $(APPLICATION_BINDINGS_LINKER_FLAGS)
+
+  ApplicationEndToEndTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources: [application_end_to_end_tests]
+    dependencies:
+      - target: Schublade
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+        PRODUCT_BUNDLE_IDENTIFIER: $(APPLICATION_BUNDLE_IDENTIFIER).application-end-to-end-tests
+        TEST_HOST: $(BUILT_PRODUCTS_DIR)/$(APPLICATION_PRODUCT_NAME).app/$(APPLICATION_PRODUCT_NAME)
+        BUNDLE_LOADER: $(TEST_HOST)
+
+schemes:
+  Schublade:
+    build:
+      targets:
+        Schublade: all
+        ApplicationEndToEndTests: [test]
+    test:
+      config: Debug
+      targets: [ApplicationEndToEndTests]
+      environmentVariables:
+        SCHUBLADE_APPLICATION_ENVIRONMENT: isolated

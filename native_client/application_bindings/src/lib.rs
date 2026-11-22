@@ -82,6 +82,13 @@ pub enum CredentialStorage {
     /// One Keychain item per archive origin under this service name.
     #[cfg(target_os = "macos")]
     Keychain { service_name: String },
+    /// One Keychain item per archive origin under this service name, in the access group the
+    /// iPhone application shares with its share extension, or the application's own group.
+    #[cfg(target_os = "ios")]
+    SharedKeychain {
+        service_name: String,
+        access_group: Option<String>,
+    },
     /// The token lives only in this process, for runs that must not touch the Keychain.
     ProcessMemory,
 }
@@ -93,6 +100,14 @@ impl CredentialStorage {
             CredentialStorage::Keychain { service_name } => {
                 Box::new(archive_access::KeychainCredentialStore::new(service_name))
             }
+            #[cfg(target_os = "ios")]
+            CredentialStorage::SharedKeychain {
+                service_name,
+                access_group,
+            } => Box::new(archive_access::SharedKeychainCredentialStore::new(
+                service_name,
+                access_group.as_deref(),
+            )),
             CredentialStorage::ProcessMemory => Box::new(FixedCredentialStore::new(None)),
         }
     }
