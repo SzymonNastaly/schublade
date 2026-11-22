@@ -7,8 +7,13 @@ public final class ApplicationDelegate: NSObject, NSApplicationDelegate {
 		controller.launch()
 	}
 
-	/// Terminating waits for the collector's shutdown, so the coordinator finishes its batch and
-	/// closes the database.
+	public func applicationShouldHandleReopen(_: NSApplication, hasVisibleWindows _: Bool) -> Bool {
+		controller.showMainWindow()
+		return true
+	}
+
+	/// Terminating waits for the shutdown of both cores, so each coordinator finishes its batch and
+	/// closes its database.
 	public func applicationShouldTerminate(_ application: NSApplication) -> NSApplication.TerminateReply {
 		Task {
 			await controller.terminate()

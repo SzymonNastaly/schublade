@@ -56,6 +56,10 @@ type_name:
 line_length:
   warning: 120
   ignores_urls: true
+# Exhaustive switches over generated Rust enums are intentional and compiler-checked; control-flow
+# branching stays bounded.
+cyclomatic_complexity:
+  ignores_case_statements: true
 
 custom_rules:
   swiftui_forbidden:
@@ -63,19 +67,19 @@ custom_rules:
     regex: '^\s*(@preconcurrency\s+)?import\s+SwiftUI\b'
     message: "The application is pure AppKit, so SwiftUI is imported nowhere."
     severity: error
-  collector_start_outside_gateway:
+  application_start_outside_gateway:
     name: "Application start outside the gateway"
     regex: '\bstartApplicationCore\b'
     match_kinds: [identifier]
-    excluded: 'application_interface/CollectorGateway\.swift$'
-    message: "Only CollectorGateway starts the application core."
+    excluded: 'application_interface/ApplicationGateway\.swift$'
+    message: "Only ApplicationGateway starts the application core."
     severity: error
-  collector_outside_gateway:
+  bindings_objects_outside_gateway:
     name: "Bindings objects outside the gateway"
     regex: '\b(ApplicationCore|ApplicationCoreProtocol|Library|LibraryProtocol|Collector|CollectorProtocol)\b'
     match_kinds: [typeidentifier]
-    excluded: 'application_interface/CollectorGateway\.swift$'
-    message: "Only CollectorGateway holds the bindings objects; send a command through CollectorCommands."
+    excluded: 'application_interface/ApplicationGateway\.swift$'
+    message: "Only ApplicationGateway holds the bindings objects; use ApplicationCommands, LibraryQueries, or CollectorCommands."
     severity: error
   unchecked_sendable_forbidden:
     name: "Unchecked Sendable"

@@ -1,27 +1,59 @@
 import ApplicationBindings
 
 /// The one owner of the application's situations. It starts the core, follows both the library and
-/// collector statuses in order, and renders the menu bar item after each collector change.
+/// collector statuses in order, and renders the window and menu bar item after each change.
 final class ApplicationController {
-	private(set) var situation = CollectorSituation.starting
-	private(set) var libraryStatus: LibraryStatus?
-	let statusItem = StatusItemController()
+	private(set) var situation = ApplicationSituation.starting
+	let statusItem: StatusItemController
+	let mainWindowController: MainWindowController
 	let environment: ApplicationEnvironment
-	private let gateway = CollectorGateway()
+	private let gateway: ApplicationGateway
+	private var shownContentRevision: UInt64 = 0
 
-	var commands: any CollectorCommands {
+	var applicationCommands: any ApplicationCommands {
+		gateway
+	}
+
+	var libraryQueries: any LibraryQueries {
+		gateway
+	}
+
+	var collectorCommands: any CollectorCommands {
 		gateway
 	}
 
 	init(environment: ApplicationEnvironment) {
+		let gateway = ApplicationGateway()
+		let statusItem = StatusItemController()
+		let mainWindowController = MainWindowController(
+			applicationCommands: gateway,
+			libraryQueries: gateway
+		) { attended in
+			gateway.interfaceAttended(attended)
+		}
+
 		self.environment = environment
+		self.gateway = gateway
+		self.statusItem = statusItem
+		self.mainWindowController = mainWindowController
+
+		statusItem.onOpenWindow = { [weak mainWindowController] in
+			mainWindowController?.present()
+		}
+
 		statusItem.render(situation)
+		mainWindowController.render(situation)
 	}
 
 	func launch() {
+		mainWindowController.present()
 		Task {
 			await followApplication()
 		}
+	}
+
+	func showMainWindow() {
+		mainWindowController.present()
 	}
 
 	func terminate() async {
@@ -35,6 +67,7 @@ final class ApplicationController {
 			change(to: .failedToStart(error))
 			return
 		}
+		gateway.interfaceAttended(mainWindowController.isAttending)
 		async let libraryFollowing: Void = followLibrary()
 		async let collectorFollowing: Void = followCollector()
 		_ = await (libraryFollowing, collectorFollowing)
@@ -45,20 +78,38 @@ final class ApplicationController {
 		var revision: UInt64?
 		while let status = try? await gateway.libraryStatusAfter(revision) {
 			revision = status.revision
-			libraryStatus = status
+			updateRunning { $0.library = status }
+			if status.contentRevision != shownContentRevision {
+				shownContentRevision = status.contentRevision
+				mainWindowController.contentRevisionChanged(to: shownContentRevision)
+			}
 		}
 	}
 
 	private func followCollector() async {
 		var revision: UInt64?
-		while let status = try? await gateway.statusAfter(revision) {
+		while let status = try? await gateway.collectorStatusAfter(revision) {
 			revision = status.revision
-			change(to: .running(status))
+			updateRunning { $0.collector = status }
 		}
 	}
 
-	private func change(to situation: CollectorSituation) {
-		self.situation = situation
-		statusItem.render(situation)
+	private func updateRunning(_ mutate: (inout ApplicationStatuses) -> Void) {
+		var statuses: ApplicationStatuses = if case let .running(current) = situation {
+			current
+		} else {
+			ApplicationStatuses()
+		}
+		mutate(&statuses)
+		change(to: .running(statuses))
+	}
+
+	private func change(to nextSituation: ApplicationSituation) {
+		guard nextSituation != situation else {
+			return
+		}
+		situation = nextSituation
+		statusItem.render(nextSituation)
+		mainWindowController.render(nextSituation)
 	}
 }

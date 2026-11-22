@@ -6,7 +6,8 @@ set -euo pipefail
 export PATH="/opt/homebrew/bin:$HOME/.cargo/bin:$PATH"
 cd "$(dirname "$0")/.."
 
-(cd .. && cargo fmt --check && cargo clippy --all-targets --locked -- -D warnings && cargo test --locked)
+(cd .. && cargo fmt --check && cargo clippy --all-targets --locked -- -D warnings && cargo test --locked \
+	&& cargo build --locked -p scripted_archive --bin scripted-archive-server)
 
 swiftformat --lint --quiet .
 swiftlint lint --strict --quiet
