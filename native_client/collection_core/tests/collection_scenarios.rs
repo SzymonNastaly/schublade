@@ -8,15 +8,14 @@ use std::sync::Arc;
 use std::sync::mpsc::Receiver;
 use std::time::{Duration, Instant};
 
-use collection_core::archive_connection::ArchiveCondition;
+use archive_access::{ArchiveAddress, ArchiveCondition, ArchiveToken, FixedCredentialStore};
 use collection_core::candidate_classification::{DisregardReason, ExclusionReason};
 use collection_core::content_synchronization::LookupAnswer;
 use collection_core::domain_types::{ContentDigest, DocumentStatus};
 use collection_core::folder_admission::{FolderAdmission, FolderAvailability};
 use collection_core::{
-    ArchiveAddress, ArchiveClient, AttentionItem, Clock, Collector, CollectorEvent, CollectorSettings, CollectorStatus,
-    CommandRefusal, ConnectionStatus, FixedCredentialStore, FolderIdentifier, IngestToken, ManualClock,
-    ScriptedArchive, Timestamp, TimingPolicy,
+    ArchiveClient, AttentionItem, Clock, Collector, CollectorEvent, CollectorSettings, CollectorStatus, CommandRefusal,
+    ConnectionStatus, FolderIdentifier, ManualClock, ScriptedArchive, Timestamp, TimingPolicy,
 };
 
 const CORPUS: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../test_fixtures/collection_corpus");
@@ -149,7 +148,7 @@ impl Scenario {
         collector
             .connect_archive(
                 ArchiveAddress::parse("https://archive.example.org").unwrap(),
-                IngestToken::new(TOKEN.to_owned()),
+                ArchiveToken::new(TOKEN.to_owned()),
             )
             .unwrap();
         Scenario {
@@ -567,7 +566,7 @@ fn a_401_suspends_until_a_new_token_resumes() {
     let address = ArchiveAddress::parse("https://archive.example.org").unwrap();
     scenario
         .collector
-        .connect_archive(address.clone(), IngestToken::new(TOKEN.to_owned()))
+        .connect_archive(address.clone(), ArchiveToken::new(TOKEN.to_owned()))
         .unwrap();
     let same_token = scenario.settle(MINUTE);
     assert!(
@@ -579,7 +578,7 @@ fn a_401_suspends_until_a_new_token_resumes() {
 
     scenario
         .collector
-        .connect_archive(address, IngestToken::new("sch_replacement_token".to_owned()))
+        .connect_archive(address, ArchiveToken::new("sch_replacement_token".to_owned()))
         .unwrap();
     let resumed = scenario.settle(MINUTE);
 

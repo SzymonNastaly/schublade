@@ -5,8 +5,10 @@
 use std::collections::{BTreeMap, VecDeque};
 use std::sync::Mutex;
 
+use archive_access::ArchiveCondition;
+
 use crate::archive_client::ArchiveClient;
-use crate::archive_connection::ArchiveCondition;
+use crate::archive_connection::SubmissionCondition;
 use crate::content_synchronization::{LookupAnswer, SubmissionAuthorization, SubmissionOutcome};
 use crate::domain_types::{ContentDigest, DocumentIdentifier, DocumentStatus};
 use crate::file_system_observation::VerifiedContent;
@@ -129,7 +131,7 @@ impl ArchiveClient for ScriptedArchive {
         &self,
         authorization: SubmissionAuthorization,
         content: VerifiedContent,
-    ) -> Result<SubmissionOutcome, ArchiveCondition> {
+    ) -> Result<SubmissionOutcome, SubmissionCondition> {
         let digest = authorization.digest();
         assert_eq!(
             digest,
@@ -139,7 +141,7 @@ impl ArchiveClient for ScriptedArchive {
         let mut script = self.script();
         script.submissions.push(digest);
         if let Some(condition) = script.conditions.pop_front() {
-            return Err(condition);
+            return Err(condition.into());
         }
         Ok(match script.contents.get(&digest).cloned() {
             Some(LookupAnswer::Deleted) => SubmissionOutcome::Deleted,

@@ -173,8 +173,14 @@ scripts/
 	evaluate_search.ts                     `pnpm evaluate:search`: archives and indexes the test documents on a dev server, then checks fixed searches
 	execute_on_macintosh.sh                Copies what git tracks to the build account on the Mac (`ssh mac`) and runs a command there, for FSEvents, st_flags, and the Keychain
 	test_document_generation/              Document catalog, page layout, and scan and photograph simulation
-native_client/                           The native client's Cargo workspace apart from pnpm: the collector's crates, the bindings, and the Mac application; `notes/collector_design.md` is the collector's design
-	Cargo.toml                             Workspace: collection_core, collection_command, application_bindings, application_bindings_generator; dependencies build with opt-level 2 in dev so SHA-256 and SQLite run at speed in tests
+native_client/                           The native client's Cargo workspace apart from pnpm: the crate every client of the archive shares, the collector's crates, the bindings, and the Mac application; `notes/collector_design.md` is the collector's design
+	Cargo.toml                             Workspace: archive_access, collection_core, collection_command, application_bindings, application_bindings_generator; dependencies build with opt-level 2 in dev so SHA-256 and SQLite run at speed in tests
+	archive_access/src/                    What every client of one archive needs and nothing of collecting; it builds on Linux and for the iPhone simulator (`--target aarch64-apple-ios-sim`)
+		lib.rs                               The re-exports of the four private modules
+		archive_address.rs                   ArchiveAddress, the origin of a pasted address
+		archive_token.rs                     ArchiveToken, never logged, stored, or serialized, and its fingerprint
+		credential_storage.rs                CredentialStore; the Keychain through keyring on macOS, a fixed token from SCHUBLADE_INGEST_TOKEN elsewhere, and RememberingCredentialStore, which reads its inner store once per origin until a write
+		archive_exchange.rs                  ArchiveExchange, the ureq agent with its timeouts and the bearer header; ArchiveCondition, what every route answers alike; ArchiveResponse, every other answer, for its route to read
 	collection_core/src/
 		lib.rs                               Collector, CollectorSettings, CollectorEvent, CommandRefusal, and the re-exports the bindings and the program use
 		domain_types.rs                      ContentDigest, FileSignature, FolderIdentifier, DirectoryKey, EntryName, PathKey, Timestamp, DocumentStatus, TimingPolicy
@@ -182,15 +188,14 @@ native_client/                           The native client's Cargo workspace apa
 		path_lifecycle.rs                    PathState and advance_path, the first pure machine
 		content_synchronization.rs           ArchiveStanding, advance_content, SubmissionAuthorization, the second
 		folder_admission.rs                  FolderAdmission, FolderAvailability, survey_complete, decide, the third
-		archive_connection.rs                ConnectionState, advance_connection, and the consequences table of every archive answer, the fourth
+		archive_connection.rs                ConnectionState, advance_connection, SubmissionCondition, and the consequences table of every archive answer, the fourth
 		directory_reconciliation.rs          DirectoryListing and reconcile_directory, the only way the file system reaches state
 		work_planning.rs                     Work, Reservations, WorkCandidates, plan_work; work is derived, never queued
 		state_store.rs                       The one SQLite file and the only module with SQL; migrations/ holds the schema
 		file_system_observation.rs           Listings with lstat signatures (SF_DATALESS on macOS), the digest read, the source read, the notify watcher that produces directory hints
 		work_execution.rs                    The worker lanes: threads that perform one Assignment and send its result back
 		collection_coordinator.rs            The one owner thread: batches, transactions, reservations, timers, planning, status
-		credential_storage.rs                CredentialStore; the Keychain through keyring on macOS, a fixed token from SCHUBLADE_INGEST_TOKEN elsewhere
-		archive_client.rs                    ArchiveClient trait and the ureq HttpArchiveClient; no wire type leaves it
+		archive_client.rs                    ArchiveClient trait and HttpArchiveClient, the three collector routes over ArchiveExchange; no wire type leaves it
 		scripted_archive.rs                  The in-process archive with scripted answers and failures for scenarios
 		status_report.rs                     CollectorStatus and everything it is made of
 		clock.rs                             Clock, SystemClock, ManualClock

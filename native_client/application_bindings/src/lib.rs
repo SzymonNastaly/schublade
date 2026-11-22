@@ -22,12 +22,9 @@ use std::path::PathBuf;
 use std::sync::mpsc::Receiver;
 use std::sync::{Arc, PoisonError, RwLock};
 
-use collection_core::archive_connection::ArchiveCondition;
+use archive_access::{ArchiveAddress, ArchiveCondition, ArchiveToken, CredentialStore, FixedCredentialStore};
 use collection_core::state_store::StoreOpenFailure;
-use collection_core::{
-    ArchiveAddress, CollectorEvent, CollectorSettings, CredentialStore, FixedCredentialStore, HttpArchiveClient,
-    IngestToken, StartFailure,
-};
+use collection_core::{CollectorEvent, CollectorSettings, HttpArchiveClient, StartFailure};
 
 pub use published_status::{
     Activity, ArchiveConnection, AttentionItem, BacklogSummary, CollectionProgress, CollectorStatus,
@@ -64,7 +61,7 @@ impl CredentialStorage {
         match self {
             #[cfg(target_os = "macos")]
             CredentialStorage::Keychain { service_name } => {
-                Box::new(collection_core::KeychainCredentialStore::new(service_name))
+                Box::new(archive_access::KeychainCredentialStore::new(service_name))
             }
             CredentialStorage::ProcessMemory => Box::new(FixedCredentialStore::new(None)),
         }
@@ -72,7 +69,7 @@ impl CredentialStorage {
 }
 
 /// Tries an address and a token against the archive before the core stores either.
-type CredentialVerification = Box<dyn Fn(&ArchiveAddress, &IngestToken) -> Result<(), ArchiveCondition> + Send + Sync>;
+type CredentialVerification = Box<dyn Fn(&ArchiveAddress, &ArchiveToken) -> Result<(), ArchiveCondition> + Send + Sync>;
 
 /// Starts the collector on `collector.sqlite` in the data directory.
 #[uniffi::export]
@@ -131,7 +128,7 @@ impl Collector {
     pub async fn connect_archive(self: Arc<Self>, address: String, token: String) -> Result<(), ConnectionRefusal> {
         blocking::unblock(move || {
             let address = ArchiveAddress::parse(&address).map_err(|_| ConnectionRefusal::AddressInvalid)?;
-            let token = IngestToken::new(token);
+            let token = ArchiveToken::new(token);
             (self.credential_verification)(&address, &token)?;
             self.with_core(|core| core.connect_archive(address, token).map_err(connection_refusal))
         })
@@ -240,7 +237,7 @@ fn folder_reference(
 mod tests {
     use std::sync::Arc;
 
-    use collection_core::archive_connection::ArchiveCondition;
+    use archive_access::ArchiveCondition;
 
     use super::*;
     use crate::collector_fixture::{ARCHIVE_ADDRESS, CollectorFixture, TOKEN, follow_until};

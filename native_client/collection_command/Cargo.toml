@@ -12,5 +12,6 @@ name = "schublade-collector"
 path = "src/main.rs"
 
 [dependencies]
+archive_access = { path = "../archive_access" }
 collection_core = { path = "../collection_core" }
 serde_json = "=1.0.154"

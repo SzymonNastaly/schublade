@@ -8,10 +8,10 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 use std::time::Duration;
 
+use archive_access::{ArchiveAddress, ArchiveToken, CredentialStore, FixedCredentialStore, TOKEN_ENVIRONMENT_VARIABLE};
 use collection_core::folder_admission::FolderAdmission;
 use collection_core::{
-    ArchiveAddress, Clock, Collector, CollectorEvent, CollectorSettings, CollectorStatus, ConnectionStatus,
-    CredentialStore, FixedCredentialStore, IngestToken, SystemClock, TOKEN_ENVIRONMENT_VARIABLE, Timestamp,
+    Clock, Collector, CollectorEvent, CollectorSettings, CollectorStatus, ConnectionStatus, SystemClock, Timestamp,
 };
 
 const USAGE: &str = "usage: schublade-collector [--database <path>] <command> [arguments]
@@ -115,7 +115,7 @@ fn credential_store() -> Box<dyn CredentialStore> {
     }
     #[cfg(target_os = "macos")]
     {
-        Box::new(collection_core::KeychainCredentialStore::new("Schublade collector"))
+        Box::new(archive_access::KeychainCredentialStore::new("Schublade collector"))
     }
     #[cfg(not(target_os = "macos"))]
     {
@@ -123,11 +123,11 @@ fn credential_store() -> Box<dyn CredentialStore> {
     }
 }
 
-fn read_token() -> Result<IngestToken, String> {
+fn read_token() -> Result<ArchiveToken, String> {
     if let Ok(token) = std::env::var(TOKEN_ENVIRONMENT_VARIABLE)
         && !token.trim().is_empty()
     {
-        return Ok(IngestToken::new(token));
+        return Ok(ArchiveToken::new(token));
     }
     let mut token = String::new();
     std::io::stdin()
@@ -138,7 +138,7 @@ fn read_token() -> Result<IngestToken, String> {
             "pass the ingest token on standard input or in {TOKEN_ENVIRONMENT_VARIABLE}"
         ));
     }
-    Ok(IngestToken::new(token))
+    Ok(ArchiveToken::new(token))
 }
 
 fn main() -> ExitCode {

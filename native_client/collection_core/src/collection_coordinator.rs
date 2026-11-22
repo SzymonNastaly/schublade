@@ -9,14 +9,15 @@ use std::sync::Arc;
 use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender, TryRecvError};
 use std::time::{Duration, Instant};
 
-use crate::archive_client::{ArchiveAddress, ArchiveClient, IngestToken};
+use archive_access::{ArchiveAddress, ArchiveToken, CredentialStore};
+
+use crate::archive_client::ArchiveClient;
 use crate::archive_connection::{
     ArchiveAnswer, ConnectionEvent, ConnectionState, Consequences, advance_connection, consequences, next_timer,
 };
 use crate::candidate_classification::{DisregardReason, ReadableSignature};
 use crate::clock::Clock;
 use crate::content_synchronization::{ContentEvent, SubmissionOutcome, advance_content};
-use crate::credential_storage::CredentialStore;
 use crate::directory_reconciliation::{DirectoryListing, ListingOutcome, reconcile_directory};
 use crate::domain_types::{ContentDigest, DirectoryKey, FolderIdentifier, PathKey, Timestamp, TimingPolicy};
 use crate::file_system_observation::{DirectoryHint, FolderWatcher};
@@ -73,7 +74,7 @@ pub enum SubmissionResult {
     SourceFailed {
         current: Option<crate::domain_types::FileSignature>,
     },
-    Answered(Result<SubmissionOutcome, crate::archive_connection::ArchiveCondition>),
+    Answered(Result<SubmissionOutcome, crate::archive_connection::SubmissionCondition>),
 }
 
 /// How long the loop waits at most before it looks at its timers again, and the jump of the
@@ -389,7 +390,7 @@ impl VolatileState {
         store: &StateStore,
         transaction: &StoreTransaction<'_>,
         address: ArchiveAddress,
-        token: IngestToken,
+        token: ArchiveToken,
     ) -> Result<(), CommandRefusal> {
         let store_failure = |error: rusqlite::Error| CommandRefusal::StoreFailed {
             detail: error.to_string(),
@@ -1152,7 +1153,7 @@ mod tests {
         collector
             .connect_archive(
                 ArchiveAddress::parse("https://archive.example.org").unwrap(),
-                IngestToken::new("token".to_owned()),
+                ArchiveToken::new("token".to_owned()),
             )
             .unwrap();
         let folder = collector.enroll_folder(folder_root.clone()).unwrap();
@@ -1204,13 +1205,13 @@ mod tests {
         std::fs::create_dir(&folder_root).unwrap();
         std::fs::write(folder_root.join("Invoice.pdf"), b"%PDF-1.7 one invoice").unwrap();
         let archive = Arc::new(ScriptedArchive::new());
-        archive.fail_next(crate::archive_connection::ArchiveCondition::ConnectionFailed);
+        archive.fail_next(archive_access::ArchiveCondition::ConnectionFailed);
         let clock = Arc::new(ManualClock::starting_at(Timestamp(1_700_000_000_000)));
         let (collector, _events) = start(&temporary.path().join("collector.sqlite"), &archive, &clock);
         collector
             .connect_archive(
                 ArchiveAddress::parse("https://archive.example.org").unwrap(),
-                IngestToken::new("token".to_owned()),
+                ArchiveToken::new("token".to_owned()),
             )
             .unwrap();
         let folder = collector.enroll_folder(folder_root).unwrap();
@@ -1322,7 +1323,7 @@ mod tests {
         let (collector, _events) = start(&temporary.path().join("collector.sqlite"), &archive, &clock);
         let connected = || ArchiveAddress::parse("https://archive.example.org").unwrap();
         let other = || ArchiveAddress::parse("https://other.example.org").unwrap();
-        let token = |secret: &str| IngestToken::new(secret.to_owned());
+        let token = |secret: &str| ArchiveToken::new(secret.to_owned());
         let refused = Err(CommandRefusal::ArchiveOriginDiffers {
             connected_origin: "https://archive.example.org".to_owned(),
         });

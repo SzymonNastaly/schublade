@@ -24,6 +24,7 @@ checksum = "330a5ed07fa54e4702c9d6c4174f74427fc0ef6e214bbd677ae50a5099946470"
 name = "application_bindings"
 version = "0.1.0"
 dependencies = [
+ "archive_access",
  "blocking",
  "collection_core",
  "event-listener",
@@ -37,6 +38,18 @@ name = "application_bindings_generator"
 version = "0.1.0"
 dependencies = [
  "uniffi",
+]
+
+[[package]]
+name = "archive_access"
+version = "0.1.0"
+dependencies = [
+ "keyring",
+ "serde",
+ "serde_json",
+ "sha2",
+ "ureq",
+ "url",
 ]
 
 [[package]]
@@ -275,6 +288,7 @@ checksum = "e0921b3876b3a1df8a1c9f912e7f94342458022c2e84288015893d83c4d62a79"
 name = "collection_command"
 version = "0.1.0"
 dependencies = [
+ "archive_access",
  "collection_core",
  "serde_json",
 ]
@@ -283,7 +297,7 @@ dependencies = [
 name = "collection_core"
 version = "0.1.0"
 dependencies = [
- "keyring",
+ "archive_access",
  "notify",
  "rusqlite",
  "serde",
@@ -292,8 +306,6 @@ dependencies = [
  "tempfile",
  "tiny_http",
  "unicode-normalization",
- "ureq",
- "url",
 ]
 
 [[package]]

@@ -2,7 +2,7 @@
 //! that holds only what the command can answer, so an application words each with a total
 //! function. No conversion from the core has a wildcard arm.
 
-use collection_core::archive_connection::ArchiveCondition;
+use archive_access::ArchiveCondition;
 use collection_core::state_store::StoreOpenFailure;
 use collection_core::{CommandRefusal, StartFailure};
 
@@ -100,7 +100,7 @@ impl From<ArchiveCondition> for ConnectionRefusal {
             ArchiveCondition::CredentialInsufficient => ConnectionRefusal::TokenInsufficient,
             ArchiveCondition::ServiceUnavailable { retry_after: _ } => ConnectionRefusal::ArchiveUnavailable,
             ArchiveCondition::ConnectionFailed | ArchiveCondition::TimedOut => ConnectionRefusal::ArchiveUnreachable,
-            ArchiveCondition::ServerError | ArchiveCondition::DigestDisagreement => ConnectionRefusal::ArchiveFailed,
+            ArchiveCondition::ServerError => ConnectionRefusal::ArchiveFailed,
             ArchiveCondition::ProtocolViolation { detail: _ } => ConnectionRefusal::NotAnArchive,
         }
     }

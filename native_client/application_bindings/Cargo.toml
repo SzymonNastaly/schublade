@@ -12,6 +12,7 @@ publish.workspace = true
 crate-type = ["staticlib", "lib"]
 
 [dependencies]
+archive_access = { path = "../archive_access" }
 # Runs each blocking call of the core on a thread of its own pool, so the thread that polls an
 # exported future never waits.
 blocking = "=1.7.0"

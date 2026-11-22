@@ -6,8 +6,9 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 
-use collection_core::archive_client::{ArchiveAddress, ArchiveClient, HttpArchiveClient, IngestToken};
-use collection_core::archive_connection::ArchiveCondition;
+use archive_access::{ArchiveAddress, ArchiveCondition, ArchiveToken};
+use collection_core::archive_client::{ArchiveClient, HttpArchiveClient};
+use collection_core::archive_connection::SubmissionCondition;
 use collection_core::content_synchronization::{
     ArchiveStanding, ContentRecord, LookupAnswer, SubmissionAuthorization, SubmissionFailures, SubmissionOutcome,
     authorize_submission,
@@ -104,7 +105,7 @@ impl TestArchive {
     fn client(&self) -> HttpArchiveClient {
         HttpArchiveClient::with_base_timeout(
             &self.address,
-            &IngestToken::new(TOKEN.to_owned()),
+            &ArchiveToken::new(TOKEN.to_owned()),
             Duration::from_millis(500),
         )
     }
@@ -237,12 +238,12 @@ fn a_submission_sends_the_bytes_under_their_digest_and_reads_every_answer_of_the
     assert_eq!(deleted, Ok(SubmissionOutcome::Deleted));
     assert_eq!(too_large, Ok(SubmissionOutcome::TooLarge));
     assert_eq!(unaccepted, Ok(SubmissionOutcome::UnacceptedKind));
-    assert_eq!(disagreement, Err(ArchiveCondition::DigestDisagreement));
+    assert_eq!(disagreement, Err(SubmissionCondition::DigestDisagreement));
     assert_eq!(
         violation,
-        Err(ArchiveCondition::ProtocolViolation {
+        Err(SubmissionCondition::Archive(ArchiveCondition::ProtocolViolation {
             detail: "405: Send this request with PUT".to_owned()
-        })
+        }))
     );
     let first = &archive.requests()[0];
     assert_eq!(first.method, "PUT");
@@ -337,7 +338,7 @@ fn a_silent_server_times_out_and_a_closed_port_is_a_connection_failure() {
     drop(closed);
     let unreachable = HttpArchiveClient::with_base_timeout(
         &address,
-        &IngestToken::new(TOKEN.to_owned()),
+        &ArchiveToken::new(TOKEN.to_owned()),
         Duration::from_millis(500),
     );
     assert_eq!(

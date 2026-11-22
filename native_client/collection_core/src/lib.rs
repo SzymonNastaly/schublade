@@ -8,7 +8,6 @@ pub mod candidate_classification;
 pub mod clock;
 pub mod collection_coordinator;
 pub mod content_synchronization;
-pub mod credential_storage;
 pub mod directory_reconciliation;
 pub mod domain_types;
 pub mod file_system_observation;
@@ -27,17 +26,15 @@ use std::sync::mpsc::{Receiver, Sender, channel};
 use std::thread::JoinHandle;
 use std::time::Duration;
 
-pub use archive_client::{ArchiveAddress, ArchiveAddressRefusal, ArchiveClient, HttpArchiveClient, IngestToken};
+pub use archive_client::{ArchiveClient, HttpArchiveClient};
 pub use clock::{Clock, ManualClock, SystemClock};
-#[cfg(target_os = "macos")]
-pub use credential_storage::KeychainCredentialStore;
-pub use credential_storage::{CredentialStore, FixedCredentialStore, TOKEN_ENVIRONMENT_VARIABLE};
 pub use domain_types::{FolderIdentifier, Timestamp, TimingPolicy};
 pub use scripted_archive::ScriptedArchive;
 pub use status_report::{
     Activity, AttentionItem, BacklogSummary, CollectorStatus, ConnectionStatus, FolderStatus, Receipt, StateCounts,
 };
 
+use archive_access::{ArchiveAddress, ArchiveAddressRefusal, ArchiveToken, CredentialStore, FixedCredentialStore};
 use archive_connection::ConnectionState;
 use collection_coordinator::{CollectionCoordinator, CoordinatorInput, VolatileState};
 use file_system_observation::FolderWatcher;
@@ -47,7 +44,7 @@ use work_planning::{LaneCapacity, Reservations};
 
 /// Builds the archive client for an address and token: the HTTP client in production, the
 /// scripted archive in a scenario.
-pub type ArchiveClientConstructor = Box<dyn Fn(&ArchiveAddress, &IngestToken) -> Arc<dyn ArchiveClient> + Send>;
+pub type ArchiveClientConstructor = Box<dyn Fn(&ArchiveAddress, &ArchiveToken) -> Arc<dyn ArchiveClient> + Send>;
 
 pub struct CollectorSettings {
     pub database_path: PathBuf,
@@ -229,7 +226,7 @@ impl std::error::Error for StartFailure {}
 pub enum CollectorCommand {
     ConnectArchive {
         address: ArchiveAddress,
-        token: IngestToken,
+        token: ArchiveToken,
         reply: Sender<Result<(), CommandRefusal>>,
     },
     EnrollFolder {
@@ -375,7 +372,7 @@ impl Collector {
 
     /// Stores the token in the credential store and the origin with the token's fingerprint in
     /// the database. A different token clears a suspension.
-    pub fn connect_archive(&self, address: ArchiveAddress, token: IngestToken) -> Result<(), CommandRefusal> {
+    pub fn connect_archive(&self, address: ArchiveAddress, token: ArchiveToken) -> Result<(), CommandRefusal> {
         self.command(|reply| CollectorCommand::ConnectArchive { address, token, reply })
     }
 

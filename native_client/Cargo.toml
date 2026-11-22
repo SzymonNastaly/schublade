@@ -1,6 +1,7 @@
 [workspace]
 resolver = "3"
 members = [
+    "archive_access",
     "collection_core",
     "collection_command",
     "application_bindings",

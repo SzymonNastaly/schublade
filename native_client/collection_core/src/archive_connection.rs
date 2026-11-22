@@ -4,6 +4,8 @@
 
 use std::time::Duration;
 
+use archive_access::ArchiveCondition;
+
 use crate::content_synchronization::{
     ContentEvent, LookupAnswer, SubmissionFailure, SubmissionOutcome, back_off_after,
 };
@@ -164,27 +166,19 @@ pub fn connection_back_off(attempt: u32, timing: &TimingPolicy) -> Duration {
     back_off_after(attempt, timing.connection_back_off)
 }
 
-/// Every way an archive request can fail to produce an answer about its content.
+/// Why a submission produced no outcome: a condition every route shares, or the one its route
+/// adds.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum ArchiveCondition {
-    /// 401.
-    CredentialRefused,
-    /// 403.
-    CredentialInsufficient,
-    /// 503.
-    ServiceUnavailable {
-        retry_after: Duration,
-    },
-    ConnectionFailed,
-    TimedOut,
-    /// 500. On a PUT it counts against the content as well.
-    ServerError,
-    /// 422 on a PUT: the archive read other bytes than the digest names.
+pub enum SubmissionCondition {
+    Archive(ArchiveCondition),
+    /// 422: the archive read other bytes than the digest names.
     DigestDisagreement,
-    /// 400, 404 on a route, 405, or a body that does not parse: a bug on one side.
-    ProtocolViolation {
-        detail: String,
-    },
+}
+
+impl From<ArchiveCondition> for SubmissionCondition {
+    fn from(condition: ArchiveCondition) -> SubmissionCondition {
+        SubmissionCondition::Archive(condition)
+    }
 }
 
 /// What the archive answered to one request, with the content the request was about.
@@ -195,7 +189,7 @@ pub enum ArchiveAnswer {
     },
     Submission {
         content: ContentDigest,
-        answer: Result<SubmissionOutcome, ArchiveCondition>,
+        answer: Result<SubmissionOutcome, SubmissionCondition>,
     },
     DocumentStatus {
         content: ContentDigest,
@@ -243,17 +237,17 @@ pub fn consequences(answer: ArchiveAnswer, at: Timestamp) -> Consequences {
         } => {
             let failed = |failure| vec![(content, ContentEvent::SubmissionFailed { failure, at })];
             match condition {
-                ArchiveCondition::ServerError => {
+                SubmissionCondition::Archive(ArchiveCondition::ServerError) => {
                     consequences(ConnectionEvent::Answered, failed(SubmissionFailure::ServerError))
                 }
-                ArchiveCondition::DigestDisagreement => {
+                SubmissionCondition::DigestDisagreement => {
                     consequences(ConnectionEvent::Answered, failed(SubmissionFailure::DigestDisagreement))
                 }
-                ArchiveCondition::TimedOut => consequences(
+                SubmissionCondition::Archive(ArchiveCondition::TimedOut) => consequences(
                     ConnectionEvent::ConnectionFailed { at },
                     failed(SubmissionFailure::TimedOut),
                 ),
-                other => consequences(connection_event(other, at), vec![]),
+                SubmissionCondition::Archive(other) => consequences(connection_event(other, at), vec![]),
             }
         }
         ArchiveAnswer::Lookup { answer: Err(condition) }
@@ -271,7 +265,6 @@ fn connection_event(condition: ArchiveCondition, at: Timestamp) -> ConnectionEve
         ArchiveCondition::ConnectionFailed
         | ArchiveCondition::TimedOut
         | ArchiveCondition::ServerError
-        | ArchiveCondition::DigestDisagreement
         | ArchiveCondition::ProtocolViolation { .. } => ConnectionEvent::ConnectionFailed { at },
     }
 }
@@ -622,32 +615,32 @@ mod tests {
             ),
             (
                 "PUT 422 fails the content and answers the connection",
-                submission(Err(Condition::DigestDisagreement)),
+                submission(Err(SubmissionCondition::DigestDisagreement)),
                 (Event::Answered, failed(SubmissionFailure::DigestDisagreement)),
             ),
             (
                 "PUT 500 fails the content and answers the connection",
-                submission(Err(Condition::ServerError)),
+                submission(Err(Condition::ServerError.into())),
                 (Event::Answered, failed(SubmissionFailure::ServerError)),
             ),
             (
                 "PUT timeout fails the content and the connection",
-                submission(Err(Condition::TimedOut)),
+                submission(Err(Condition::TimedOut.into())),
                 (Event::ConnectionFailed { at }, failed(SubmissionFailure::TimedOut)),
             ),
             (
                 "PUT 401 suspends and leaves the content",
-                submission(Err(Condition::CredentialRefused)),
+                submission(Err(Condition::CredentialRefused.into())),
                 (Event::CredentialRefused { at }, vec![]),
             ),
             (
                 "PUT 503 defers and leaves the content",
-                submission(Err(Condition::ServiceUnavailable { retry_after })),
+                submission(Err(Condition::ServiceUnavailable { retry_after }.into())),
                 (Event::ServiceUnavailable { retry_after, at }, vec![]),
             ),
             (
                 "PUT connection failure leaves the content",
-                submission(Err(Condition::ConnectionFailed)),
+                submission(Err(Condition::ConnectionFailed.into())),
                 (Event::ConnectionFailed { at }, vec![]),
             ),
             (
