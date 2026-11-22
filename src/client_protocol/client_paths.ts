@@ -38,10 +38,11 @@ interface RouteDefinition extends Omit<MatchedRoute, "route"> {
 	route: (match: RegExpExecArray) => ClientRoute
 }
 
-const routeDefinitions: ReadonlyArray<RouteDefinition> = [
+export const clientRouteDefinitions: ReadonlyArray<RouteDefinition> = [
+	// The lowest level, so every token can ask what it may do.
 	{
 		method: "GET",
-		level: "read",
+		level: "ingest",
 		pattern: new RegExp(`^${CLIENT_PATH_PREFIX}/authorization$`),
 		route: () => ({ kind: "authorization" }),
 	},
@@ -82,7 +83,7 @@ const routeDefinitions: ReadonlyArray<RouteDefinition> = [
 ]
 
 export function matchClientRoute(pathname: string): MatchedRoute | undefined {
-	for (const { pattern, route, ...requirements } of routeDefinitions) {
+	for (const { pattern, route, ...requirements } of clientRouteDefinitions) {
 		const match = pattern.exec(pathname)
 		if (match) return { ...requirements, route: route(match) }
 	}

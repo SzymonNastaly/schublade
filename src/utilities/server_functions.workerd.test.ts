@@ -72,13 +72,13 @@ test("each server function of the failed documents and the document page refuses
 	Object.assign(env, { SEARCH_INDEX: createInMemorySearchIndex().searchIndex })
 	const record = { kind: "sender", recordId }
 	const cases = {
-		retrieveFailedDocuments: [retrieveFailedDocuments, undefined, token("read"), undefined],
-		retrieveFailedDocumentCount: [retrieveFailedDocumentCount, undefined, token("read"), undefined],
-		retrieveDocument: [retrieveDocument, undefined, token("read"), { documentId }],
-		retrieveDocumentStatuses: [retrieveDocumentStatuses, undefined, token("read"), { documentIds: [documentId] }],
-		submitDocumentRevision: [submitDocumentRevision, token("ingest"), token("modify"), { documentId }],
-		submitDocumentIngestionRetry: [submitDocumentIngestionRetry, token("ingest"), token("modify"), { documentId }],
-		submitTaxonomyRename: [submitTaxonomyRename, token("ingest"), token("modify"), { ...record, name: "Werkhof" }],
+		retrieveFailedDocuments: [retrieveFailedDocuments, token("ingest"), token("read"), undefined],
+		retrieveFailedDocumentCount: [retrieveFailedDocumentCount, token("ingest"), token("read"), undefined],
+		retrieveDocument: [retrieveDocument, token("ingest"), token("read"), { documentId }],
+		retrieveDocumentStatuses: [retrieveDocumentStatuses, token("ingest"), token("read"), { documentIds: [documentId] }],
+		submitDocumentRevision: [submitDocumentRevision, token("read"), token("modify"), { documentId }],
+		submitDocumentIngestionRetry: [submitDocumentIngestionRetry, token("read"), token("modify"), { documentId }],
+		submitTaxonomyRename: [submitTaxonomyRename, token("read"), token("modify"), { ...record, name: "Werkhof" }],
 		submitTaxonomyMerge: [
 			submitTaxonomyMerge,
 			token("modify"),

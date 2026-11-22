@@ -45,7 +45,7 @@ const environment = {
 	ACCESS_AUD: "4714c1358e65fe4b408ad6d432a5f878f08194bdb4752441fd56faefa9b2b6f2",
 }
 const database = connectDatabase(env.DATABASE)
-const tokens = { unrestricted: "", invoicesOnly: "", readOnly: "" }
+const tokens = { unrestricted: "", invoicesOnly: "" }
 
 /** Issues a token and gives it the scope, as no member can yet in Settings. */
 async function issueScopedToken(description: string, authorizationScope: AuthorizationScope) {
@@ -166,9 +166,8 @@ beforeAll(async () => {
 	await env.DOCUMENT_STORAGE.put(contentObjectKey(note), "# Note", {
 		httpMetadata: { contentType: "text/markdown; charset=utf-8" },
 	})
-	tokens.unrestricted = (await issueApiToken(database, { description: "MacBook of Jonas", level: "ingest" })).token
+	tokens.unrestricted = (await issueApiToken(database, { description: "MacBook of Jonas", level: "read" })).token
 	tokens.invoicesOnly = await issueScopedToken("Tax adviser", { level: "read", allowedCategories: [invoice] })
-	tokens.readOnly = await issueScopedToken("Reader", { level: "read" })
 })
 
 function send(path: string, init: { token?: string; method?: string; headers?: Record<string, string> } = {}) {
@@ -209,53 +208,18 @@ test("the authorization and a page of changes equal the wire fixtures that the n
 	})
 })
 
-const newRoutes = [
-	"/api/v1/authorization",
-	"/api/v1/changes",
-	`/api/v1/documents/${note}/original`,
-	`/api/v1/documents/${note}/text`,
-	`/api/v1/documents/${note}/thumbnail`,
-]
-
-test("each new route refuses a missing token and another method, a read token reads but cannot ingest, and a document outside the scope is not found", async () => {
-	const missingToken = await Promise.all(newRoutes.map((path) => send(path)))
-	const otherMethod = await Promise.all(
-		newRoutes.map((path) => send(path, { token: tokens.unrestricted, method: "POST" })),
+test("a document outside a token's scope is not found on any representation route, and one inside it is served", async () => {
+	const representations = ["original", "text", "thumbnail"]
+	const outsideScope = await Promise.all(
+		representations.map((name) => send(`/api/v1/documents/${note}/${name}`, { token: tokens.invoicesOnly })),
 	)
-	const readToken = await Promise.all(newRoutes.map((path) => send(path, { token: tokens.readOnly })))
-	const readTokenIngesting = await send("/api/v1/contents/lookup", { token: tokens.readOnly, method: "POST" })
-	const outsideScope = await Promise.all(newRoutes.slice(2).map((path) => send(path, { token: tokens.invoicesOnly })))
 	const insideScope = await send(`/api/v1/documents/${statement}/text`, { token: tokens.invoicesOnly })
 
 	expect({
-		missingToken: await Promise.all(missingToken.map(answer)),
-		challenges: missingToken.map((response) => response.headers.get("WWW-Authenticate")),
-		otherMethod: await Promise.all(otherMethod.map(answer)),
-		allow: otherMethod.map((response) => response.headers.get("Allow")),
-		readToken: readToken.map((response) => response.status),
-		readTokenIngesting: await answer(readTokenIngesting),
 		outsideScope: await Promise.all(outsideScope.map(answer)),
 		insideScope: await answer(insideScope),
 	}).toEqual({
-		missingToken: newRoutes.map(() => ({
-			status: 401,
-			contentType: "application/problem+json",
-			body: '{"type":"about:blank","title":"Unauthorized","status":401,"detail":"Send a valid API token in the Authorization header"}',
-		})),
-		challenges: newRoutes.map(() => "Bearer"),
-		otherMethod: newRoutes.map(() => ({
-			status: 405,
-			contentType: "application/problem+json",
-			body: '{"type":"about:blank","title":"Method Not Allowed","status":405,"detail":"Send this request with GET"}',
-		})),
-		allow: newRoutes.map(() => "GET"),
-		readToken: [200, 200, 200, 200, 200],
-		readTokenIngesting: {
-			status: 403,
-			contentType: "application/problem+json",
-			body: '{"type":"about:blank","title":"Forbidden","status":403,"detail":"The API token does not permit ingesting documents"}',
-		},
-		outsideScope: newRoutes.slice(2).map(() => ({
+		outsideScope: representations.map(() => ({
 			status: 404,
 			contentType: "application/problem+json",
 			body: `{"type":"about:blank","title":"Not Found","status":404,"detail":"No document has the identifier ${note}"}`,

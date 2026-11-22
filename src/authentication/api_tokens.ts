@@ -13,8 +13,13 @@ const bearerPattern = /^Bearer +(\S+)$/i
 // Recording every use would write to D1 on each upload, so a use within the hour is not recorded.
 const LAST_USE_RECORDING_INTERVAL_MILLISECONDS = 60 * 60 * 1000
 
-/** Members can issue only ingestion tokens until the operations that need the other levels exist. */
-const issuableLevels = ["ingest"] as const satisfies ReadonlyArray<PermissionLevel>
+/**
+ * A member issues a token that only adds documents, or one that also reads the archive. No route
+ * for a token needs a level above read.
+ */
+const issuableLevels = ["ingest", "read"] as const satisfies ReadonlyArray<PermissionLevel>
+
+export type IssuableLevel = (typeof issuableLevels)[number]
 
 export const apiTokenIssuanceSchema = z.strictObject({
 	description: z.string().trim().min(1).max(200),

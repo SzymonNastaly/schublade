@@ -177,7 +177,7 @@ const invoiceOnly: Array<[string, string]> = [
 	["allowedCategories", invoiceCategory],
 ]
 
-test("a client granted one category reads nothing else through search, listing, filter options, or reading", async () => {
+test("a client granted one category reads nothing else through search, listing, filter options, or reading, and its token adds no document", async () => {
 	await prepareArchive()
 
 	const { accessToken } = await authorizeClient(invoiceOnly)
@@ -191,6 +191,11 @@ test("a client granted one category reads nothing else through search, listing, 
 	const options = await parsedText<{ categories: Array<{ name: string }> }>(accessToken, "list_filter_options")
 	const reading = await parsedText<{ markdown: string }>(accessToken, "read_document", { documentId: invoice })
 	const refusedReading = await toolResult(accessToken, "read_document", { documentId: medicalLetter })
+	const grantBearer = { Authorization: `Bearer ${accessToken}` }
+	const adding = [
+		await send("/api/documents/ingest", { method: "POST", headers: grantBearer }),
+		await send(`/api/v1/contents/${"0".repeat(64)}`, { method: "PUT", headers: grantBearer, body: "%PDF-1.7" }),
+	]
 
 	expect({
 		found,
@@ -199,6 +204,7 @@ test("a client granted one category reads nothing else through search, listing, 
 		categories: options.categories.map((category) => category.name),
 		markdown: reading.markdown,
 		refusedReading,
+		adding: adding.map((response) => response.status),
 	}).toEqual({
 		found: [expect.objectContaining({ id: invoice, matchingPassage: `Passage of ${invoice}` })],
 		indexFilter: { category: { $in: [invoiceCategory] } },
@@ -209,6 +215,7 @@ test("a client granted one category reads nothing else through search, listing, 
 		categories: ["Invoice"],
 		markdown: "# Werkhof invoice text",
 		refusedReading: { isError: true, text: `There is no document ${medicalLetter}` },
+		adding: [401, 401],
 	})
 })
 

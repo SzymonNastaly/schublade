@@ -6,7 +6,7 @@ The routes under `/api/v1` that a native client reaches with a bearer token, agr
 
 | Method | Path                                   | Level  | Success           | Other answers of the route  |
 | ------ | -------------------------------------- | ------ | ----------------- | --------------------------- |
-| GET    | `/api/v1/authorization`                | read   | 200               | 400                         |
+| GET    | `/api/v1/authorization`                | ingest | 200               | 400                         |
 | GET    | `/api/v1/changes`                      | read   | 200               | 400, 403, 410               |
 | GET    | `/api/v1/documents/{id}/original`      | read   | 200, 304          | 400, 404, 409               |
 | GET    | `/api/v1/documents/{id}/text`          | read   | 200, 304          | 400, 404                    |
@@ -17,7 +17,7 @@ The routes under `/api/v1` that a native client reaches with a bearer token, agr
 
 Every route also answers 401, 403 for a token below its level, 405, and 500. `{id}` is a lowercase UUID, `[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}`. `{sha256}` is 64 lowercase hexadecimal digits, `[0-9a-f]{64}`. The last three routes are the collector's and are unchanged, byte for byte.
 
-`src/client_protocol/client_paths.ts` holds the one route table. Each route has an anchored pattern, its method, and its level, so a route cannot exist without a level. No route requires a level above `ingest` yet, and none can be below `read`, so a read route admits every token. `request_dispatch.ts` admits a request without Access only when its pathname matches one pattern exactly. A trailing slash, uppercase hexadecimal, another case, and any other path under `/api/v1` stay behind `requireAccess`.
+`src/client_protocol/client_paths.ts` holds the one route table. Each route has an anchored pattern, its method, and its level, so a route cannot exist without a level. No route requires a level above `read` yet. `ingest` is the lowest level, so the authorization route admits every token, and the four routes that read the archive refuse a token that only adds documents. `request_dispatch.ts` admits a request without Access only when its pathname matches one pattern exactly. A trailing slash, uppercase hexadecimal, another case, and any other path under `/api/v1` stay behind `requireAccess`.
 
 ## The wire fixtures
 
@@ -31,8 +31,21 @@ One gate in `src/client_protocol/client_requests.ts` answers every route in this
 
 1. **Method.** Another method on a matched path answers 405 with `Allow: <method>` and the detail "Send this request with GET".
 2. **Token.** `Authorization: Bearer schublade_…`. A missing, malformed, unknown, or revoked token answers 401 with `WWW-Authenticate: Bearer` and the detail "Send a valid API token in the Authorization header". The answer is the same for all four, so it reveals no token.
-3. **Level.** The levels are ordered `read`, `ingest`, `modify`, `administer`, and each grants every permission of the levels before it (`permits` in `src/authorization/caller_authorization.ts`). A token below the route's level answers 403 with "The API token does not permit reading the archive" or "The API token does not permit ingesting documents". Members can issue only ingest tokens today, so every issued token passes every route.
+3. **Level.** The levels are ordered `ingest`, `read`, `modify`, `administer`, and each grants every permission of the levels before it (`permits` in `src/authorization/caller_authorization.ts`). A token below the route's level answers 403 with "The API token does not permit reading the archive". No token is below `ingest`. [What a token of each level can do](#what-a-token-of-each-level-can-do) has the table.
 4. **The route.** A handler that throws answers 500 with "The archive could not complete the request. Send it again." and logs the error.
+
+### What a token of each level can do
+
+The order follows how much of the household's papers a level exposes. Adding a document exposes nothing, so `ingest` is the lowest level, and reading is a grant a member makes on purpose.
+
+| Level    | Settings calls it                              | Routes it reaches                                                                                          |
+| -------- | ---------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| `ingest` | "Scanner, script, or Shortcut: adds documents" | `GET /api/v1/authorization`, the collector's three routes, and `POST /api/documents/ingest`                |
+| `read`   | "Schublade app: reads and adds documents"      | Every route of `ingest`, and `GET /api/v1/changes`, `/original`, `/text`, and `/thumbnail` of a document  |
+
+A token of level `ingest` never reads a title, a summary, a text, or an original. The document status route and the lookup answer it only an identifier, a status, and a failure reason. Settings issues both kinds, and the form starts with `ingest`. No route for a token needs `modify` or `administer`, and Settings issues neither.
+
+A token issued before 2026-11-22 has the level `ingest`. It keeps uploading and cannot read, so a native application that shows the library needs a new token of the level `read`.
 
 ### Problems
 
@@ -60,7 +73,7 @@ An archive deployed before a route lacks it. Its path then falls through to `req
 
 ## GET /api/v1/authorization
 
-What the token may do in which archive. A client sends it before it stores anything, for the library and the collector alike. It replaces the collector's former credential check, a lookup of the all-zero digest, which needs the ingest level and answers 503 during the digest backfill.
+What the token may do in which archive. A client sends it before it stores anything, for the library and the collector alike. The route needs only `ingest`, the lowest level, so every token can ask. A client reads `permission_level` before it requests anything else: with `ingest` it connects the collector alone and never requests the changes or a representation, and with `read` or a level above it connects the library as well. It replaces the collector's former credential check, a lookup of the all-zero digest, which needs the ingest level and answers 503 during the digest backfill.
 
 ```http
 GET /api/v1/authorization HTTP/1.1
@@ -74,7 +87,7 @@ Authorization: Bearer schublade_…
 	"journal_identifier": "fc26a0aaf01faa9625397c1e4322b36c",
 	"token": {
 		"description": "MacBook of Jonas",
-		"permission_level": "ingest",
+		"permission_level": "read",
 		"restricted": false,
 		"scope_digest": "6cd8cec706fa11110d83fb46f97df1f9be43b4c570f3390e7c7f6a5173f595e6"
 	}
@@ -85,7 +98,7 @@ Authorization: Bearer schublade_…
 | -------------------------- | ------- | ---------------------------------------------------------------------------------------------------------------------- |
 | `journal_identifier`       | string  | 32 lowercase hexadecimal digits that name the change journal of this database                                          |
 | `token.description`        | string  | The description the member gave the token in Settings                                                                  |
-| `token.permission_level`   | string  | `read`, `ingest`, `modify`, or `administer`                                                                            |
+| `token.permission_level`   | string  | `ingest`, `read`, `modify`, or `administer`, in ascending order                                                        |
 | `token.restricted`         | boolean | True when the token's scope holds any of `allowedCategories`, `allowedTags`, `deniedTags`, or `allowedSenders`          |
 | `token.scope_digest`       | string  | The SHA-256, as 64 lowercase hexadecimal digits, of what the token may see                                             |
 
@@ -437,7 +450,7 @@ A 202 and a 200 carry the body of the document status route and `Location: /api/
 | Answer                                          | The replica                                                                                                          | The collector                                       |
 | ----------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------- |
 | 401                                             | Suspends with a refused credential and requests nothing until a new token connects                                   | Suspends, as today                                  |
-| 403 with `application/problem+json`             | Suspends with an insufficient credential, keeps its copy, and requests nothing until a new token connects           | Suspends, as today                                  |
+| 403 with `application/problem+json`             | Suspends with an insufficient credential, keeps its copy, and requests nothing until a new token connects. A token of level `ingest` gets this answer on every reading route, so a client that read the authorization never causes it | Suspends, as today                                  |
 | 403 without `application/problem+json`          | `RouteUnknown`, because the archive is older than the route. The library says "Update your archive" and asks again hourly    | Counts `RouteUnknown` as a protocol violation       |
 | 404 on a representation                         | Refuses the representation. The document's removal, when it is one, arrives with the next page                       | Not applicable                                      |
 | 409 on an original                              | Refuses with "not available yet", because the archive has not printed the email                                               | On a PUT, records the content as deleted, as today  |

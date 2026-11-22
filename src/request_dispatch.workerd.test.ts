@@ -1,10 +1,10 @@
 import { applyD1Migrations, createExecutionContext, env, reset } from "cloudflare:test"
-import { eq } from "drizzle-orm"
 import { expect, inject, test } from "vitest"
 import scannedInvoice from "../test_fixtures/documents/electricity_invoice_scanned.pdf"
 import { issueApiToken } from "./authentication/api_tokens"
 import { connectDatabase } from "./database/client"
-import { apiTokens, documents } from "./database/schema"
+import { clientRouteDefinitions } from "./client_protocol/client_paths"
+import { documents } from "./database/schema"
 import { createRequestDispatcher } from "./request_dispatch"
 
 const context = createExecutionContext()
@@ -60,19 +60,13 @@ test("POST /api/documents/ingest archives the files of a request with an ingest 
 	})
 })
 
-test("POST /api/documents/ingest refuses a missing, unknown, or read-only token without storing a file", async () => {
+test("POST /api/documents/ingest refuses a missing or unknown token without storing a file", async () => {
 	const { database, environment } = await prepareArchive()
 	const unknownToken = `schublade_${"A".repeat(43)}`
-	const { token: readToken, listing } = await issueApiToken(database, { description: "Reader", level: "ingest" })
-	await database
-		.update(apiTokens)
-		.set({ authorizationScope: { level: "read" } })
-		.where(eq(apiTokens.id, listing.id))
 
 	const responses = [
 		await dispatch(uploadRequest("/api/documents/ingest", {}), environment),
 		await dispatch(uploadRequest("/api/documents/ingest", { Authorization: `Bearer ${unknownToken}` }), environment),
-		await dispatch(uploadRequest("/api/documents/ingest", { Authorization: `Bearer ${readToken}` }), environment),
 	]
 
 	expect({
@@ -84,7 +78,6 @@ test("POST /api/documents/ingest refuses a missing, unknown, or read-only token 
 		outcomes: [
 			{ status: 401, body: '{"error":"Send a valid API token in the Authorization header"}' },
 			{ status: 401, body: '{"error":"Send a valid API token in the Authorization header"}' },
-			{ status: 403, body: '{"error":"The API token does not permit ingesting documents"}' },
 		],
 		challenge: "Bearer",
 		storedDocuments: [],
@@ -136,54 +129,77 @@ test("every other path requires an Access assertion even with a valid token, and
 	])
 })
 
-test("the client routes authenticate a bearer token without an Access assertion, and refuse another method with 405", async () => {
-	const { environment, token } = await prepareArchive()
-	const bearer = { Authorization: `Bearer ${token}` }
-	const lookupBody = JSON.stringify({ sha256: ["b60d823ff8fc9d5e3f8979eb7be7fd57d31bcb959dcc0ec5260c4daf6ec98150"] })
-	const unknownDocument = "/api/v1/documents/00000000-0000-4000-8000-000000000000"
-	const reading = [
-		"/api/v1/authorization",
-		"/api/v1/changes",
-		`${unknownDocument}/original`,
-		`${unknownDocument}/text`,
-		`${unknownDocument}/thumbnail`,
-	]
+const DOCUMENT_IDENTIFIER = "4d1f0c9e-2a6b-4c3e-9a51-0b7f6e2d8c11"
+// The digest of test_fixtures/documents/electricity_invoice_scanned.pdf.
+const SCANNED_INVOICE_SHA256 = "3551f8806c62a6b604bfbeab63ececeac46ee9df4e7db1ff5835377ff07ab0ed"
 
-	const readingResponses = await Promise.all(
-		reading.map((path) => dispatch(new Request(`https://archive.test${path}`, { headers: bearer }), environment)),
-	)
-	const responses = [
-		await dispatch(
-			new Request("https://archive.test/api/v1/contents/lookup", { method: "POST", headers: bearer, body: lookupBody }),
-			environment,
-		),
-		await dispatch(
-			new Request(
-				"https://archive.test/api/v1/contents/3551f8806c62a6b604bfbeab63ececeac46ee9df4e7db1ff5835377ff07ab0ed",
-				{ method: "PUT", headers: bearer, body: scannedInvoice },
-			),
-			environment,
-		),
-		await dispatch(new Request(`https://archive.test${unknownDocument}`, { headers: bearer }), environment),
-		await dispatch(new Request("https://archive.test/api/v1/contents/lookup", { headers: bearer }), environment),
-		await dispatch(
-			new Request("https://archive.test/api/v1/contents/lookup", { method: "POST", body: lookupBody }),
-			environment,
-		),
-	]
+/** A path that the pattern of a client route matches, written from the pattern's own source. */
+function matchingPath(pattern: RegExp): string {
+	const path = pattern.source
+		.replace(/^\^|\$$/g, "")
+		.replaceAll("\\/", "/")
+		.replace("([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})", DOCUMENT_IDENTIFIER)
+		.replace("([0-9a-f]{64})", SCANNED_INVOICE_SHA256)
+		.replace("(original|text|thumbnail)", "original")
+	if (!/^[a-z0-9/-]+$/.test(path)) throw new Error(`Give matchingPath a value for each parameter of ${pattern.source}`)
+	return path
+}
 
-	expect({
-		readingStatuses: readingResponses.map((response) => response.status),
-		statuses: responses.map((response) => response.status),
-		allow: responses[3]?.headers.get("Allow"),
-		challenge: responses[4]?.headers.get("WWW-Authenticate"),
-		problemTypes: responses.slice(3).map((response) => response.headers.get("Content-Type")),
-	}).toEqual({
-		readingStatuses: [200, 200, 404, 404, 404],
-		statuses: [200, 202, 404, 405, 401],
-		allow: "POST",
-		challenge: "Bearer",
-		problemTypes: ["application/problem+json", "application/problem+json"],
+// Every route of the table appears here with what a token of each level gets, so a new route, a
+// changed level, and a pattern that lost an anchor all fail this test.
+test("every client route answers 401 without a token, 405 to another method, and 403 to a token below its level, and a path around its pattern stays behind Access", async () => {
+	const { database, environment, token: ingestToken } = await prepareArchive()
+	const { token: readToken } = await issueApiToken(database, { description: "Schublade app", level: "read" })
+	const bodies: Record<string, BodyInit | undefined> = {
+		POST: JSON.stringify({ sha256: [SCANNED_INVOICE_SHA256] }),
+		PUT: scannedInvoice,
+	}
+	const send = (method: string, path: string, token?: string) =>
+		dispatch(
+			new Request(`https://archive.test${path}`, {
+				method,
+				headers: token === undefined ? {} : { Authorization: `Bearer ${token}` },
+				body: bodies[method],
+			}),
+			environment,
+		)
+	const refusal = (response: Response, header: string) =>
+		`${response.status} ${response.headers.get("Content-Type")} ${header}: ${response.headers.get(header)}`
+	const admission = async (response: Response) =>
+		response.status === 403 ? (await response.json<{ detail: string }>()).detail : response.status
+
+	const answers: Record<string, unknown> = {}
+	for (const { method, pattern } of clientRouteDefinitions) {
+		const path = matchingPath(pattern)
+		answers[`${method} ${path}`] = {
+			withoutToken: refusal(await send(method, path), "WWW-Authenticate"),
+			otherMethod: refusal(await send(method === "GET" ? "POST" : "GET", path, readToken), "Allow"),
+			ingestToken: await admission(await send(method, path, ingestToken)),
+			readToken: await admission(await send(method, path, readToken)),
+			aroundThePattern: [
+				await (await send(method, `/x${path}`, readToken)).text(),
+				await (await send(method, `${path}/x`, readToken)).text(),
+			],
+		}
+	}
+
+	const shared = (method: string) => ({
+		withoutToken: "401 application/problem+json WWW-Authenticate: Bearer",
+		otherMethod: `405 application/problem+json Allow: ${method}`,
+		aroundThePattern: ["Access denied: assertion_missing", "Access denied: assertion_missing"],
+	})
+	const readingRefused = "The API token does not permit reading the archive"
+	expect(answers).toEqual({
+		"GET /api/v1/authorization": { ...shared("GET"), ingestToken: 200, readToken: 200 },
+		"GET /api/v1/changes": { ...shared("GET"), ingestToken: readingRefused, readToken: 200 },
+		[`GET /api/v1/documents/${DOCUMENT_IDENTIFIER}/original`]: {
+			...shared("GET"),
+			ingestToken: readingRefused,
+			readToken: 404,
+		},
+		"POST /api/v1/contents/lookup": { ...shared("POST"), ingestToken: 200, readToken: 200 },
+		[`PUT /api/v1/contents/${SCANNED_INVOICE_SHA256}`]: { ...shared("PUT"), ingestToken: 202, readToken: 200 },
+		[`GET /api/v1/documents/${DOCUMENT_IDENTIFIER}`]: { ...shared("GET"), ingestToken: 404, readToken: 404 },
 	})
 })
 

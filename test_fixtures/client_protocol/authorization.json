@@ -2,7 +2,7 @@
 	"journal_identifier": "fc26a0aaf01faa9625397c1e4322b36c",
 	"token": {
 		"description": "MacBook of Jonas",
-		"permission_level": "ingest",
+		"permission_level": "read",
 		"restricted": false,
 		"scope_digest": "6cd8cec706fa11110d83fb46f97df1f9be43b4c570f3390e7c7f6a5173f595e6"
 	}

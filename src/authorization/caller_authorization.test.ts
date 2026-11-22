@@ -4,23 +4,26 @@ import type { Caller, PermissionLevel } from "./caller_authorization"
 
 const ingestToken: Caller = { kind: "api_token", tokenId: "token-1", scope: { level: "ingest" } }
 const readToken: Caller = { kind: "api_token", tokenId: "token-2", scope: { level: "read" } }
+const grant: Caller = { kind: "oauth_grant", scope: { level: "read" } }
 const mail: Caller = { kind: "inbound_mail", senderAddress: "member@example.com" }
 const member: Caller = { kind: "member_session" }
 
-test("permits a caller every level up to its own and no level above it", () => {
-	const levels: Array<PermissionLevel> = ["read", "ingest", "modify", "administer"]
+test("permits a caller every level up to its own and no level above it, so an ingest token and mail never read", () => {
+	const levels: Array<PermissionLevel> = ["ingest", "read", "modify", "administer"]
 	const grants = (caller: Caller) => levels.filter((level) => permits(caller, level))
 
 	expect({
 		ingestToken: grants(ingestToken),
 		readToken: grants(readToken),
+		grant: grants(grant),
 		mail: grants(mail),
 		member: grants(member),
 	}).toEqual({
-		ingestToken: ["read", "ingest"],
-		readToken: ["read"],
-		mail: ["read", "ingest"],
-		member: ["read", "ingest", "modify", "administer"],
+		ingestToken: ["ingest"],
+		readToken: ["ingest", "read"],
+		grant: ["ingest", "read"],
+		mail: ["ingest"],
+		member: ["ingest", "read", "modify", "administer"],
 	})
 })
 

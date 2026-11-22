@@ -26,7 +26,7 @@ import {
 	revokeAuthorizedClientRecord,
 } from "../utilities/server_functions"
 import { MODEL_CONTEXT_PROTOCOL_PATH } from "../model_context_protocol/authorization_server_paths"
-import type { ApiTokenListing } from "../authentication/api_tokens"
+import type { ApiTokenListing, IssuableLevel } from "../authentication/api_tokens"
 import type { AuthorizedClientListing } from "../model_context_protocol/authorization_grants"
 import type { ReactNode } from "react"
 
@@ -39,11 +39,17 @@ export const Route = createFileRoute("/settings")({
 })
 
 const levelLabels: Record<ApiTokenListing["level"], string> = {
-	read: "Read",
-	ingest: "Ingest documents",
+	ingest: "Adds documents",
+	read: "Reads and adds documents",
 	modify: "Modify",
 	administer: "Administer",
 }
+
+/** The first choice is the one the form starts with, so reading the archive is always chosen by a person. */
+const issuanceChoices = [
+	{ value: "ingest", label: "Scanner, script, or Shortcut: adds documents" },
+	{ value: "read", label: "Schublade app: reads and adds documents" },
+] as const satisfies ReadonlyArray<{ value: IssuableLevel; label: string }>
 
 const headerCell = "py-2 pr-3 text-left font-bold first:pl-3.5"
 const bodyCell = "py-1.5 pr-3 first:pl-3.5 @max-2xl:py-0.5 @max-2xl:pl-3.5 @max-2xl:text-fine @max-2xl:text-caption"
@@ -84,11 +90,12 @@ function PhoneCaption({ children }: { children: string }) {
 function TokenIssuance() {
 	const router = useRouter()
 	const [description, setDescription] = useState("")
+	const [level, setLevel] = useState<IssuableLevel>(issuanceChoices[0].value)
 	const issuance = useMutation({
-		mutationFn: (issuedDescription: string) =>
-			issueApiTokenRecord({ data: { description: issuedDescription, level: "ingest" } }),
+		mutationFn: (issued: { description: string; level: IssuableLevel }) => issueApiTokenRecord({ data: issued }),
 		onSuccess: () => {
 			setDescription("")
+			setLevel(issuanceChoices[0].value)
 			void router.invalidate()
 		},
 	})
@@ -97,17 +104,24 @@ function TokenIssuance() {
 			className="flex flex-col gap-3"
 			onSubmit={(event) => {
 				event.preventDefault()
-				if (description.trim() !== "") issuance.mutate(description.trim())
+				if (description.trim() !== "") issuance.mutate({ description: description.trim(), level })
 			}}
 		>
-			<div className="grid grid-cols-1 gap-3 rounded-list border border-table-border bg-menu-row p-3.5 md:grid-cols-[1fr_16rem_auto] md:items-end">
+			<div className="grid grid-cols-1 gap-3 rounded-list border border-table-border bg-menu-row p-3.5 md:grid-cols-[1fr_22rem_auto] md:items-end">
 				<TextField
 					label="Description"
 					placeholder="QuickScan on Jonas's phone"
 					value={description}
 					onChange={(event) => setDescription(event.target.value)}
 				/>
-				<SelectionField label="Permission" options={[{ value: "ingest", label: levelLabels.ingest }]} />
+				<SelectionField
+					label="Token for"
+					options={issuanceChoices}
+					value={level}
+					onChange={(event) =>
+						setLevel(issuanceChoices.find((choice) => choice.value === event.target.value)?.value ?? level)
+					}
+				/>
 				<ActionButton type="submit" variant="primary" icon={KeyIcon} stretchOnPhone pending={issuance.isPending}>
 					Issue token
 				</ActionButton>
@@ -137,7 +151,7 @@ function TokenTable({ tokens }: { tokens: Array<ApiTokenListing> }) {
 				<EmptyState
 					icon={<KeyIcon size={32} />}
 					title="No tokens"
-					description="Issue a token for a scanner or script."
+					description="Issue a token for a scanner, a script, or the Schublade app."
 				/>
 			</ListFrame>
 		)
@@ -266,7 +280,8 @@ function SettingsPage() {
 					</div>
 					<p className="max-w-[760px] text-field-label">
 						A scanner, a script, or an Apple Shortcut uploads documents to POST /api/documents/ingest with the header
-						Authorization: Bearer followed by the token.
+						Authorization: Bearer followed by the token. Its token adds documents and reads nothing. The Schublade app
+						needs a token of its own, which reads every document of the archive and adds documents.
 					</p>
 					<TokenIssuance />
 					<TokenTable tokens={tokens} />

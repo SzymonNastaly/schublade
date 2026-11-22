@@ -1,7 +1,11 @@
 import { z } from "zod"
 
-/** Each level grants every permission of the levels before it. */
-const permissionLevels = ["read", "ingest", "modify", "administer"] as const
+/**
+ * Ordered by how much of the household's papers a level exposes, and each level grants every
+ * permission of the levels before it. `ingest` adds documents and reads nothing, so a token made
+ * for a scanner never reads the archive. `read` reads the archive and adds to it.
+ */
+const permissionLevels = ["ingest", "read", "modify", "administer"] as const
 
 export type PermissionLevel = (typeof permissionLevels)[number]
 

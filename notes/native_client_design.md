@@ -22,7 +22,7 @@ Jonas opens Schublade from the Dock. The window is where he left it, on All Docu
 
 In the evening he scans six letters into Paperwork. The drawer's glyph shows a sheet sinking in. He clicks it and sees six titles under Recently Added, the first still arriving. On the train, without a network, he searches for the tax assessment and reads it, because he opened it last week. A document he never opened says "The Original Is Not on This Mac", and its details and text are there.
 
-The first time, the whole window is a form with the archive's address and a token from the archive's Settings. Connect checks both against the archive before anything is stored. A token that may only read connects the library, and Folders on This Mac then says that this token cannot add documents.
+The first time, the whole window is a form with the archive's address and a token from the archive's Settings. Connect checks both against the archive before anything is stored. A token that may only add documents connects the collector only, and the library says that the token cannot read.
 
 ### The Swift application, of the bindings
 
@@ -180,7 +180,7 @@ A person opens Schublade to find a document and read it, and to see that new pap
 
 Each of the following stays in the browser, and the window has Open in Browser where a person would look for it, so nothing is a dead end.
 
-- **Revising a document's details, deleting it, and retrying a failed one.** They need `modify` and `administer`, and members can issue only ingest tokens (`issuableLevels` in `src/authentication/api_tokens.ts`). A read-only copy needs no rules for edits made on two devices.
+- **Revising a document's details, deleting it, and retrying a failed one.** They need `modify` and `administer`, and members can issue only tokens of the levels `ingest` and `read` (`issuableLevels` in `src/authentication/api_tokens.ts`). A read-only copy needs no rules for edits made on two devices.
 - **Renaming, merging, and deleting senders, categories, and tags.** Housekeeping a few times a year. The application shows the result within a minute.
 - **Tokens and connected clients.** Administration of the archive, not use of it.
 - **Uploading by hand.** A person puts the file into a collected folder. A drop on the window needs a path the collector's settled behaviour does not have, because a person's upload brings a deleted document back and a collector's never does.
@@ -503,10 +503,10 @@ impl ApplicationCore {
 2. Read `GET /api/v1/authorization` with the token. A failure answers its refusal, and nothing is stored.
 3. Refuse with `ArchiveDiffers { connected_host }` while the collector holds folders or contents of another origin. The collector stays with its first archive.
 4. Store the token under the origin.
-5. Connect the collector when the token may ingest and a collector exists.
-6. Attach the replica. It keeps its copy when the journal's identifier and the scope digest equal the ones it was filled under, and empties it otherwise.
+5. Connect the collector when a collector exists. Every token may add documents, because `ingest` is the lowest level.
+6. Attach the replica when the token's level is `read` or above. It keeps its copy when the journal's identifier and the scope digest equal the ones it was filled under, and empties it otherwise.
 
-A token that may only read connects the library and leaves the collector unconnected, which Folders on This Mac says. The start repairs a crash between the two halves. When the mirror records an archive whose permission allows ingest and the collector has none, it connects the collector with the stored credential. Unit 1's exported `start_collector` and `Collector::connect_archive` stop being exported, so there is one way to start and one way to connect.
+A token that may only add documents connects the collector only, and the library says that the token cannot read. The start repairs a crash between the two halves. When the mirror records an archive whose permission allows ingest and the collector has none, it connects the collector with the stored credential. Unit 1's exported `start_collector` and `Collector::connect_archive` stop being exported, so there is one way to start and one way to connect.
 
 `ConnectionRefusal` keeps unit 1's cases (`AddressInvalid`, `TokenRefused`, `TokenInsufficient`, `ArchiveUnreachable`, `ArchiveUnavailable`, `ArchiveFailed`, `NotAnArchive`, `ArchiveDiffers { connected_host }`, `CredentialStorageFailed { detail }`), gains `ArchiveOutdated`, and its `Collector { fault }` becomes `Application { fault: ApplicationFault }`. `ApplicationFault` (was `CollectorFault`) is `Stopped`, `StoreFailed { detail }`, or `Unexpected { detail }`, and every call can answer it. `ApplicationStartFailure` is unit 1's `CollectorStartFailure` (`DataDirectoryUnavailable`, `DatabaseInUse`, `DatabaseNewerThanApplication`, `DatabaseUnusable`, `WatcherUnavailable`) with `CacheDirectoryUnavailable { detail }` and `Unexpected { detail }`.
 
@@ -644,7 +644,7 @@ The compiler carries most of the weight: exhaustive switches over generated enum
 | The machine: a refused token requests nothing, and a person's wake retries at once                                                                                     | `archive_replica`, pure                            | The policy                                        |
 | The difference of two listings, applied to the first, gives the second                                                                                                 | `archive_replica`, generated listings              | Every animated update of the list                 |
 | A read for the current revision waits for the next change, the first read answers at once, and following never goes back                                              | `application_bindings`, for each part              | The loops every screen rests on                   |
-| A read token connects the library only, and another origin is refused while the collector holds records                                                               | `application_bindings`                             | The one connection flow                           |
+| An ingest token connects the collector only, and another origin is refused while the collector holds records                                                          | `application_bindings`                             | The one connection flow                           |
 | Shutdown ends every read, and every refusal of a core reaches the command that caused it                                                                                | `application_bindings`                             | Termination and the refusal mapping               |
 | The confirmation's sentences, counts, and grouping; "everything is collected" only when true; the status line's sentence and precedence; the row's third line; which content shows; the glyph's precedence, the end of the animation, and Reduce Motion; which launch opens the window | `ApplicationPresentationTests` | What the application claims |
 | Connect, see the corpus's documents, select one, read its original, enroll a folder, decide, see its documents arrive in the list                                       | `ApplicationEndToEndTests`                         | Everything together                               |
@@ -761,6 +761,13 @@ Unit S1, the journal, landed as commit `70144d1`. Unit S2, the client protocol, 
 - `collection_protocol/` is part of `src/client_protocol/`: `client_paths.ts` holds the one route table with each route's method and level, and `client_requests.ts` the one gate. `deniedTagsAllExist` moved from `archive_tools.ts` to `document_listing.ts`, and `document_representation.ts` exposes `readStoredRepresentation` to both the browser's route and the client's.
 - The representation routes and the authorization answer 400 to a query parameter, as every route of the protocol does. The collector's three routes do not check query parameters, as before.
 
+A review of unit S2 on 2026-11-22 found that deploying it would let every token issued for a scanner read the whole archive, because the levels were ordered `read`, `ingest` and Settings issued only `ingest`. It changed these points, and `notes/client_protocol.md` says the same.
+
+- The levels are ordered `ingest`, `read`, `modify`, `administer`. A token of level `ingest` adds documents and reads nothing. A token of level `read` reads the archive and adds to it, which the application needs for its library and its collector.
+- `GET /api/v1/authorization` needs only `ingest`, so every token can ask what it may do. The changes and the three representations need `read`.
+- Settings issues two kinds of token, "Scanner, script, or Shortcut: adds documents" (`ingest`) and "Schublade app: reads and adds documents" (`read`).
+- `test_fixtures/client_protocol/authorization.json` now holds `"permission_level": "read"`, because its token, "MacBook of Jonas", reads the changes of the other fixture. `archive_access` must order `PermissionLevel` as `Ingest`, `Read`, `Modify`, `Administer`, the fixture test must expect `Read`, and the connection flow must attach the replica only for `read` or above.
+
 Unit R3's first half landed after S1 and S2: `archive_replica` with its store, its reader, its machine, and its coordinator, and `scripted_archive`. It changed these points of the design.
 
 - `archive_access` also holds `Timestamp`, `Clock`, `SystemClock`, and `ManualClock`, so both cores read one clock, and `ContentDigest`, `DocumentIdentifier`, `ArchiveAuthorization`, `PermissionLevel`, and `read_authorization`, which R2 had left in `collection_core` or unwritten. `collection_core` re-exports what it had. `ArchiveCredential` is still unwritten.
@@ -804,6 +811,8 @@ Unit R3's first half landed after S1 and S2: `archive_replica` with its store, i
 20. The application icon uses the classic icon set. macOS 26 draws its own material for an Icon Composer file, which only a graphical tool writes.
 21. `apply_page` compares the cursor alone, and before a first page both cursors are absent. A page requested before the copy started over would therefore apply to the new fill. The coordinator cannot hold such a page, because it requests and applies in one step. A second writer of the file, such as a background task on the iPhone, would need a count of fills in the mirror row.
 22. A token's scope cannot change today, so the copy trusts the scope digest it was attached with and never reads the authorization again. If Settings ever edits a token's scope, the replica must read the authorization when it follows.
+23. Every token issued before the level order changed has the level `ingest` and cannot read, the staging ingest token included. The first fill against staging therefore needs a token of level `read`, which only the owner can issue in the staging archive's Settings.
+24. `native_client/` still orders `PermissionLevel` as `Read`, `Ingest`, and its tests give a reading client the level `Ingest`. Until it follows the new order, `client_protocol_fixtures.rs` fails on the changed fixture.
 
 ## Next implementation step
 
