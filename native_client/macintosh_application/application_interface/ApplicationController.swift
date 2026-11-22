@@ -29,7 +29,7 @@ final class ApplicationController {
 
 	init(environment: ApplicationEnvironment) {
 		let gateway = ApplicationGateway()
-		let statusItem = StatusItemController()
+		let statusItem = StatusItemController(queries: gateway)
 		let mainWindowController = MainWindowController(
 			applicationCommands: gateway,
 			libraryQueries: gateway,
@@ -50,6 +50,16 @@ final class ApplicationController {
 
 		statusItem.onOpenWindow = { [weak mainWindowController] in
 			mainWindowController?.present()
+		}
+		statusItem.onOpenAction = { [weak mainWindowController] action in
+			mainWindowController?.open(action)
+		}
+		statusItem.onOpenDocument = { [weak mainWindowController] document in
+			mainWindowController?.show(.library(.allDocuments, title: nil), selecting: document)
+		}
+		statusItem.onAddFolder = { [weak mainWindowController] in
+			mainWindowController?.present()
+			mainWindowController?.workspaceController?.enrollFolderAction(nil)
 		}
 
 		statusItem.render(situation)

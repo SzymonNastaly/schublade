@@ -122,6 +122,7 @@ final class RendererFixtures {
 	static func makeCollectorStatus(
 		paperworkAdmission: FolderAdmission = .collecting,
 		attention: [AttentionItem] = [],
+		activities: [Activity] = [],
 		receipts: [Receipt] = []
 	) -> CollectorStatus {
 		CollectorStatus(
@@ -135,7 +136,7 @@ final class RendererFixtures {
 				documentsAwaitingSubmission: 0,
 				filesUnderExamination: 0
 			),
-			activities: [],
+			activities: activities,
 			attention: attention,
 			recentReceipts: receipts
 		)

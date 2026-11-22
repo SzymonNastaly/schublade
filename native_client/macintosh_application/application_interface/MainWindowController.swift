@@ -25,7 +25,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate {
 
 	private let containerController = WindowContainerViewController()
 	private var toolbarController: WorkspaceToolbarController?
-	private var workspaceController: LibraryWorkspaceViewController?
+	private(set) var workspaceController: LibraryWorkspaceViewController?
 
 	private var latestSituation = ApplicationSituation.starting
 	private var shownWorkspace: LibraryWorkspacePresentation?
@@ -35,10 +35,6 @@ final class MainWindowController: NSWindowController, NSWindowDelegate {
 	private var navigation = LibraryNavigationState()
 	private var activeScreen: Screen?
 	private(set) var isAttending = false
-
-	var activeWorkspaceController: LibraryWorkspaceViewController? {
-		workspaceController
-	}
 
 	init(
 		applicationCommands: any ApplicationCommands,
@@ -229,15 +225,22 @@ final class MainWindowController: NSWindowController, NSWindowDelegate {
 
 	/// Shows the page that settles what a notification or the menu reported.
 	func open(_ action: AttentionAction) {
-		present()
 		switch action {
 		case .replaceToken:
+			present()
 			beginTokenReplacement()
 		case let .decideBacklog(folder), let .openFolder(folder):
-			updateNavigation { navigation in
-				navigation.destination = .folder(folder)
-				navigation.selectedDocument = nil
-			}
+			show(.folder(folder), selecting: nil)
+		}
+	}
+
+	/// Shows the window on a destination, such as a document chosen in the menu bar item's menu.
+	func show(_ destination: NavigationDestination, selecting document: DocumentIdentifier?) {
+		present()
+		updateNavigation { navigation in
+			navigation.destination = destination
+			navigation.searchText = ""
+			navigation.selectedDocument = document
 		}
 	}
 }

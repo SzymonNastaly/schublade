@@ -870,6 +870,13 @@ Unit A3 (the collector's pages) landed with these points settled:
 - `CollectorNotices` decides the notifications: a folder whose survey finished, and a token the archive began to refuse, never for the first status after launch. `CollectorNotifier` posts them through `UNUserNotificationCenter` and opens the page that settles each one; the isolated environment never asks for permission.
 - The end-to-end test opens a folder's page as a notification does and presses the confirmation's upload, then returns to All Documents through the sidebar. It failed once in four runs on 2026-11-22, waiting for the document table right after connecting on the first run after a build; the cause is unknown.
 
+Unit A4 (the menu bar item) landed with these points settled:
+
+- `StatusItemPresentation` decides the glyph by the design's precedence from the statuses, with `ApplicationStatuses.attentionItems` deciding attention, so a refused or failing file is listed in the menu but leaves the glyph alone. `StatusItemAnimation` is the pure upload animation: a cycle that began finishes, a glyph that outranks the upload stops it at once, and Reduce Motion holds frame 4 with no timer.
+- `DrawerGlyph` draws the six glyphs and the eight frames as template images from the drawer of `menu_bar_template.svg`: dashed sheets while the archive does not answer, a slash across the empty drawer without an archive, a badge with an exclamation mark for attention, and an empty drawer while starting.
+- The menu reads the five newest documents from the library each time it opens. Settings… is not in it until A5 builds the Settings window.
+- `InterfaceRenderer` writes `status_item_glyphs_light.png`, `status_item_glyphs_dark.png`, and `status_item_menu.txt`.
+
 ## Open questions and risks
 
 1. **Resolved in unit R4.** `ApplicationCore::connect_archive` compares `Collector::locked_archive_origin` before calling `GET /api/v1/authorization`, so an unreachable second archive answers `ArchiveDiffers` whenever the collector already holds folders or contents of another archive.
@@ -901,7 +908,7 @@ Unit A3 (the collector's pages) landed with these points settled:
 
 ## Next implementation step
 
-Units S1 (`70144d1`) and S2 (`39dcb64`, `34bb9e5`, `c348c9b`) are committed, so the Worker serves every route the native client reads. Units R1 (`5d78532`), R2 (`d7af1cd`), R3 (`1dd9b4e`, `f4feb6b`, `a8d8ed8`), R4 (`81c20a5`, `5a253e0`), and A1 (`c9d463e` and this review-fix commit) are committed too: `archive_access`, `archive_replica`, united `scripted_archive` with `scripted-archive-server`, `application_bindings`, and the plain macOS window (`ApplicationGateway`, `ApplicationController`, `MainWindowController`, `ConnectionFormViewController`, `DocumentListViewController` over `DocumentListModel`) tested end-to-end against `scripted-archive-server`. A2, the library's window, and A3, the collector's pages, are committed too. Build A4 next: the menu bar item's glyphs, its animator, and its menu. Applying migrations 0008 and 0009 to staging and the deploy that serves the routes need the owner.
+Units S1 (`70144d1`) and S2 (`39dcb64`, `34bb9e5`, `c348c9b`) are committed, so the Worker serves every route the native client reads. Units R1 (`5d78532`), R2 (`d7af1cd`), R3 (`1dd9b4e`, `f4feb6b`, `a8d8ed8`), R4 (`81c20a5`, `5a253e0`), and A1 (`c9d463e` and this review-fix commit) are committed too: `archive_access`, `archive_replica`, united `scripted_archive` with `scripted-archive-server`, `application_bindings`, and the plain macOS window (`ApplicationGateway`, `ApplicationController`, `MainWindowController`, `ConnectionFormViewController`, `DocumentListViewController` over `DocumentListModel`) tested end-to-end against `scripted-archive-server`. A2, the library's window, A3, the collector's pages, and A4, the menu bar item, are committed too. Build A5 next: the lifecycle, the main menu, Settings, the login item, the launch origin, the wake, and the quit alert. Applying migrations 0008 and 0009 to staging and the deploy that serves the routes need the owner.
 
 Units 1 and 2 of the first design are committed (`7ce2f82`, `94ca40c`), and so are D (`1f9ce3a`), R1 (`5d78532`), and R2 (this commit). Two streams run side by side because they touch disjoint trees: the Worker (`src/`, `drizzle/`, `test_fixtures/`) and the native client (`collector/`, then `native_client/`). Each unit ends in its check and one commit on `main`.
 

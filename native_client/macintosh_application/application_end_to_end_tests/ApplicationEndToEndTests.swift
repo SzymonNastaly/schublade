@@ -180,7 +180,7 @@ private extension ApplicationEndToEndTests {
 		controller: ApplicationController,
 		server: ScriptedArchiveProcess
 	) async throws {
-		let workspace = try XCTUnwrap(controller.mainWindowController.activeWorkspaceController)
+		let workspace = try XCTUnwrap(controller.mainWindowController.workspaceController)
 		let updatesBefore = workspace.listController.incrementalUpdateCount
 		let existingRowCell = try XCTUnwrap(tableView.view(atColumn: 0, row: 1, makeIfNecessary: false))
 
