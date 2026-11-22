@@ -8,3 +8,7 @@ CODE_SIGN_IDENTITY = -
 DEVELOPMENT_TEAM =
 ENABLE_HARDENED_RUNTIME = YES
 #include? "local_signing.xcconfig"
+
+// Xcode adds the debugging entitlement get-task-allow to every build but an archive, and the notary
+// service refuses an application that requests it.
+CODE_SIGN_INJECT_BASE_ENTITLEMENTS[config=Release] = NO
