@@ -20,7 +20,6 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
 		}
 	}
 
-	/// The quick action of a running application.
 	func windowScene(
 		_: UIWindowScene,
 		performActionFor shortcutItem: UIApplicationShortcutItem,

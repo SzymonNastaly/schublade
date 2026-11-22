@@ -5,9 +5,7 @@ import UIKit
 import UniformTypeIdentifiers
 import XCTest
 
-/// What the share extension makes of the files a person shares.
 final class ShareIntakeTests: XCTestCase {
-	/// A PDF and a HEIC picture become two submissions, the picture a JPEG, and a text file is named.
 	/// The PDF's suggested name carries its extension, as Safari's does, and the name sent keeps one.
 	func testSharedFilesBecomeSubmissionsAndATextFileIsRefused() async throws {
 		let directory = URL.temporaryDirectory.appending(path: UUID().uuidString, directoryHint: .isDirectory)

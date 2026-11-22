@@ -2,7 +2,6 @@ import AppIntents
 import SwiftUI
 import WidgetKit
 
-/// The control in Control Center and on the Lock Screen that opens Schublade with the document camera.
 /// From the Lock Screen, the system asks for Face ID before the application opens.
 struct ScanDocumentControl: ControlWidget {
 	var body: some ControlWidgetConfiguration {

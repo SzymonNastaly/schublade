@@ -12,7 +12,6 @@ final class ShareViewController: UIViewController {
 		case refused(String)
 	}
 
-	/// One shared item the archive takes, and the type to load it as.
 	private struct AcceptedItem {
 		let provider: NSItemProvider
 		let type: UTType
@@ -185,7 +184,6 @@ final class ShareViewController: UIViewController {
 		}
 	}
 
-	/// Says which files could not be read, and lets the person close the sheet.
 	private func showUnsent(_ names: [String], sentCount: Int) {
 		messageLabel.text = "Schublade could not read \(ListFormatter.localizedString(byJoining: names))."
 		detailLabel.text = sentCount == 0 ? nil : "The other files are on their way to your archive."

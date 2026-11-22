@@ -65,7 +65,6 @@ final class SubmissionTests: XCTestCase {
 		await controller.gateway.shutdown()
 	}
 
-	/// Connecting records the archive where the share extension reads it while offline.
 	@MainActor
 	func testConnectingRecordsTheArchiveForTheShareExtension() async throws {
 		let environment = ApplicationEnvironment.isolated()

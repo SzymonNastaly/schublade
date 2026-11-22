@@ -22,7 +22,6 @@ struct ApplicationEnvironment {
 		let documents: URL?
 	}
 
-	/// The session the application sends in.
 	var sendingConfiguration: URLSessionConfiguration {
 		guard let backgroundTransfer else {
 			return .ephemeral

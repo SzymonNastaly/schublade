@@ -46,7 +46,6 @@ final class SubmissionCoordinator {
 		reload()
 	}
 
-	/// Hands the system's completion handler to the session it launched the application for.
 	func handleBackgroundEvents(session identifier: String, completion: @escaping @MainActor () -> Void) {
 		guard let transfer = transfers.first(where: { $0.sessionIdentifier == identifier }) else {
 			completion()

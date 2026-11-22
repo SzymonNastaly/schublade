@@ -147,7 +147,6 @@ final class SubmissionsViewController: UIViewController, UICollectionViewDelegat
 		cell.contentConfiguration = content
 	}
 
-	/// Shows the submissions and what the token permits, and again on their next change.
 	private func follow() {
 		withObservationTracking {
 			show(controller.submissions.entries, progress: controller.submissions.progress)

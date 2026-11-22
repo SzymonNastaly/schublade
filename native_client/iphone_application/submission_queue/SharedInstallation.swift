@@ -15,7 +15,6 @@ public struct SharedInstallation: Sendable {
 	public let applicationGroupIdentifier: String
 	public let keychainAccessGroup: String
 
-	/// Reads the three names from `bundle`'s Info.plist.
 	public static func read(from bundle: Bundle = .main) throws(ResolutionFailure) -> SharedInstallation {
 		func value(_ key: String) throws(ResolutionFailure) -> String {
 			guard let value = bundle.object(forInfoDictionaryKey: key) as? String, !value.isEmpty else {
@@ -75,7 +74,6 @@ public struct SharedContainer: Sendable {
 		root.appending(path: "connected_archive.json")
 	}
 
-	/// The archive the application last connected, or nil while none is.
 	public func connectedArchive() -> ConnectedArchive? {
 		(try? Data(contentsOf: connectedArchiveFile))
 			.flatMap { try? JSONDecoder().decode(ConnectedArchive.self, from: $0) }
