@@ -15,11 +15,9 @@ final class TagChipButton: NSButton {
 		isBordered = false
 		wantsLayer = true
 		font = NSFont.systemFont(ofSize: NSFont.smallSystemFontSize, weight: .medium)
-		contentTintColor = .controlAccentColor
+		contentTintColor = InterfacePalette.link
 		layer?.cornerRadius = 10
-		layer?.backgroundColor = NSColor.controlAccentColor.withAlphaComponent(0.12).cgColor
 		layer?.borderWidth = 0.5
-		layer?.borderColor = NSColor.controlAccentColor.withAlphaComponent(0.3).cgColor
 
 		target = self
 		action = #selector(tagPressed)
@@ -29,6 +27,15 @@ final class TagChipButton: NSButton {
 	@available(*, unavailable)
 	required init?(coder _: NSCoder) {
 		fatalError("Interface Builder is not used")
+	}
+
+	/// A layer keeps the colour it was given, so the chip's fill follows the appearance here.
+	override func viewDidChangeEffectiveAppearance() {
+		super.viewDidChangeEffectiveAppearance()
+		effectiveAppearance.performAsCurrentDrawingAppearance {
+			layer?.backgroundColor = InterfacePalette.chipFill.cgColor
+			layer?.borderColor = InterfacePalette.chipBorder.cgColor
+		}
 	}
 
 	override var intrinsicContentSize: NSSize {

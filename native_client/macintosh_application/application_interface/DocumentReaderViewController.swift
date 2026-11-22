@@ -249,7 +249,7 @@ private extension DocumentReaderViewController {
 		pdfView.autoScales = true
 		pdfView.displayMode = .singlePageContinuous
 		pdfView.displaysPageBreaks = true
-		pdfView.backgroundColor = .underPageBackgroundColor
+		pdfView.backgroundColor = InterfacePalette.readerBackdrop
 		pdfView.setAccessibilityIdentifier(InterfaceIdentifier.readerPortableDocumentView)
 
 		textView.isEditable = false

@@ -66,7 +66,7 @@ final class InspectorFieldRowView: NSView {
 			linkButton.isBordered = false
 			linkButton.alignment = .left
 			linkButton.font = NSFont.systemFont(ofSize: NSFont.systemFontSize)
-			linkButton.contentTintColor = .controlAccentColor
+			linkButton.contentTintColor = InterfacePalette.link
 			linkButton.lineBreakMode = .byTruncatingTail
 			linkButton.target = self
 			linkButton.action = #selector(linkPressed)

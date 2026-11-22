@@ -19,7 +19,6 @@ final class DocumentListViewController: NSViewController {
 	private let onDragFailed: (RepresentationRefusal) -> Void
 	private let onRequestAddFolder: () -> Void
 	private let onRequestSearchAllDocuments: () -> Void
-	/// Called with the number of documents the list shows after each listing it applies.
 	var onShownDocumentsChanged: ((Int) -> Void)?
 
 	private let model = DocumentListModel()
@@ -151,16 +150,10 @@ private extension DocumentListViewController {
 		tableView.delegate = self
 		tableView.setAccessibilityIdentifier(InterfaceIdentifier.documentListTable)
 		tableView.onQuickLook = { [weak self] in
-			guard let self, let document = selectedDocumentIdentifier() else {
-				return
-			}
-			onQuickLookSelected(document)
+			self.map { $0.selectedDocumentIdentifier().map($0.onQuickLookSelected) }
 		}
 		tableView.onOpenSelectedDocument = { [weak self] in
-			guard let self, let document = selectedDocumentIdentifier() else {
-				return
-			}
-			onOpenSelected(document)
+			self.map { $0.selectedDocumentIdentifier().map($0.onOpenSelected) }
 		}
 		scrollView.documentView = tableView
 		scrollView.hasVerticalScroller = true
@@ -322,7 +315,7 @@ private extension DocumentListViewController {
 		)
 	}
 
-	func reusableCell<Cell: NSTableCellView>(
+	func reusableCell<Cell: NSView>(
 		in tableView: NSTableView,
 		identifier: NSUserInterfaceItemIdentifier,
 		makeCell: () -> Cell
@@ -343,6 +336,12 @@ extension DocumentListViewController: NSTableViewDataSource, NSTableViewDelegate
 
 	func tableView(_: NSTableView, isGroupRow row: Int) -> Bool {
 		model.isHeading(at: row)
+	}
+
+	func tableView(_ tableView: NSTableView, rowViewForRow row: Int) -> NSTableRowView? {
+		model.isHeading(at: row) ? nil : reusableCell(in: tableView, identifier: DocumentListRowView.identifier) {
+			DocumentListRowView()
+		}
 	}
 
 	func tableView(_: NSTableView, shouldSelectRow row: Int) -> Bool {

@@ -28,6 +28,15 @@ final class DocumentRowView: NSTableCellView {
 		fatalError("Interface Builder is not used")
 	}
 
+	/// A layer keeps the colour it was given, so the thumbnail's frame follows the appearance here.
+	override func viewDidChangeEffectiveAppearance() {
+		super.viewDidChangeEffectiveAppearance()
+		effectiveAppearance.performAsCurrentDrawingAppearance {
+			thumbnailContainer.layer?.borderColor = NSColor.separatorColor.cgColor
+			thumbnailContainer.layer?.backgroundColor = NSColor.textBackgroundColor.cgColor
+		}
+	}
+
 	override func prepareForReuse() {
 		super.prepareForReuse()
 		thumbnailTask?.cancel()
@@ -98,8 +107,6 @@ final class DocumentRowView: NSTableCellView {
 		thumbnailContainer.wantsLayer = true
 		thumbnailContainer.layer?.cornerRadius = 4
 		thumbnailContainer.layer?.borderWidth = 0.5
-		thumbnailContainer.layer?.borderColor = NSColor.separatorColor.cgColor
-		thumbnailContainer.layer?.backgroundColor = NSColor.textBackgroundColor.cgColor
 		thumbnailContainer.layer?.masksToBounds = true
 		thumbnailContainer.translatesAutoresizingMaskIntoConstraints = false
 		thumbnailContainer.setAccessibilityIdentifier(InterfaceIdentifier.documentRowThumbnail)
@@ -119,6 +126,7 @@ final class DocumentRowView: NSTableCellView {
 
 	private func configureFields() {
 		titleField.font = NSFont.systemFont(ofSize: NSFont.systemFontSize, weight: .semibold)
+		titleField.textColor = InterfacePalette.link
 		titleField.lineBreakMode = .byTruncatingTail
 		titleField.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
 		titleField.setAccessibilityIdentifier(InterfaceIdentifier.documentRowTitle)
@@ -192,7 +200,7 @@ final class DocumentRowView: NSTableCellView {
 		case .secondary:
 			.secondaryLabelColor
 		case .accent:
-			.controlAccentColor
+			InterfacePalette.archive
 		case .failure:
 			.systemRed
 		}

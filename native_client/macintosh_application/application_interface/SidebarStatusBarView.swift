@@ -25,7 +25,7 @@ final class SidebarStatusBarView: NSView {
 		symbolView.image = NSImage(systemSymbolName: presentation.symbolName, accessibilityDescription: nil)
 		symbolView.contentTintColor = color(for: presentation.tone)
 		statusLabel.stringValue = presentation.text
-		statusLabel.textColor = presentation.tone == .attention ? .systemOrange : .secondaryLabelColor
+		statusLabel.textColor = presentation.tone == .attention ? InterfacePalette.attention : .secondaryLabelColor
 		button.isEnabled = presentation.allowsSynchronize || presentation.allowsTokenReplacement
 
 		if let progress = presentation.progress {
@@ -100,9 +100,9 @@ final class SidebarStatusBarView: NSView {
 		case .normal:
 			.secondaryLabelColor
 		case .active:
-			.controlAccentColor
+			InterfacePalette.archive
 		case .attention:
-			.systemOrange
+			InterfacePalette.attention
 		}
 	}
 }

@@ -37,7 +37,7 @@ final class RenderedPortableDocumentView: NSView {
 			guard let context = NSGraphicsContext.current?.cgContext else {
 				return
 			}
-			NSColor.underPageBackgroundColor.setFill()
+			InterfacePalette.readerBackdrop.setFill()
 			context.fill(dirtyRect)
 
 			guard let document else {
@@ -81,7 +81,7 @@ final class RenderedPortableDocumentView: NSView {
 		scrollView.documentView = canvasView
 		scrollView.hasVerticalScroller = true
 		scrollView.drawsBackground = true
-		scrollView.backgroundColor = .underPageBackgroundColor
+		scrollView.backgroundColor = InterfacePalette.readerBackdrop
 		scrollView.translatesAutoresizingMaskIntoConstraints = false
 		addSubview(scrollView)
 

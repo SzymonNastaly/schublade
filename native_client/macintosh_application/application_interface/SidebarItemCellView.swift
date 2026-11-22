@@ -21,6 +21,7 @@ final class SidebarItemCellView: NSTableCellView {
 
 	func configure(with presentation: SidebarItemPresentation) {
 		symbolView.image = NSImage(systemSymbolName: presentation.symbolName, accessibilityDescription: nil)
+		symbolView.contentTintColor = Self.sectionColor(of: presentation.kind)
 		titleField.stringValue = presentation.title
 		setAccessibilityIdentifier("sidebarItem.\(presentation.id)")
 
@@ -42,7 +43,6 @@ final class SidebarItemCellView: NSTableCellView {
 
 	private func configureViews() {
 		symbolView.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 13, weight: .regular)
-		symbolView.contentTintColor = .controlAccentColor
 		symbolView.setContentHuggingPriority(.required, for: .horizontal)
 		symbolView.setContentCompressionResistancePriority(.required, for: .horizontal)
 
@@ -82,9 +82,22 @@ final class SidebarItemCellView: NSTableCellView {
 		case .normal:
 			.secondaryLabelColor
 		case .active:
-			.controlAccentColor
+			InterfacePalette.archive
 		case .attention:
-			.systemOrange
+			InterfacePalette.attention
+		}
+	}
+
+	/// The website's section colours: blue for the archive, orange for what needs attention, and
+	/// green for the folders on this Mac.
+	private static func sectionColor(of kind: SidebarItemKind) -> NSColor {
+		switch kind {
+		case .destination(.library):
+			InterfacePalette.archive
+		case .destination(.needsAttention):
+			InterfacePalette.attention
+		case .destination(.folder), .addFolder:
+			InterfacePalette.collector
 		}
 	}
 }

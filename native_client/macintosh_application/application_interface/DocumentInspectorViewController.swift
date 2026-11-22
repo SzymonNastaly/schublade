@@ -162,9 +162,12 @@ final class DocumentInspectorViewController: NSViewController {
 	}
 
 	private func sectionHeading(_ title: String) -> NSTextField {
-		let label = NSTextField(labelWithString: title)
-		label.font = NSFont.systemFont(ofSize: NSFont.smallSystemFontSize, weight: .semibold)
-		label.textColor = .secondaryLabelColor
+		let font = NSFont.systemFont(ofSize: NSFont.smallSystemFontSize - 1, weight: .bold)
+		let label = NSTextField(labelWithAttributedString: NSAttributedString(
+			string: title.uppercased(),
+			attributes: [.kern: 0.6, .font: font, .foregroundColor: InterfacePalette.selectionEdge]
+		))
+		label.setAccessibilityLabel(title)
 		return label
 	}
 

@@ -13,7 +13,7 @@ final class ImageReaderView: NSScrollView {
 		minMagnification = 0.25
 		maxMagnification = 4.0
 		drawsBackground = true
-		backgroundColor = .underPageBackgroundColor
+		backgroundColor = InterfacePalette.readerBackdrop
 
 		imageView.imageScaling = .scaleProportionallyUpOrDown
 		imageView.translatesAutoresizingMaskIntoConstraints = false

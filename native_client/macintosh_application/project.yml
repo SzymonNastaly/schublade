@@ -105,6 +105,8 @@ targets:
         PRODUCT_NAME: $(APPLICATION_PRODUCT_NAME)
         PRODUCT_BUNDLE_IDENTIFIER: $(APPLICATION_BUNDLE_IDENTIFIER)
         PRODUCT_MODULE_NAME: Schublade
+        # The website's blue tints native controls while the system accent is Multicolor.
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
         SWIFT_DEFAULT_ACTOR_ISOLATION: MainActor
         LIBRARY_SEARCH_PATHS: $(SRCROOT)/../target/aarch64-apple-darwin/$(CARGO_PROFILE_DIRECTORY)
         # Security for the Keychain store, CoreServices for FSEvents. A linker warning fails the
