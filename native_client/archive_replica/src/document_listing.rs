@@ -143,16 +143,25 @@ pub struct DocumentListing {
     request: ListingRequest,
     content_revision: u64,
     rows: Vec<ListingRow>,
+    heading_positions: Vec<usize>,
     document_count: usize,
 }
 
 impl DocumentListing {
     pub(crate) fn assemble(request: ListingRequest, content_revision: u64, rows: Vec<ListingRow>) -> DocumentListing {
-        let document_count = rows.iter().filter(|row| matches!(row, ListingRow::Document(_))).count();
+        let mut heading_positions = Vec::new();
+        let mut document_count = 0;
+        for (position, row) in rows.iter().enumerate() {
+            match row {
+                ListingRow::Heading(_) => heading_positions.push(position),
+                ListingRow::Document(_) => document_count += 1,
+            }
+        }
         DocumentListing {
             request,
             content_revision,
             rows,
+            heading_positions,
             document_count,
         }
     }
@@ -173,6 +182,10 @@ impl DocumentListing {
 
     pub fn document_count(&self) -> usize {
         self.document_count
+    }
+
+    pub fn heading_positions(&self) -> &[usize] {
+        &self.heading_positions
     }
 
     /// At most `count` rows from position `first`, fewer at the listing's end.

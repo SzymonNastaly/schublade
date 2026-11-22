@@ -104,7 +104,7 @@ final class DocumentRowView: NSTableCellView {
 	private static func trailingText(for row: DocumentRow) -> String {
 		var parts: [String] = []
 		if let date = row.documentDate {
-			parts.append(String(format: "%04u-%02u-%02u", UInt(date.year), UInt(date.month), UInt(date.day)))
+			parts.append(String(format: "%04u-%02u-%02u", UInt32(date.year), UInt32(date.month), UInt32(date.day)))
 		}
 		if let amount = row.amount {
 			if let currency = amount.currency, !currency.isEmpty {

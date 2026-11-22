@@ -153,6 +153,7 @@ fn the_difference_of_two_listings_applied_to_the_first_gives_the_second() {
     copy.archive.put_document(letter(2, "Mietvertrag", "2026-08-03"));
     copy.archive.put_document(arriving(3));
     let first = copy.list(&by_date);
+    assert_eq!(first.heading_positions(), &[0, 2, 4]);
     assert_eq!(
         outline(&first),
         [
@@ -171,6 +172,7 @@ fn the_difference_of_two_listings_applied_to_the_first_gives_the_second() {
         .put_document(letter(3, "Nebenkostenabrechnung", "2026-08-20"));
     copy.archive.put_document(letter(4, "Kontoauszug", "2026-09-01"));
     let second = copy.list(&by_date);
+    assert_eq!(second.heading_positions(), &[0, 2]);
     assert_eq!(
         outline(&second),
         [
@@ -238,6 +240,12 @@ fn the_difference_of_two_listings_applied_to_the_first_gives_the_second() {
             }
             for (preceding, request) in preceding.iter_mut().zip([&by_date, &by_title]) {
                 let following = copy.list(request);
+                let expected_headings: Vec<usize> = rows_of(&following)
+                    .into_iter()
+                    .enumerate()
+                    .filter_map(|(position, row)| matches!(row, ListingRow::Heading(_)).then_some(position))
+                    .collect();
+                assert_eq!(following.heading_positions(), expected_headings.as_slice());
                 let difference = listing_difference(preceding, &following);
                 assert_eq!(
                     applied(preceding, &following, &difference),

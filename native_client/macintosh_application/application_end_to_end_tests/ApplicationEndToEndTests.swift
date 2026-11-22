@@ -7,7 +7,7 @@ import XCTest
 /// environment. XCTestCase is nonisolated, so the module keeps nonisolated default isolation.
 final class ApplicationEndToEndTests: XCTestCase {
 	@MainActor
-	func testConnectAndListCorpusDocuments() async throws {
+	func testConnectListSeededAndCollectedDocuments() async throws {
 		let delegate = try XCTUnwrap(NSApp.delegate as? ApplicationDelegate)
 		let controller = delegate.controller
 		XCTAssertEqual(controller.environment.applicationConfiguration.credentialStorage, .processMemory)
@@ -18,17 +18,24 @@ final class ApplicationEndToEndTests: XCTestCase {
 		XCTAssertTrue(controller.statusItem.item.isVisible)
 
 		let validToken = "scripted-end-to-end-token"
-		let server = try ScriptedArchiveProcess.start(token: validToken, seedCount: 5)
+		let server = try await ScriptedArchiveProcess.start(token: validToken, seedCount: 5)
 		defer {
 			server.stop()
 		}
 
 		let window = try XCTUnwrap(controller.mainWindowController.window)
 		XCTAssertTrue(window.isVisible)
+		XCTAssertEqual(window.contentLayoutRect.size, NSSize(width: 1340, height: 820))
 
 		try await connectThroughForm(in: window, address: server.baseURL.absoluteString, token: validToken)
 		let tableView = try await assertSeededRows(in: window)
-		try await verifyIncrementalDocumentUpdate(in: window, tableView: tableView, server: server)
+		XCTAssertEqual(window.contentLayoutRect.size, NSSize(width: 1340, height: 820))
+		try await verifyIncrementalDocumentUpdate(
+			in: window,
+			tableView: tableView,
+			controller: controller,
+			server: server
+		)
 		try await verifyCollectedDocumentArrives(in: window, tableView: tableView, controller: controller)
 		verifyWindowReopen(window: window, tableView: tableView, controller: controller)
 	}
@@ -78,7 +85,7 @@ final class ApplicationEndToEndTests: XCTestCase {
 	@MainActor
 	private func assertSeededRows(in window: NSWindow) async throws -> NSTableView {
 		let tableView = try await waitForView(
-			"the corpus documents in the plain table",
+			"the seeded documents in the plain table",
 			in: window,
 			identifier: InterfaceIdentifier.documentListTable,
 			as: NSTableView.self
@@ -118,8 +125,13 @@ final class ApplicationEndToEndTests: XCTestCase {
 	private func verifyIncrementalDocumentUpdate(
 		in window: NSWindow,
 		tableView: NSTableView,
+		controller: ApplicationController,
 		server: ScriptedArchiveProcess
 	) async throws {
+		let listController = try XCTUnwrap(controller.mainWindowController.activeDocumentListController)
+		let updatesBefore = listController.incrementalUpdateCount
+		let existingRowCell = try XCTUnwrap(tableView.view(atColumn: 0, row: 1, makeIfNecessary: false))
+
 		try await server.seedDocument(SeededDocument(
 			identifier: "50000000-0000-4000-8000-000000000099",
 			title: "Kontoauszug Oktober 2026",
@@ -141,6 +153,8 @@ final class ApplicationEndToEndTests: XCTestCase {
 			tableView.numberOfRows == 8
 		}
 		window.contentView?.layoutSubtreeIfNeeded()
+		XCTAssertEqual(listController.incrementalUpdateCount, updatesBefore + 1)
+		XCTAssertTrue(tableView.view(atColumn: 0, row: 3, makeIfNecessary: false) === existingRowCell)
 		XCTAssertEqual(
 			try rowText(in: tableView, row: 0, identifier: InterfaceIdentifier.headingRowTitle),
 			"October 2026"
@@ -220,9 +234,16 @@ final class ApplicationEndToEndTests: XCTestCase {
 	private func verifyWindowReopen(window: NSWindow, tableView: NSTableView, controller: ApplicationController) {
 		window.close()
 		XCTAssertFalse(window.isVisible)
+		XCTAssertEqual(NSApp.activationPolicy(), .accessory)
+		XCTAssertFalse(controller.mainWindowController.isAttending)
+
 		controller.showMainWindow()
 		XCTAssertTrue(window.isVisible)
+		XCTAssertEqual(NSApp.activationPolicy(), .regular)
 		XCTAssertEqual(tableView.numberOfRows, 10)
+		if window.occlusionState.contains(.visible) {
+			XCTAssertTrue(controller.mainWindowController.isAttending)
+		}
 	}
 }
 

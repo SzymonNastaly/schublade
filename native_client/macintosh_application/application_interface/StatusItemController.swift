@@ -30,7 +30,7 @@ final class StatusItemController {
 		case .starting:
 			"Starting"
 		case let .failedToStart(failure):
-			"Failed to start: \(failure)"
+			ApplicationFailureWording.startFailureSentence(failure)
 		case let .running(statuses):
 			Self.runningSentence(statuses)
 		case .stopped:
@@ -43,6 +43,9 @@ final class StatusItemController {
 	}
 
 	private static func runningSentence(_ statuses: ApplicationStatuses) -> String {
+		if let fault = statuses.libraryFault ?? statuses.collectorFault {
+			return ApplicationFailureWording.faultSentence(fault)
+		}
 		guard let library = statuses.library else {
 			return "Starting"
 		}

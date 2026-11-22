@@ -1,30 +1,33 @@
 import AppKit
 import ApplicationBindings
 
-private enum LibraryUnavailableReason: Equatable {
-	case collectOnlyToken
-	case archiveOutdated
-}
-
-private enum MainWindowScreen: Equatable {
-	case starting
-	case failedToStart(ApplicationStartFailure)
-	case connectionForm
-	case libraryUnavailable(LibraryUnavailableReason)
-	case documentList
-	case stopped
-}
-
-/// Owns the application's single window, switches its screen when the situation changes, and
-/// tracks whether the window attends the library and keeps the Regular activation policy.
+/// Owns the application's single window, switches child screens inside a persistent container
+/// controller so the frame stays intact, and reports library attendance accurately.
 final class MainWindowController: NSWindowController, NSWindowDelegate {
+	private enum Screen: Equatable {
+		case starting
+		case failedToStart(ApplicationStartFailure)
+		case fault(ApplicationFault)
+		case connectionForm(initialAddress: String?, instruction: String?, cancellable: Bool)
+		case archiveOutdated
+		case documentList
+		case stopped
+	}
+
 	private let applicationCommands: any ApplicationCommands
 	private let libraryQueries: any LibraryQueries
 	private let onAttendanceChanged: (Bool) -> Void
+	private let containerController = WindowContainerViewController()
 
-	private var activeScreen: MainWindowScreen?
+	private var latestSituation = ApplicationSituation.starting
+	private var activeScreen: Screen?
+	private var replacingTokenOrigin: String?
 	private var documentListController: DocumentListViewController?
 	private(set) var isAttending = false
+
+	var activeDocumentListController: DocumentListViewController? {
+		documentListController
+	}
 
 	init(
 		applicationCommands: any ApplicationCommands,
@@ -45,6 +48,8 @@ final class MainWindowController: NSWindowController, NSWindowDelegate {
 		mainWindow.title = "Schublade"
 		mainWindow.isReleasedWhenClosed = false
 		mainWindow.identifier = InterfaceIdentifier.mainWindow
+		mainWindow.contentViewController = containerController
+		mainWindow.setContentSize(NSSize(width: 1340, height: 820))
 		mainWindow.center()
 
 		super.init(window: mainWindow)
@@ -62,50 +67,29 @@ final class MainWindowController: NSWindowController, NSWindowDelegate {
 		}
 		showWindow(nil)
 		window?.makeKeyAndOrderFront(nil)
-		setAttending(true)
+		NSApp.activate()
+		recomputeAttendance()
 	}
 
 	func render(_ situation: ApplicationSituation) {
-		let desiredScreen = Self.desiredScreen(for: situation)
-		if desiredScreen != activeScreen {
-			activeScreen = desiredScreen
-			switch desiredScreen {
-			case .starting:
-				documentListController = nil
-				window?.contentViewController = StatusMessageViewController(
-					message: "Starting Schublade…",
-					identifier: InterfaceIdentifier.statusMessage
-				)
-			case let .failedToStart(failure):
-				documentListController = nil
-				window?.contentViewController = StatusMessageViewController(
-					message: Self.startFailureMessage(failure),
-					identifier: InterfaceIdentifier.startFailureMessage
-				)
-			case .connectionForm:
-				documentListController = nil
-				window?.contentViewController = ConnectionFormViewController(commands: applicationCommands)
-			case let .libraryUnavailable(reason):
-				documentListController = nil
-				window?.contentViewController = StatusMessageViewController(
-					message: Self.unavailableMessage(reason),
-					identifier: InterfaceIdentifier.statusMessage
-				)
-			case .documentList:
-				let listController = DocumentListViewController(queries: libraryQueries)
-				documentListController = listController
-				window?.contentViewController = listController
-			case .stopped:
-				documentListController = nil
-				window?.contentViewController = StatusMessageViewController(
-					message: "Schublade stopped.",
-					identifier: InterfaceIdentifier.statusMessage
-				)
+		latestSituation = situation
+		if case let .running(statuses) = situation, let library = statuses.library {
+			if !Self.isSuspended(library.archive) {
+				replacingTokenOrigin = nil
 			}
+		} else {
+			replacingTokenOrigin = nil
+		}
+
+		let desired = desiredScreen(for: situation)
+		if desired != activeScreen {
+			activeScreen = desired
+			displayScreen(desired)
+			recomputeAttendance()
 		}
 
 		if case let .running(statuses) = situation, let documentListController, let library = statuses.library {
-			documentListController.render(libraryStatus: library)
+			documentListController.render(libraryStatus: library, libraryFault: statuses.libraryFault)
 		}
 	}
 
@@ -114,24 +98,30 @@ final class MainWindowController: NSWindowController, NSWindowDelegate {
 	}
 
 	func windowDidBecomeKey(_: Notification) {
-		setAttending(true)
+		recomputeAttendance()
 	}
 
-	func windowDidResignKey(_: Notification) {
-		setAttending(false)
+	func windowDidChangeOcclusionState(_: Notification) {
+		recomputeAttendance()
+	}
+
+	func windowDidMiniaturize(_: Notification) {
+		recomputeAttendance()
+	}
+
+	func windowDidDeminiaturize(_: Notification) {
+		recomputeAttendance()
 	}
 
 	func windowWillClose(_: Notification) {
-		setAttending(false)
+		if isAttending {
+			isAttending = false
+			onAttendanceChanged(false)
+		}
 		NSApp.setActivationPolicy(.accessory)
 	}
 
-	private func setAttending(_ attending: Bool) {
-		isAttending = attending
-		onAttendanceChanged(attending)
-	}
-
-	private static func desiredScreen(for situation: ApplicationSituation) -> MainWindowScreen {
+	private func desiredScreen(for situation: ApplicationSituation) -> Screen {
 		switch situation {
 		case .starting:
 			return .starting
@@ -139,89 +129,112 @@ final class MainWindowController: NSWindowController, NSWindowDelegate {
 			return .failedToStart(failure)
 		case let .running(statuses):
 			guard let library = statuses.library else {
-				return .starting
+				return statuses.libraryFault.map(Screen.fault) ?? .starting
 			}
-			switch library.archive {
-			case .notConfigured:
-				return .connectionForm
-			case let .configured(_, _, condition, permission, _):
-				if permission == .collectOnly {
-					return .libraryUnavailable(.collectOnlyToken)
-				}
-				if case .archiveOutdated = condition {
-					return .libraryUnavailable(.archiveOutdated)
-				}
-				return .documentList
-			}
+			return screenForLibraryArchive(library.archive)
 		case .stopped:
 			return .stopped
 		}
 	}
 
-	private static func unavailableMessage(_ reason: LibraryUnavailableReason) -> String {
-		switch reason {
-		case .collectOnlyToken:
-			"This token can only add documents and cannot read the archive."
+	private func screenForLibraryArchive(_ archive: ArchiveConnection) -> Screen {
+		switch archive {
+		case .notConfigured:
+			return .connectionForm(initialAddress: nil, instruction: nil, cancellable: false)
+		case let .configured(origin, _, condition, permission, _):
+			if permission == .collectOnly {
+				let guidance = "This token can only add documents and cannot read the archive. "
+					+ "Paste a token with read permission from Settings."
+				return .connectionForm(initialAddress: origin, instruction: guidance, cancellable: false)
+			}
+			if case .suspended = condition, let originToReplace = replacingTokenOrigin {
+				let guidance = "Schublade refused the current token. Paste a new API token from Settings."
+				return .connectionForm(initialAddress: originToReplace, instruction: guidance, cancellable: true)
+			}
+			if case .archiveOutdated = condition {
+				return .archiveOutdated
+			}
+			return .documentList
+		}
+	}
+
+	private func displayScreen(_ screen: Screen) {
+		switch screen {
+		case .starting:
+			showStatus("Starting Schublade…", identifier: InterfaceIdentifier.statusMessage)
+		case let .failedToStart(failure):
+			let sentence = ApplicationFailureWording.startFailureSentence(failure)
+			showStatus(sentence, identifier: InterfaceIdentifier.startFailureMessage)
+		case let .fault(fault):
+			showStatus(ApplicationFailureWording.faultSentence(fault), identifier: InterfaceIdentifier.statusMessage)
+		case let .connectionForm(initialAddress, instruction, cancellable):
+			documentListController = nil
+			let cancelHandler: (() -> Void)? = cancellable ? { [weak self] in
+				self?.cancelTokenReplacement()
+			} : nil
+			containerController.display(ConnectionFormViewController(
+				commands: applicationCommands,
+				initialAddress: initialAddress,
+				instruction: instruction,
+				onCancel: cancelHandler
+			))
 		case .archiveOutdated:
-			"Update your archive to use the library."
+			showStatus("Update your archive to use the library.", identifier: InterfaceIdentifier.statusMessage)
+		case .documentList:
+			let listController = DocumentListViewController(queries: libraryQueries) { [weak self] in
+				self?.beginTokenReplacement()
+			}
+			documentListController = listController
+			containerController.display(listController)
+		case .stopped:
+			showStatus("Schublade stopped.", identifier: InterfaceIdentifier.statusMessage)
 		}
 	}
 
-	private static func startFailureMessage(_ failure: ApplicationStartFailure) -> String {
-		switch failure {
-		case let .DataDirectoryUnavailable(detail):
-			"Schublade could not create its folder in Application Support: \(detail)"
-		case let .CacheDirectoryUnavailable(detail):
-			"Schublade could not create its cache folder: \(detail)"
-		case .DatabaseInUse:
-			"Another copy of Schublade is already running on this Mac with the same data."
-		case .DatabaseNewerThanApplication:
-			"A newer version of Schublade ran on this Mac before, and this older version cannot read what it saved."
-		case let .DatabaseUnusable(detail):
-			"Schublade could not open its database: \(detail)"
-		case let .WatcherUnavailable(detail):
-			"Schublade could not start watching your folders: \(detail)"
-		case let .Unexpected(detail):
-			"Schublade could not start: \(detail)"
+	private func showStatus(_ message: String, identifier: String) {
+		documentListController = nil
+		containerController.display(StatusMessageViewController(message: message, identifier: identifier))
+	}
+
+	private func beginTokenReplacement() {
+		guard
+			case let .running(statuses) = latestSituation,
+			case let .configured(origin, _, condition, _, _)? = statuses.library?.archive,
+			case .suspended = condition
+		else {
+			return
 		}
-	}
-}
-
-private final class StatusMessageViewController: NSViewController {
-	private let message: String
-	private let labelIdentifier: String
-
-	init(message: String, identifier: String) {
-		self.message = message
-		labelIdentifier = identifier
-		super.init(nibName: nil, bundle: nil)
+		replacingTokenOrigin = origin
+		render(latestSituation)
 	}
 
-	@available(*, unavailable)
-	required init?(coder _: NSCoder) {
-		fatalError("Interface Builder is not used")
+	private func cancelTokenReplacement() {
+		replacingTokenOrigin = nil
+		render(latestSituation)
 	}
 
-	override func loadView() {
-		view = NSView(frame: NSRect(x: 0, y: 0, width: 640, height: 480))
+	private func recomputeAttendance() {
+		let nextAttending: Bool = if activeScreen == .documentList, let window {
+			window.isVisible && !window.isMiniaturized && window.occlusionState.contains(.visible)
+		} else {
+			false
+		}
+		guard nextAttending != isAttending else {
+			return
+		}
+		isAttending = nextAttending
+		onAttendanceChanged(nextAttending)
 	}
 
-	override func viewDidLoad() {
-		super.viewDidLoad()
-
-		let label = NSTextField(wrappingLabelWithString: message)
-		label.alignment = .center
-		label.textColor = .secondaryLabelColor
-		label.translatesAutoresizingMaskIntoConstraints = false
-		label.setAccessibilityIdentifier(labelIdentifier)
-		view.addSubview(label)
-
-		NSLayoutConstraint.activate([
-			label.centerXAnchor.constraint(equalTo: view.centerXAnchor),
-			label.centerYAnchor.constraint(equalTo: view.centerYAnchor),
-			label.leadingAnchor.constraint(greaterThanOrEqualTo: view.leadingAnchor, constant: 32),
-			label.trailingAnchor.constraint(lessThanOrEqualTo: view.trailingAnchor, constant: -32),
-			label.widthAnchor.constraint(lessThanOrEqualToConstant: 480),
-		])
+	private static func isSuspended(_ archive: ArchiveConnection) -> Bool {
+		switch archive {
+		case .notConfigured:
+			return false
+		case let .configured(_, _, condition, _, _):
+			if case .suspended = condition {
+				return true
+			}
+			return false
+		}
 	}
 }

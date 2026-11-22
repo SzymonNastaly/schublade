@@ -9,7 +9,7 @@ public final class ApplicationDelegate: NSObject, NSApplicationDelegate {
 
 	public func applicationShouldHandleReopen(_: NSApplication, hasVisibleWindows _: Bool) -> Bool {
 		controller.showMainWindow()
-		return true
+		return false
 	}
 
 	/// Terminating waits for the shutdown of both cores, so each coordinator finishes its batch and

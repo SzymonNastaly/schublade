@@ -1,18 +1,34 @@
 import AppKit
 import ApplicationBindings
 
-/// Pure AppKit connection form shown until an archive is configured.
+/// Pure AppKit connection form shown until a readable archive is configured or while replacing a
+/// refused token.
 final class ConnectionFormViewController: NSViewController, NSTextFieldDelegate {
 	private let commands: any ApplicationCommands
+	private let initialAddress: String?
+	private let instructionText: String
+	private let onCancel: (() -> Void)?
+
 	private let addressField = NSTextField()
 	private let tokenField = NSSecureTextField()
 	private let submitButton = NSButton()
+	private let cancelButton = NSButton()
 	private let progressIndicator = NSProgressIndicator()
 	private let refusalLabel = NSTextField(wrappingLabelWithString: "")
 	private var isConnecting = false
+	private var hasConnected = false
 
-	init(commands: any ApplicationCommands) {
+	init(
+		commands: any ApplicationCommands,
+		initialAddress: String? = nil,
+		instruction: String? = nil,
+		onCancel: (() -> Void)? = nil
+	) {
 		self.commands = commands
+		self.initialAddress = initialAddress
+		instructionText = instruction
+			?? "Enter the address of your Schublade archive and an API token from Settings."
+		self.onCancel = onCancel
 		super.init(nibName: nil, bundle: nil)
 	}
 
@@ -52,6 +68,9 @@ final class ConnectionFormViewController: NSViewController, NSTextFieldDelegate 
 
 	private func configureControls() {
 		addressField.placeholderString = "https://archive.example.org"
+		if let initialAddress {
+			addressField.stringValue = initialAddress
+		}
 		addressField.delegate = self
 		addressField.setAccessibilityIdentifier(InterfaceIdentifier.connectionAddressField)
 
@@ -65,6 +84,14 @@ final class ConnectionFormViewController: NSViewController, NSTextFieldDelegate 
 		submitButton.target = self
 		submitButton.action = #selector(submitConnection)
 		submitButton.setAccessibilityIdentifier(InterfaceIdentifier.connectionSubmitButton)
+
+		cancelButton.title = "Cancel"
+		cancelButton.bezelStyle = .rounded
+		cancelButton.keyEquivalent = "\u{1b}"
+		cancelButton.target = self
+		cancelButton.action = #selector(cancelConnection)
+		cancelButton.isHidden = onCancel == nil
+		cancelButton.setAccessibilityIdentifier(InterfaceIdentifier.connectionCancelButton)
 
 		progressIndicator.style = .spinning
 		progressIndicator.controlSize = .small
@@ -83,9 +110,7 @@ final class ConnectionFormViewController: NSViewController, NSTextFieldDelegate 
 		let titleLabel = NSTextField(labelWithString: "Connect to Schublade")
 		titleLabel.font = NSFont.boldSystemFont(ofSize: NSFont.systemFontSize(for: .regular) + 6)
 
-		let instructionLabel = NSTextField(
-			wrappingLabelWithString: "Enter the address of your Schublade archive and an API token from Settings."
-		)
+		let instructionLabel = NSTextField(wrappingLabelWithString: instructionText)
 		instructionLabel.textColor = .secondaryLabelColor
 
 		let addressCaption = NSTextField(labelWithString: "Archive Address")
@@ -94,7 +119,12 @@ final class ConnectionFormViewController: NSViewController, NSTextFieldDelegate 
 		let tokenCaption = NSTextField(labelWithString: "API Token")
 		tokenCaption.font = NSFont.systemFont(ofSize: NSFont.smallSystemFontSize, weight: .medium)
 
-		let actionRow = NSStackView(views: [submitButton, progressIndicator])
+		var actionViews: [NSView] = [submitButton]
+		if onCancel != nil {
+			actionViews.append(cancelButton)
+		}
+		actionViews.append(progressIndicator)
+		let actionRow = NSStackView(views: actionViews)
 		actionRow.orientation = .horizontal
 		actionRow.alignment = .centerY
 		actionRow.spacing = 10
@@ -121,7 +151,10 @@ final class ConnectionFormViewController: NSViewController, NSTextFieldDelegate 
 		formStack.setCustomSpacing(10, after: actionRow)
 		formStack.translatesAutoresizingMaskIntoConstraints = false
 		view.addSubview(formStack)
+		activateFormConstraints(formStack: formStack, instructionLabel: instructionLabel)
+	}
 
+	private func activateFormConstraints(formStack: NSStackView, instructionLabel: NSTextField) {
 		NSLayoutConstraint.activate([
 			formStack.centerXAnchor.constraint(equalTo: view.centerXAnchor),
 			formStack.centerYAnchor.constraint(equalTo: view.centerYAnchor),
@@ -136,8 +169,15 @@ final class ConnectionFormViewController: NSViewController, NSTextFieldDelegate 
 		])
 	}
 
+	@objc private func cancelConnection() {
+		guard !isConnecting, !hasConnected else {
+			return
+		}
+		onCancel?()
+	}
+
 	@objc private func submitConnection() {
-		guard !isConnecting else {
+		guard !isConnecting, !hasConnected else {
 			return
 		}
 
@@ -162,22 +202,25 @@ final class ConnectionFormViewController: NSViewController, NSTextFieldDelegate 
 	}
 
 	private func performConnect(address: String, token: String) async {
-		defer {
-			isConnecting = false
-			updateControlsForConnectionState()
-		}
 		do {
 			_ = try await commands.connectArchive(address: address, token: token)
+			hasConnected = true
 			tokenField.stringValue = ""
+			isConnecting = false
+			updateControlsForConnectionState()
 		} catch {
+			isConnecting = false
+			updateControlsForConnectionState()
 			showRefusal(Self.refusalSentence(for: error))
 		}
 	}
 
 	private func updateControlsForConnectionState() {
-		addressField.isEnabled = !isConnecting
-		tokenField.isEnabled = !isConnecting
-		submitButton.isEnabled = !isConnecting
+		let controlsEnabled = !isConnecting && !hasConnected
+		addressField.isEnabled = controlsEnabled
+		tokenField.isEnabled = controlsEnabled
+		submitButton.isEnabled = controlsEnabled
+		cancelButton.isEnabled = controlsEnabled
 		if isConnecting {
 			refusalLabel.stringValue = ""
 			refusalLabel.isHidden = true
@@ -215,18 +258,7 @@ final class ConnectionFormViewController: NSViewController, NSTextFieldDelegate 
 		case let .CredentialStorageFailed(detail):
 			"The token could not be saved in the Keychain: \(detail)"
 		case let .Application(fault):
-			applicationFaultSentence(fault)
-		}
-	}
-
-	private static func applicationFaultSentence(_ fault: ApplicationFault) -> String {
-		switch fault {
-		case .Stopped:
-			"Schublade stopped before it could connect."
-		case let .StoreFailed(detail):
-			"Schublade could not save its local state: \(detail)"
-		case let .Unexpected(detail):
-			"Schublade encountered an unexpected error: \(detail)"
+			ApplicationFailureWording.faultSentence(fault)
 		}
 	}
 }

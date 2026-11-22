@@ -1,46 +1,21 @@
+import Darwin
 import Foundation
 import XCTest
-
-struct SeededDocument: Encodable {
-	let identifier: String
-	let title: String
-	let documentDate: String
-	let senderName: String
-	let categoryName: String
-	let summary: String
-
-	enum CodingKeys: String, CodingKey {
-		case identifier
-		case title
-		case documentDate = "document_date"
-		case senderName = "sender_name"
-		case categoryName = "category_name"
-		case summary
-	}
-}
-
-struct ConditionNotReached: Error, CustomStringConvertible {
-	let expectation: String
-	let detail: String
-
-	var description: String {
-		"Timed out waiting for \(expectation): \(detail)"
-	}
-}
 
 /// Manages a local `scripted-archive-server` child process for end-to-end tests.
 final class ScriptedArchiveProcess {
 	let baseURL: URL
 	private let process: Process
-	private let stdinPipe: Pipe
+	private let standardInputPipe: Pipe
 
-	private init(baseURL: URL, process: Process, stdinPipe: Pipe) {
+	private init(baseURL: URL, process: Process, standardInputPipe: Pipe) {
 		self.baseURL = baseURL
 		self.process = process
-		self.stdinPipe = stdinPipe
+		self.standardInputPipe = standardInputPipe
 	}
 
-	static func start(token: String, seedCount: Int) throws -> ScriptedArchiveProcess {
+	@concurrent
+	static func start(token: String, seedCount: Int) async throws -> sending ScriptedArchiveProcess {
 		let binaryURL = try resolveServerBinary()
 		let process = Process()
 		process.executableURL = binaryURL
@@ -53,22 +28,17 @@ final class ScriptedArchiveProcess {
 			String(seedCount),
 		]
 
-		let stdinPipe = Pipe()
-		let stdoutPipe = Pipe()
-		process.standardInput = stdinPipe
-		process.standardOutput = stdoutPipe
+		let standardInputPipe = Pipe()
+		let standardOutputPipe = Pipe()
+		process.standardInput = standardInputPipe
+		process.standardOutput = standardOutputPipe
 
 		try process.run()
 
-		let reader = stdoutPipe.fileHandleForReading
-		var buffer = Data()
-		while let byte = try reader.read(upToCount: 1), !byte.isEmpty {
-			if byte[0] == 0x0A {
-				break
-			}
-			buffer.append(byte)
-		}
-
+		let buffer = readFirstLine(
+			from: standardOutputPipe.fileHandleForReading,
+			deadline: ContinuousClock.now + .seconds(10)
+		)
 		let prefix = "listening "
 		guard
 			let line = String(bytes: buffer, encoding: .utf8),
@@ -76,11 +46,16 @@ final class ScriptedArchiveProcess {
 			let baseURL = URL(string: String(line.dropFirst(prefix.count)))
 		else {
 			process.terminate()
+			process.waitUntilExit()
 			let detail = String(bytes: buffer, encoding: .utf8) ?? "<non-utf8>"
 			throw ConditionNotReached(expectation: "scripted-archive-server listening line", detail: detail)
 		}
 
-		return ScriptedArchiveProcess(baseURL: baseURL, process: process, stdinPipe: stdinPipe)
+		return ScriptedArchiveProcess(
+			baseURL: baseURL,
+			process: process,
+			standardInputPipe: standardInputPipe
+		)
 	}
 
 	func seedDocument(_ document: SeededDocument) async throws {
@@ -90,23 +65,63 @@ final class ScriptedArchiveProcess {
 		request.httpBody = try JSONEncoder().encode(document)
 		let (_, response) = try await URLSession.shared.data(for: request)
 		let httpResponse = try XCTUnwrap(response as? HTTPURLResponse)
-		XCTAssertEqual(httpResponse.statusCode, 200)
+		guard httpResponse.statusCode == 200 else {
+			throw ConditionNotReached(
+				expectation: "POST /scripted/documents status 200",
+				detail: "status \(httpResponse.statusCode)"
+			)
+		}
 	}
 
 	func stop() {
-		try? stdinPipe.fileHandleForWriting.close()
+		try? standardInputPipe.fileHandleForWriting.close()
 		if process.isRunning {
 			process.terminate()
 		}
 		process.waitUntilExit()
 	}
 
+	private static func readFirstLine(from fileHandle: FileHandle, deadline: ContinuousClock.Instant) -> Data {
+		let descriptor = fileHandle.fileDescriptor
+		var descriptorEntry = pollfd(fd: descriptor, events: Int16(POLLIN), revents: 0)
+		var buffer = Data()
+		var byteBuffer: UInt8 = 0
+
+		while ContinuousClock.now < deadline {
+			let remaining = ContinuousClock.now.duration(to: deadline)
+			let totalMilliseconds = remaining.components.seconds * 1000
+				+ remaining.components.attoseconds / 1_000_000_000_000_000
+			let timeoutMilliseconds = Int32(min(max(totalMilliseconds, 1), 10000))
+			descriptorEntry.revents = 0
+			let ready = Darwin.poll(&descriptorEntry, 1, timeoutMilliseconds)
+			if ready == 0 {
+				break
+			}
+			if ready < 0 {
+				if errno == EINTR {
+					continue
+				}
+				break
+			}
+			let bytesRead = Darwin.read(descriptor, &byteBuffer, 1)
+			if bytesRead <= 0 || byteBuffer == 0x0A {
+				break
+			}
+			buffer.append(byteBuffer)
+		}
+		return buffer
+	}
+
 	private static func resolveServerBinary() throws -> URL {
 		if let configured = ProcessInfo.processInfo.environment["SCHUBLADE_SCRIPTED_ARCHIVE_SERVER"] {
 			let candidate = URL(fileURLWithPath: configured)
-			if FileManager.default.isExecutableFile(atPath: candidate.path(percentEncoded: false)) {
-				return candidate
+			guard FileManager.default.isExecutableFile(atPath: candidate.path(percentEncoded: false)) else {
+				throw ConditionNotReached(
+					expectation: "executable at SCHUBLADE_SCRIPTED_ARCHIVE_SERVER",
+					detail: configured
+				)
 			}
+			return candidate
 		}
 
 		let workspaceRoot = URL(fileURLWithPath: #filePath)

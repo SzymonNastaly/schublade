@@ -7,22 +7,28 @@ final class DocumentListViewController: NSViewController {
 	private static let documentCellIdentifier = NSUserInterfaceItemIdentifier("documentCell")
 
 	private let queries: any LibraryQueries
+	private let onReplaceToken: () -> Void
 	private let model = DocumentListModel()
 	private var request = ListingRequest.browse(scope: .allDocuments, order: .documentDate)
 	private var newestRequestNumber: UInt64 = 0
 	private var libraryStatus: LibraryStatus?
+	private var libraryFault: ApplicationFault?
 	private var listingFaultText: String?
+	private(set) var incrementalUpdateCount = 0
 
 	private let headerBar = NSView()
 	private let summaryLabel = NSTextField(labelWithString: "")
+	private let replaceTokenButton = NSButton()
 	private let refreshButton = NSButton()
+	private let actionStack = NSStackView()
 	private let separator = NSBox()
 	private let tableView = NSTableView()
 	private let scrollView = NSScrollView()
 	private let emptyLabel = NSTextField(wrappingLabelWithString: "")
 
-	init(queries: any LibraryQueries) {
+	init(queries: any LibraryQueries, onReplaceToken: @escaping () -> Void) {
 		self.queries = queries
+		self.onReplaceToken = onReplaceToken
 		super.init(nibName: nil, bundle: nil)
 	}
 
@@ -40,13 +46,14 @@ final class DocumentListViewController: NSViewController {
 		configureHeaderBar()
 		configureTableView()
 		configureLayout()
-		updateChrome()
+		updateHeaderAndEmptyState()
 		refresh()
 	}
 
-	func render(libraryStatus: LibraryStatus) {
+	func render(libraryStatus: LibraryStatus, libraryFault: ApplicationFault?) {
 		self.libraryStatus = libraryStatus
-		updateChrome()
+		self.libraryFault = libraryFault
+		updateHeaderAndEmptyState()
 	}
 
 	func contentRevisionChanged(to _: UInt64) {
@@ -59,16 +66,28 @@ final class DocumentListViewController: NSViewController {
 		summaryLabel.translatesAutoresizingMaskIntoConstraints = false
 		summaryLabel.setAccessibilityIdentifier(InterfaceIdentifier.documentListSummaryLabel)
 
+		replaceTokenButton.title = "Replace Token…"
+		replaceTokenButton.bezelStyle = .rounded
+		replaceTokenButton.target = self
+		replaceTokenButton.action = #selector(requestTokenReplacement)
+		replaceTokenButton.isHidden = true
+		replaceTokenButton.setAccessibilityIdentifier(InterfaceIdentifier.documentListReplaceTokenButton)
+
 		refreshButton.title = "Refresh"
 		refreshButton.bezelStyle = .rounded
 		refreshButton.target = self
 		refreshButton.action = #selector(synchronizeArchive)
-		refreshButton.translatesAutoresizingMaskIntoConstraints = false
 		refreshButton.setAccessibilityIdentifier(InterfaceIdentifier.documentListRefreshButton)
+
+		actionStack.setViews([replaceTokenButton, refreshButton], in: .trailing)
+		actionStack.orientation = .horizontal
+		actionStack.alignment = .centerY
+		actionStack.spacing = 8
+		actionStack.translatesAutoresizingMaskIntoConstraints = false
 
 		headerBar.translatesAutoresizingMaskIntoConstraints = false
 		headerBar.addSubview(summaryLabel)
-		headerBar.addSubview(refreshButton)
+		headerBar.addSubview(actionStack)
 
 		separator.boxType = .separator
 		separator.translatesAutoresizingMaskIntoConstraints = false
@@ -113,9 +132,9 @@ final class DocumentListViewController: NSViewController {
 			headerBar.heightAnchor.constraint(equalToConstant: 44),
 			summaryLabel.leadingAnchor.constraint(equalTo: headerBar.leadingAnchor, constant: 16),
 			summaryLabel.centerYAnchor.constraint(equalTo: headerBar.centerYAnchor),
-			summaryLabel.trailingAnchor.constraint(lessThanOrEqualTo: refreshButton.leadingAnchor, constant: -12),
-			refreshButton.trailingAnchor.constraint(equalTo: headerBar.trailingAnchor, constant: -16),
-			refreshButton.centerYAnchor.constraint(equalTo: headerBar.centerYAnchor),
+			summaryLabel.trailingAnchor.constraint(lessThanOrEqualTo: actionStack.leadingAnchor, constant: -12),
+			actionStack.trailingAnchor.constraint(equalTo: headerBar.trailingAnchor, constant: -16),
+			actionStack.centerYAnchor.constraint(equalTo: headerBar.centerYAnchor),
 			separator.topAnchor.constraint(equalTo: headerBar.bottomAnchor),
 			separator.leadingAnchor.constraint(equalTo: view.leadingAnchor),
 			separator.trailingAnchor.constraint(equalTo: view.trailingAnchor),
@@ -132,6 +151,13 @@ final class DocumentListViewController: NSViewController {
 
 	@objc private func synchronizeArchive() {
 		queries.synchronize()
+		if listingFaultText != nil {
+			refresh()
+		}
+	}
+
+	@objc private func requestTokenReplacement() {
+		onReplaceToken()
 	}
 
 	private func refresh() {
@@ -165,7 +191,7 @@ final class DocumentListViewController: NSViewController {
 			listingFaultText = nil
 			let update = model.adopt(answer, preceding: preceding)
 			apply(update, previousRowCount: previousRowCount)
-			updateChrome()
+			updateHeaderAndEmptyState()
 		} catch {
 			guard requestNumber == newestRequestNumber else {
 				return
@@ -175,15 +201,17 @@ final class DocumentListViewController: NSViewController {
 				break
 			case let .StoreFailed(detail):
 				listingFaultText = "Could not read documents: \(detail)"
-				updateChrome()
+				updateHeaderAndEmptyState()
 			case let .Unexpected(detail):
 				listingFaultText = "Could not read documents: \(detail)"
-				updateChrome()
+				updateHeaderAndEmptyState()
 			}
 		}
 	}
+}
 
-	private func apply(_ update: DocumentListUpdate, previousRowCount: Int) {
+private extension DocumentListViewController {
+	func apply(_ update: DocumentListModel.Update, previousRowCount: Int) {
 		if tableView.numberOfRows != previousRowCount {
 			tableView.reloadData()
 			return
@@ -192,6 +220,9 @@ final class DocumentListViewController: NSViewController {
 		case .reload:
 			tableView.reloadData()
 		case let .difference(removed, inserted, revised):
+			if !removed.isEmpty || !inserted.isEmpty || !revised.isEmpty {
+				incrementalUpdateCount += 1
+			}
 			if !removed.isEmpty || !inserted.isEmpty {
 				tableView.beginUpdates()
 				if !removed.isEmpty {
@@ -208,32 +239,49 @@ final class DocumentListViewController: NSViewController {
 		}
 	}
 
-	private func updateChrome() {
+	func updateHeaderAndEmptyState() {
 		summaryLabel.stringValue = DocumentListModel.summarySentence(
 			documentCount: model.documentCount,
-			status: libraryStatus
+			status: libraryStatus,
+			libraryFault: libraryFault,
+			listingFault: listingFaultText
 		)
+		replaceTokenButton.isHidden = !Self.isSuspended(libraryStatus?.archive)
 
-		if let listingFaultText {
-			emptyLabel.stringValue = listingFaultText
-			emptyLabel.isHidden = false
-			return
-		}
 		if model.rowCount > 0 {
 			emptyLabel.isHidden = true
 			return
 		}
-		if case let .filling(received, remaining) = libraryStatus?.copy {
-			emptyLabel.stringValue = "Loading documents (\(received) received, \(remaining) remaining)…"
+		if let listingFaultText {
+			emptyLabel.stringValue = listingFaultText
+		} else if let libraryFault {
+			emptyLabel.stringValue = ApplicationFailureWording.faultSentence(libraryFault)
+		} else if case .filling = libraryStatus?.copy {
+			emptyLabel.stringValue = "Loading documents…"
 		} else {
 			emptyLabel.stringValue = "No Documents Yet"
 		}
 		emptyLabel.isHidden = false
 	}
 
-	private func reusableHeadingCell(in tableView: NSTableView) -> HeadingRowView {
-		let rawView = tableView.makeView(withIdentifier: Self.headingCellIdentifier, owner: nil)
-		if let existing = rawView as? HeadingRowView {
+	static func isSuspended(_ archive: ArchiveConnection?) -> Bool {
+		guard let archive else {
+			return false
+		}
+		switch archive {
+		case .notConfigured:
+			return false
+		case let .configured(_, _, condition, _, _):
+			if case .suspended = condition {
+				return true
+			}
+			return false
+		}
+	}
+
+	func reusableHeadingCell(in tableView: NSTableView) -> HeadingRowView {
+		let reusedView = tableView.makeView(withIdentifier: Self.headingCellIdentifier, owner: nil)
+		if let existing = reusedView as? HeadingRowView {
 			return existing
 		}
 		let cell = HeadingRowView()
@@ -241,9 +289,9 @@ final class DocumentListViewController: NSViewController {
 		return cell
 	}
 
-	private func reusableDocumentCell(in tableView: NSTableView) -> DocumentRowView {
-		let rawView = tableView.makeView(withIdentifier: Self.documentCellIdentifier, owner: nil)
-		if let existing = rawView as? DocumentRowView {
+	func reusableDocumentCell(in tableView: NSTableView) -> DocumentRowView {
+		let reusedView = tableView.makeView(withIdentifier: Self.documentCellIdentifier, owner: nil)
+		if let existing = reusedView as? DocumentRowView {
 			return existing
 		}
 		let cell = DocumentRowView()
@@ -258,31 +306,21 @@ extension DocumentListViewController: NSTableViewDataSource, NSTableViewDelegate
 	}
 
 	func tableView(_: NSTableView, isGroupRow row: Int) -> Bool {
-		guard let entry = model.row(at: row) else { return false }
-		if case .heading = entry {
-			return true
-		}
-		return false
+		model.isHeading(at: row)
 	}
 
 	func tableView(_: NSTableView, shouldSelectRow row: Int) -> Bool {
-		guard let entry = model.row(at: row) else { return false }
-		if case .document = entry {
-			return true
-		}
-		return false
+		row >= 0 && row < model.rowCount && !model.isHeading(at: row)
 	}
 
 	func tableView(_: NSTableView, heightOfRow row: Int) -> CGFloat {
-		guard let entry = model.row(at: row) else { return 68 }
-		switch entry {
-		case .heading: return 26
-		case .document: return 68
-		}
+		model.isHeading(at: row) ? 26 : 68
 	}
 
 	func tableView(_ tableView: NSTableView, viewFor _: NSTableColumn?, row: Int) -> NSView? {
-		guard let entry = model.row(at: row) else { return nil }
+		guard let entry = model.row(at: row) else {
+			return nil
+		}
 		switch entry {
 		case let .heading(heading):
 			let cell = reusableHeadingCell(in: tableView)

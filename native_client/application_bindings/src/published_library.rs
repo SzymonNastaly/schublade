@@ -217,6 +217,15 @@ impl DocumentListing {
         usize_to_u32(self.inner.document_count())
     }
 
+    pub fn heading_positions(&self) -> Vec<u32> {
+        self.inner
+            .heading_positions()
+            .iter()
+            .copied()
+            .map(usize_to_u32)
+            .collect()
+    }
+
     pub fn content_revision(&self) -> u64 {
         self.inner.content_revision()
     }

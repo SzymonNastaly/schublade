@@ -248,8 +248,10 @@ impl LibraryAnnouncements {
                 ),
                 Err(fault) => {
                     let mut state = self.state();
-                    state.fault = Some(fault.into());
-                    self.changed.notify(usize::MAX);
+                    if !state.ended {
+                        state.fault = Some(fault.into());
+                        self.changed.notify(usize::MAX);
+                    }
                     return;
                 }
             },
@@ -278,11 +280,11 @@ impl LibraryAnnouncements {
     pub(crate) async fn status_after(&self, revision: Option<u64>) -> Result<LibraryStatus, ApplicationFault> {
         let Some(known) = revision else {
             let state = self.state();
-            if let Some(fault) = &state.fault {
-                return Err(fault.clone());
-            }
             if state.ended {
                 return Err(ApplicationFault::Stopped);
+            }
+            if let Some(fault) = &state.fault {
+                return Err(fault.clone());
             }
             return Ok(state.latest.clone());
         };
@@ -290,11 +292,11 @@ impl LibraryAnnouncements {
             let announcement = self.changed.listen();
             {
                 let state = self.state();
-                if let Some(fault) = &state.fault {
-                    return Err(fault.clone());
-                }
                 if state.ended {
                     return Err(ApplicationFault::Stopped);
+                }
+                if let Some(fault) = &state.fault {
+                    return Err(fault.clone());
                 }
                 if state.latest.revision > known {
                     return Ok(state.latest.clone());
@@ -616,6 +618,7 @@ mod tests {
         assert!(first_answer.difference.is_none());
         assert_eq!(first_answer.listing.document_count(), 1);
         assert_eq!(first_answer.listing.row_count(), 2);
+        assert_eq!(first_answer.listing.heading_positions(), vec![0]);
         let pub_first_id = DocumentIdentifier {
             value: first_doc.as_str().to_owned(),
         };
@@ -747,6 +750,24 @@ mod tests {
             .expect("the uploaded document is listed");
         let original = pollster::block_on(Arc::clone(&library).original(uploaded_id)).unwrap();
         assert_eq!(std::fs::read(&original.path).unwrap(), pdf_bytes);
+        pollster::block_on(Arc::clone(&fixture.core).shutdown());
+    }
+
+    #[test]
+    fn shutdown_answers_stopped_even_after_a_library_fault_was_recorded() {
+        let fixture = ApplicationFixture::start(CollectionPlacement::Collector);
+        let library = fixture.core.library();
+        {
+            let mut state = fixture.core.library_announcements.state();
+            state.fault = Some(crate::ApplicationFault::StoreFailed {
+                detail: "disk I/O error".to_owned(),
+            });
+            state.ended = true;
+        }
+        assert_eq!(
+            pollster::block_on(Arc::clone(&library).status_after(None)),
+            Err(crate::ApplicationFault::Stopped)
+        );
         pollster::block_on(Arc::clone(&fixture.core).shutdown());
     }
 }

@@ -1,7 +1,7 @@
 import ApplicationBindings
 
 /// The one owner of the application's situations. It starts the core, follows both the library and
-/// collector statuses in order, and renders the window and menu bar item after each change.
+/// collector statuses with backoff on transient faults, and renders the window and menu bar item.
 final class ApplicationController {
 	private(set) var situation = ApplicationSituation.starting
 	let statusItem: StatusItemController
@@ -9,6 +9,9 @@ final class ApplicationController {
 	let environment: ApplicationEnvironment
 	private let gateway: ApplicationGateway
 	private var shownContentRevision: UInt64 = 0
+	private var isTerminating = false
+	private var startTask: Task<Bool, Never>?
+	private var followTask: Task<Void, Never>?
 
 	var applicationCommands: any ApplicationCommands {
 		gateway
@@ -47,7 +50,7 @@ final class ApplicationController {
 
 	func launch() {
 		mainWindowController.present()
-		Task {
+		followTask = Task {
 			await followApplication()
 		}
 	}
@@ -57,14 +60,18 @@ final class ApplicationController {
 	}
 
 	func terminate() async {
+		isTerminating = true
+		_ = await startTask?.value
+		followTask?.cancel()
 		await gateway.shutdown()
+		_ = await followTask?.value
 	}
 
 	private func followApplication() async {
-		do {
-			try await gateway.start(configuration: environment.applicationConfiguration)
-		} catch {
-			change(to: .failedToStart(error))
+		let startup = Task { await startGateway() }
+		startTask = startup
+		let started = await startup.value
+		guard started, !isTerminating else {
 			return
 		}
 		gateway.interfaceAttended(mainWindowController.isAttending)
@@ -74,23 +81,85 @@ final class ApplicationController {
 		change(to: .stopped)
 	}
 
-	private func followLibrary() async {
-		var revision: UInt64?
-		while let status = try? await gateway.libraryStatusAfter(revision) {
-			revision = status.revision
-			updateRunning { $0.library = status }
-			if status.contentRevision != shownContentRevision {
-				shownContentRevision = status.contentRevision
-				mainWindowController.contentRevisionChanged(to: shownContentRevision)
-			}
+	private func startGateway() async -> Bool {
+		do {
+			try await gateway.start(configuration: environment.applicationConfiguration)
+			return true
+		} catch {
+			change(to: .failedToStart(error))
+			return false
 		}
 	}
 
+	private func followLibrary() async {
+		await followStatusLoop(
+			readAfter: { [gateway] revision throws(ApplicationFault) in
+				try await gateway.libraryStatusAfter(revision)
+			},
+			revisionOf: { $0.revision },
+			onStatus: { [weak self] status in
+				self?.applyLibraryStatus(status)
+			},
+			onFault: { [weak self] fault in
+				self?.updateRunning { $0.libraryFault = fault }
+			}
+		)
+	}
+
 	private func followCollector() async {
+		await followStatusLoop(
+			readAfter: { [gateway] revision throws(ApplicationFault) in
+				try await gateway.collectorStatusAfter(revision)
+			},
+			revisionOf: { $0.revision },
+			onStatus: { [weak self] status in
+				self?.updateRunning {
+					$0.collectorFault = nil
+					$0.collector = status
+				}
+			},
+			onFault: { [weak self] fault in
+				self?.updateRunning { $0.collectorFault = fault }
+			}
+		)
+	}
+
+	private func applyLibraryStatus(_ status: LibraryStatus) {
+		updateRunning {
+			$0.libraryFault = nil
+			$0.library = status
+		}
+		if status.contentRevision != shownContentRevision {
+			shownContentRevision = status.contentRevision
+			mainWindowController.contentRevisionChanged(to: shownContentRevision)
+		}
+	}
+
+	private func followStatusLoop<Status>(
+		readAfter: (UInt64?) async throws(ApplicationFault) -> Status,
+		revisionOf: (Status) -> UInt64,
+		onStatus: (Status) -> Void,
+		onFault: (ApplicationFault?) -> Void
+	) async {
 		var revision: UInt64?
-		while let status = try? await gateway.collectorStatusAfter(revision) {
-			revision = status.revision
-			updateRunning { $0.collector = status }
+		var retrySeconds = 1
+		while !isTerminating, !Task.isCancelled {
+			do {
+				let status = try await readAfter(revision)
+				revision = revisionOf(status)
+				retrySeconds = 1
+				onStatus(status)
+			} catch {
+				switch error {
+				case .Stopped:
+					return
+				case .StoreFailed, .Unexpected:
+					onFault(error)
+					revision = nil
+					try? await Task.sleep(for: .seconds(retrySeconds))
+					retrySeconds = min(retrySeconds * 2, 30)
+				}
+			}
 		}
 	}
 
