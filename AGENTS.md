@@ -174,9 +174,9 @@ scripts/
 	execute_on_macintosh.sh                Copies what git tracks to the build account on the Mac (`ssh mac`) and runs a command there, for FSEvents, st_flags, and the Keychain
 	test_document_generation/              Document catalog, page layout, and scan and photograph simulation
 collector/                               The desktop collector, a Cargo workspace apart from pnpm; `notes/collector_design.md` is its design
-	Cargo.toml                             Workspace: collection_core, collection_command, collection_application; the default members leave out the app; dependencies build with opt-level 2 in dev so SHA-256 and SQLite run at speed in tests
+	Cargo.toml                             Workspace: collection_core, collection_command, collection_bindings, collection_bindings_generator; dependencies build with opt-level 2 in dev so SHA-256 and SQLite run at speed in tests
 	collection_core/src/
-		lib.rs                               Collector, CollectorSettings, CollectorEvent, CommandRefusal, and the re-exports the app and the program use
+		lib.rs                               Collector, CollectorSettings, CollectorEvent, CommandRefusal, and the re-exports the bindings and the program use
 		domain_types.rs                      ContentDigest, FileSignature, FolderIdentifier, DirectoryKey, EntryName, PathKey, Timestamp, DocumentStatus, TimingPolicy
 		candidate_classification.rs          The name filter, ReadableSignature, the leading-byte table compared with src/ingestion/source_file.ts
 		path_lifecycle.rs                    PathState and advance_path, the first pure machine
@@ -198,26 +198,25 @@ collector/                               The desktop collector, a Cargo workspac
 		collection_scenarios.rs              The corpus scenarios: a Collector over test_fixtures/collection_corpus against the scripted archive with a manual clock
 		http_archive_client.rs               The HTTP client against a local tiny_http server
 	collection_command/src/main.rs         `schublade-collector`: connect, enroll, survey, decide, collect, status
-	collection_application/                Schublade Collector, the Tauri 2 app for macOS; it holds no collection logic
-		src/main.rs                          The single-instance hand-over, the development identifier, the event forwarding as `collector_event`, the login item rewritten at each launch, the Accessory policy before a login start, the menu handler, the Reopen event
-		src/collector_presence.rs            CollectorPresence: the running Collector (database in the app data directory, token in the Keychain under the app's identifier) or the CollectorStartFailure the window shows
-		src/application_commands.rs          The window's commands, one per Collector method, run off the main thread; the preference change, synchronous so it runs on the main thread; quit_application; ApplicationRefusal; the token tried with verify_credential before connect_archive stores it
-		src/window_presence.rs               The window and the menu bar item; the activation policy is Regular with the window and Accessory without it
-		src/application_preferences.rs       Whether the menu bar item shows and whether start at login was ever set, in the app config directory; start at login itself is read from the login item
-		tauri.conf.json, Info.plist          The bundle (identifier org.schublade.collector), the content security policy, and the folder usage descriptions merged into its Info.plist
-		capabilities/main_window.json        The window may listen to events, open the folder picker, and open http and https links; its own commands need no permission
-		icons/                               application_icon.svg and menu_bar_template.svg, and the PNG and icns files `pnpm run icons:generate` renders from them
-	collection_interface/                  The app's window: React, TanStack Query, Tailwind; its own pnpm project, not a member of the archive's workspace
-		src/collector_status.ts              The status and refusals as the window uses them, derived from the core's externally tagged serde format; the one parse
-		src/collector_bridge.ts              CollectorBridge, everything the window asks of the app; `#collector_bridge` picks the implementation
-		src/tauri_bridge.ts                  The bridge over invoke, listen, and the dialog and opener plugins
-		src/status_following.ts              The status query and its following: the highest announced revision, rereads that never cancel a read in flight; tested
-		src/collector_queries.ts             The status hook, the following that `main.tsx` starts once, and the command mutations
-		src/backlog_confirmation_wording.ts  The confirmation's sentences from a folder's counts; tested
-		src/status_sentences.ts              Connection, activity, attention, folder state, and refusal sentences; tested
-		src/screens/, src/controls/          The setup, folders, confirmation, status, settings, and start failure screens, and the controls they compose
-		stand_in/                            Fixed statuses for a plain browser (`pnpm run serve:stand_in`, `?screen=setup|confirmation|folders|status|start_failure`); never in the app bundle
-		generate_application_icons.ts        `pnpm run icons:generate`: renders the app's icons with `tauri icon`
+	collection_core/examples/
+		scripted_archive_server.rs           The scripted archive over HTTP for an application's end-to-end test: the three collection routes, `GET /scripted/held`, and an end with its standard input
+	collection_bindings/src/
+		lib.rs                               CollectorConfiguration, CredentialStorage, startCollector, and the Collector object an application calls through UniFFI; each call waits on a thread of the blocking pool
+		published_status.rs                  publish, the one conversion of the core's status into what an application shows; no `..` and no wildcard arm
+		refusals.rs                          CollectorStartFailure, CollectorFault, and one refusal type per command
+		status_following.rs                  RevisionAnnouncements: the wait of `status_after` for an announcement above the revision a follower holds
+		collector_fixture.rs                 The tests' collector over the scripted archive on the wall clock
+	collection_bindings_generator/src/main.rs   `uniffi-bindgen-swift`, in its own crate so that its command-line dependencies stay out of the static library
+	macintosh_application/                 Schublade Collector for macOS, pure AppKit over collection_bindings, generated by XcodeGen
+		project.yml                          The targets CollectionBindings, CollectorInterface, SchubladeCollector, and ApplicationEndToEndTests, the bundle identifiers, and the scheme with the isolated test environment
+		scripts/check_application.sh         The one check: the cargo checks, SwiftFormat, SwiftLint, the Release build, and the end-to-end test in the Debug build
+		scripts/build_application.sh         Builds the application in a configuration and prints the path of its bundle
+		scripts/produce_collector_bindings.sh   The pre-build phase: the static library for the configuration and the Swift bindings generated from it
+		collector_interface/                 CollectorGateway, the only type that calls the bindings; ApplicationController, the one owner of the situation; ApplicationEnvironment; the menu bar item
+		application/                         main.swift, and application_icon.svg and menu_bar_template.svg, the drawings of the icon and the menu bar glyph
+		application_end_to_end_tests/        The test Xcode loads into the Debug application: the collector starts and follows an enrolled folder
+		.swiftlint.yml, .swiftformat         Strict lint rules that refuse SwiftUI, unchecked concurrency, and a call of the bindings outside the gateway; the format
+		configuration/signing.xcconfig       Ad hoc signing, and an optional local_signing.xcconfig that git ignores for a Developer ID
 test_fixtures/
 	documents/                             Synthetic test documents and expected_extraction.json
 	collection_corpus/                     Folders a Mac user might enroll (Downloads, Desktop, Documents/Scans, Cloud Storage), with duplicates, incomplete downloads, and files that are no documents
@@ -296,18 +295,18 @@ eslint.config.js, .prettierrc.json, knip.json, tsconfig.json
 - **inotify reports reads.** The digest lane's own reads of a file produce `Access` events, which would hint their directory and list it again, forever one step behind. `hints_of` in `file_system_observation.rs` drops `EventKind::Access`; keep it that way when you touch the watcher.
 - **Two submission lanes mean one more PUT.** When a PUT answers 401 or 503, the PUT already in flight on the other lane completes, and the refused one counts no failure, so its content is submitted again once the connection returns. A scenario asserts what the archive holds, not that every digest saw exactly one attempt.
 - **Dependencies run optimized in collector tests.** `collector/Cargo.toml` sets `opt-level = 2` for every dependency in the dev profile, because unoptimized SHA-256 and SQLite made one corpus scenario take six seconds of CPU. The first build after a dependency change is slower; the tests are ten times faster.
-- **The collector app builds only on macOS.** `collection_application` links WebKit through Tauri and refuses other systems with `compile_error!`, so the workspace's `default-members` leave it out and plain `cargo` commands on Linux check the core and the program. On the Mac, add `--workspace`. A debug build reads the window from `devUrl` and needs no built window; the release bundle embeds `collection_interface/distribution`, which `tauri build` builds first.
-- **The collector window is its own pnpm project.** `collector/collection_interface` has its own `package.json`, lockfile, and `pnpm-workspace.yaml`, which makes it a workspace root, so pnpm there never reads the archive's workspace. The archive's `tsconfig.json`, `eslint.config.js`, and `.prettierignore` skip `collector/`, and its `pnpm check` never installs Tauri. Run the window's own check in its folder. The Mac has no global pnpm, so use `npx pnpm@10.18.1` there.
-- **The window reads the core's serde format through one parse.** The core serializes its enums with serde's external tagging (`"Surveying"`, `{ "Collecting": { "decided_at": 1 } }`). `collector_status.ts` writes each union with a `kind` and derives the wire type from it with `ExternallyTagged`, and `parseCollectorStatus` converts once. A new field or variant in `status_report.rs` needs the same change there, and the stand-in statuses follow from the types.
-- **The stand-in never reaches the bundle.** `#collector_bridge` in `package.json` `imports` resolves to `stand_in/stand_in_bridge.ts` only under the `stand_in` condition, which `vite --mode stand_in` adds. Every other build resolves `src/tauri_bridge.ts`. Keep stand-in code under `stand_in/` and import it only through `#collector_bridge`.
-- **The confirmation is per folder.** `FolderStatus.backlog` holds one folder's counts while it awaits its decision, and the window passes exactly that folder to `decide_backlog`. `CollectorStatus.backlog` sums every waiting folder for the program; the window never reads it.
-- **A new token is tried before it is stored.** `connect_archive` in `application_commands.rs` calls `HttpArchiveClient::verify_credential`, one lookup of the all-zero digest, and stores the token only when the archive answers it. The first successful connection on a Mac turns on start at login once; `start_at_login_established` in the app's preferences keeps a later connection from overriding the person's choice.
-- **A collector stays with its first archive.** The core refuses `connect_archive` with another origin (`ArchiveOriginDiffers`) once any folder is enrolled or any content recorded, because standings and receipts belong to the connected archive. Starting over means removing the app's data directory.
-- **One collector per database.** `StateStore::open` locks `<database>.lock`, and a second collector fails with `StoreOpenFailure::InUse`, which the window shows as a start failure. A start failure never ends the app: the window says what happened, even at a login start.
-- **A debug build is another app.** `main.rs` sets the identifier `org.schublade.collector.development` under `debug_assertions`, and the data directory, the Keychain service, the login item (`~/Library/LaunchAgents/<identifier>.plist`), and the single-instance socket follow it. The release bundle keeps `org.schublade.collector`.
-- **The app and the program are two collectors.** The app's Keychain service is its identifier and the program's is `Schublade collector`, so connecting one never replaces the other's token. The app keeps its database in `~/Library/Application Support/org.schublade.collector` and the program in `~/Library/Application Support/Schublade collector`. Do not run both on the same folders.
-- **The window follows the status by revision.** Every `StatusChanged` carries the revision the next status read reports. `status_following.ts` invalidates with `cancelRefetch: false` and reads again when a read ends older than the newest announcement, because cancelling starved every read while a busy collector announced every 250 ms, and an invalidation during the first read folded into it. A command's success still cancels and rereads once.
-- **The menu bar item belongs to the main thread.** Add or remove it only from setup or a synchronous command, which Tauri runs on the main thread. Its menu handler is registered once on the builder, because `TrayIconBuilder::on_menu_event` adds a global listener on every rebuild.
+- **The Swift bindings are generated on every build and never committed.** `produce_collector_bindings.sh`, the pre-build phase of `CollectionBindings`, builds `collection_bindings` for the Xcode configuration and generates `generated_bindings/` from that exact library, which git ignores. Generated Swift that differs from the linked library ends the application at launch with a checksum mismatch. A generated file is replaced only when it changed, so an unchanged build compiles nothing.
+- **The generated Swift sits in its own module.** It does not compile with MainActor default isolation, so `CollectionBindings` sets nonisolated default isolation while `CollectorInterface` and the application keep MainActor. A module of one file is otherwise parsed as a script, so the target also passes `-parse-as-library`.
+- **cargo does not fingerprint `MACOSX_DEPLOYMENT_TARGET`.** Xcode passes the Swift deployment target to cargo, which applies it to the C objects of SQLite and ring as well, but a change of it rebuilds nothing. The link then fails on objects built for another version, because `-Wl,-fatal_warnings` turns that warning into an error. After a change of the deployment target, run `cargo clean --target aarch64-apple-darwin -p collection_bindings -p collection_core`.
+- **macOS ships bash 3.2.** Under `set -u`, bash 3.2 reports an empty array expanded as `"${array[@]}"` as an unbound variable, so the scripts never expand an empty array.
+- **The end-to-end test runs inside the Debug application.** Xcode loads `ApplicationEndToEndTests` into the Debug build, and the scheme starts it with `SCHUBLADE_COLLECTOR_ENVIRONMENT=isolated`. `ApplicationEnvironment` then gives the collector a new temporary data directory and keeps the token in process memory, so the test never reads the Keychain or the state of an installed application. The isolated environment exists only under `#if DEBUG`, so a Release build ignores the variable.
+- **A status read is not a revision, and the revision rises with every change a status shows.** A follower waits for a `StatusChanged` above the revision it holds (`status_following.rs`). A read that raised the revision woke every follower on its own reads, and two followers woke each other in turns. A change that left the revision alone, such as a timer that moved the connection or planning that started assignments, left a following screen on the old state for good. So only the commands that change what a status shows count, `change_connection` is the one writer of the connection after the start, and `plan` raises the revision when it starts assignments.
+- **The confirmation is per folder.** `FolderStatus.backlog` holds one folder's counts while it awaits its decision, and the bindings publish it as `FolderAdmission::AwaitingDecision`, so an application passes exactly that folder to `decide_backlog`. `CollectorStatus.backlog` sums every waiting folder for the program; `publish` leaves it out.
+- **A new token is tried before it is stored.** `Collector::connect_archive` in `collection_bindings` calls `HttpArchiveClient::verify_credential`, one lookup of the all-zero digest, and stores the token only when the archive answers it.
+- **A collector stays with its first archive.** The core refuses `connect_archive` with another origin (`ArchiveOriginDiffers`) once any folder is enrolled or any content recorded, because standings and receipts belong to the connected archive. Starting over means removing the application's data directory.
+- **One collector per database.** `StateStore::open` locks `<database>.lock`, and a second collector fails with `StoreOpenFailure::InUse`, which the bindings answer as `CollectorStartFailure::DatabaseInUse`. A start failure never ends the application: its menu bar item says what happened.
+- **A Debug build is another application.** `project.yml` gives Debug the identifier `org.schublade.collector.development` and the name "Schublade Collector Development", and the data directory and the Keychain service follow the identifier. The Release bundle keeps `org.schublade.collector`.
+- **The application and the program are two collectors.** The application's Keychain service is its identifier and the program's is `Schublade collector`, so connecting one never replaces the other's token. The application keeps `collector.sqlite` in `~/Library/Application Support/org.schublade.collector` and the program in `~/Library/Application Support/Schublade collector`. Do not run both on the same folders.
 - **The Mac runner copies the tree at launch.** `scripts/execute_on_macintosh.sh` rsyncs what git tracks before it runs the command, so a file written after the launch is not on the Mac, and `cargo fmt --check` there judges the copy, not your working tree.
 
 ## Commands
@@ -334,18 +333,11 @@ The collector is checked apart from pnpm, in `collector/`, with `export PATH="$H
 cargo fmt --check && cargo clippy --all-targets --locked -- -D warnings && cargo test --locked   # the three checks of a collector commit
 scripts/execute_on_macintosh.sh bash -c 'cd collector && cargo test --locked'                   # the same on the Mac, from the repository root
 cargo run -p collection_command -- --database /tmp/state.sqlite status --json                   # the program against a chosen state database
-scripts/execute_on_macintosh.sh bash -c 'cd collector && cargo clippy --workspace --all-targets --locked -- -D warnings && cargo test --workspace --locked'   # the app as well, on the Mac
+scripts/execute_on_macintosh.sh collector/macintosh_application/scripts/check_application.sh   # the one check of the Mac application, from the repository root
+scripts/execute_on_macintosh.sh collector/macintosh_application/scripts/build_application.sh   # the application bundle in Debug or Release; prints its path
 ```
 
-The collector's window is checked in `collector/collection_interface`:
-
-```bash
-pnpm run check                  # typecheck, lint, format:check (with collection_application's JSON), tests of the wording and the status following
-pnpm run serve:stand_in         # the window in a plain browser on http://localhost:1420/?screen=status with fixed statuses
-pnpm run application:bundle     # macOS only: builds the window and collector/target/release/bundle/macos/Schublade Collector.app (unsigned)
-pnpm run application:develop    # macOS only: the app with the window from the Vite server
-pnpm run icons:generate         # renders the app icon and the menu bar template from their SVG drawings
-```
+The Tauri application and its React window were deleted after `37f77e5`, the last commit that holds `collector/collection_interface/src/status_sentences.ts`, `backlog_confirmation_wording.ts`, `number_wording.ts`, and `time_wording.ts` with their tests, whose wording the Mac application ports.
 
 `cf dev` and `cf build` forward only `--mode` to Vite. Set the port and other Vite options in `vite.config.ts`.
 

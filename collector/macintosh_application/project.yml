@@ -68,7 +68,10 @@ targets:
   SchubladeCollector:
     type: application
     platform: macOS
-    sources: [application]
+    sources:
+      # The drawings are the sources of the icon and the menu bar glyph, not resources of the bundle.
+      - path: application
+        excludes: ["*.svg"]
     dependencies:
       - target: CollectorInterface
       - target: CollectionBindings
