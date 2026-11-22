@@ -171,7 +171,7 @@ final class ShareViewController: UIViewController {
 				case let .prepared(request, body):
 					Self.transfer?.send(entry.id, request: request, body: body)
 				case let .answered(answer):
-					try? queue.record(answer, for: entry.id)
+					_ = try? queue.record(answer, for: entry.id)
 				}
 			}
 			progressIndicator.stopAnimating()

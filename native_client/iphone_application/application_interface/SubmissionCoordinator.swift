@@ -171,7 +171,7 @@ final class SubmissionCoordinator {
 	}
 
 	private func record(_ answer: SubmissionAnswerRecord, for identifier: UUID) {
-		try? queue.record(answer, for: identifier)
+		_ = try? queue.record(answer, for: identifier)
 		reload()
 	}
 

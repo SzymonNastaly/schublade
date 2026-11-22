@@ -11,7 +11,8 @@ public enum SubmissionPreparation: Sendable {
 public extension SubmissionQueue {
 	/// Writes the body of `entry` with the token that `credentials` holds for `archiveOrigin`, away
 	/// from the caller's actor, since a scan's body can hold 25 MB. The token is read now, because
-	/// the body is removed with every answer.
+	/// the body is removed with every answer. A submission whose bytes are gone keeps the answer it
+	/// holds, such as the archived one that another process recorded meanwhile.
 	@concurrent
 	func prepare(
 		_ entry: SubmissionEntry,
@@ -19,7 +20,10 @@ public extension SubmissionQueue {
 		credentials: CredentialStorage
 	) async -> SubmissionPreparation {
 		guard let document = documentFile(of: entry) else {
-			return .answered(.rejected(reason: "The file is no longer on this iPhone.", answeredAt: .now))
+			return .answered(
+				self.entry(entry.id)?.answer
+					?? .rejected(reason: "The file is no longer on this iPhone.", answeredAt: .now)
+			)
 		}
 		let body = bodyFile(of: entry.id)
 		do {

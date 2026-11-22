@@ -4,7 +4,7 @@ import Foundation
 /// The submissions on this device, one directory each, under a root that the application and its
 /// share extension share. A submission is built under `incoming/` and renamed into `submissions/`
 /// when complete, so no reader sees half of one, and its answer is written to a temporary name and
-/// renamed too. No database is shared between the two processes.
+/// renamed too. No database and no lock is shared between the two processes.
 public struct SubmissionQueue: Sendable {
 	public enum QueueFailure: Error, Equatable {
 		case documentUnreadable(String)
@@ -13,6 +13,8 @@ public struct SubmissionQueue: Sendable {
 
 	private static let manifestName = "submission.json"
 	private static let answerName = "answer.json"
+	/// The archived answer, apart from every other, because no later answer may replace it.
+	private static let archivedAnswerName = "archived_answer.json"
 	private static let bodyName = "request_body"
 	/// How long an archived submission stays listed.
 	public static let archivedRetention: TimeInterval = 7 * 24 * 3600
@@ -97,8 +99,12 @@ public struct SubmissionQueue: Sendable {
 		else {
 			return nil
 		}
-		let answer = (try? Data(contentsOf: directory.appending(path: answerName)))
-			.flatMap { try? JSONDecoder().decode(SubmissionAnswerRecord.self, from: $0) }
+		let answer = [archivedAnswerName, answerName].lazy
+			.compactMap { name in
+				(try? Data(contentsOf: directory.appending(path: name)))
+					.flatMap { try? JSONDecoder().decode(SubmissionAnswerRecord.self, from: $0) }
+			}
+			.first
 		return SubmissionEntry(manifest: manifest, answer: answer)
 	}
 
@@ -113,27 +119,48 @@ public struct SubmissionQueue: Sendable {
 		directory(of: identifier).appending(path: Self.bodyName)
 	}
 
-	/// Records the archive's answer. An archived submission gives up its bytes at once, because the
-	/// archive holds them; a refused one keeps them, so a person can still share the file.
-	public func record(_ answer: SubmissionAnswerRecord, for identifier: UUID) throws(QueueFailure) {
+	/// Records the archive's answer and answers the one that stands. An archived answer is final,
+	/// whichever process records what: the first one is renamed exclusively into a file of its own,
+	/// which the queue reads before any other answer, and the submission gives up its bytes at once,
+	/// because the archive holds them. Any other answer replaces the one before it by a rename, and a
+	/// refused submission keeps its bytes, so a person can still share the file.
+	@discardableResult
+	public func record(
+		_ answer: SubmissionAnswerRecord,
+		for identifier: UUID
+	) throws(QueueFailure) -> SubmissionAnswerRecord {
 		let directory = directory(of: identifier)
+		let temporary = directory.appending(path: "\(Self.answerName).\(UUID().uuidString)")
 		do {
-			let temporary = directory.appending(path: "\(Self.answerName).\(UUID().uuidString)")
 			try JSONEncoder().encode(answer).write(to: temporary)
-			let answerFile = directory.appending(path: Self.answerName)
-			if FileManager.default.fileExists(atPath: answerFile.path(percentEncoded: false)) {
-				_ = try FileManager.default.replaceItemAt(answerFile, withItemAt: temporary)
-			} else {
-				try FileManager.default.moveItem(at: temporary, to: answerFile)
-			}
 		} catch {
 			throw .queueUnwritable(error.localizedDescription)
 		}
-		try? FileManager.default.removeItem(at: bodyFile(of: identifier))
-		guard case .archived = answer, let entry = entry(identifier), let document = documentFile(of: entry) else {
-			return
+		let temporaryPath = temporary.path(percentEncoded: false)
+		let renamed = if case .archived = answer {
+			renamex_np(
+				temporaryPath,
+				directory.appending(path: Self.archivedAnswerName).path(percentEncoded: false),
+				UInt32(RENAME_EXCL)
+			)
+		} else {
+			rename(temporaryPath, directory.appending(path: Self.answerName).path(percentEncoded: false))
 		}
-		try? FileManager.default.removeItem(at: document)
+		if renamed != 0 {
+			let failure = errno
+			try? FileManager.default.removeItem(at: temporary)
+			guard failure == EEXIST else {
+				throw .queueUnwritable(String(cString: strerror(failure)))
+			}
+		}
+		try? FileManager.default.removeItem(at: bodyFile(of: identifier))
+		guard let entry = entry(identifier) else {
+			return answer
+		}
+		if case .archived = entry.answer, let document = documentFile(of: entry) {
+			try? FileManager.default.removeItem(at: document)
+		}
+		return entry.answer ?? answer
 	}
 
 	/// Records the archive's answer to a submission, or the lack of one, whichever process the
@@ -146,9 +173,7 @@ public struct SubmissionQueue: Sendable {
 		guard let entry = entry(identifier) else {
 			return nil
 		}
-		let record = SubmissionAnswerRecord(answer: answer, previous: entry.answer)
-		try self.record(record, for: identifier)
-		return record
+		return try record(SubmissionAnswerRecord(answer: answer, previous: entry.answer), for: identifier)
 	}
 
 	public func remove(_ identifier: UUID) {
