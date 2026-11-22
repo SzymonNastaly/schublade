@@ -204,6 +204,7 @@ final class ApplicationController {
 		if status.contentRevision != shownContentRevision {
 			shownContentRevision = status.contentRevision
 			mainWindowController.contentRevisionChanged(to: shownContentRevision)
+			statusItem.contentRevisionChanged()
 		}
 	}
 
@@ -258,8 +259,8 @@ final class ApplicationController {
 			situation: nextSituation,
 			alreadyEstablished: preferences.loginItemEstablished
 		) {
-			preferences.loginItemEstablished = true
-			loginItem.setEnabled(true)
+			// A registration the system refused is tried again at the next status.
+			preferences.loginItemEstablished = loginItem.setEnabled(true)
 		}
 	}
 

@@ -633,6 +633,14 @@ fn a_person_sees_the_space_originals_hold_lowers_their_limit_and_removes_them() 
     replica.set_original_storage_limit(Some(500));
     assert_eq!(replica.original_storage(), (400, Some(500)));
 
+    // The one handed out a moment ago may be about to open elsewhere, so it stays until it ages.
+    replica.remove_downloaded_originals();
+    assert_eq!(replica.original_storage(), (400, Some(500)));
+    let third = format!("{}.pdf", content_of(&scan(3)).hexadecimal());
+    std::fs::File::open(originals.join(third))
+        .unwrap()
+        .set_modified(SystemTime::now() - Duration::from_secs(120))
+        .unwrap();
     replica.remove_downloaded_originals();
     assert_eq!(replica.original_storage(), (0, Some(500)));
     assert_eq!(files_in(&originals), (vec![], 0));

@@ -3,7 +3,7 @@ import QuickLookUI
 
 /// The one Quick Look panel of the application and the document it shows. The panel may take a
 /// data source only from a responder that controls it, or AppKit raises an exception that ends the
-/// application, so the document table takes control and hands the panel to this coordinator.
+/// application, so the library's detail split takes control and hands the panel to this coordinator.
 @MainActor
 final class QuickLookCoordinator: NSObject, QLPreviewPanelDataSource {
 	static let shared = QuickLookCoordinator()

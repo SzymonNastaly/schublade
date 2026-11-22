@@ -76,7 +76,7 @@ public struct StatusItemPresentation: Equatable, Sendable {
 			return .attentionRequired
 		}
 		guard let library = statuses.library else {
-			return .starting
+			return statuses.libraryFault == nil ? .starting : .attentionRequired
 		}
 		switch library.archive {
 		case .notConfigured:

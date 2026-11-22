@@ -2,7 +2,7 @@ import AppKit
 import ApplicationBindings
 
 /// The Settings window: toolbar tabs as every Mac application has them, opened with Command-Comma.
-final class SettingsWindowController: NSWindowController {
+final class SettingsWindowController: NSWindowController, NSWindowDelegate {
 	private let archive: ArchiveSettingsViewController
 
 	init(
@@ -31,6 +31,7 @@ final class SettingsWindowController: NSWindowController {
 		window.title = "Settings"
 		window.isReleasedWhenClosed = false
 		super.init(window: window)
+		window.delegate = self
 	}
 
 	@available(*, unavailable)
@@ -38,11 +39,17 @@ final class SettingsWindowController: NSWindowController {
 		fatalError("Interface Builder is not used")
 	}
 
+	func windowWillClose(_: Notification) {
+		ActivationPolicy.becomeAccessoryUnlessAnotherWindowShows(besides: window)
+	}
+
 	func render(_ archiveConnection: ArchiveConnection?) {
 		archive.render(archiveConnection)
 	}
 
 	func present() {
+		// Settings opened from the menu bar item with the main window closed still gets a Dock icon.
+		ActivationPolicy.becomeRegular()
 		window?.center()
 		showWindow(nil)
 		window?.makeKeyAndOrderFront(nil)

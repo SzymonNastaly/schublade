@@ -69,15 +69,23 @@ final class WorkspaceDocumentActions {
 		}
 	}
 
-	func copyFile(_ document: DocumentIdentifier, window: NSWindow?) {
+	/// Puts a copy of the original on the pasteboard under its suggested name, writable, as a drag
+	/// gives it, and apart from the cache, whose file may be evicted before the paste.
+	func copyFile(_ document: DocumentIdentifier, suggestedFileName: String?, window: NSWindow?) {
 		Task {
-			do throws(RepresentationRefusal) {
+			do {
 				let localFile = try await queries.original(document)
-				let fileURL = URL(fileURLWithPath: localFile.path)
+				let folder = FileManager.default.temporaryDirectory
+					.appending(path: "Schublade Copies/\(UUID().uuidString)", directoryHint: .isDirectory)
+				try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+				let copy = folder.appending(path: suggestedFileName ?? "\(document.value).pdf")
+				try OriginalFileCopy.write(from: URL(fileURLWithPath: localFile.path), to: copy)
 				NSPasteboard.general.clearContents()
-				NSPasteboard.general.setData(fileURL.dataRepresentation, forType: .fileURL)
+				NSPasteboard.general.setData(copy.dataRepresentation, forType: .fileURL)
+			} catch let refusal as RepresentationRefusal {
+				presentRepresentationAlert(refusal, in: window)
 			} catch {
-				presentRepresentationAlert(error, in: window)
+				presentAlert(title: "Copy Failed", message: error.localizedDescription, in: window)
 			}
 		}
 	}

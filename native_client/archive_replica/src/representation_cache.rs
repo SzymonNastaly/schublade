@@ -252,12 +252,21 @@ impl RepresentationCache {
         self.evict_originals();
     }
 
-    /// Removes every original but those downloading now, because a person asked for the space.
-    /// An original that is open elsewhere stays readable there until it is closed.
+    /// Removes the originals a person asked to free the space of: every one but those downloading
+    /// now and those handed out within the last minute, which Quick Look or another application
+    /// may be about to open, as eviction spares them.
     pub fn remove_originals(&self) {
         let downloads = self.downloads();
+        let now = SystemTime::now();
         for path in files_in(&self.originals) {
-            if !is_partial(&path) && !downloads.contains(&path) {
+            let recent = path
+                .metadata()
+                .and_then(|metadata| metadata.modified())
+                .map_or(true, |handed_out_at| {
+                    now.duration_since(handed_out_at)
+                        .map_or(true, |age| age < RECENT_OPENING)
+                });
+            if !is_partial(&path) && !downloads.contains(&path) && !recent {
                 let _ = std::fs::remove_file(path);
             }
         }

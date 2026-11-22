@@ -69,10 +69,10 @@ final class StorageSettingsViewController: NSViewController {
 	}
 
 	@objc private func limitChosen() {
-		let bytes = StorageWording.limitChoices[limit.indexOfSelectedItem]
-		preferences.originalStorageLimit = bytes
+		preferences.originalStorageLimit = StorageWording.limitChoices[limit.indexOfSelectedItem]
 		Task {
-			try? await commands.setOriginalStorageLimit(bytes)
+			// Each call applies the choice saved when it runs, so quick choices end on the last one.
+			try? await commands.setOriginalStorageLimit(preferences.originalStorageLimit)
 			refresh()
 		}
 	}

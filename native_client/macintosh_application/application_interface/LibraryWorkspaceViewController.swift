@@ -391,7 +391,7 @@ private extension LibraryWorkspaceViewController {
 	}
 
 	func copyDocument(_ document: DocumentIdentifier) {
-		actions.copyFile(document, window: view.window)
+		actions.copyFile(document, suggestedFileName: detailLoader.detail?.suggestedFileName, window: view.window)
 	}
 
 	func reportDragFailure(_ refusal: RepresentationRefusal) {

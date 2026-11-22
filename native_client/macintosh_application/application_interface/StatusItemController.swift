@@ -17,6 +17,8 @@ public final class StatusItemController: NSObject, NSMenuDelegate {
 	private var frameTimer: Timer?
 	private var newestDocuments: [DocumentRow] = []
 	private var attentionActions: [AttentionAction] = []
+	private var isMenuOpen = false
+	private var rebuildPending = false
 
 	var onOpenWindow: (() -> Void)?
 	var onOpenAction: ((AttentionAction) -> Void)?
@@ -89,7 +91,8 @@ public final class StatusItemController: NSObject, NSMenuDelegate {
 
 	// MARK: The menu
 
-	public func menuNeedsUpdate(_: NSMenu) {
+	/// Reads the newest documents when the library changes, so they are there before the menu opens.
+	public func contentRevisionChanged() {
 		Task {
 			// The archive's newest documents, however old: Recently Added covers only 30 days.
 			let request = ListingRequest.browse(scope: .allDocuments, order: .addition)
@@ -97,6 +100,18 @@ public final class StatusItemController: NSObject, NSMenuDelegate {
 				return
 			}
 			newestDocuments = Self.newestDocuments(in: reply.listing)
+			rebuildMenu()
+		}
+	}
+
+	public func menuWillOpen(_: NSMenu) {
+		isMenuOpen = true
+	}
+
+	/// A menu rebuilt while it is open loses the row under the pointer, so changes wait for it to close.
+	public func menuDidClose(_: NSMenu) {
+		isMenuOpen = false
+		if rebuildPending {
 			rebuildMenu()
 		}
 	}
@@ -112,6 +127,11 @@ public final class StatusItemController: NSObject, NSMenuDelegate {
 	}
 
 	private func rebuildMenu() {
+		guard !isMenuOpen else {
+			rebuildPending = true
+			return
+		}
+		rebuildPending = false
 		menu.removeAllItems()
 		attentionActions = []
 		menu.addItem(disabledItem(presentation.statusSentence))

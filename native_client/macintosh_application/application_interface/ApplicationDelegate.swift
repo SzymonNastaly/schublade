@@ -6,6 +6,9 @@ public final class ApplicationDelegate: NSObject, NSApplicationDelegate {
 	private static let log = Logger(subsystem: "org.schublade.application", category: "lifecycle")
 
 	let controller = ApplicationController(environment: .current())
+	/// Set once a quit goes on, so a second Command-Q while the cores shut down neither asks again
+	/// nor shuts them down twice.
+	private var isTerminating = false
 
 	public func applicationWillFinishLaunching(_: Notification) {
 		// A copy started outside Launch Services finds the first one, shows its window, and ends.
@@ -15,10 +18,12 @@ public final class ApplicationDelegate: NSObject, NSApplicationDelegate {
 			return
 		}
 		let others = NSRunningApplication.runningApplications(withBundleIdentifier: Bundle.main.bundleIdentifier ?? "")
-			.filter { $0 != NSRunningApplication.current }
-		if let first = others.first {
-			first.activate()
-			exit(0)
+			.filter { $0 != NSRunningApplication.current && !$0.isTerminated }
+		if let first = others.first, let location = first.bundleURL {
+			// Opening the running copy through Launch Services reopens it, which shows its window.
+			NSWorkspace.shared.openApplication(at: location, configuration: NSWorkspace.OpenConfiguration()) { _, _ in
+				exit(0)
+			}
 		}
 	}
 
@@ -48,9 +53,13 @@ public final class ApplicationDelegate: NSObject, NSApplicationDelegate {
 	/// closes its database. The first quit while folders are collected asks first, because quitting
 	/// stops collecting.
 	public func applicationShouldTerminate(_ application: NSApplication) -> NSApplication.TerminateReply {
+		guard !isTerminating else {
+			return .terminateLater
+		}
 		guard confirmsQuitting() else {
 			return .terminateCancel
 		}
+		isTerminating = true
 		Task {
 			await controller.terminate()
 			application.reply(toApplicationShouldTerminate: true)
@@ -98,6 +107,9 @@ public final class ApplicationDelegate: NSObject, NSApplicationDelegate {
 		alert.addButton(withTitle: "Close Window")
 		alert.showsSuppressionButton = true
 		alert.suppressionButton?.title = "Do not ask again"
+		// A quit from the menu bar item does not make the application active, and an alert behind
+		// the front application would hold the quit with nothing on screen.
+		NSApp.activate()
 		let response = alert.runModal()
 		if alert.suppressionButton?.state == .on {
 			preferences.quitAlertSuppressed = true

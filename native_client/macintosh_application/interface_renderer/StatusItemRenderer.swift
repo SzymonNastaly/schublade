@@ -94,9 +94,7 @@ final class StatusItemRenderer {
 		for (title, statuses) in [("A resting Mac", resting), ("An upload and a folder awaiting its decision", busy)] {
 			let controller = StatusItemController(queries: fixtures.queries.scene(listing: fixtures.sampleListing))
 			controller.render(.running(statuses))
-			if let menu = controller.item.menu {
-				controller.menuNeedsUpdate(menu)
-			}
+			controller.contentRevisionChanged()
 			try await Task.sleep(for: .milliseconds(300))
 			text += "\(title)\n\n" + controller.menuTitles.joined(separator: "\n") + "\n\n"
 			NSStatusBar.system.removeStatusItem(controller.item)

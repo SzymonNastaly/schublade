@@ -1,4 +1,5 @@
 import AppKit
+import QuickLookUI
 
 /// Three-pane library detail split holding the document list, reader, and collapsible inspector.
 final class LibraryDetailSplitViewController: NSSplitViewController {
@@ -12,6 +13,7 @@ final class LibraryDetailSplitViewController: NSSplitViewController {
 	var onInspectorVisibilityChanged: ((Bool) -> Void)?
 	private var requestedInspectorVisible = true
 	private var dividersPlaced = false
+	private var hasAppeared = false
 
 	init(
 		listController: DocumentListViewController,
@@ -61,17 +63,24 @@ final class LibraryDetailSplitViewController: NSSplitViewController {
 		addSplitViewItem(inspectorItem)
 	}
 
+	override func viewDidAppear() {
+		super.viewDidAppear()
+		hasAppeared = true
+		view.needsLayout = true
+	}
+
+	/// The layouts before the window appears are narrower than the window and collapse the
+	/// inspector, so the dividers are placed, and the inspector restored, at the first layout after.
 	override func viewDidLayout() {
 		super.viewDidLayout()
-		guard !dividersPlaced, splitView.bounds.width >= 940 else {
+		guard hasAppeared, !dividersPlaced, splitView.bounds.width > 0 else {
 			return
 		}
 		dividersPlaced = true
-		InitialDividerPlacement.place(in: splitView, at: [330, splitView.bounds.width - 250])
-		// The first layouts are narrower than the window, which collapses the inspector; restore it.
 		if requestedInspectorVisible, inspectorItem.isCollapsed {
 			inspectorItem.isCollapsed = false
 		}
+		InitialDividerPlacement.place(in: splitView, at: [330, splitView.bounds.width - 250])
 	}
 
 	override func splitViewDidResizeSubviews(_ notification: Notification) {
@@ -101,5 +110,24 @@ final class LibraryDetailSplitViewController: NSSplitViewController {
 
 	@objc override func toggleSidebar(_ sender: Any?) {
 		onToggleSidebar?(sender)
+	}
+
+	// The Quick Look panel takes a data source only from a responder that controls it. The split
+	// is in the responder chain whether the list, the reader, or the inspector has the keyboard.
+
+	override nonisolated func acceptsPreviewPanelControl(_: QLPreviewPanel?) -> Bool {
+		true
+	}
+
+	override nonisolated func beginPreviewPanelControl(_ panel: QLPreviewPanel?) {
+		MainActor.assumeIsolated {
+			panel.map { QuickLookCoordinator.shared.beginControl(of: $0) }
+		}
+	}
+
+	override nonisolated func endPreviewPanelControl(_ panel: QLPreviewPanel?) {
+		MainActor.assumeIsolated {
+			panel.map { QuickLookCoordinator.shared.endControl(of: $0) }
+		}
 	}
 }

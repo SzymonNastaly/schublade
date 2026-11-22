@@ -152,7 +152,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate {
 			isAttending = false
 			onAttendanceChanged(false)
 		}
-		NSApp.setActivationPolicy(.accessory)
+		ActivationPolicy.becomeAccessoryUnlessAnotherWindowShows(besides: window)
 	}
 
 	private func screen(for content: WindowContent) -> Screen {

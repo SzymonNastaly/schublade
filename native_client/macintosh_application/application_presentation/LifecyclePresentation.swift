@@ -21,7 +21,8 @@ public enum LifecyclePresentation {
 			return .opens
 		case let .running(statuses):
 			guard let library = statuses.library else {
-				return .undecided
+				// A library that faults before its first status needs a person as much as a failed start.
+				return statuses.libraryFault == nil ? .undecided : .opens
 			}
 			switch library.archive {
 			case .notConfigured:
