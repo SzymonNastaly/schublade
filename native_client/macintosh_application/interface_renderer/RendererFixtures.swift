@@ -94,7 +94,7 @@ final class RendererFixtures {
 
 	func makeStatuses(
 		condition: ConnectionCondition = .connected,
-		collector: Bool = true,
+		collector: CollectorStatus? = RendererFixtures.makeCollectorStatus(),
 		facets: LibraryFacets = RendererSampleCatalog.sampleFacets
 	) -> ApplicationStatuses {
 		let library = LibraryStatus(
@@ -103,7 +103,7 @@ final class RendererFixtures {
 				origin: "https://archive.example.org",
 				host: "archive.example.org",
 				condition: condition,
-				permission: collector ? .readAndCollect : .readOnly,
+				permission: collector == nil ? .readOnly : .readAndCollect,
 				restricted: false
 			),
 			copy: .complete(synchronizedAt: context.now),
@@ -115,19 +115,20 @@ final class RendererFixtures {
 				documentsAwaitingText: 308
 			)
 		)
-		let collectorStatus = collector ? CollectorStatus(
+		return ApplicationStatuses(library: library, collector: collector)
+	}
+
+	/// Downloads collecting, and Paperwork in the admission a scene shows.
+	static func makeCollectorStatus(
+		paperworkAdmission: FolderAdmission = .collecting,
+		attention: [AttentionItem] = [],
+		receipts: [Receipt] = []
+	) -> CollectorStatus {
+		CollectorStatus(
 			revision: 4,
 			folders: [
-				FolderStatus(
-					folder: FolderReference(identifier: FolderIdentifier(value: 1), root: "/Users/owner/Downloads"),
-					admission: .collecting,
-					unavailability: nil
-				),
-				FolderStatus(
-					folder: FolderReference(identifier: FolderIdentifier(value: 2), root: "/Users/owner/Paperwork"),
-					admission: .collecting,
-					unavailability: nil
-				),
+				FolderStatus(folder: downloads, admission: .collecting, unavailability: nil),
+				FolderStatus(folder: paperwork, admission: paperworkAdmission, unavailability: nil),
 			],
 			progress: CollectionProgress(
 				documentsInArchive: 98,
@@ -135,9 +136,11 @@ final class RendererFixtures {
 				filesUnderExamination: 0
 			),
 			activities: [],
-			attention: [],
-			recentReceipts: []
-		) : nil
-		return ApplicationStatuses(library: library, collector: collectorStatus)
+			attention: attention,
+			recentReceipts: receipts
+		)
 	}
+
+	static let downloads = FolderReference(identifier: FolderIdentifier(value: 1), root: "/Users/owner/Downloads")
+	static let paperwork = FolderReference(identifier: FolderIdentifier(value: 2), root: "/Users/owner/Paperwork")
 }

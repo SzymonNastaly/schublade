@@ -7,7 +7,7 @@ import XCTest
 
 /// Xcode loads this bundle into the Debug application, which the scheme starts in the isolated
 /// environment. XCTestCase is nonisolated, so the module keeps nonisolated default isolation.
-final class ApplicationEndToEndTests: XCTestCase {
+final class ApplicationEndToEndTests: XCTestCase, InterfaceProbing {
 	@MainActor
 	func testConnectListReadInspectSearchAndCollectDocuments() async throws {
 		let delegate = try XCTUnwrap(NSApp.delegate as? ApplicationDelegate)
@@ -38,8 +38,8 @@ final class ApplicationEndToEndTests: XCTestCase {
 	}
 }
 
+@MainActor
 private extension ApplicationEndToEndTests {
-	@MainActor
 	func connectThroughForm(in window: NSWindow, address: String, token: String) async throws {
 		let addressField = try await waitForView(
 			"the connection address field",
@@ -79,7 +79,6 @@ private extension ApplicationEndToEndTests {
 		submitButton.performClick(nil)
 	}
 
-	@MainActor
 	func assertSeededWorkspace(in window: NSWindow) async throws -> NSTableView {
 		let tableView = try await waitForView(
 			"the seeded documents in the library list",
@@ -120,7 +119,6 @@ private extension ApplicationEndToEndTests {
 		return tableView
 	}
 
-	@MainActor
 	func verifySelectionReaderAndInspector(in window: NSWindow, tableView: NSTableView) async throws {
 		tableView.selectRowIndexes(IndexSet(integer: 1), byExtendingSelection: false)
 
@@ -176,7 +174,6 @@ private extension ApplicationEndToEndTests {
 		tabControl.sendAction(tabControl.action, to: tabControl.target)
 	}
 
-	@MainActor
 	func verifyIncrementalSearchAndSenderFilter(
 		in window: NSWindow,
 		tableView: NSTableView,
@@ -223,7 +220,6 @@ private extension ApplicationEndToEndTests {
 	}
 
 	/// The inspector's sender lists that sender's documents under its name, and Back returns.
-	@MainActor
 	func verifySenderListAndBack(in window: NSWindow, tableView: NSTableView) async throws {
 		tableView.selectRowIndexes(IndexSet(integer: 3), byExtendingSelection: false)
 		let senderLink = try await waitForView(
@@ -244,7 +240,6 @@ private extension ApplicationEndToEndTests {
 		}
 	}
 
-	@MainActor
 	func verifyCollectedDocumentArrives(
 		in window: NSWindow,
 		tableView: NSTableView,
@@ -268,7 +263,7 @@ private extension ApplicationEndToEndTests {
 				return true
 			} ?? false
 		}
-		try await controller.collectorCommands.decideBacklog(enrolled.identifier)
+		try await decideOnTheFolderPage(enrolled, in: window, controller: controller)
 
 		try await waitForCondition("collected document appearing under Arriving") { tableView.numberOfRows == 10 }
 		window.contentView?.layoutSubtreeIfNeeded()
@@ -279,7 +274,39 @@ private extension ApplicationEndToEndTests {
 		)
 	}
 
-	@MainActor
+	/// Opens the folder's page as a notification does, and presses the confirmation's upload.
+	func decideOnTheFolderPage(
+		_ folder: FolderReference,
+		in window: NSWindow,
+		controller: ApplicationController
+	) async throws {
+		controller.mainWindowController.open(.decideBacklog(folder.identifier))
+		let upload = try await waitForView(
+			"the confirmation's upload button",
+			in: window,
+			identifier: InterfaceIdentifier.folderPageUploadButton,
+			as: NSButton.self
+		) { $0.isEnabled }
+		XCTAssertEqual(window.frame.size, NSSize(width: 1340, height: 820))
+		upload.performClick(nil)
+		_ = try await waitForView(
+			"the folder collecting",
+			in: window,
+			identifier: InterfaceIdentifier.folderPageState,
+			as: NSTextField.self
+		) { $0.stringValue == "Collecting" }
+		let sidebar = try XCTUnwrap(findView(
+			in: window.contentView,
+			identifier: InterfaceIdentifier.sidebarOutline,
+			as: NSOutlineView.self
+		))
+		let allDocuments = try XCTUnwrap((0 ..< sidebar.numberOfRows).first { row in
+			sidebar.view(atColumn: 0, row: row, makeIfNecessary: true)?.accessibilityIdentifier()
+				== "sidebarItem.library.allDocuments"
+		})
+		sidebar.selectRowIndexes(IndexSet(integer: allDocuments), byExtendingSelection: false)
+	}
+
 	func verifyWindowReopen(window: NSWindow, tableView: NSTableView, controller: ApplicationController) {
 		window.close()
 		XCTAssertFalse(window.isVisible)
@@ -293,93 +320,5 @@ private extension ApplicationEndToEndTests {
 		if window.occlusionState.contains(.visible) {
 			XCTAssertTrue(controller.mainWindowController.isAttending)
 		}
-	}
-
-	@MainActor
-	func findSearchField(in window: NSWindow) -> NSSearchField? {
-		for item in window.toolbar?.items ?? [] {
-			if let searchItem = item as? NSSearchToolbarItem {
-				return searchItem.searchField
-			}
-		}
-		return nil
-	}
-
-	@MainActor
-	func waitUntil(
-		_ expectation: String,
-		_ controller: ApplicationController,
-		_ condition: (ApplicationStatuses) -> Bool
-	) async throws {
-		let deadline = ContinuousClock.now + .seconds(30)
-		while true {
-			if case let .running(statuses) = controller.situation, condition(statuses) {
-				return
-			}
-			guard ContinuousClock.now < deadline else {
-				throw ConditionNotReached(expectation: expectation, detail: String(describing: controller.situation))
-			}
-			try await Task.sleep(for: .milliseconds(50))
-		}
-	}
-
-	@MainActor
-	func waitForCondition(_ expectation: String, _ condition: () -> Bool) async throws {
-		let deadline = ContinuousClock.now + .seconds(30)
-		while !condition() {
-			guard ContinuousClock.now < deadline else {
-				throw ConditionNotReached(expectation: expectation, detail: "timed out")
-			}
-			try await Task.sleep(for: .milliseconds(50))
-		}
-	}
-
-	@MainActor
-	func waitForView<View: NSView>(
-		_ expectation: String,
-		in window: NSWindow,
-		identifier: String,
-		as _: View.Type,
-		matching predicate: (View) -> Bool = { _ in true }
-	) async throws -> View {
-		let deadline = ContinuousClock.now + .seconds(30)
-		while true {
-			if let view = findView(in: window.contentView, identifier: identifier, as: View.self), predicate(view) {
-				return view
-			}
-			guard ContinuousClock.now < deadline else {
-				throw ConditionNotReached(expectation: expectation, detail: "missing view \(identifier)")
-			}
-			try await Task.sleep(for: .milliseconds(50))
-		}
-	}
-
-	@MainActor
-	func rowText(in tableView: NSTableView, row: Int, identifier: String) throws -> String {
-		let rowView = try XCTUnwrap(tableView.rowView(atRow: row, makeIfNecessary: true))
-		let label = try XCTUnwrap(findView(in: rowView, identifier: identifier, as: NSTextField.self))
-		return label.stringValue
-	}
-
-	@MainActor
-	func findView<View: NSView>(in root: NSView?, identifier: String, as _: View.Type) -> View? {
-		guard let root else { return nil }
-		if root.accessibilityIdentifier() == identifier, let matching = root as? View {
-			return matching
-		}
-		for subview in root.subviews {
-			if let found = findView(in: subview, identifier: identifier, as: View.self) {
-				return found
-			}
-		}
-		return nil
-	}
-
-	func repositoryRoot() -> URL {
-		URL(fileURLWithPath: #filePath)
-			.deletingLastPathComponent()
-			.deletingLastPathComponent()
-			.deletingLastPathComponent()
-			.deletingLastPathComponent()
 	}
 }

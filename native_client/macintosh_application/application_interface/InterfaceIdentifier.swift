@@ -52,5 +52,10 @@ public enum InterfaceIdentifier {
 	public static let inspectorOpenInBrowserButton = "schublade.inspector.openInBrowserButton"
 
 	public static let workspaceNoticeMessage = "schublade.workspace.noticeMessage"
+	public static let folderPageTitle = "schublade.folderPage.title"
+	public static let folderPageState = "schublade.folderPage.state"
+	public static let folderPageUploadButton = "schublade.folderPage.uploadButton"
+	public static let folderPageRemoveButton = "schublade.folderPage.removeButton"
+	public static let folderPageFailure = "schublade.folderPage.failure"
 	public static let workspaceNoticeActionButton = "schublade.workspace.noticeActionButton"
 }

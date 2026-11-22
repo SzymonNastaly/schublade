@@ -9,6 +9,7 @@ final class ApplicationController {
 	let mainWindowController: MainWindowController
 	let environment: ApplicationEnvironment
 	private let gateway: ApplicationGateway
+	private let notifier: CollectorNotifier
 	private var shownContentRevision: UInt64 = 0
 	private var isTerminating = false
 	private var startTask: Task<Bool, Never>?
@@ -42,6 +43,10 @@ final class ApplicationController {
 		self.gateway = gateway
 		self.statusItem = statusItem
 		self.mainWindowController = mainWindowController
+		notifier = CollectorNotifier(isEnabled: !environment.isIsolated)
+		notifier.onOpen = { [weak mainWindowController] action in
+			mainWindowController?.open(action)
+		}
 
 		statusItem.onOpenWindow = { [weak mainWindowController] in
 			mainWindowController?.present()
@@ -116,6 +121,7 @@ final class ApplicationController {
 			},
 			revisionOf: { $0.revision },
 			onStatus: { [weak self] status in
+				self?.notifier.observe(status, context: WordingContext.current())
 				self?.updateRunning {
 					$0.collectorFault = nil
 					$0.collector = status

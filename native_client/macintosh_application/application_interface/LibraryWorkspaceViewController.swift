@@ -17,7 +17,7 @@ public final class LibraryWorkspaceViewController: NSSplitViewController {
 	private let pictureStore: PictureStore
 	private let actions: WorkspaceDocumentActions
 	private let rightContainerController = WindowContainerViewController()
-	private let noticeController = WorkspaceNoticeViewController()
+	private let pageController: WorkspacePageViewController
 
 	let sidebarController: LibrarySidebarViewController
 	let listController: DocumentListViewController
@@ -32,7 +32,7 @@ public final class LibraryWorkspaceViewController: NSSplitViewController {
 	private var latestStatuses = ApplicationStatuses()
 	private var latestWorkspace: LibraryWorkspacePresentation?
 	private let detailLoader: SelectedDocumentDetailLoader
-	private var showingNoticeScreen = false
+	private var showingPage = false
 
 	public init(
 		queries: any LibraryQueries,
@@ -82,6 +82,12 @@ public final class LibraryWorkspaceViewController: NSSplitViewController {
 		detailLoader = SelectedDocumentDetailLoader(queries: queries) { document, detail in
 			target?.detailLoaded(detail, for: document)
 		}
+		pageController = WorkspacePageViewController(
+			commands: collectorCommands,
+			renderMode: renderMode,
+			onNavigate: { target?.navigate(to: $0, selecting: $1) },
+			onReplaceToken: { target?.onReplaceTokenRequested?() }
+		)
 		super.init(nibName: nil, bundle: nil)
 		target = self
 		detailSplitController.onToggleSidebar = { [weak self] in self?.toggleWorkspaceSidebar($0) }
@@ -114,7 +120,7 @@ public final class LibraryWorkspaceViewController: NSSplitViewController {
 		addSplitViewItem(sidebarItem)
 		addSplitViewItem(detailItem)
 		splitView.setPosition(214, ofDividerAt: 0)
-		showingNoticeScreen = false
+		showingPage = false
 		rightContainerController.display(detailSplitController)
 	}
 
@@ -128,29 +134,25 @@ public final class LibraryWorkspaceViewController: NSSplitViewController {
 		latestNavigation = navigation
 		sidebarController.render(workspace.sidebar, selectedDestination: navigation.destination)
 
-		switch workspace.detailMode {
-		case .documents:
-			showDetailSplit()
-			detailSplitController.setInspectorVisible(
-				navigation.inspectorVisible,
-				animated: renderMode == .interactive
-			)
-			listController.render(navigation: navigation, workspace: workspace, statuses: statuses)
-			detailLoader.select(navigation.selectedDocument, revision: statuses.library?.contentRevision ?? 0)
-			if navigation.selectedDocument == nil {
-				actions.updateQuickLookSelection(nil, detail: nil)
+		guard workspace.detailMode == .documents else {
+			if !showingPage {
+				showingPage = true
+				rightContainerController.display(pageController)
 			}
-			renderReaderAndInspector(navigation: navigation)
-		case let .archiveOutdated(message):
-			showNotice(title: "Update Required", detail: message)
-		case let .tokenCannotRead(message):
-			let title = "Token Cannot Read Archive"
-			showNotice(title: title, detail: message, actionTitle: "Replace Token…", onAction: onReplaceTokenRequested)
-		case let .needsAttention(summary):
-			showNotice(title: "Needs Attention", detail: summary)
-		case let .folder(_, name):
-			showNotice(title: name, detail: "Folder controls arrive in the next update.")
+			pageController.render(workspace.detailMode, statuses: statuses, context: wordingContextProvider())
+			return
 		}
+		showDetailSplit()
+		detailSplitController.setInspectorVisible(
+			navigation.inspectorVisible,
+			animated: renderMode == .interactive
+		)
+		listController.render(navigation: navigation, workspace: workspace, statuses: statuses)
+		detailLoader.select(navigation.selectedDocument, revision: statuses.library?.contentRevision ?? 0)
+		if navigation.selectedDocument == nil {
+			actions.updateQuickLookSelection(nil, detail: nil)
+		}
+		renderReaderAndInspector(navigation: navigation)
 	}
 
 	public func contentRevisionChanged(to revision: UInt64) {
@@ -296,19 +298,21 @@ private extension LibraryWorkspaceViewController {
 	}
 
 	func showDetailSplit() {
-		guard showingNoticeScreen else {
+		guard showingPage else {
 			return
 		}
-		showingNoticeScreen = false
+		showingPage = false
 		rightContainerController.display(detailSplitController)
 	}
 
-	func showNotice(title: String, detail: String, actionTitle: String? = nil, onAction: (() -> Void)? = nil) {
-		if !showingNoticeScreen {
-			showingNoticeScreen = true
-			rightContainerController.display(noticeController)
+	/// Moves to a destination from a page, such as a folder's upload or Show Failed Documents.
+	func navigate(to destination: NavigationDestination, selecting document: DocumentIdentifier?) {
+		onNavigationChange? { navigation in
+			navigation.previousDestination = nil
+			navigation.destination = destination
+			navigation.searchText = ""
+			navigation.selectedDocument = document
 		}
-		noticeController.render(title: title, detail: detail, actionTitle: actionTitle, onAction: onAction)
 	}
 
 	func selectSidebarDestination(_ destination: NavigationDestination) {

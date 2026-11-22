@@ -226,6 +226,20 @@ final class MainWindowController: NSWindowController, NSWindowDelegate {
 		isAttending = nextAttending
 		onAttendanceChanged(nextAttending)
 	}
+
+	/// Shows the page that settles what a notification or the menu reported.
+	func open(_ action: AttentionAction) {
+		present()
+		switch action {
+		case .replaceToken:
+			beginTokenReplacement()
+		case let .decideBacklog(folder), let .openFolder(folder):
+			updateNavigation { navigation in
+				navigation.destination = .folder(folder)
+				navigation.selectedDocument = nil
+			}
+		}
+	}
 }
 
 private extension MainWindowController {

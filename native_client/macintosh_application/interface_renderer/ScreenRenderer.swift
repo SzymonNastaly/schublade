@@ -19,6 +19,15 @@ final class ScreenRenderer {
 		try await renderConnectionAndEmptyScreens()
 		try await renderLibraryDocumentScreens()
 		try await renderLibraryStatusScreens()
+		for scene in CollectorScenes.all(fixtures: fixtures) {
+			try await renderWorkspaceScene(
+				name: scene.name,
+				statuses: scene.statuses,
+				facets: scene.facets,
+				navigation: scene.navigation,
+				queries: fixtures.queries.scene(listing: fixtures.sampleListing)
+			)
+		}
 	}
 
 	private func renderConnectionAndEmptyScreens() async throws {
