@@ -77,6 +77,16 @@ targets:
       base:
         SWIFT_DEFAULT_ACTOR_ISOLATION: nonisolated
 
+  # The pending scan request that the intent and the quick action raise and the submissions screen
+  # answers, in a module of its own because the controls extension compiles the intent too.
+  ScanRequest:
+    type: library.static
+    platform: iOS
+    sources: [scan_request]
+    settings:
+      base:
+        SWIFT_DEFAULT_ACTOR_ISOLATION: MainActor
+
   ApplicationInterface:
     type: library.static
     platform: iOS
@@ -84,6 +94,7 @@ targets:
     dependencies:
       - target: SubmissionQueue
       - target: ApplicationBindings
+      - target: ScanRequest
     settings:
       base:
         SWIFT_DEFAULT_ACTOR_ISOLATION: MainActor
@@ -95,11 +106,14 @@ targets:
       # The drawing is the source of the icon, not a resource of the bundle.
       - path: application
         excludes: ["*.svg", "*.entitlements"]
+      - scan_document_intent
     dependencies:
       - target: ApplicationInterface
       - target: SubmissionQueue
       - target: ApplicationBindings
+      - target: ScanRequest
       - target: ShareExtension
+      - target: ControlExtension
     info:
       path: application/Info.plist
       properties:
@@ -111,6 +125,11 @@ targets:
         UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait]
         UIRequiresFullScreen: true
         NSCameraUsageDescription: $(APPLICATION_DISPLAY_NAME) scans letters and receipts with the camera and sends them to your archive.
+        # The type is ScanRequestCenter.quickActionType.
+        UIApplicationShortcutItems:
+          - UIApplicationShortcutItemType: scan-document
+            UIApplicationShortcutItemTitle: Scan Document
+            UIApplicationShortcutItemIconSymbolName: doc.viewfinder
         # SharedInstallation reads these, in the application and the share extension alike.
         SchubladeApplicationBundleIdentifier: $(APPLICATION_BUNDLE_IDENTIFIER)
         SchubladeApplicationGroup: $(SHARED_APPLICATION_GROUP)
@@ -163,6 +182,27 @@ targets:
         SWIFT_DEFAULT_ACTOR_ISOLATION: MainActor
         LIBRARY_SEARCH_PATHS: $(RUST_TARGET_DIRECTORY)
         OTHER_LDFLAGS: $(APPLICATION_BINDINGS_LINKER_FLAGS)
+
+  # The Control Center and Lock Screen control, the one SwiftUI target. It holds no App Group and no
+  # Keychain access group, because the intent it runs only opens the application.
+  ControlExtension:
+    type: app-extension
+    platform: iOS
+    sources:
+      - control_extension
+      - scan_document_intent
+    dependencies:
+      - target: ScanRequest
+    info:
+      path: control_extension/Info.plist
+      properties:
+        CFBundleDisplayName: $(APPLICATION_PRODUCT_NAME)
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.widgetkit-extension
+    settings:
+      base:
+        PRODUCT_NAME: ControlExtension
+        PRODUCT_BUNDLE_IDENTIFIER: $(APPLICATION_BUNDLE_IDENTIFIER).controls
 
   ApplicationEndToEndTests:
     type: bundle.unit-test

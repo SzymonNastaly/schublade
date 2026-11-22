@@ -3,6 +3,9 @@ included:
   - application
   - application_end_to_end_tests
   - application_interface
+  - control_extension
+  - scan_document_intent
+  - scan_request
   - share_extension
   - submission_queue
 excluded:
@@ -67,7 +70,9 @@ custom_rules:
   swiftui_forbidden:
     name: "Pure UIKit"
     regex: '^\s*(@preconcurrency\s+)?import\s+SwiftUI\b'
-    message: "The application is pure UIKit, so SwiftUI is imported nowhere."
+    # A control exists only as a SwiftUI widget.
+    excluded: 'control_extension/'
+    message: "The application is pure UIKit, so SwiftUI is imported only by the controls extension."
     severity: error
   application_start_outside_gateway:
     name: "Application start outside the gateway"
