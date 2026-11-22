@@ -1,3 +1,4 @@
+import ApplicationBindings
 import Foundation
 
 /// The submissions on this device, one directory each, under a root that the application and its
@@ -81,17 +82,24 @@ public struct SubmissionQueue: Sendable {
 			at: submissions,
 			includingPropertiesForKeys: nil
 		)) ?? []
-		return directories.compactMap { directory in
-			guard let data = try? Data(contentsOf: directory.appending(path: Self.manifestName)),
-			      let manifest = try? JSONDecoder().decode(SubmissionManifest.self, from: data)
-			else {
-				return nil
-			}
-			let answer = (try? Data(contentsOf: directory.appending(path: Self.answerName)))
-				.flatMap { try? JSONDecoder().decode(SubmissionAnswerRecord.self, from: $0) }
-			return SubmissionEntry(manifest: manifest, answer: answer)
+		return directories.compactMap(Self.entry(in:))
+			.sorted { $0.manifest.createdAt > $1.manifest.createdAt }
+	}
+
+	/// One complete submission, or nil when none has this identifier, as after a person removed it.
+	public func entry(_ identifier: UUID) -> SubmissionEntry? {
+		Self.entry(in: directory(of: identifier))
+	}
+
+	private static func entry(in directory: URL) -> SubmissionEntry? {
+		guard let data = try? Data(contentsOf: directory.appending(path: manifestName)),
+		      let manifest = try? JSONDecoder().decode(SubmissionManifest.self, from: data)
+		else {
+			return nil
 		}
-		.sorted { $0.manifest.createdAt > $1.manifest.createdAt }
+		let answer = (try? Data(contentsOf: directory.appending(path: answerName)))
+			.flatMap { try? JSONDecoder().decode(SubmissionAnswerRecord.self, from: $0) }
+		return SubmissionEntry(manifest: manifest, answer: answer)
 	}
 
 	/// The file whose bytes are sent, while the submission still holds them.
@@ -122,12 +130,25 @@ public struct SubmissionQueue: Sendable {
 			throw .queueUnwritable(error.localizedDescription)
 		}
 		try? FileManager.default.removeItem(at: bodyFile(of: identifier))
-		guard case .archived = answer, let entry = entries().first(where: { $0.id == identifier }),
-		      let document = documentFile(of: entry)
-		else {
+		guard case .archived = answer, let entry = entry(identifier), let document = documentFile(of: entry) else {
 			return
 		}
 		try? FileManager.default.removeItem(at: document)
+	}
+
+	/// Records the archive's answer to a submission, or the lack of one, whichever process the
+	/// upload's session delivered it to. Answers nil when the submission is gone.
+	@discardableResult
+	public func receive(
+		_ answer: DocumentSubmissionAnswer?,
+		for identifier: UUID
+	) throws(QueueFailure) -> SubmissionAnswerRecord? {
+		guard let entry = entry(identifier) else {
+			return nil
+		}
+		let record = SubmissionAnswerRecord(answer: answer, previous: entry.answer)
+		try self.record(record, for: identifier)
+		return record
 	}
 
 	public func remove(_ identifier: UUID) {

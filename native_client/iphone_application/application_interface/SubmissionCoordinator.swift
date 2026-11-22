@@ -108,91 +108,33 @@ final class SubmissionCoordinator {
 	}
 
 	private func send(_ entry: SubmissionEntry) {
-		guard let transfer, let archiveOrigin, let document = queue.documentFile(of: entry) else {
+		guard let transfer, let archiveOrigin else {
 			return
 		}
 		inFlight.insert(entry.id)
-		let body = queue.bodyFile(of: entry.id)
-		let credentials = credentials
 		Task {
-			let prepared = await Self.prepare(
-				origin: archiveOrigin,
-				credentials: credentials,
-				document: document,
-				manifest: entry.manifest,
-				body: body
-			)
-			switch prepared {
-			case let .success(request):
+			switch await queue.prepare(entry, archiveOrigin: archiveOrigin, credentials: credentials) {
+			case let .prepared(request, body):
 				transfer.send(entry.id, request: request, body: body)
-			case let .failure(refusal):
+			case let .answered(answer):
 				inFlight.remove(entry.id)
-				record(Self.answer(for: refusal), for: entry.id)
+				record(answer, for: entry.id)
 			}
-		}
-	}
-
-	/// Writes the body away from the main actor, since a scan's body can hold 25 MB.
-	@concurrent
-	private static func prepare(
-		origin: String,
-		credentials: CredentialStorage,
-		document: URL,
-		manifest: SubmissionManifest,
-		body: URL
-	) async -> Result<DocumentSubmissionRequest, SubmissionPreparationRefusal> {
-		Result { () throws(SubmissionPreparationRefusal) in
-			do {
-				return try prepareDocumentSubmission(
-					archiveOrigin: origin,
-					credentialStorage: credentials,
-					documentPath: document.path(percentEncoded: false),
-					fileName: manifest.fileName,
-					mediaType: manifest.kind.mediaType,
-					destinationPath: body.path(percentEncoded: false)
-				)
-			} catch let refusal as SubmissionPreparationRefusal {
-				throw refusal
-			} catch {
-				throw .DocumentUnreadable(detail: String(describing: error))
-			}
-		}
-	}
-
-	private static func answer(for refusal: SubmissionPreparationRefusal) -> SubmissionAnswerRecord {
-		switch refusal {
-		case .TokenMissing, .CredentialStorageFailed, .AddressInvalid:
-			.refusedToken(answeredAt: .now)
-		case .DocumentTooLarge:
-			.rejected(reason: "The file is larger than the 25 MB the archive accepts.", answeredAt: .now)
-		case let .DocumentUnreadable(detail), let .BodyUnwritable(detail):
-			.rejected(reason: "The file could not be read: \(detail)", answeredAt: .now)
 		}
 	}
 
 	private func received(_ answer: DocumentSubmissionAnswer?, for identifier: UUID) {
 		inFlight.remove(identifier)
 		progress[identifier] = nil
-		guard entries.contains(where: { $0.id == identifier }) else {
-			return
-		}
-		switch answer {
-		case let .archived(document, alreadyHeld):
-			record(.archived(document: document.value, alreadyHeld: alreadyHeld, answeredAt: .now), for: identifier)
+		let recorded = try? queue.receive(answer, for: identifier)
+		reload()
+		switch recorded {
+		case .archived?:
 			gateway.synchronize()
-		case let .rejected(reason):
-			record(.rejected(reason: reason, answeredAt: .now), for: identifier)
-		case .tokenRefused, .notPermitted:
-			record(.refusedToken(answeredAt: .now), for: identifier)
-		case .archiveUnavailable, nil:
-			let previous = entries.first { $0.id == identifier }?.answer
-			let attempts = if case let .unavailable(attempts, _) = previous {
-				attempts + 1
-			} else {
-				1
-			}
-			record(.unavailable(attempts: attempts, answeredAt: .now), for: identifier)
+		case .unavailable?:
 			scheduleRetry()
+		case .rejected?, .refusedToken?, nil:
+			break
 		}
 	}
 
