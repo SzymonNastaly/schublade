@@ -1,4 +1,5 @@
 import ApplicationBindings
+import ApplicationPresentation
 
 /// The one owner of the application's situations. It starts the core, follows both the library and
 /// collector statuses with backoff on transient faults, and renders the window and menu bar item.
@@ -30,7 +31,9 @@ final class ApplicationController {
 		let statusItem = StatusItemController()
 		let mainWindowController = MainWindowController(
 			applicationCommands: gateway,
-			libraryQueries: gateway
+			libraryQueries: gateway,
+			collectorCommands: gateway,
+			persistsWindowState: !environment.isIsolated
 		) { attended in
 			gateway.interfaceAttended(attended)
 		}

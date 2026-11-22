@@ -55,11 +55,22 @@ targets:
         OTHER_SWIFT_FLAGS: -parse-as-library
         ENABLE_USER_SCRIPT_SANDBOXING: NO
 
+  ApplicationPresentation:
+    type: library.static
+    platform: macOS
+    sources: [application_presentation]
+    dependencies:
+      - target: ApplicationBindings
+    settings:
+      base:
+        SWIFT_DEFAULT_ACTOR_ISOLATION: nonisolated
+
   ApplicationInterface:
     type: library.static
     platform: macOS
     sources: [application_interface]
     dependencies:
+      - target: ApplicationPresentation
       - target: ApplicationBindings
     settings:
       base:
@@ -74,6 +85,7 @@ targets:
         excludes: ["*.svg"]
     dependencies:
       - target: ApplicationInterface
+      - target: ApplicationPresentation
       - target: ApplicationBindings
     info:
       path: application/Info.plist
@@ -101,6 +113,23 @@ targets:
           -lapplication_bindings -framework Security -framework CoreFoundation -framework CoreServices -liconv
           -Wl,-fatal_warnings
 
+  ApplicationPresentationTests:
+    type: bundle.unit-test
+    platform: macOS
+    sources: [application_presentation_tests]
+    dependencies:
+      - target: ApplicationPresentation
+      - target: ApplicationBindings
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: YES
+        PRODUCT_BUNDLE_IDENTIFIER: $(APPLICATION_BUNDLE_IDENTIFIER).application-presentation-tests
+        SWIFT_DEFAULT_ACTOR_ISOLATION: nonisolated
+        LIBRARY_SEARCH_PATHS: $(SRCROOT)/../target/aarch64-apple-darwin/$(CARGO_PROFILE_DIRECTORY)
+        OTHER_LDFLAGS: >-
+          -lapplication_bindings -framework Security -framework CoreFoundation -framework CoreServices -liconv
+          -Wl,-fatal_warnings
+
   ApplicationEndToEndTests:
     type: bundle.unit-test
     platform: macOS
@@ -114,14 +143,34 @@ targets:
         TEST_HOST: $(BUILT_PRODUCTS_DIR)/$(APPLICATION_PRODUCT_NAME).app/Contents/MacOS/$(APPLICATION_PRODUCT_NAME)
         BUNDLE_LOADER: $(TEST_HOST)
 
+  InterfaceRenderer:
+    type: tool
+    platform: macOS
+    sources: [interface_renderer]
+    dependencies:
+      - target: ApplicationInterface
+      - target: ApplicationPresentation
+      - target: ApplicationBindings
+    settings:
+      base:
+        PRODUCT_NAME: InterfaceRenderer
+        SWIFT_DEFAULT_ACTOR_ISOLATION: MainActor
+        LIBRARY_SEARCH_PATHS: $(SRCROOT)/../target/aarch64-apple-darwin/$(CARGO_PROFILE_DIRECTORY)
+        OTHER_LDFLAGS: >-
+          -lapplication_bindings -framework Security -framework CoreFoundation -framework CoreServices -liconv
+          -Wl,-fatal_warnings
+
 schemes:
   Schublade:
     build:
       targets:
+        ApplicationPresentation: all
         Schublade: all
+        InterfaceRenderer: all
+        ApplicationPresentationTests: [test]
         ApplicationEndToEndTests: [test]
     test:
       config: Debug
-      targets: [ApplicationEndToEndTests]
+      targets: [ApplicationPresentationTests, ApplicationEndToEndTests]
       environmentVariables:
         SCHUBLADE_APPLICATION_ENVIRONMENT: isolated

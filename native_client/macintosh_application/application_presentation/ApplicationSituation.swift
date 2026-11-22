@@ -1,7 +1,7 @@
 import ApplicationBindings
 
 /// What the application knows of the core. Only `ApplicationController` changes it.
-enum ApplicationSituation: Equatable {
+public enum ApplicationSituation: Equatable, Sendable {
 	case starting
 	case failedToStart(ApplicationStartFailure)
 	case running(ApplicationStatuses)

@@ -1,6 +1,6 @@
 #!/bin/bash
 # The one check of the Mac application: the workspace's cargo checks, SwiftFormat, SwiftLint, the
-# build of every target in both configurations, and the end-to-end test.
+# build of every target in both configurations, and both the presentation and end-to-end tests.
 #   native_client/macintosh_application/scripts/check_application.sh
 set -euo pipefail
 export PATH="/opt/homebrew/bin:$HOME/.cargo/bin:$PATH"
@@ -24,4 +24,4 @@ project=(-project Schublade.xcodeproj -scheme Schublade -derivedDataPath build
 xcodebuild -quiet "${project[@]}" -configuration Release build
 # Not quiet, so that the test's own result lines show. The filter keeps every diagnostic.
 xcodebuild "${project[@]}" -configuration Debug test 2>&1 |
-	grep -E "^(/.*: (error|warning)|error|warning|ld: |Test Case|[[:space:]]+Executed|\*\* TEST)"
+	grep -E "^(/.*: (error|warning)|error|warning|ld: |Test Case|[[:space:]]+Executed|\*\* TEST|Test run|Suite |Test |✔|✘)"

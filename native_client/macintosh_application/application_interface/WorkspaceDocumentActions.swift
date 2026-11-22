@@ -1,0 +1,174 @@
+import AppKit
+import ApplicationBindings
+import ApplicationPresentation
+
+/// Executes user-initiated document actions (Open, Quick Look, Export, Copy, Share, Open in
+/// Browser, and Add Folder) and presents refusal sheets in interactive mode.
+@MainActor
+final class WorkspaceDocumentActions {
+	private let queries: any LibraryQueries
+	private let collectorCommands: any CollectorCommands
+	private let quickLookCoordinator = QuickLookCoordinator()
+	private let renderMode: InterfaceRenderMode
+
+	init(
+		queries: any LibraryQueries,
+		collectorCommands: any CollectorCommands,
+		renderMode: InterfaceRenderMode
+	) {
+		self.queries = queries
+		self.collectorCommands = collectorCommands
+		self.renderMode = renderMode
+	}
+
+	func updateQuickLookSelection(_ document: DocumentIdentifier?, detail: DocumentDetail?, in window: NSWindow?) {
+		guard let document else {
+			quickLookCoordinator.updatePreviewIfVisible(item: nil)
+			return
+		}
+		Task {
+			guard let localFile = try? await queries.original(document) else {
+				return
+			}
+			let title = detail?.title ?? "Document"
+			let item = PreviewedDocumentItem(url: URL(fileURLWithPath: localFile.path), title: title)
+			quickLookCoordinator.updatePreviewIfVisible(item: item)
+		}
+		_ = window
+	}
+
+	func openInDefaultApplication(_ document: DocumentIdentifier, window: NSWindow?) {
+		Task {
+			do throws(RepresentationRefusal) {
+				let localFile = try await queries.original(document)
+				NSWorkspace.shared.open(URL(fileURLWithPath: localFile.path))
+			} catch {
+				presentRepresentationAlert(error, in: window)
+			}
+		}
+	}
+
+	func toggleQuickLook(for document: DocumentIdentifier, title: String?, window: NSWindow?) {
+		Task {
+			do throws(RepresentationRefusal) {
+				let localFile = try await queries.original(document)
+				let item = PreviewedDocumentItem(
+					url: URL(fileURLWithPath: localFile.path),
+					title: title ?? "Document"
+				)
+				quickLookCoordinator.togglePreview(for: item)
+			} catch {
+				presentRepresentationAlert(error, in: window)
+			}
+		}
+	}
+
+	func copyFile(_ document: DocumentIdentifier, window: NSWindow?) {
+		Task {
+			do throws(RepresentationRefusal) {
+				let localFile = try await queries.original(document)
+				let fileURL = URL(fileURLWithPath: localFile.path)
+				NSPasteboard.general.clearContents()
+				NSPasteboard.general.setData(fileURL.dataRepresentation, forType: .fileURL)
+			} catch {
+				presentRepresentationAlert(error, in: window)
+			}
+		}
+	}
+
+	func share(_ document: DocumentIdentifier, anchoredTo anchorView: NSView, window: NSWindow?) {
+		Task {
+			do throws(RepresentationRefusal) {
+				let localFile = try await queries.original(document)
+				let picker = NSSharingServicePicker(items: [URL(fileURLWithPath: localFile.path)])
+				picker.show(relativeTo: anchorView.bounds, of: anchorView, preferredEdge: .minY)
+			} catch {
+				presentRepresentationAlert(error, in: window)
+			}
+		}
+	}
+
+	func export(_ document: DocumentIdentifier, suggestedFileName: String?, window: NSWindow?) {
+		guard let window else {
+			return
+		}
+		let panel = NSSavePanel()
+		panel.nameFieldStringValue = suggestedFileName ?? "\(document.value).pdf"
+		panel.canCreateDirectories = true
+		panel.beginSheetModal(for: window) { [weak self] response in
+			guard response == .OK, let destination = panel.url else {
+				return
+			}
+			Task {
+				await self?.writeExportedOriginal(document: document, to: destination, window: window)
+			}
+		}
+	}
+
+	func presentAddFolderPanel(in window: NSWindow?, onEnrolled: @escaping (FolderReference) -> Void) {
+		guard let window else {
+			return
+		}
+		let panel = NSOpenPanel()
+		panel.canChooseFiles = false
+		panel.canChooseDirectories = true
+		panel.allowsMultipleSelection = false
+		panel.prompt = "Add Folder"
+		panel.beginSheetModal(for: window) { [weak self] response in
+			guard response == .OK, let selectedURL = panel.url else {
+				return
+			}
+			Task {
+				await self?.enrollFolder(at: selectedURL, window: window, onEnrolled: onEnrolled)
+			}
+		}
+	}
+
+	func presentRepresentationAlert(_ refusal: RepresentationRefusal, in window: NSWindow?) {
+		let placeholder = ApplicationFailureWording.originalRefusalPlaceholder(refusal)
+		presentAlert(title: placeholder.title, message: placeholder.detail, in: window)
+	}
+
+	private func writeExportedOriginal(
+		document: DocumentIdentifier,
+		to destination: URL,
+		window: NSWindow?
+	) async {
+		do {
+			let localFile = try await queries.original(document)
+			let sourceURL = URL(fileURLWithPath: localFile.path)
+			if FileManager.default.fileExists(atPath: destination.path(percentEncoded: false)) {
+				try FileManager.default.removeItem(at: destination)
+			}
+			try FileManager.default.copyItem(at: sourceURL, to: destination)
+		} catch let refusal as RepresentationRefusal {
+			presentRepresentationAlert(refusal, in: window)
+		} catch {
+			presentAlert(title: "Export Failed", message: error.localizedDescription, in: window)
+		}
+	}
+
+	private func enrollFolder(
+		at url: URL,
+		window: NSWindow?,
+		onEnrolled: @escaping (FolderReference) -> Void
+	) async {
+		do {
+			let folder = try await collectorCommands.enrollFolder(root: url.path(percentEncoded: false))
+			onEnrolled(folder)
+		} catch {
+			presentAlert(title: "Could Not Add Folder", message: String(describing: error), in: window)
+		}
+	}
+
+	private func presentAlert(title: String, message: String, in window: NSWindow?) {
+		guard let window, renderMode == .interactive else {
+			return
+		}
+		let alert = NSAlert()
+		alert.messageText = title
+		alert.informativeText = message
+		alert.addButton(withTitle: "OK")
+		alert.beginSheetModal(for: window)
+	}
+}

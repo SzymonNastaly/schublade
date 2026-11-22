@@ -1,34 +1,71 @@
 import AppKit
 import ApplicationBindings
+import ApplicationPresentation
+import UniformTypeIdentifiers
 
-/// Displays the library's documents in a fixed-height table backed by `DocumentListModel`.
+/// Middle library pane: displays fixed-height headings and document rows with thumbnails, empty
+/// states, search footer, drag-out file promises, and keyboard navigation.
 final class DocumentListViewController: NSViewController {
 	private static let headingCellIdentifier = NSUserInterfaceItemIdentifier("headingCell")
 	private static let documentCellIdentifier = NSUserInterfaceItemIdentifier("documentCell")
 
 	private let queries: any LibraryQueries
-	private let onReplaceToken: () -> Void
+	private let pictureStore: PictureStore
+	private let wordingContextProvider: () -> WordingContext
+	private let onSelectionChanged: (DocumentIdentifier?) -> Void
+	private let onOpenSelected: (DocumentIdentifier) -> Void
+	private let onQuickLookSelected: (DocumentIdentifier) -> Void
+	private let onCopySelected: (DocumentIdentifier) -> Void
+	private let onDragFailed: (RepresentationRefusal) -> Void
+	private let onRequestAddFolder: () -> Void
+	private let onRequestSearchAllDocuments: () -> Void
+	/// Called with the number of documents the list shows after each listing it applies.
+	var onShownDocumentsChanged: ((Int) -> Void)?
+
 	private let model = DocumentListModel()
-	private var request = ListingRequest.browse(scope: .allDocuments, order: .documentDate)
-	private var newestRequestNumber: UInt64 = 0
+	private var activeRequest: ListingRequest?
+	private var activeNavigation = LibraryNavigationState()
 	private var libraryStatus: LibraryStatus?
 	private var libraryFault: ApplicationFault?
 	private var listingFaultText: String?
+	private var hasCollector = true
+	private var searchAllDocumentsAvailable = false
+	private var textIndexingNotice: String?
+	private var newestRequestNumber: UInt64 = 0
+	private var isApplyingTableUpdates = false
 	private(set) var incrementalUpdateCount = 0
 
-	private let headerBar = NSView()
-	private let summaryLabel = NSTextField(labelWithString: "")
-	private let replaceTokenButton = NSButton()
-	private let refreshButton = NSButton()
-	private let actionStack = NSStackView()
-	private let separator = NSBox()
-	private let tableView = NSTableView()
+	private let tableView = DocumentListTableView()
 	private let scrollView = NSScrollView()
-	private let emptyLabel = NSTextField(wrappingLabelWithString: "")
+	private let emptyView = DocumentListEmptyView()
+	private let footerView = DocumentListFooterView()
 
-	init(queries: any LibraryQueries, onReplaceToken: @escaping () -> Void) {
+	var focusTargetView: NSView {
+		tableView
+	}
+
+	init(
+		queries: any LibraryQueries,
+		pictureStore: PictureStore,
+		wordingContextProvider: @escaping () -> WordingContext,
+		onSelectionChanged: @escaping (DocumentIdentifier?) -> Void,
+		onOpenSelected: @escaping (DocumentIdentifier) -> Void,
+		onQuickLookSelected: @escaping (DocumentIdentifier) -> Void,
+		onCopySelected: @escaping (DocumentIdentifier) -> Void,
+		onDragFailed: @escaping (RepresentationRefusal) -> Void,
+		onRequestAddFolder: @escaping () -> Void,
+		onRequestSearchAllDocuments: @escaping () -> Void
+	) {
 		self.queries = queries
-		self.onReplaceToken = onReplaceToken
+		self.pictureStore = pictureStore
+		self.wordingContextProvider = wordingContextProvider
+		self.onSelectionChanged = onSelectionChanged
+		self.onOpenSelected = onOpenSelected
+		self.onQuickLookSelected = onQuickLookSelected
+		self.onCopySelected = onCopySelected
+		self.onDragFailed = onDragFailed
+		self.onRequestAddFolder = onRequestAddFolder
+		self.onRequestSearchAllDocuments = onRequestSearchAllDocuments
 		super.init(nibName: nil, bundle: nil)
 	}
 
@@ -38,265 +75,270 @@ final class DocumentListViewController: NSViewController {
 	}
 
 	override func loadView() {
-		view = NSView(frame: NSRect(x: 0, y: 0, width: 900, height: 600))
+		view = NSView(frame: NSRect(x: 0, y: 0, width: 330, height: 600))
 	}
 
 	override func viewDidLoad() {
 		super.viewDidLoad()
-		configureHeaderBar()
 		configureTableView()
 		configureLayout()
-		updateHeaderAndEmptyState()
-		refresh()
+		updateEmptyAndFooterViews()
 	}
 
-	func render(libraryStatus: LibraryStatus, libraryFault: ApplicationFault?) {
-		self.libraryStatus = libraryStatus
-		self.libraryFault = libraryFault
-		updateHeaderAndEmptyState()
+	func render(
+		navigation: LibraryNavigationState,
+		workspace: LibraryWorkspacePresentation,
+		statuses: ApplicationStatuses
+	) {
+		let nextRequest = navigation.activeListingRequest
+		let requestChanged = nextRequest != activeRequest
+		let previousSelection = activeNavigation.selectedDocument
+		activeNavigation = navigation
+		libraryStatus = statuses.library
+		libraryFault = statuses.libraryFault
+		hasCollector = statuses.collector != nil
+		searchAllDocumentsAvailable = workspace.searchAllDocumentsAvailable
+		textIndexingNotice = workspace.textIndexingNotice
+		if requestChanged {
+			activeRequest = nextRequest
+			if nextRequest == nil {
+				newestRequestNumber &+= 1
+			} else {
+				refresh()
+			}
+		} else if previousSelection != navigation.selectedDocument {
+			restoreSelection(to: navigation.selectedDocument, notifyIfMissing: false)
+		}
+		updateEmptyAndFooterViews()
 	}
 
-	func contentRevisionChanged(to _: UInt64) {
-		refresh()
+	func contentRevisionChanged(to revision: UInt64) {
+		pictureStore.contentRevisionChanged(to: revision)
+		if activeRequest != nil {
+			refresh()
+		}
 	}
 
-	private func configureHeaderBar() {
-		summaryLabel.font = NSFont.systemFont(ofSize: NSFont.systemFontSize, weight: .medium)
-		summaryLabel.lineBreakMode = .byTruncatingTail
-		summaryLabel.translatesAutoresizingMaskIntoConstraints = false
-		summaryLabel.setAccessibilityIdentifier(InterfaceIdentifier.documentListSummaryLabel)
-
-		replaceTokenButton.title = "Replace Token…"
-		replaceTokenButton.bezelStyle = .rounded
-		replaceTokenButton.target = self
-		replaceTokenButton.action = #selector(requestTokenReplacement)
-		replaceTokenButton.isHidden = true
-		replaceTokenButton.setAccessibilityIdentifier(InterfaceIdentifier.documentListReplaceTokenButton)
-
-		refreshButton.title = "Refresh"
-		refreshButton.bezelStyle = .rounded
-		refreshButton.target = self
-		refreshButton.action = #selector(synchronizeArchive)
-		refreshButton.setAccessibilityIdentifier(InterfaceIdentifier.documentListRefreshButton)
-
-		actionStack.setViews([replaceTokenButton, refreshButton], in: .trailing)
-		actionStack.orientation = .horizontal
-		actionStack.alignment = .centerY
-		actionStack.spacing = 8
-		actionStack.translatesAutoresizingMaskIntoConstraints = false
-
-		headerBar.translatesAutoresizingMaskIntoConstraints = false
-		headerBar.addSubview(summaryLabel)
-		headerBar.addSubview(actionStack)
-
-		separator.boxType = .separator
-		separator.translatesAutoresizingMaskIntoConstraints = false
+	var shownDocuments: Int? {
+		model.listing == nil ? nil : model.documentCount
 	}
 
-	private func configureTableView() {
-		let documentColumn = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("documentColumn"))
-		documentColumn.resizingMask = .autoresizingMask
-		tableView.addTableColumn(documentColumn)
+	func selectedDocumentIdentifier() -> DocumentIdentifier? {
+		tableView.selectedRow >= 0 ? model.documentIdentifier(at: tableView.selectedRow) : nil
+	}
+
+	@objc func copy(_: Any?) {
+		selectedDocumentIdentifier().map(onCopySelected)
+	}
+}
+
+private extension DocumentListViewController {
+	func configureTableView() {
+		let column = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("documentColumn"))
+		column.resizingMask = .autoresizingMask
+		tableView.addTableColumn(column)
 		tableView.columnAutoresizingStyle = .firstColumnOnlyAutoresizingStyle
 		tableView.headerView = nil
 		tableView.usesAutomaticRowHeights = false
 		tableView.floatsGroupRows = true
 		tableView.rowSizeStyle = .custom
 		tableView.intercellSpacing = NSSize(width: 0, height: 0)
+		tableView.allowsEmptySelection = true
+		tableView.setDraggingSourceOperationMask(.copy, forLocal: false)
+		tableView.target = self
+		tableView.doubleAction = #selector(tableDoubleClicked)
 		tableView.dataSource = self
 		tableView.delegate = self
 		tableView.setAccessibilityIdentifier(InterfaceIdentifier.documentListTable)
-
+		tableView.onQuickLook = { [weak self] in
+			guard let self, let document = selectedDocumentIdentifier() else {
+				return
+			}
+			onQuickLookSelected(document)
+		}
+		tableView.onOpenSelectedDocument = { [weak self] in
+			guard let self, let document = selectedDocumentIdentifier() else {
+				return
+			}
+			onOpenSelected(document)
+		}
 		scrollView.documentView = tableView
 		scrollView.hasVerticalScroller = true
 		scrollView.drawsBackground = true
 		scrollView.translatesAutoresizingMaskIntoConstraints = false
-
-		emptyLabel.alignment = .center
-		emptyLabel.textColor = .secondaryLabelColor
-		emptyLabel.isHidden = true
-		emptyLabel.translatesAutoresizingMaskIntoConstraints = false
-		emptyLabel.setAccessibilityIdentifier(InterfaceIdentifier.documentListEmptyLabel)
+		emptyView.isHidden = true
+		emptyView.translatesAutoresizingMaskIntoConstraints = false
+		footerView.isHidden = true
+		footerView.translatesAutoresizingMaskIntoConstraints = false
 	}
 
-	private func configureLayout() {
-		view.addSubview(headerBar)
-		view.addSubview(separator)
-		view.addSubview(scrollView)
-		view.addSubview(emptyLabel)
-
+	func configureLayout() {
+		let stack = NSStackView(views: [scrollView, footerView])
+		stack.orientation = .vertical
+		stack.spacing = 0
+		stack.translatesAutoresizingMaskIntoConstraints = false
+		view.addSubview(stack)
+		view.addSubview(emptyView)
 		NSLayoutConstraint.activate([
-			headerBar.topAnchor.constraint(equalTo: view.topAnchor),
-			headerBar.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-			headerBar.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-			headerBar.heightAnchor.constraint(equalToConstant: 44),
-			summaryLabel.leadingAnchor.constraint(equalTo: headerBar.leadingAnchor, constant: 16),
-			summaryLabel.centerYAnchor.constraint(equalTo: headerBar.centerYAnchor),
-			summaryLabel.trailingAnchor.constraint(lessThanOrEqualTo: actionStack.leadingAnchor, constant: -12),
-			actionStack.trailingAnchor.constraint(equalTo: headerBar.trailingAnchor, constant: -16),
-			actionStack.centerYAnchor.constraint(equalTo: headerBar.centerYAnchor),
-			separator.topAnchor.constraint(equalTo: headerBar.bottomAnchor),
-			separator.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-			separator.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-			scrollView.topAnchor.constraint(equalTo: separator.bottomAnchor),
-			scrollView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-			scrollView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-			scrollView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
-			emptyLabel.centerXAnchor.constraint(equalTo: scrollView.centerXAnchor),
-			emptyLabel.centerYAnchor.constraint(equalTo: scrollView.centerYAnchor),
-			emptyLabel.leadingAnchor.constraint(greaterThanOrEqualTo: scrollView.leadingAnchor, constant: 32),
-			emptyLabel.trailingAnchor.constraint(lessThanOrEqualTo: scrollView.trailingAnchor, constant: -32),
+			stack.topAnchor.constraint(equalTo: view.topAnchor),
+			stack.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+			stack.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+			stack.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+			scrollView.widthAnchor.constraint(equalTo: stack.widthAnchor),
+			footerView.widthAnchor.constraint(equalTo: stack.widthAnchor),
+			emptyView.topAnchor.constraint(equalTo: scrollView.topAnchor),
+			emptyView.leadingAnchor.constraint(equalTo: scrollView.leadingAnchor),
+			emptyView.trailingAnchor.constraint(equalTo: scrollView.trailingAnchor),
+			emptyView.bottomAnchor.constraint(equalTo: scrollView.bottomAnchor),
 		])
 	}
 
-	@objc private func synchronizeArchive() {
-		queries.synchronize()
-		if listingFaultText != nil {
-			refresh()
+	func refresh() {
+		guard let request = activeRequest else {
+			return
 		}
-	}
-
-	@objc private func requestTokenReplacement() {
-		onReplaceToken()
-	}
-
-	private func refresh() {
 		newestRequestNumber &+= 1
 		let requestNumber = newestRequestNumber
-		let activeRequest = request
 		let preceding = model.listing
 		let previousRowCount = model.rowCount
-
 		Task {
 			await loadListing(
 				requestNumber: requestNumber,
-				activeRequest: activeRequest,
+				request: request,
 				preceding: preceding,
 				previousRowCount: previousRowCount
 			)
 		}
 	}
 
-	private func loadListing(
+	func loadListing(
 		requestNumber: UInt64,
-		activeRequest: ListingRequest,
-		preceding: DocumentListing?,
+		request: ListingRequest,
+		preceding: (any DocumentListingSnapshot)?,
 		previousRowCount: Int
 	) async {
 		do {
-			let answer = try await queries.listDocuments(request: activeRequest, preceding: preceding)
+			let reply = try await queries.listDocuments(request: request, preceding: preceding)
 			guard requestNumber == newestRequestNumber else {
 				return
 			}
 			listingFaultText = nil
-			let update = model.adopt(answer, preceding: preceding)
-			apply(update, previousRowCount: previousRowCount)
-			updateHeaderAndEmptyState()
+			let selectedBefore = activeNavigation.selectedDocument
+			let update = model.adopt(reply, preceding: preceding)
+			apply(update, previousRowCount: previousRowCount, preservedSelection: selectedBefore)
+			updateEmptyAndFooterViews()
 		} catch {
 			guard requestNumber == newestRequestNumber else {
 				return
 			}
-			switch error {
-			case .Stopped:
-				break
-			case let .StoreFailed(detail):
-				listingFaultText = "Could not read documents: \(detail)"
-				updateHeaderAndEmptyState()
-			case let .Unexpected(detail):
-				listingFaultText = "Could not read documents: \(detail)"
-				updateHeaderAndEmptyState()
+			if case .Stopped = error {
+				return
 			}
+			listingFaultText = ApplicationFailureWording.faultSentence(error)
+			updateEmptyAndFooterViews()
 		}
 	}
-}
 
-private extension DocumentListViewController {
-	func apply(_ update: DocumentListModel.Update, previousRowCount: Int) {
+	@objc func tableDoubleClicked() {
+		guard tableView.clickedRow >= 0, let document = model.documentIdentifier(at: tableView.clickedRow) else {
+			return
+		}
+		onOpenSelected(document)
+	}
+
+	func apply(_ update: DocumentListModel.Update, previousRowCount: Int, preservedSelection: DocumentIdentifier?) {
+		onShownDocumentsChanged?(model.documentCount)
+		isApplyingTableUpdates = true
 		if tableView.numberOfRows != previousRowCount {
 			tableView.reloadData()
-			return
-		}
-		switch update {
-		case .reload:
-			tableView.reloadData()
-		case let .difference(removed, inserted, revised):
-			if !removed.isEmpty || !inserted.isEmpty || !revised.isEmpty {
-				incrementalUpdateCount += 1
-			}
-			if !removed.isEmpty || !inserted.isEmpty {
-				tableView.beginUpdates()
-				if !removed.isEmpty {
-					tableView.removeRows(at: removed, withAnimation: .effectFade)
-				}
-				if !inserted.isEmpty {
-					tableView.insertRows(at: inserted, withAnimation: .effectFade)
-				}
-				tableView.endUpdates()
-			}
-			if !revised.isEmpty {
-				tableView.reloadData(forRowIndexes: revised, columnIndexes: IndexSet(integer: 0))
-			}
-		}
-	}
-
-	func updateHeaderAndEmptyState() {
-		summaryLabel.stringValue = DocumentListModel.summarySentence(
-			documentCount: model.documentCount,
-			status: libraryStatus,
-			libraryFault: libraryFault,
-			listingFault: listingFaultText
-		)
-		replaceTokenButton.isHidden = !Self.isSuspended(libraryStatus?.archive)
-
-		if model.rowCount > 0 {
-			emptyLabel.isHidden = true
-			return
-		}
-		if let listingFaultText {
-			emptyLabel.stringValue = listingFaultText
-		} else if let libraryFault {
-			emptyLabel.stringValue = ApplicationFailureWording.faultSentence(libraryFault)
-		} else if case .filling = libraryStatus?.copy {
-			emptyLabel.stringValue = "Loading documents…"
 		} else {
-			emptyLabel.stringValue = "No Documents Yet"
-		}
-		emptyLabel.isHidden = false
-	}
-
-	static func isSuspended(_ archive: ArchiveConnection?) -> Bool {
-		guard let archive else {
-			return false
-		}
-		switch archive {
-		case .notConfigured:
-			return false
-		case let .configured(_, _, condition, _, _):
-			if case .suspended = condition {
-				return true
+			switch update {
+			case .reload:
+				tableView.reloadData()
+			case let .difference(removed, inserted, revised):
+				if !removed.isEmpty || !inserted.isEmpty || !revised.isEmpty {
+					incrementalUpdateCount += 1
+				}
+				applyIncrementalChanges(removed: removed, inserted: inserted, revised: revised)
 			}
-			return false
+		}
+		isApplyingTableUpdates = false
+		restoreSelection(to: preservedSelection, notifyIfMissing: true)
+	}
+
+	func applyIncrementalChanges(removed: IndexSet, inserted: IndexSet, revised: IndexSet) {
+		if !removed.isEmpty || !inserted.isEmpty {
+			tableView.beginUpdates()
+			if !removed.isEmpty {
+				tableView.removeRows(at: removed, withAnimation: .effectFade)
+			}
+			if !inserted.isEmpty {
+				tableView.insertRows(at: inserted, withAnimation: .effectFade)
+			}
+			tableView.endUpdates()
+		}
+		if !revised.isEmpty {
+			tableView.reloadData(forRowIndexes: revised, columnIndexes: IndexSet(integer: 0))
 		}
 	}
 
-	func reusableHeadingCell(in tableView: NSTableView) -> HeadingRowView {
-		let reusedView = tableView.makeView(withIdentifier: Self.headingCellIdentifier, owner: nil)
-		if let existing = reusedView as? HeadingRowView {
-			return existing
+	func restoreSelection(to document: DocumentIdentifier?, notifyIfMissing: Bool) {
+		isApplyingTableUpdates = true
+		defer { isApplyingTableUpdates = false }
+		if let document, let position = model.position(of: document), position >= 0, position < model.rowCount {
+			if tableView.selectedRow != position {
+				tableView.selectRowIndexes(IndexSet(integer: position), byExtendingSelection: false)
+			}
+			return
 		}
-		let cell = HeadingRowView()
-		cell.identifier = Self.headingCellIdentifier
-		return cell
+		tableView.deselectAll(nil)
+		if notifyIfMissing, document != nil {
+			onSelectionChanged(nil)
+		}
 	}
 
-	func reusableDocumentCell(in tableView: NSTableView) -> DocumentRowView {
-		let reusedView = tableView.makeView(withIdentifier: Self.documentCellIdentifier, owner: nil)
-		if let existing = reusedView as? DocumentRowView {
+	func updateEmptyAndFooterViews() {
+		if model.rowCount > 0 {
+			emptyView.isHidden = true
+		} else {
+			let presentation = EmptyListPresentation.resolve(
+				navigation: activeNavigation,
+				libraryStatus: libraryStatus,
+				libraryFault: libraryFault,
+				listingFault: listingFaultText,
+				hasCollector: hasCollector
+			)
+			emptyView.render(
+				presentation,
+				onAddFolder: onRequestAddFolder,
+				onSearchAllDocuments: onRequestSearchAllDocuments
+			)
+			emptyView.isHidden = false
+		}
+		footerView.render(
+			showsSearchAllDocuments: searchAllDocumentsAvailable,
+			indexingNotice: textIndexingNotice,
+			onSearchAllDocuments: onRequestSearchAllDocuments
+		)
+	}
+
+	func suggestedDragFileName(for row: DocumentRow) -> String {
+		let titlePart = row.title?.trimmingCharacters(in: .whitespacesAndNewlines)
+		let baseName = (titlePart?.isEmpty == false ? titlePart : nil) ?? row.document.value
+		return "\(baseName.replacingOccurrences(of: "/", with: "-")).pdf"
+	}
+
+	func reusableCell<Cell: NSTableCellView>(
+		in tableView: NSTableView,
+		identifier: NSUserInterfaceItemIdentifier,
+		makeCell: () -> Cell
+	) -> Cell {
+		if let existing = tableView.makeView(withIdentifier: identifier, owner: nil) as? Cell {
 			return existing
 		}
-		let cell = DocumentRowView()
-		cell.identifier = Self.documentCellIdentifier
-		return cell
+		let created = makeCell()
+		created.identifier = identifier
+		return created
 	}
 }
 
@@ -321,15 +363,37 @@ extension DocumentListViewController: NSTableViewDataSource, NSTableViewDelegate
 		guard let entry = model.row(at: row) else {
 			return nil
 		}
+		let context = wordingContextProvider()
 		switch entry {
 		case let .heading(heading):
-			let cell = reusableHeadingCell(in: tableView)
-			cell.configure(title: DocumentListModel.headingText(heading))
+			let cell = reusableCell(in: tableView, identifier: Self.headingCellIdentifier) { HeadingRowView() }
+			cell.configure(title: DocumentFormatting.headingText(heading, context: context))
 			return cell
 		case let .document(documentRow):
-			let cell = reusableDocumentCell(in: tableView)
-			cell.configure(with: documentRow)
+			let cell = reusableCell(in: tableView, identifier: Self.documentCellIdentifier) { DocumentRowView() }
+			cell.configure(with: documentRow, context: context, pictureStore: pictureStore)
 			return cell
+		}
+	}
+
+	func tableView(_: NSTableView, pasteboardWriterForRow row: Int) -> (any NSPasteboardWriting)? {
+		guard case let .document(documentRow) = model.row(at: row) else {
+			return nil
+		}
+		let delegate = DocumentFilePromiseDelegate(
+			document: documentRow.document,
+			fileName: suggestedDragFileName(for: documentRow),
+			fetchOriginalPath: { [queries] identifier throws(RepresentationRefusal) in
+				try await queries.original(identifier).path
+			},
+			reportFailure: { [onDragFailed] refusal in onDragFailed(refusal) }
+		)
+		return NSFilePromiseProvider(fileType: UTType.data.identifier, delegate: delegate)
+	}
+
+	func tableViewSelectionDidChange(_: Notification) {
+		if !isApplyingTableUpdates {
+			onSelectionChanged(selectedDocumentIdentifier())
 		}
 	}
 }

@@ -1,9 +1,10 @@
 import AppKit
 import ApplicationBindings
+import ApplicationPresentation
 
 /// Pure AppKit connection form shown until a readable archive is configured or while replacing a
 /// refused token.
-final class ConnectionFormViewController: NSViewController, NSTextFieldDelegate {
+public final class ConnectionFormViewController: NSViewController, NSTextFieldDelegate {
 	private let commands: any ApplicationCommands
 	private let initialAddress: String?
 	private let instructionText: String
@@ -18,7 +19,7 @@ final class ConnectionFormViewController: NSViewController, NSTextFieldDelegate 
 	private var isConnecting = false
 	private var hasConnected = false
 
-	init(
+	public init(
 		commands: any ApplicationCommands,
 		initialAddress: String? = nil,
 		instruction: String? = nil,
@@ -37,24 +38,24 @@ final class ConnectionFormViewController: NSViewController, NSTextFieldDelegate 
 		fatalError("Interface Builder is not used")
 	}
 
-	override func loadView() {
+	override public func loadView() {
 		view = NSView(frame: NSRect(x: 0, y: 0, width: 640, height: 480))
 	}
 
-	override func viewDidLoad() {
+	override public func viewDidLoad() {
 		super.viewDidLoad()
 		configureControls()
 		configureLayout()
 	}
 
-	func controlTextDidChange(_: Notification) {
+	public func controlTextDidChange(_: Notification) {
 		if !refusalLabel.isHidden {
 			refusalLabel.stringValue = ""
 			refusalLabel.isHidden = true
 		}
 	}
 
-	func control(
+	public func control(
 		_: NSControl,
 		textView _: NSTextView,
 		doCommandBy commandSelector: Selector
@@ -211,7 +212,7 @@ final class ConnectionFormViewController: NSViewController, NSTextFieldDelegate 
 		} catch {
 			isConnecting = false
 			updateControlsForConnectionState()
-			showRefusal(Self.refusalSentence(for: error))
+			showRefusal(ApplicationFailureWording.connectionRefusalSentence(error))
 		}
 	}
 
@@ -233,32 +234,5 @@ final class ConnectionFormViewController: NSViewController, NSTextFieldDelegate 
 	private func showRefusal(_ message: String) {
 		refusalLabel.stringValue = message
 		refusalLabel.isHidden = false
-	}
-
-	private static func refusalSentence(for refusal: ConnectionRefusal) -> String {
-		switch refusal {
-		case .AddressInvalid:
-			"This is not an archive address. Copy the address from your browser, such as https://archive.example.org."
-		case .TokenRefused:
-			"Schublade refused this token. Check that you copied all of it and that it was not revoked."
-		case .TokenInsufficient:
-			"This token cannot read or add documents. Issue another token in Settings."
-		case .ArchiveUnreachable:
-			"The archive could not be reached. Check the address and your internet connection."
-		case .ArchiveUnavailable:
-			"The archive is busy right now. Try again in a few minutes."
-		case .ArchiveFailed:
-			"The archive had a problem answering. Try again in a few minutes."
-		case .NotAnArchive:
-			"This address answers, but not like a Schublade archive. Check that it is the address of your archive."
-		case .ArchiveOutdated:
-			"This archive does not support the desktop application yet. Update your archive first."
-		case let .ArchiveDiffers(connectedHost):
-			"This Mac already collects folders into \(connectedHost)."
-		case let .CredentialStorageFailed(detail):
-			"The token could not be saved in the Keychain: \(detail)"
-		case let .Application(fault):
-			ApplicationFailureWording.faultSentence(fault)
-		}
 	}
 }

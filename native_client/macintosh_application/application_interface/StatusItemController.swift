@@ -1,5 +1,6 @@
 import AppKit
 import ApplicationBindings
+import ApplicationPresentation
 
 /// The menu bar item: a fixed glyph, a situation line, an Open Schublade action, and Quit.
 final class StatusItemController {
@@ -57,7 +58,7 @@ final class StatusItemController {
 				return "Collecting into \(host)"
 			}
 			let documents = library.counts.documents
-			let documentText = documents == 1 ? "1 document" : "\(documents) documents"
+			let documentText = DocumentFormatting.countText(documents, singular: "document")
 			return "\(host) · \(documentText)"
 		}
 	}

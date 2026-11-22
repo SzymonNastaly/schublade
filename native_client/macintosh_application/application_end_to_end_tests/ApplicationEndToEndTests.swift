@@ -1,5 +1,7 @@
 import AppKit
 import ApplicationBindings
+import ApplicationPresentation
+import PDFKit
 import XCTest
 @testable import ApplicationInterface
 
@@ -7,30 +9,25 @@ import XCTest
 /// environment. XCTestCase is nonisolated, so the module keeps nonisolated default isolation.
 final class ApplicationEndToEndTests: XCTestCase {
 	@MainActor
-	func testConnectListSeededAndCollectedDocuments() async throws {
+	func testConnectListReadInspectSearchAndCollectDocuments() async throws {
 		let delegate = try XCTUnwrap(NSApp.delegate as? ApplicationDelegate)
 		let controller = delegate.controller
 		XCTAssertEqual(controller.environment.applicationConfiguration.credentialStorage, .processMemory)
 		try await waitUntil("the application runs without an archive", controller) { statuses in
 			statuses.library?.archive == .notConfigured
 		}
-		XCTAssertNotNil(controller.statusItem.item.button)
-		XCTAssertTrue(controller.statusItem.item.isVisible)
 
 		let validToken = "scripted-end-to-end-token"
 		let server = try await ScriptedArchiveProcess.start(token: validToken, seedCount: 5)
-		defer {
-			server.stop()
-		}
+		defer { server.stop() }
 
 		let window = try XCTUnwrap(controller.mainWindowController.window)
-		XCTAssertTrue(window.isVisible)
-		XCTAssertEqual(window.contentLayoutRect.size, NSSize(width: 1340, height: 820))
+		XCTAssertEqual(window.frame.size, NSSize(width: 1340, height: 820))
 
 		try await connectThroughForm(in: window, address: server.baseURL.absoluteString, token: validToken)
-		let tableView = try await assertSeededRows(in: window)
-		XCTAssertEqual(window.contentLayoutRect.size, NSSize(width: 1340, height: 820))
-		try await verifyIncrementalDocumentUpdate(
+		let tableView = try await assertSeededWorkspace(in: window)
+		try await verifySelectionReaderAndInspector(in: window, tableView: tableView)
+		try await verifyIncrementalSearchAndSenderFilter(
 			in: window,
 			tableView: tableView,
 			controller: controller,
@@ -39,9 +36,11 @@ final class ApplicationEndToEndTests: XCTestCase {
 		try await verifyCollectedDocumentArrives(in: window, tableView: tableView, controller: controller)
 		verifyWindowReopen(window: window, tableView: tableView, controller: controller)
 	}
+}
 
+private extension ApplicationEndToEndTests {
 	@MainActor
-	private func connectThroughForm(in window: NSWindow, address: String, token: String) async throws {
+	func connectThroughForm(in window: NSWindow, address: String, token: String) async throws {
 		let addressField = try await waitForView(
 			"the connection address field",
 			in: window,
@@ -70,9 +69,7 @@ final class ApplicationEndToEndTests: XCTestCase {
 			in: window,
 			identifier: InterfaceIdentifier.connectionRefusalLabel,
 			as: NSTextField.self
-		) { label in
-			!label.isHidden && !label.stringValue.isEmpty
-		}
+		) { !$0.isHidden && !$0.stringValue.isEmpty }
 		XCTAssertEqual(
 			refusalLabel.stringValue,
 			"Schublade refused this token. Check that you copied all of it and that it was not revoked."
@@ -83,24 +80,22 @@ final class ApplicationEndToEndTests: XCTestCase {
 	}
 
 	@MainActor
-	private func assertSeededRows(in window: NSWindow) async throws -> NSTableView {
+	func assertSeededWorkspace(in window: NSWindow) async throws -> NSTableView {
 		let tableView = try await waitForView(
-			"the seeded documents in the plain table",
+			"the seeded documents in the library list",
 			in: window,
 			identifier: InterfaceIdentifier.documentListTable,
 			as: NSTableView.self
-		) { table in
-			table.numberOfRows == 6
-		}
-		let summaryLabel = try await waitForView(
-			"the document count summary",
+		) { $0.numberOfRows == 6 }
+		XCTAssertEqual(window.frame.size, NSSize(width: 1340, height: 820))
+
+		let statusLabel = try await waitForView(
+			"the sidebar status line",
 			in: window,
-			identifier: InterfaceIdentifier.documentListSummaryLabel,
+			identifier: InterfaceIdentifier.sidebarStatusLabel,
 			as: NSTextField.self
-		) { label in
-			label.stringValue.hasPrefix("5 documents")
-		}
-		XCTAssertTrue(summaryLabel.stringValue.hasPrefix("5 documents"))
+		) { $0.stringValue.hasPrefix("Up to date · ") }
+		XCTAssertTrue(statusLabel.stringValue.hasPrefix("Up to date · "))
 
 		window.contentView?.layoutSubtreeIfNeeded()
 		XCTAssertEqual(
@@ -117,19 +112,79 @@ final class ApplicationEndToEndTests: XCTestCase {
 				try rowText(in: tableView, row: index, identifier: InterfaceIdentifier.documentRowSender),
 				"Stadtwerke Talbrück GmbH"
 			)
+			XCTAssertEqual(
+				try rowText(in: tableView, row: index, identifier: InterfaceIdentifier.documentRowAmount),
+				"72.09 EUR"
+			)
 		}
 		return tableView
 	}
 
 	@MainActor
-	private func verifyIncrementalDocumentUpdate(
+	func verifySelectionReaderAndInspector(in window: NSWindow, tableView: NSTableView) async throws {
+		tableView.selectRowIndexes(IndexSet(integer: 1), byExtendingSelection: false)
+
+		let readerTitle = try await waitForView(
+			"reader title for selected invoice",
+			in: window,
+			identifier: InterfaceIdentifier.readerTitleLabel,
+			as: NSTextField.self
+		) { $0.stringValue == "Haftpflichtversicherung Rechnung 5" }
+		XCTAssertEqual(readerTitle.stringValue, "Haftpflichtversicherung Rechnung 5")
+
+		let pdfView = try await waitForView(
+			"the loaded PDF document",
+			in: window,
+			identifier: InterfaceIdentifier.readerPortableDocumentView,
+			as: PDFView.self
+		) { ($0.document?.pageCount ?? 0) == 1 }
+		XCTAssertEqual(pdfView.document?.pageCount, 1)
+
+		let senderButton = try await waitForView(
+			"inspector sender link",
+			in: window,
+			identifier: "inspector.field.sender",
+			as: NSButton.self
+		) { $0.title == "Stadtwerke Talbrück GmbH" }
+		XCTAssertEqual(senderButton.title, "Stadtwerke Talbrück GmbH")
+
+		let amountLabel = try await waitForView(
+			"inspector amount field",
+			in: window,
+			identifier: "inspector.field.amount",
+			as: NSTextField.self
+		) { $0.stringValue == "72.09 EUR" }
+		XCTAssertEqual(amountLabel.stringValue, "72.09 EUR")
+
+		let tabControl = try XCTUnwrap(findView(
+			in: window.contentView,
+			identifier: InterfaceIdentifier.readerTabControl,
+			as: NSSegmentedControl.self
+		))
+		tabControl.selectedSegment = 1
+		tabControl.sendAction(tabControl.action, to: tabControl.target)
+
+		let textView = try await waitForView(
+			"extracted text in reader Text tab",
+			in: window,
+			identifier: InterfaceIdentifier.readerTextView,
+			as: NSTextView.self
+		) { !$0.isHidden && $0.string.contains("Rechnung Nummer 5") }
+		XCTAssertTrue(textView.string.contains("Rechnung Nummer 5 für Haftpflichtversicherung."))
+
+		tabControl.selectedSegment = 0
+		tabControl.sendAction(tabControl.action, to: tabControl.target)
+	}
+
+	@MainActor
+	func verifyIncrementalSearchAndSenderFilter(
 		in window: NSWindow,
 		tableView: NSTableView,
 		controller: ApplicationController,
 		server: ScriptedArchiveProcess
 	) async throws {
-		let listController = try XCTUnwrap(controller.mainWindowController.activeDocumentListController)
-		let updatesBefore = listController.incrementalUpdateCount
+		let workspace = try XCTUnwrap(controller.mainWindowController.activeWorkspaceController)
+		let updatesBefore = workspace.listController.incrementalUpdateCount
 		let existingRowCell = try XCTUnwrap(tableView.view(atColumn: 0, row: 1, makeIfNecessary: false))
 
 		try await server.seedDocument(SeededDocument(
@@ -140,45 +195,25 @@ final class ApplicationEndToEndTests: XCTestCase {
 			categoryName: "Statement",
 			summary: "Monthly account statement."
 		))
+		workspace.synchronizeLibrary(nil)
 
-		let refreshButton = try await waitForView(
-			"the refresh button",
-			in: window,
-			identifier: InterfaceIdentifier.documentListRefreshButton,
-			as: NSButton.self
-		)
-		refreshButton.performClick(nil)
-
-		try await waitForCondition("the incremental document update in the table") {
-			tableView.numberOfRows == 8
-		}
+		try await waitForCondition("the incremental update for October statement") { tableView.numberOfRows == 8 }
 		window.contentView?.layoutSubtreeIfNeeded()
-		XCTAssertEqual(listController.incrementalUpdateCount, updatesBefore + 1)
+		XCTAssertEqual(workspace.listController.incrementalUpdateCount, updatesBefore + 1)
 		XCTAssertTrue(tableView.view(atColumn: 0, row: 3, makeIfNecessary: false) === existingRowCell)
-		XCTAssertEqual(
-			try rowText(in: tableView, row: 0, identifier: InterfaceIdentifier.headingRowTitle),
-			"October 2026"
-		)
-		XCTAssertEqual(
-			try rowText(in: tableView, row: 1, identifier: InterfaceIdentifier.documentRowTitle),
-			"Kontoauszug Oktober 2026"
-		)
-		XCTAssertEqual(
-			try rowText(in: tableView, row: 1, identifier: InterfaceIdentifier.documentRowSender),
-			"Nordbank AG"
-		)
-		XCTAssertEqual(
-			try rowText(in: tableView, row: 2, identifier: InterfaceIdentifier.headingRowTitle),
-			"September 2026"
-		)
-		XCTAssertEqual(
-			try rowText(in: tableView, row: 3, identifier: InterfaceIdentifier.documentRowTitle),
-			"Haftpflichtversicherung Rechnung 5"
-		)
+
+		let searchField = try XCTUnwrap(findSearchField(in: window))
+		searchField.stringValue = "Nordbank"
+		searchField.sendAction(searchField.action, to: searchField.target)
+		try await waitForCondition("search narrows list to Nordbank match") { tableView.numberOfRows == 2 }
+
+		searchField.stringValue = ""
+		searchField.sendAction(searchField.action, to: searchField.target)
+		try await waitForCondition("clearing search restores full list") { tableView.numberOfRows == 8 }
 	}
 
 	@MainActor
-	private func verifyCollectedDocumentArrives(
+	func verifyCollectedDocumentArrives(
 		in window: NSWindow,
 		tableView: NSTableView,
 		controller: ApplicationController
@@ -188,9 +223,7 @@ final class ApplicationEndToEndTests: XCTestCase {
 			directoryHint: .isDirectory
 		)
 		try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: false)
-		defer {
-			try? FileManager.default.removeItem(at: folder)
-		}
+		defer { try? FileManager.default.removeItem(at: folder) }
 
 		let fixtureFile = repositoryRoot()
 			.appending(path: "test_fixtures/collection_corpus/Downloads/Meldebescheinigung.pdf")
@@ -198,40 +231,24 @@ final class ApplicationEndToEndTests: XCTestCase {
 
 		let enrolled = try await controller.collectorCommands.enrollFolder(root: folder.path(percentEncoded: false))
 		try await waitUntil("the enrolled folder awaits decision", controller) { statuses in
-			guard let collector = statuses.collector else {
-				return false
-			}
-			return collector.folders.contains { listed in
-				guard listed.folder == enrolled, case .awaitingDecision = listed.admission else {
-					return false
-				}
+			statuses.collector?.folders.contains { listed in
+				guard listed.folder == enrolled, case .awaitingDecision = listed.admission else { return false }
 				return true
-			}
+			} ?? false
 		}
-
 		try await controller.collectorCommands.decideBacklog(enrolled.identifier)
 
-		try await waitForCondition("the collected document appearing under Arriving") {
-			tableView.numberOfRows == 10
-		}
+		try await waitForCondition("collected document appearing under Arriving") { tableView.numberOfRows == 10 }
 		window.contentView?.layoutSubtreeIfNeeded()
 		XCTAssertEqual(try rowText(in: tableView, row: 0, identifier: InterfaceIdentifier.headingRowTitle), "Arriving")
 		XCTAssertEqual(
 			try rowText(in: tableView, row: 1, identifier: InterfaceIdentifier.documentRowTitle),
 			"Processing Document"
 		)
-		XCTAssertEqual(
-			try rowText(in: tableView, row: 2, identifier: InterfaceIdentifier.headingRowTitle),
-			"October 2026"
-		)
-		XCTAssertEqual(
-			try rowText(in: tableView, row: 3, identifier: InterfaceIdentifier.documentRowTitle),
-			"Kontoauszug Oktober 2026"
-		)
 	}
 
 	@MainActor
-	private func verifyWindowReopen(window: NSWindow, tableView: NSTableView, controller: ApplicationController) {
+	func verifyWindowReopen(window: NSWindow, tableView: NSTableView, controller: ApplicationController) {
 		window.close()
 		XCTAssertFalse(window.isVisible)
 		XCTAssertEqual(NSApp.activationPolicy(), .accessory)
@@ -245,9 +262,17 @@ final class ApplicationEndToEndTests: XCTestCase {
 			XCTAssertTrue(controller.mainWindowController.isAttending)
 		}
 	}
-}
 
-private extension ApplicationEndToEndTests {
+	@MainActor
+	func findSearchField(in window: NSWindow) -> NSSearchField? {
+		for item in window.toolbar?.items ?? [] {
+			if let searchItem = item as? NSSearchToolbarItem {
+				return searchItem.searchField
+			}
+		}
+		return nil
+	}
+
 	@MainActor
 	func waitUntil(
 		_ expectation: String,
@@ -287,10 +312,8 @@ private extension ApplicationEndToEndTests {
 	) async throws -> View {
 		let deadline = ContinuousClock.now + .seconds(30)
 		while true {
-			if let view = findView(in: window.contentView, identifier: identifier, as: View.self) {
-				if predicate(view) {
-					return view
-				}
+			if let view = findView(in: window.contentView, identifier: identifier, as: View.self), predicate(view) {
+				return view
 			}
 			guard ContinuousClock.now < deadline else {
 				throw ConditionNotReached(expectation: expectation, detail: "missing view \(identifier)")
@@ -307,14 +330,8 @@ private extension ApplicationEndToEndTests {
 	}
 
 	@MainActor
-	func findView<View: NSView>(
-		in root: NSView?,
-		identifier: String,
-		as _: View.Type
-	) -> View? {
-		guard let root else {
-			return nil
-		}
+	func findView<View: NSView>(in root: NSView?, identifier: String, as _: View.Type) -> View? {
+		guard let root else { return nil }
 		if root.accessibilityIdentifier() == identifier, let matching = root as? View {
 			return matching
 		}

@@ -5,6 +5,7 @@ import Foundation
 /// and the end-to-end test is here, so no other type reads the process environment.
 struct ApplicationEnvironment {
 	let applicationConfiguration: ApplicationConfiguration
+	let isIsolated: Bool
 
 	/// The installed environment, or in a Debug build started with
 	/// `SCHUBLADE_APPLICATION_ENVIRONMENT=isolated`, the isolated one.
@@ -31,13 +32,16 @@ struct ApplicationEnvironment {
 			path: bundleIdentifier,
 			directoryHint: .isDirectory
 		)
-		return ApplicationEnvironment(applicationConfiguration: ApplicationConfiguration(
-			dataDirectory: dataDirectory.path(percentEncoded: false),
-			cacheDirectory: cacheDirectory.path(percentEncoded: false),
-			originalStorageLimit: nil,
-			credentialStorage: .keychain(serviceName: bundleIdentifier),
-			collection: .collector
-		))
+		return ApplicationEnvironment(
+			applicationConfiguration: ApplicationConfiguration(
+				dataDirectory: dataDirectory.path(percentEncoded: false),
+				cacheDirectory: cacheDirectory.path(percentEncoded: false),
+				originalStorageLimit: nil,
+				credentialStorage: .keychain(serviceName: bundleIdentifier),
+				collection: .collector
+			),
+			isIsolated: false
+		)
 	}
 
 	#if DEBUG
@@ -50,13 +54,16 @@ struct ApplicationEnvironment {
 		)
 		let dataDirectory = baseDirectory.appending(path: "data", directoryHint: .isDirectory)
 		let cacheDirectory = baseDirectory.appending(path: "cache", directoryHint: .isDirectory)
-		return ApplicationEnvironment(applicationConfiguration: ApplicationConfiguration(
-			dataDirectory: dataDirectory.path(percentEncoded: false),
-			cacheDirectory: cacheDirectory.path(percentEncoded: false),
-			originalStorageLimit: nil,
-			credentialStorage: .processMemory,
-			collection: .collector
-		))
+		return ApplicationEnvironment(
+			applicationConfiguration: ApplicationConfiguration(
+				dataDirectory: dataDirectory.path(percentEncoded: false),
+				cacheDirectory: cacheDirectory.path(percentEncoded: false),
+				originalStorageLimit: nil,
+				credentialStorage: .processMemory,
+				collection: .collector
+			),
+			isIsolated: true
+		)
 	}
 	#endif
 }

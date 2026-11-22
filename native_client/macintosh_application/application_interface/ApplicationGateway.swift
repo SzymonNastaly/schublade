@@ -1,4 +1,5 @@
 import ApplicationBindings
+import ApplicationPresentation
 
 /// The only type that calls the bindings. Every asynchronous call into the core runs on a Rust
 /// worker pool, so the main actor never waits on a coordinator, SQLite, the network, or the
@@ -51,11 +52,13 @@ final class ApplicationGateway: ApplicationCommands, LibraryQueries, CollectorCo
 
 	func listDocuments(
 		request: ListingRequest,
-		preceding: DocumentListing?
-	) async throws(ApplicationFault) -> ListingAnswer {
-		try await libraryQuery { library in
-			try await library.listDocuments(request: request, preceding: preceding)
+		preceding: (any DocumentListingSnapshot)?
+	) async throws(ApplicationFault) -> DocumentListingReply {
+		let concretePreceding = preceding as? DocumentListing
+		let answer = try await libraryQuery { library in
+			try await library.listDocuments(request: request, preceding: concretePreceding)
 		}
+		return DocumentListingReply(listing: answer.listing, difference: answer.difference)
 	}
 
 	func facets() async throws(ApplicationFault) -> LibraryFacets {

@@ -3,6 +3,9 @@ included:
   - application
   - application_end_to_end_tests
   - application_interface
+  - application_presentation
+  - application_presentation_tests
+  - interface_renderer
 excluded:
   - build
   - generated_bindings
@@ -66,6 +69,14 @@ custom_rules:
     name: "Pure AppKit"
     regex: '^\s*(@preconcurrency\s+)?import\s+SwiftUI\b'
     message: "The application is pure AppKit, so SwiftUI is imported nowhere."
+    severity: error
+  appkit_forbidden_in_presentation:
+    name: "Foundation only in presentation"
+    regex: '^\s*(@preconcurrency\s+)?import\s+(AppKit|Cocoa|PDFKit|Quartz|QuickLookUI)\b'
+    included:
+      - 'application_presentation/.*\.swift$'
+      - 'application_presentation_tests/.*\.swift$'
+    message: "ApplicationPresentation imports Foundation only and holds no view logic."
     severity: error
   application_start_outside_gateway:
     name: "Application start outside the gateway"
