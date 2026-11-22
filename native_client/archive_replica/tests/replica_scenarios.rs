@@ -609,6 +609,7 @@ fn a_follower_sees_the_fill_complete_with_every_text_and_never_an_older_revision
             archive: Some(MirroredArchive {
                 origin: ARCHIVE_ORIGIN.to_owned(),
                 permission_level: PermissionLevel::Read,
+                restricted: false,
                 fill_complete: true,
                 synchronized_at: Some(START),
             }),

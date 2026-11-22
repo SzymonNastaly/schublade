@@ -15,8 +15,9 @@ use collection_core::domain_types::{ContentDigest, DocumentStatus};
 use collection_core::folder_admission::{FolderAdmission, FolderAvailability};
 use collection_core::{
     ArchiveClient, AttentionItem, Clock, Collector, CollectorEvent, CollectorSettings, CollectorStatus, CommandRefusal,
-    ConnectionStatus, FolderIdentifier, ManualClock, ScriptedArchive, Timestamp, TimingPolicy,
+    ConnectionStatus, FolderIdentifier, ManualClock, Timestamp, TimingPolicy,
 };
+use scripted_archive::ScriptedArchive;
 
 const CORPUS: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../test_fixtures/collection_corpus");
 const EXPECTED: &str = concat!(

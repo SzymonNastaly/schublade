@@ -1,26 +1,28 @@
-//! An archive in memory for the scenarios of the local copy. It keeps records and a change
-//! journal by the server's rules, as `notes/client_protocol.md` states them: one entry per record
-//! that ever existed, moved to a number above every number ever issued by each write, kept as the
-//! record of a deletion, and read in pages of present states that carry what their documents
-//! refer to. It keeps the text, the original, and the picture a script gives a document, and
-//! answers them as the three representation routes do. A script changes the archive through its
-//! writes, and a copy reads it through `ArchiveReader`.
-//!
-//! The collector's scenarios still use `collection_core::scripted_archive`, which keeps contents
-//! and no journal. This crate becomes the one model of an archive once it answers the collector's
-//! three routes as well, so that a submitted content appears in the journal.
+//! One archive model in memory for both the local copy and the collector. It keeps records and
+//! a change journal by the server's rules as `notes/client_protocol.md` states them, and keeps
+//! contents and lookup rules for `collection_core::ArchiveClient`, so a file submitted by the
+//! collector appears in the journal and in a library that follows it.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::io::Write;
 use std::sync::{Mutex, MutexGuard, PoisonError};
 
-use archive_access::{ArchiveAuthorization, ArchiveCondition, DocumentIdentifier, DownloadFailure, PermissionLevel};
+use archive_access::{
+    ArchiveAuthorization, ArchiveCondition, ContentDigest, DocumentIdentifier, DownloadFailure, PermissionLevel,
+    Timestamp,
+};
 use archive_replica::replica_records::{
-    ArchiveRecords, CategoryIdentifier, CategoryRecord, DocumentCondition, DocumentRecord, JournalCursor, JournalPage,
-    MemberIdentifier, MemberRecord, PersonAssignment, RemovedRecord, SenderIdentifier, SenderRecord, TagIdentifier,
-    TagRecord,
+    ArchiveRecords, CategoryIdentifier, CategoryRecord, DocumentCondition, DocumentRecord, FailureReason,
+    IngestionStage, JournalCursor, JournalPage, MemberIdentifier, MemberRecord, PersonAssignment, RemovedRecord,
+    SenderIdentifier, SenderRecord, TagIdentifier, TagRecord,
 };
 use archive_replica::{ArchiveReader, OriginalAnswer, PageAnswer, ThumbnailAnswer};
+use collection_core::ArchiveClient;
+use collection_core::archive_connection::SubmissionCondition;
+use collection_core::candidate_classification::identify_content_kind;
+use collection_core::content_synchronization::{LookupAnswer, SubmissionAuthorization, SubmissionOutcome};
+use collection_core::domain_types::DocumentStatus;
+use collection_core::file_system_observation::VerifiedContent;
 use sha2::{Digest, Sha256};
 
 /// What a token may see: the four lists of the server's `AuthorizationScope`. A scope without a
@@ -66,6 +68,13 @@ impl ArchiveScope {
 /// The kind and identifier of a record, which is what a journal entry names.
 type JournaledRecord = RemovedRecord;
 
+/// Metadata and bytes of an original held for a document, for HTTP responses with `ETag`.
+pub struct OriginalContent {
+    pub media_type: String,
+    pub digest: Option<ContentDigest>,
+    pub bytes: Vec<u8>,
+}
+
 struct Archive {
     journal_identifier: String,
     /// The journals this archive has had, from which the next identifier derives.
@@ -79,13 +88,23 @@ struct Archive {
     categories: BTreeMap<CategoryIdentifier, CategoryRecord>,
     tags: BTreeMap<TagIdentifier, TagRecord>,
     documents: BTreeMap<DocumentIdentifier, DocumentRecord>,
+    contents: BTreeMap<ContentDigest, LookupAnswer>,
+    /// Tracks failed documents whose failure reason was explicitly `None`.
+    empty_failure_reasons: BTreeSet<DocumentIdentifier>,
     texts: BTreeMap<DocumentIdentifier, String>,
     originals: BTreeMap<DocumentIdentifier, Vec<u8>>,
     thumbnails: BTreeMap<DocumentIdentifier, Vec<u8>>,
     /// The originals the archive has sent.
     original_downloads: u64,
     scope: ArchiveScope,
+    permission_level: PermissionLevel,
     page_entries: usize,
+    conditions: VecDeque<ArchiveCondition>,
+    lookup_overrides: BTreeMap<ContentDigest, VecDeque<LookupAnswer>>,
+    lookups: Vec<Vec<ContentDigest>>,
+    submissions: Vec<ContentDigest>,
+    status_reads: Vec<DocumentIdentifier>,
+    next_arrival_ms: i64,
 }
 
 impl Archive {
@@ -220,6 +239,9 @@ impl Archive {
     }
 
     fn page_after(&self, after: Option<&JournalCursor>) -> Result<PageAnswer, ArchiveCondition> {
+        if self.permission_level < PermissionLevel::Read {
+            return Err(ArchiveCondition::CredentialInsufficient);
+        }
         let after_number = match after {
             Some(cursor) => {
                 let position = cursor
@@ -273,6 +295,74 @@ impl Archive {
             removed,
         }))
     }
+
+    fn document_status(&self, identifier: &DocumentIdentifier) -> Option<DocumentStatus> {
+        let document = self.documents.get(identifier)?;
+        Some(match &document.condition {
+            DocumentCondition::Arriving(stage) => match stage {
+                IngestionStage::AwaitingRendering => DocumentStatus::AwaitingRendering,
+                IngestionStage::Processing | IngestionStage::Unrecognized(_) => DocumentStatus::Processing,
+                IngestionStage::Extracting => DocumentStatus::Extracting,
+                IngestionStage::RecognizingText => DocumentStatus::RecognizingText,
+                IngestionStage::Classifying => DocumentStatus::Classifying,
+            },
+            DocumentCondition::Archived => DocumentStatus::Archived,
+            DocumentCondition::Failed(_) => DocumentStatus::Failed {
+                failure_reason: if self.empty_failure_reasons.contains(identifier) {
+                    None
+                } else {
+                    document.condition.failure_reason_name().map(str::to_owned)
+                },
+            },
+        })
+    }
+
+    fn record_condition(&mut self, identifier: &DocumentIdentifier, status: DocumentStatus) -> DocumentCondition {
+        self.empty_failure_reasons.remove(identifier);
+        match status {
+            DocumentStatus::AwaitingRendering => DocumentCondition::Arriving(IngestionStage::AwaitingRendering),
+            DocumentStatus::Processing => DocumentCondition::Arriving(IngestionStage::Processing),
+            DocumentStatus::Extracting => DocumentCondition::Arriving(IngestionStage::Extracting),
+            DocumentStatus::RecognizingText => DocumentCondition::Arriving(IngestionStage::RecognizingText),
+            DocumentStatus::Classifying => DocumentCondition::Arriving(IngestionStage::Classifying),
+            DocumentStatus::Archived => DocumentCondition::Archived,
+            DocumentStatus::Failed { failure_reason: None } => {
+                self.empty_failure_reasons.insert(identifier.clone());
+                DocumentCondition::Failed(FailureReason::ProcessingError)
+            }
+            DocumentStatus::Failed {
+                failure_reason: Some(reason),
+            } => DocumentCondition::parse("failed", Some(&reason))
+                .unwrap_or_else(|| unreachable!("a present failure reason always parses")),
+        }
+    }
+
+    fn minimal_document(
+        &mut self,
+        identifier: DocumentIdentifier,
+        condition: DocumentCondition,
+        original: Option<ContentDigest>,
+    ) -> DocumentRecord {
+        let arrived_at = Timestamp(self.next_arrival_ms);
+        self.next_arrival_ms += 1_000;
+        DocumentRecord {
+            identifier,
+            condition,
+            title: None,
+            document_date: None,
+            sender: None,
+            category: None,
+            person: PersonAssignment::Unassigned,
+            summary: None,
+            media_type: "application/pdf".to_owned(),
+            byte_size: 0,
+            page_count: None,
+            original,
+            arrived_at,
+            tags: BTreeSet::new(),
+            fields: BTreeMap::new(),
+        }
+    }
 }
 
 /// The journal identifier of the n-th journal of a scripted archive: 32 hexadecimal digits.
@@ -284,7 +374,18 @@ pub struct ScriptedArchive {
     archive: Mutex<Archive>,
 }
 
+impl Default for ScriptedArchive {
+    fn default() -> ScriptedArchive {
+        ScriptedArchive::new()
+    }
+}
+
 impl ScriptedArchive {
+    /// An empty archive with the server's 250-entry pages.
+    pub fn new() -> ScriptedArchive {
+        ScriptedArchive::with_page_entries(250)
+    }
+
     /// An empty archive that an unrestricted token reads, in pages of at most this many journal
     /// entries. The server's pages cover 250.
     pub fn with_page_entries(page_entries: usize) -> ScriptedArchive {
@@ -299,12 +400,21 @@ impl ScriptedArchive {
                 categories: BTreeMap::new(),
                 tags: BTreeMap::new(),
                 documents: BTreeMap::new(),
+                contents: BTreeMap::new(),
+                empty_failure_reasons: BTreeSet::new(),
                 texts: BTreeMap::new(),
                 originals: BTreeMap::new(),
                 thumbnails: BTreeMap::new(),
                 original_downloads: 0,
                 scope: ArchiveScope::default(),
+                permission_level: PermissionLevel::Read,
                 page_entries,
+                conditions: VecDeque::new(),
+                lookup_overrides: BTreeMap::new(),
+                lookups: Vec::new(),
+                submissions: Vec::new(),
+                status_reads: Vec::new(),
+                next_arrival_ms: 1_790_000_000_000,
             }),
         }
     }
@@ -362,6 +472,12 @@ impl ScriptedArchive {
             "{} refers to a record the archive lacks",
             document.identifier.as_str()
         );
+        archive.empty_failure_reasons.remove(&document.identifier);
+        if let Some(digest) = document.original {
+            archive
+                .contents
+                .insert(digest, LookupAnswer::Present(document.identifier.clone()));
+        }
         archive.journal(JournaledRecord::Document(document.identifier.clone()));
         archive.documents.insert(document.identifier.clone(), document);
     }
@@ -391,9 +507,59 @@ impl ScriptedArchive {
     /// Deletes the document. Its journal entry stays as the record of the deletion.
     pub fn delete_document(&self, document: &DocumentIdentifier) {
         let mut archive = self.archive();
-        if archive.documents.remove(document).is_some() {
+        if let Some(removed) = archive.documents.remove(document) {
+            archive.empty_failure_reasons.remove(document);
+            if let Some(digest) = removed.original {
+                let replacement = archive
+                    .documents
+                    .values()
+                    .find(|other| other.original == Some(digest))
+                    .map(|other| other.identifier.clone());
+                let state = match replacement {
+                    Some(other) => LookupAnswer::Present(other),
+                    None => LookupAnswer::Deleted,
+                };
+                archive.contents.insert(digest, state);
+            }
             archive.journal(JournaledRecord::Document(document.clone()));
         }
+    }
+
+    /// The archive holds this content in this document.
+    pub fn hold(&self, digest: ContentDigest, document: DocumentIdentifier, status: DocumentStatus) {
+        let mut archive = self.archive();
+        let condition = archive.record_condition(&document, status);
+        archive.contents.insert(digest, LookupAnswer::Present(document.clone()));
+        if let Some(existing) = archive.documents.get_mut(&document) {
+            existing.condition = condition;
+            existing.original = Some(digest);
+        } else {
+            let record = archive.minimal_document(document.clone(), condition, Some(digest));
+            archive.documents.insert(document.clone(), record);
+        }
+        archive.journal(JournaledRecord::Document(document));
+    }
+
+    /// The owner deleted the document that held this content.
+    pub fn delete(&self, digest: &ContentDigest) {
+        let mut archive = self.archive();
+        if let Some(LookupAnswer::Present(document)) = archive.contents.insert(*digest, LookupAnswer::Deleted) {
+            archive.documents.remove(&document);
+            archive.empty_failure_reasons.remove(&document);
+            archive.journal(JournaledRecord::Document(document));
+        }
+    }
+
+    pub fn set_document_status(&self, document: &DocumentIdentifier, status: DocumentStatus) {
+        let mut archive = self.archive();
+        let condition = archive.record_condition(document, status);
+        if let Some(existing) = archive.documents.get_mut(document) {
+            existing.condition = condition;
+        } else {
+            let record = archive.minimal_document(document.clone(), condition, None);
+            archive.documents.insert(document.clone(), record);
+        }
+        archive.journal(JournaledRecord::Document(document.clone()));
     }
 
     /// Folds one tag into another: every document of the first takes the second in its place,
@@ -421,6 +587,74 @@ impl ScriptedArchive {
     /// From now on the token sees this scope, as when a person connects with another token.
     pub fn restrict_scope(&self, scope: ArchiveScope) {
         self.archive().scope = scope;
+    }
+
+    /// Sets the level reported by `read_authorization` and enforced on every route.
+    pub fn set_permission_level(&self, level: PermissionLevel) {
+        self.archive().permission_level = level;
+    }
+
+    pub fn permission_level(&self) -> PermissionLevel {
+        self.archive().permission_level
+    }
+
+    /// The next request answers with this condition instead of its answer.
+    pub fn fail_next(&self, condition: ArchiveCondition) {
+        self.archive().conditions.push_back(condition);
+    }
+
+    /// The next lookup of this digest answers as given, whatever the archive records: the
+    /// window in which another device uploaded, or the owner deleted, between lookup and PUT.
+    pub fn answer_next_lookup(&self, digest: ContentDigest, answer: LookupAnswer) {
+        self.archive()
+            .lookup_overrides
+            .entry(digest)
+            .or_default()
+            .push_back(answer);
+    }
+
+    /// Whether the archive holds a document for this content.
+    pub fn holds(&self, digest: &ContentDigest) -> bool {
+        matches!(self.archive().contents.get(digest), Some(LookupAnswer::Present(_)))
+    }
+
+    /// Every content digest the archive currently holds as `Present`, in ascending order.
+    pub fn held_digests(&self) -> Vec<ContentDigest> {
+        self.archive()
+            .contents
+            .iter()
+            .filter_map(|(digest, answer)| matches!(answer, LookupAnswer::Present(_)).then_some(*digest))
+            .collect()
+    }
+
+    pub fn submission_count(&self, digest: &ContentDigest) -> usize {
+        self.archive()
+            .submissions
+            .iter()
+            .filter(|submitted| *submitted == digest)
+            .count()
+    }
+
+    pub fn lookups(&self) -> Vec<Vec<ContentDigest>> {
+        self.archive().lookups.clone()
+    }
+
+    pub fn status_reads(&self) -> Vec<DocumentIdentifier> {
+        self.archive().status_reads.clone()
+    }
+
+    /// A deterministic identifier per content, so a scenario can name the document it expects.
+    pub fn document_of(digest: &ContentDigest) -> DocumentIdentifier {
+        let hexadecimal = digest.hexadecimal();
+        DocumentIdentifier::parse(&format!(
+            "{}-{}-4{}-8{}-{}",
+            &hexadecimal[..8],
+            &hexadecimal[8..12],
+            &hexadecimal[13..16],
+            &hexadecimal[17..20],
+            &hexadecimal[20..32]
+        ))
+        .unwrap_or_else(|| unreachable!("the groups are lowercase hexadecimal of the right lengths"))
     }
 
     /// Gives the journal another identifier and numbers its entries anew, as the end of a
@@ -456,26 +690,60 @@ impl ScriptedArchive {
         let entries: Vec<JournaledRecord> = archive.entries.values().cloned().collect();
         archive.records_of(entries.into_iter()).0
     }
+
+    /// Reads an original together with its media type and digest for HTTP `Content-Type` and
+    /// `ETag` headers, without holding the lock across the socket write.
+    pub fn read_original_content(&self, document: &DocumentIdentifier) -> Result<OriginalContent, OriginalAnswer> {
+        let mut archive = self.archive();
+        let Some(record) = archive.represented(document).cloned() else {
+            return Err(OriginalAnswer::DocumentAbsent);
+        };
+        if record.media_type == "message/rfc822" {
+            return Err(OriginalAnswer::NotPrinted);
+        }
+        let Some(bytes) = archive.originals.get(document).cloned() else {
+            return Err(OriginalAnswer::DocumentAbsent);
+        };
+        archive.original_downloads += 1;
+        Ok(OriginalContent {
+            media_type: record.media_type,
+            digest: record.original,
+            bytes,
+        })
+    }
 }
 
 impl ArchiveReader for ScriptedArchive {
     fn read_authorization(&self) -> Result<ArchiveAuthorization, ArchiveCondition> {
-        let archive = self.archive();
+        let mut archive = self.archive();
+        if let Some(condition) = archive.conditions.pop_front() {
+            return Err(condition);
+        }
         Ok(ArchiveAuthorization {
             journal_identifier: archive.journal_identifier.clone(),
             token_description: "Scripted token".to_owned(),
-            permission_level: PermissionLevel::Read,
+            permission_level: archive.permission_level,
             restricted: archive.scope.is_restricted(),
             scope_digest: archive.scope.digest(),
         })
     }
 
     fn read_changes(&self, after: Option<&JournalCursor>) -> Result<PageAnswer, ArchiveCondition> {
-        self.archive().page_after(after)
+        let mut archive = self.archive();
+        if let Some(condition) = archive.conditions.pop_front() {
+            return Err(condition);
+        }
+        archive.page_after(after)
     }
 
     fn read_text(&self, document: &DocumentIdentifier) -> Result<Option<String>, ArchiveCondition> {
-        let archive = self.archive();
+        let mut archive = self.archive();
+        if let Some(condition) = archive.conditions.pop_front() {
+            return Err(condition);
+        }
+        if archive.permission_level < PermissionLevel::Read {
+            return Err(ArchiveCondition::CredentialInsufficient);
+        }
         Ok(archive
             .represented(document)
             .and_then(|_| archive.texts.get(document).cloned()))
@@ -487,6 +755,12 @@ impl ArchiveReader for ScriptedArchive {
         destination: &mut dyn Write,
     ) -> Result<OriginalAnswer, DownloadFailure> {
         let mut archive = self.archive();
+        if let Some(condition) = archive.conditions.pop_front() {
+            return Err(DownloadFailure::Archive(condition));
+        }
+        if archive.permission_level < PermissionLevel::Read {
+            return Err(DownloadFailure::Archive(ArchiveCondition::CredentialInsufficient));
+        }
         let Some(record) = archive.represented(document) else {
             return Ok(OriginalAnswer::DocumentAbsent);
         };
@@ -506,7 +780,13 @@ impl ArchiveReader for ScriptedArchive {
         document: &DocumentIdentifier,
         destination: &mut dyn Write,
     ) -> Result<ThumbnailAnswer, DownloadFailure> {
-        let archive = self.archive();
+        let mut archive = self.archive();
+        if let Some(condition) = archive.conditions.pop_front() {
+            return Err(DownloadFailure::Archive(condition));
+        }
+        if archive.permission_level < PermissionLevel::Read {
+            return Err(DownloadFailure::Archive(ArchiveCondition::CredentialInsufficient));
+        }
         let Some(thumbnail) = archive
             .represented(document)
             .and_then(|_| archive.thumbnails.get(document))
@@ -515,5 +795,200 @@ impl ArchiveReader for ScriptedArchive {
         };
         destination.write_all(thumbnail).map_err(DownloadFailure::Destination)?;
         Ok(ThumbnailAnswer::Received)
+    }
+}
+
+impl ArchiveClient for ScriptedArchive {
+    fn look_up(&self, digests: &[ContentDigest]) -> Result<Vec<(ContentDigest, LookupAnswer)>, ArchiveCondition> {
+        let mut archive = self.archive();
+        archive.lookups.push(digests.to_vec());
+        if let Some(condition) = archive.conditions.pop_front() {
+            return Err(condition);
+        }
+        if archive.scope.is_restricted() {
+            return Err(ArchiveCondition::CredentialInsufficient);
+        }
+        let mut answers = Vec::with_capacity(digests.len());
+        for digest in digests {
+            let overridden = archive.lookup_overrides.get_mut(digest).and_then(VecDeque::pop_front);
+            let answer =
+                overridden.unwrap_or_else(|| archive.contents.get(digest).cloned().unwrap_or(LookupAnswer::Absent));
+            answers.push((*digest, answer));
+        }
+        Ok(answers)
+    }
+
+    fn submit(
+        &self,
+        authorization: SubmissionAuthorization,
+        content: VerifiedContent,
+    ) -> Result<SubmissionOutcome, SubmissionCondition> {
+        let digest = authorization.digest();
+        assert_eq!(
+            digest,
+            content.digest(),
+            "a submission's authorization and content must name the same digest"
+        );
+        let mut archive = self.archive();
+        archive.submissions.push(digest);
+        if let Some(condition) = archive.conditions.pop_front() {
+            return Err(condition.into());
+        }
+        if archive.scope.is_restricted() {
+            return Err(ArchiveCondition::CredentialInsufficient.into());
+        }
+        Ok(match archive.contents.get(&digest).cloned() {
+            Some(LookupAnswer::Deleted) => SubmissionOutcome::Deleted,
+            Some(LookupAnswer::Present(document)) => {
+                let status = archive.document_status(&document).unwrap_or(DocumentStatus::Processing);
+                SubmissionOutcome::AlreadyHeld { document, status }
+            }
+            Some(LookupAnswer::Absent) | None => {
+                let document = ScriptedArchive::document_of(&digest);
+                let media_type = identify_content_kind(content.bytes())
+                    .map_or("application/pdf", |kind| kind.media_type())
+                    .to_owned();
+                let byte_size = u64::try_from(content.bytes().len()).unwrap_or(u64::MAX);
+                let arrived_at = Timestamp(archive.next_arrival_ms);
+                archive.next_arrival_ms += 1_000;
+                archive.contents.insert(digest, LookupAnswer::Present(document.clone()));
+                archive.originals.insert(document.clone(), content.bytes().to_vec());
+                archive.documents.insert(
+                    document.clone(),
+                    DocumentRecord {
+                        identifier: document.clone(),
+                        condition: DocumentCondition::Arriving(IngestionStage::Processing),
+                        title: None,
+                        document_date: None,
+                        sender: None,
+                        category: None,
+                        person: PersonAssignment::Unassigned,
+                        summary: None,
+                        media_type,
+                        byte_size,
+                        page_count: None,
+                        original: Some(digest),
+                        arrived_at,
+                        tags: BTreeSet::new(),
+                        fields: BTreeMap::new(),
+                    },
+                );
+                archive.journal(JournaledRecord::Document(document.clone()));
+                SubmissionOutcome::Accepted {
+                    document,
+                    status: DocumentStatus::Processing,
+                }
+            }
+        })
+    }
+
+    fn read_document_status(&self, document: &DocumentIdentifier) -> Result<Option<DocumentStatus>, ArchiveCondition> {
+        let mut archive = self.archive();
+        archive.status_reads.push(document.clone());
+        if let Some(condition) = archive.conditions.pop_front() {
+            return Err(condition);
+        }
+        if archive.scope.is_restricted() {
+            return Err(ArchiveCondition::CredentialInsufficient);
+        }
+        Ok(archive.document_status(document))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use collection_core::content_synchronization::{
+        ArchiveStanding, ContentRecord, SubmissionFailures, authorize_submission,
+    };
+    use collection_core::domain_types::{Timestamp, TimingPolicy};
+
+    fn authorization(digest: ContentDigest) -> SubmissionAuthorization {
+        let record = ContentRecord {
+            digest,
+            standing: ArchiveStanding::Absent {
+                looked_up_at: Timestamp(0),
+                failures: SubmissionFailures::default(),
+            },
+        };
+        authorize_submission(&record, Timestamp(1), &TimingPolicy::default()).unwrap()
+    }
+
+    #[test]
+    fn the_scripted_archive_keeps_the_servers_rules() {
+        let archive = ScriptedArchive::new();
+        let content = VerifiedContent::from_bytes(b"%PDF-1.7 scripted".to_vec());
+        let digest = content.digest();
+        let other = ContentDigest::from_bytes([7; 32]);
+
+        assert_eq!(
+            archive.look_up(&[digest]).unwrap(),
+            vec![(digest, LookupAnswer::Absent)]
+        );
+        let accepted = archive.submit(authorization(digest), content.clone()).unwrap();
+        let document = ScriptedArchive::document_of(&digest);
+        assert_eq!(
+            accepted,
+            SubmissionOutcome::Accepted {
+                document: document.clone(),
+                status: DocumentStatus::Processing
+            }
+        );
+        assert_eq!(
+            archive.look_up(&[digest, other]).unwrap(),
+            vec![
+                (digest, LookupAnswer::Present(document.clone())),
+                (other, LookupAnswer::Absent)
+            ]
+        );
+        archive.set_document_status(&document, DocumentStatus::Archived);
+        assert_eq!(
+            archive.submit(authorization(digest), content.clone()).unwrap(),
+            SubmissionOutcome::AlreadyHeld {
+                document: document.clone(),
+                status: DocumentStatus::Archived
+            }
+        );
+        assert_eq!(
+            archive.read_document_status(&document).unwrap(),
+            Some(DocumentStatus::Archived)
+        );
+        let PageAnswer::Page(page) = archive.read_changes(None).unwrap() else {
+            panic!("expected a page");
+        };
+        assert_eq!(page.documents.len(), 1);
+        assert_eq!(page.documents[0].identifier, document);
+
+        archive.delete(&digest);
+        assert_eq!(
+            archive.look_up(&[digest]).unwrap(),
+            vec![(digest, LookupAnswer::Deleted)]
+        );
+        assert_eq!(
+            archive.submit(authorization(digest), content).unwrap(),
+            SubmissionOutcome::Deleted
+        );
+        assert_eq!(archive.read_document_status(&document).unwrap(), None);
+
+        archive.fail_next(ArchiveCondition::TimedOut);
+        assert_eq!(archive.look_up(&[digest]), Err(ArchiveCondition::TimedOut));
+        assert_eq!(archive.look_up(&[digest]).unwrap().len(), 1);
+        assert_eq!(archive.submission_count(&digest), 3);
+        assert_eq!(archive.lookups().len(), 5);
+
+        archive.answer_next_lookup(digest, LookupAnswer::Absent);
+        assert_eq!(
+            archive.look_up(&[digest]).unwrap(),
+            vec![(digest, LookupAnswer::Absent)]
+        );
+        assert_eq!(
+            archive.look_up(&[digest]).unwrap(),
+            vec![(digest, LookupAnswer::Deleted)]
+        );
+        assert!(!archive.holds(&digest));
+        let held = VerifiedContent::from_bytes(b"%PDF-1.7 held".to_vec());
+        archive.submit(authorization(held.digest()), held.clone()).unwrap();
+        assert!(archive.holds(&held.digest()));
+        assert_eq!(archive.status_reads(), vec![document.clone(), document]);
     }
 }

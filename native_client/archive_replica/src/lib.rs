@@ -160,6 +160,8 @@ pub struct MirroredArchive {
     pub origin: String,
     /// What the token may do, as its authorization said when the archive was attached.
     pub permission_level: PermissionLevel,
+    /// Whether the token sees only a part of the archive.
+    pub restricted: bool,
     /// Whether the copy ever reached the journal's end. False during the first fill.
     pub fill_complete: bool,
     /// When a page last reached the journal's end.

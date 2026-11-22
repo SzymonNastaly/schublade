@@ -29,6 +29,7 @@ dependencies = [
  "collection_core",
  "event-listener",
  "pollster",
+ "scripted_archive",
  "tempfile",
  "uniffi",
 ]
@@ -314,6 +315,7 @@ dependencies = [
  "archive_access",
  "notify",
  "rusqlite",
+ "scripted_archive",
  "serde",
  "serde_json",
  "sha2",
@@ -1122,8 +1124,11 @@ version = "0.1.0"
 dependencies = [
  "archive_access",
  "archive_replica",
+ "collection_core",
+ "serde",
  "serde_json",
  "sha2",
+ "tiny_http",
 ]
 
 [[package]]

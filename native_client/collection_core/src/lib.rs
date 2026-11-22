@@ -12,7 +12,6 @@ pub mod domain_types;
 pub mod file_system_observation;
 pub mod folder_admission;
 pub mod path_lifecycle;
-pub mod scripted_archive;
 pub mod state_store;
 pub mod status_report;
 pub mod work_execution;
@@ -28,7 +27,6 @@ use std::time::Duration;
 pub use archive_access::{Clock, ManualClock, SystemClock};
 pub use archive_client::{ArchiveClient, HttpArchiveClient};
 pub use domain_types::{FolderIdentifier, Timestamp, TimingPolicy};
-pub use scripted_archive::ScriptedArchive;
 pub use status_report::{
     Activity, AttentionItem, BacklogSummary, CollectorStatus, ConnectionStatus, FolderStatus, Receipt, StateCounts,
 };
@@ -243,6 +241,9 @@ pub enum CollectorCommand {
     ReadStatus {
         reply: Sender<Result<CollectorStatus, CommandRefusal>>,
     },
+    ReadLockedArchiveOrigin {
+        reply: Sender<Result<Option<String>, CommandRefusal>>,
+    },
     WaitUntilIdle {
         reply: Sender<Result<CollectorStatus, CommandRefusal>>,
     },
@@ -395,6 +396,12 @@ impl Collector {
 
     pub fn status(&self) -> Result<CollectorStatus, CommandRefusal> {
         self.command(|reply| CollectorCommand::ReadStatus { reply })
+    }
+
+    /// The archive origin this collector's records belong to when it holds enrolled folders or
+    /// recorded contents, so switching to another origin is refused.
+    pub fn locked_archive_origin(&self) -> Result<Option<String>, CommandRefusal> {
+        self.command(|reply| CollectorCommand::ReadLockedArchiveOrigin { reply })
     }
 
     /// From the app's wake notification. The coordinator also notices a jump of the clock.

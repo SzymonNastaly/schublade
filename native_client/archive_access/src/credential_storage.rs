@@ -17,6 +17,16 @@ pub trait CredentialStore: Send + Sync {
     fn write(&self, address: &ArchiveAddress, token: &ArchiveToken) -> Result<(), CredentialStorageFailure>;
 }
 
+impl<Store: CredentialStore + ?Sized> CredentialStore for std::sync::Arc<Store> {
+    fn read(&self, address: &ArchiveAddress) -> Result<Option<ArchiveToken>, CredentialStorageFailure> {
+        (**self).read(address)
+    }
+
+    fn write(&self, address: &ArchiveAddress, token: &ArchiveToken) -> Result<(), CredentialStorageFailure> {
+        (**self).write(address, token)
+    }
+}
+
 fn locked<Value>(mutex: &Mutex<Value>) -> MutexGuard<'_, Value> {
     mutex.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
 }

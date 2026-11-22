@@ -250,6 +250,7 @@ impl ReplicaCoordinator {
             archive: mirror.map(|mirror| MirroredArchive {
                 origin: mirror.archive_origin,
                 permission_level: mirror.permission_level,
+                restricted: mirror.scope_digest != archive_access::UNRESTRICTED_SCOPE_DIGEST,
                 fill_complete: mirror.fill_complete,
                 synchronized_at: mirror.synchronized_at,
             }),

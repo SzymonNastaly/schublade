@@ -4,6 +4,9 @@
 
 use crate::archive_exchange::{ArchiveCondition, ArchiveExchange};
 
+/// The SHA-256 of `[null,null,null,null]`, which the server computes for a token with no scope lists.
+pub const UNRESTRICTED_SCOPE_DIGEST: &str = "6cd8cec706fa11110d83fb46f97df1f9be43b4c570f3390e7c7f6a5173f595e6";
+
 /// The levels of a token in the server's order. Each grants every permission of those before it:
 /// a token of the level `Ingest` only adds documents, and one of the level `Read` also reads the
 /// archive.
@@ -79,4 +82,20 @@ pub fn read_authorization(exchange: &ArchiveExchange) -> Result<ArchiveAuthoriza
         restricted: answer.token.restricted,
         scope_digest: answer.token.scope_digest,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use sha2::{Digest, Sha256};
+
+    use super::*;
+
+    #[test]
+    fn the_unrestricted_scope_digest_equals_the_sha256_of_four_absent_lists() {
+        let digest: String = Sha256::digest(b"[null,null,null,null]")
+            .iter()
+            .map(|byte| format!("{byte:02x}"))
+            .collect();
+        assert_eq!(digest, UNRESTRICTED_SCOPE_DIGEST);
+    }
 }

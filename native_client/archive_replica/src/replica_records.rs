@@ -90,6 +90,11 @@ impl CalendarDate {
         self.month
     }
 
+    /// From 1.
+    pub fn day(&self) -> u8 {
+        self.day
+    }
+
     /// The days from 1970-01-01 to this day, by the proleptic Gregorian calendar.
     pub(crate) fn days_since_epoch(&self) -> i64 {
         // March opens the counted year, so the leap day is its last day.

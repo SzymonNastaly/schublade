@@ -23,4 +23,5 @@ uniffi = "=0.32.2"
 
 [dev-dependencies]
 pollster = "=1.0.3"
+scripted_archive = { path = "../scripted_archive" }
 tempfile = "=3.27.0"

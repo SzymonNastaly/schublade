@@ -7,7 +7,8 @@ use std::sync::mpsc::{Receiver, channel};
 use std::time::Duration;
 
 use collection_core::domain_types::ContentDigest;
-use collection_core::{ArchiveClient, CollectorSettings, ScriptedArchive, SystemClock, TimingPolicy};
+use collection_core::{ArchiveClient, CollectorSettings, SystemClock, TimingPolicy};
+use scripted_archive::ScriptedArchive;
 
 use crate::{Collector, CollectorFault, CollectorStatus};
 

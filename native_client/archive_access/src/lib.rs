@@ -12,7 +12,7 @@ mod clock;
 mod credential_storage;
 
 pub use archive_address::{ArchiveAddress, ArchiveAddressRefusal};
-pub use archive_authorization::{ArchiveAuthorization, PermissionLevel, read_authorization};
+pub use archive_authorization::{ArchiveAuthorization, PermissionLevel, UNRESTRICTED_SCOPE_DIGEST, read_authorization};
 pub use archive_exchange::{ArchiveCondition, ArchiveDownload, ArchiveExchange, ArchiveResponse, DownloadFailure};
 pub use archive_identifiers::{ContentDigest, DocumentIdentifier, is_record_identifier};
 pub use archive_token::ArchiveToken;
