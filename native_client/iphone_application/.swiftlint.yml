@@ -3,6 +3,7 @@ included:
   - application
   - application_end_to_end_tests
   - application_interface
+  - share_extension
   - submission_queue
 excluded:
   - build

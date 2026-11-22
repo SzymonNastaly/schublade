@@ -24,21 +24,22 @@ public enum DocumentImport {
 		(.webP, .webp),
 	]
 
-	/// Whether a file of `type` can be sent, as it is or as a JPEG.
-	public static func accepts(_ type: UTType) -> Bool {
-		type.conforms(to: .pdf) || type.conforms(to: .image)
+	/// Of the types a shared item offers, the one to load: a kind the archive takes as it is, else a
+	/// picture to convert, else nil for an item the archive does not take.
+	public static func preferredType(among offered: [UTType]) -> UTType? {
+		offered.first { type in acceptedKinds.contains { type.conforms(to: $0.0) } }
+			?? offered.first { $0.conforms(to: .image) }
 	}
 
 	/// Converts `file`, which the caller owns, into an importable document in its own directory.
 	public static func prepare(file: URL, suggestedName: String?) throws(ImportFailure) -> ImportedDocument {
 		let type = (try? file.resourceValues(forKeys: [.contentTypeKey]))?.contentType
 			?? UTType(filenameExtension: file.pathExtension)
-		let baseName = (suggestedName ?? file.deletingPathExtension().lastPathComponent)
-			.replacingOccurrences(of: "/", with: "-")
+		let baseName = baseName(suggestedName ?? file.lastPathComponent)
 		if let type, let kind = acceptedKinds.first(where: { type.conforms(to: $0.0) })?.1 {
 			return ImportedDocument(file: file, fileName: "\(baseName).\(kind.fileExtension)", kind: kind)
 		}
-		guard let type, accepts(type) else {
+		guard let type, type.conforms(to: .image) else {
 			throw .unacceptedKind(file.lastPathComponent)
 		}
 		let converted = file.deletingLastPathComponent().appending(path: "\(UUID().uuidString).jpg")
@@ -64,6 +65,16 @@ public enum DocumentImport {
 		}
 		try? FileManager.default.removeItem(at: file)
 		return ImportedDocument(file: converted, fileName: "\(baseName).jpg", kind: .jpeg)
+	}
+
+	/// A name without the extension it may carry, as Safari's suggested names do, because the
+	/// extension of the kind sent follows it. "Invoice 10.2026" keeps its ".2026", which names no type.
+	private static func baseName(_ name: String) -> String {
+		let named = URL(filePath: name.replacingOccurrences(of: "/", with: "-"))
+		guard let namedType = UTType(filenameExtension: named.pathExtension), !namedType.isDynamic else {
+			return named.lastPathComponent
+		}
+		return named.deletingPathExtension().lastPathComponent
 	}
 
 	/// A new directory of the temporary directory, for a copy the process owns.

@@ -99,6 +99,7 @@ targets:
       - target: ApplicationInterface
       - target: SubmissionQueue
       - target: ApplicationBindings
+      - target: ShareExtension
     info:
       path: application/Info.plist
       properties:
@@ -122,6 +123,43 @@ targets:
         PRODUCT_MODULE_NAME: Schublade
         # The website's blue tints every control, as on the Mac.
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+        SWIFT_DEFAULT_ACTOR_ISOLATION: MainActor
+        LIBRARY_SEARCH_PATHS: $(RUST_TARGET_DIRECTORY)
+        OTHER_LDFLAGS: $(APPLICATION_BINDINGS_LINKER_FLAGS)
+
+  ShareExtension:
+    type: app-extension
+    platform: iOS
+    sources:
+      - path: share_extension
+        excludes: ["*.entitlements"]
+    dependencies:
+      - target: SubmissionQueue
+      - target: ApplicationBindings
+    info:
+      path: share_extension/Info.plist
+      properties:
+        CFBundleDisplayName: $(APPLICATION_PRODUCT_NAME)
+        SchubladeApplicationBundleIdentifier: $(APPLICATION_BUNDLE_IDENTIFIER)
+        SchubladeApplicationGroup: $(SHARED_APPLICATION_GROUP)
+        SchubladeKeychainAccessGroup: $(SHARED_KEYCHAIN_ACCESS_GROUP)
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.share-services
+          NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).ShareViewController
+          NSExtensionAttributes:
+            # A share item of at most 20 files, the archive's limit per upload, with a PDF or a picture
+            # among them. The share sheet never offers an extension whose rule holds BETWEEN, although
+            # NSPredicate evaluates it.
+            NSExtensionActivationRule: >-
+              SUBQUERY(extensionItems, $extensionItem, $extensionItem.attachments.@count <= 20
+              AND SUBQUERY($extensionItem.attachments, $attachment,
+              ANY $attachment.registeredTypeIdentifiers UTI-CONFORMS-TO "com.adobe.pdf"
+              OR ANY $attachment.registeredTypeIdentifiers UTI-CONFORMS-TO "public.image").@count >= 1).@count >= 1
+    settings:
+      base:
+        PRODUCT_NAME: ShareExtension
+        PRODUCT_BUNDLE_IDENTIFIER: $(APPLICATION_BUNDLE_IDENTIFIER).share-extension
+        CODE_SIGN_ENTITLEMENTS: share_extension/ShareExtension.entitlements
         SWIFT_DEFAULT_ACTOR_ISOLATION: MainActor
         LIBRARY_SEARCH_PATHS: $(RUST_TARGET_DIRECTORY)
         OTHER_LDFLAGS: $(APPLICATION_BINDINGS_LINKER_FLAGS)
