@@ -34,7 +34,7 @@ pub use published_library::{
     Amount, CalendarDate, CategoryIdentifier, DetailField, DocumentCondition, DocumentDetail, DocumentIdentifier,
     DocumentListing, DocumentPerson, DocumentRow, FailureReason, FieldValue, IngestionStage, LibraryCopy,
     LibraryCounts, LibraryFacets, LibraryScope, LibraryStatus, ListingAnswer, ListingDifference, ListingHeading,
-    ListingOrder, ListingRequest, ListingRow, LocalFile, MemberIdentifier, NamedScope, OriginalKind,
+    ListingOrder, ListingRequest, ListingRow, LocalFile, MemberIdentifier, NamedScope, OriginalKind, OriginalStorage,
     PublishedPermissionLevel, RowPassage, ScopeCount, SenderIdentifier, TagIdentifier,
 };
 pub use published_status::{
@@ -511,6 +511,37 @@ impl Library {
                 .ok_or(RepresentationRefusal::DocumentUnknown)?;
             let path = replica.thumbnail(&identifier).map_err(RepresentationRefusal::from)?;
             Ok(path.map(|path| LocalFile { path: path_text(&path) }))
+        })
+        .await
+    }
+
+    /// The space the downloaded originals take and the most they may take, for Settings.
+    pub async fn original_storage(self: Arc<Self>) -> Result<OriginalStorage, ApplicationFault> {
+        blocking::unblock(move || {
+            let (held_bytes, limit_bytes) = replica_handle(&self.core)?.original_storage();
+            Ok(OriginalStorage {
+                held_bytes,
+                limit_bytes,
+            })
+        })
+        .await
+    }
+
+    /// Takes the most bytes the downloaded originals may take, `None` for no limit, and removes the
+    /// originals read longest ago until they fit.
+    pub async fn set_original_storage_limit(self: Arc<Self>, limit_bytes: Option<u64>) -> Result<(), ApplicationFault> {
+        blocking::unblock(move || {
+            replica_handle(&self.core)?.set_original_storage_limit(limit_bytes);
+            Ok(())
+        })
+        .await
+    }
+
+    /// Removes the downloaded originals; each is downloaded again when it is next opened.
+    pub async fn remove_downloaded_originals(self: Arc<Self>) -> Result<(), ApplicationFault> {
+        blocking::unblock(move || {
+            replica_handle(&self.core)?.remove_downloaded_originals();
+            Ok(())
         })
         .await
     }

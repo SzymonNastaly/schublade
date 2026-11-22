@@ -88,8 +88,9 @@ fn storage_failed(error: std::io::Error) -> RepresentationRefusal {
 pub struct RepresentationCache {
     originals: PathBuf,
     thumbnails: PathBuf,
-    /// The most bytes of originals to keep. `None` keeps every original.
-    original_byte_limit: Option<u64>,
+    /// The most bytes of originals to keep. `None` keeps every original. A person changes it in
+    /// Settings while the cache runs.
+    original_byte_limit: Mutex<Option<u64>>,
     /// The files that are being downloaded now.
     downloads: Mutex<HashSet<PathBuf>>,
     download_ended: Condvar,
@@ -134,7 +135,7 @@ impl RepresentationCache {
         let cache = RepresentationCache {
             originals: directory.join("originals"),
             thumbnails: directory.join("thumbnails"),
-            original_byte_limit,
+            original_byte_limit: Mutex::new(original_byte_limit),
             downloads: Mutex::new(HashSet::new()),
             download_ended: Condvar::new(),
         };
@@ -232,12 +233,42 @@ impl RepresentationCache {
         written
     }
 
+    /// The bytes the originals hold now, and the most they may hold.
+    pub fn original_storage(&self) -> (u64, Option<u64>) {
+        let held = files_in(&self.originals)
+            .filter(|path| !is_partial(path))
+            .filter_map(|path| path.metadata().ok())
+            .map(|metadata| metadata.len())
+            .sum();
+        (
+            held,
+            *self.original_byte_limit.lock().unwrap_or_else(PoisonError::into_inner),
+        )
+    }
+
+    /// Takes a new limit and brings the originals under it at once.
+    pub fn set_original_byte_limit(&self, limit: Option<u64>) {
+        *self.original_byte_limit.lock().unwrap_or_else(PoisonError::into_inner) = limit;
+        self.evict_originals();
+    }
+
+    /// Removes every original but those downloading now, because a person asked for the space.
+    /// An original that is open elsewhere stays readable there until it is closed.
+    pub fn remove_originals(&self) {
+        let downloads = self.downloads();
+        for path in files_in(&self.originals) {
+            if !is_partial(&path) && !downloads.contains(&path) {
+                let _ = std::fs::remove_file(path);
+            }
+        }
+    }
+
     /// Removes originals, the one handed out longest ago first, until they fit the limit. A
     /// file handed out within the last minute (or ahead of a stepped-back clock) stays, so the
     /// originals can exceed the limit for that long. Serialized with `downloads` so eviction
     /// cannot remove a path simultaneously being checked or handed out.
     fn evict_originals(&self) {
-        let Some(limit) = self.original_byte_limit else {
+        let Some(limit) = *self.original_byte_limit.lock().unwrap_or_else(PoisonError::into_inner) else {
             return;
         };
         let downloads = self.downloads();

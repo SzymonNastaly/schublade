@@ -93,7 +93,8 @@ final class ApplicationController {
 	func showSettings() {
 		let settings = settingsWindowController ?? SettingsWindowController(
 			loginItem: loginItem,
-			statusItem: statusItem.item
+			statusItem: statusItem.item,
+			storage: StorageSettingsViewController(commands: gateway, preferences: preferences)
 		) { [weak mainWindowController] in
 			mainWindowController?.present()
 			mainWindowController?.beginTokenReplacement()
@@ -147,7 +148,9 @@ final class ApplicationController {
 
 	private func startGateway() async -> Bool {
 		do {
-			try await gateway.start(configuration: environment.applicationConfiguration)
+			var configuration = environment.applicationConfiguration
+			configuration.originalStorageLimit = preferences.originalStorageLimit
+			try await gateway.start(configuration: configuration)
 			return true
 		} catch {
 			change(to: .failedToStart(error))

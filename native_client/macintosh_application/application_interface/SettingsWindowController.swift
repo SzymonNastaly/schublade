@@ -5,12 +5,22 @@ import ApplicationBindings
 final class SettingsWindowController: NSWindowController {
 	private let archive: ArchiveSettingsViewController
 
-	init(loginItem: LoginItem, statusItem: NSStatusItem, onReplaceToken: @escaping () -> Void) {
+	init(
+		loginItem: LoginItem,
+		statusItem: NSStatusItem,
+		storage: StorageSettingsViewController,
+		onReplaceToken: @escaping () -> Void
+	) {
 		archive = ArchiveSettingsViewController(onReplaceToken: onReplaceToken)
-		let tabs = NSTabViewController()
+		let tabs = SettingsTabViewController()
 		tabs.tabStyle = .toolbar
 		let general = GeneralSettingsViewController(loginItem: loginItem, statusItem: statusItem)
-		for (controller, symbol) in [(general as NSViewController, "gearshape"), (archive, "archivebox")] {
+		let tabsWithSymbols: [(NSViewController, String)] = [
+			(general, "gearshape"),
+			(archive, "archivebox"),
+			(storage, "internaldrive"),
+		]
+		for (controller, symbol) in tabsWithSymbols {
 			let item = NSTabViewItem(viewController: controller)
 			item.image = NSImage(systemSymbolName: symbol, accessibilityDescription: controller.title)
 			tabs.addTabViewItem(item)

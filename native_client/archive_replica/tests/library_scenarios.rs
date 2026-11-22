@@ -599,3 +599,45 @@ fn an_original_is_downloaded_once_kept_only_when_its_bytes_are_its_content_and_e
     after_open.sort();
     assert_eq!(files_in(&originals), (after_open, 800));
 }
+
+#[test]
+fn a_person_sees_the_space_originals_hold_lowers_their_limit_and_removes_them() {
+    let archive = Arc::new(ScriptedArchive::with_page_entries(250));
+    let scan = |number: u8| vec![number; 400];
+    for number in 1..=3_u8 {
+        archive.put_document(DocumentRecord {
+            original: Some(content_of(&scan(number))),
+            ..letter(usize::from(number), "Scan", "2026-09-22")
+        });
+        archive.put_original(&document_identifier(usize::from(number)), &scan(number));
+    }
+    let directory = tempfile::tempdir().unwrap();
+    let originals = directory.path().join("representations").join("originals");
+    let (replica, events) = start_replica(&archive, directory.path(), None);
+    attach(&replica, &archive);
+    settled(&replica, &events, 0);
+
+    for number in 1..=3 {
+        replica.original(&document_identifier(number)).unwrap();
+    }
+    assert_eq!(replica.original_storage(), (1_200, None));
+
+    // Two were read long ago, so a limit of 500 bytes keeps only the one read last.
+    for number in 1..=2_u8 {
+        let name = format!("{}.pdf", content_of(&scan(number)).hexadecimal());
+        std::fs::File::open(originals.join(name))
+            .unwrap()
+            .set_modified(SystemTime::now() - Duration::from_secs(120 * u64::from(4 - number)))
+            .unwrap();
+    }
+    replica.set_original_storage_limit(Some(500));
+    assert_eq!(replica.original_storage(), (400, Some(500)));
+
+    replica.remove_downloaded_originals();
+    assert_eq!(replica.original_storage(), (0, Some(500)));
+    assert_eq!(files_in(&originals), (vec![], 0));
+    let downloads = archive.original_downloads();
+    replica.original(&document_identifier(3)).unwrap();
+    assert_eq!(archive.original_downloads(), downloads + 1);
+    replica.shutdown();
+}

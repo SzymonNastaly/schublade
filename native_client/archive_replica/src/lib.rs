@@ -361,6 +361,21 @@ impl Replica {
         })
     }
 
+    /// The bytes the downloaded originals hold, and the most they may hold.
+    pub fn original_storage(&self) -> (u64, Option<u64>) {
+        self.representations.original_storage()
+    }
+
+    /// Takes a new limit for the downloaded originals, `None` for no limit, and brings them under it.
+    pub fn set_original_storage_limit(&self, limit: Option<u64>) {
+        self.representations.set_original_byte_limit(limit);
+    }
+
+    /// Removes the downloaded originals. Each is downloaded again when it is next opened.
+    pub fn remove_downloaded_originals(&self) {
+        self.representations.remove_originals();
+    }
+
     fn representation_source(
         &self,
         document: &DocumentIdentifier,

@@ -325,6 +325,13 @@ pub struct LocalFile {
     pub path: String,
 }
 
+/// What the downloaded originals take on this Mac, and the most they may take; `None` is no limit.
+#[derive(uniffi::Record, Clone, Copy, Debug, PartialEq, Eq)]
+pub struct OriginalStorage {
+    pub held_bytes: u64,
+    pub limit_bytes: Option<u64>,
+}
+
 pub(crate) fn publish_library_status(
     status: &ReplicaStatus,
     collector: Option<&(Option<String>, collection_core::ConnectionStatus)>,

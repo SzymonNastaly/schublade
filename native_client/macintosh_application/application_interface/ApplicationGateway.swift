@@ -4,7 +4,7 @@ import ApplicationPresentation
 /// The only type that calls the bindings. Every asynchronous call into the core runs on a Rust
 /// worker pool, so the main actor never waits on a coordinator, SQLite, the network, or the
 /// Keychain.
-final class ApplicationGateway: ApplicationCommands, LibraryQueries, CollectorCommands {
+final class ApplicationGateway: ApplicationCommands, LibraryQueries, CollectorCommands, StorageCommands {
 	/// Nil until `start` succeeds. A command before then answers that the application is stopped.
 	private var core: ApplicationCore?
 	private var library: Library?
@@ -93,6 +93,24 @@ final class ApplicationGateway: ApplicationCommands, LibraryQueries, CollectorCo
 
 	func synchronize() {
 		library?.synchronize()
+	}
+
+	func originalStorage() async throws(ApplicationFault) -> OriginalStorage {
+		try await libraryQuery { library in
+			try await library.originalStorage()
+		}
+	}
+
+	func setOriginalStorageLimit(_ bytes: UInt64?) async throws(ApplicationFault) {
+		try await libraryQuery { library in
+			try await library.setOriginalStorageLimit(limitBytes: bytes)
+		}
+	}
+
+	func removeDownloadedOriginals() async throws(ApplicationFault) {
+		try await libraryQuery { library in
+			try await library.removeDownloadedOriginals()
+		}
 	}
 
 	func enrollFolder(root: String) async throws(EnrollmentRefusal) -> FolderReference {
