@@ -1,6 +1,6 @@
 [package]
 name = "application_bindings"
-description = "The collector as an application sees it: one object, the published status, and the refusals, exported through UniFFI"
+description = "The Schublade application as a native interface sees it: one root, library, collector, listings, published statuses, and refusals exported through UniFFI"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -13,6 +13,7 @@ crate-type = ["staticlib", "lib"]
 
 [dependencies]
 archive_access = { path = "../archive_access" }
+archive_replica = { path = "../archive_replica" }
 # Runs each blocking call of the core on a thread of its own pool, so the thread that polls an
 # exported future never waits.
 blocking = "=1.7.0"
@@ -24,4 +25,5 @@ uniffi = "=0.32.2"
 [dev-dependencies]
 pollster = "=1.0.3"
 scripted_archive = { path = "../scripted_archive" }
+sha2 = "=0.11.1"
 tempfile = "=3.27.0"

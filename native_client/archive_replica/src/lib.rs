@@ -173,7 +173,7 @@ pub struct MirroredArchive {
 pub struct Replica {
     inbox: Sender<CoordinatorInput>,
     published: Arc<Mutex<ReplicaStatus>>,
-    coordinator_thread: Option<JoinHandle<()>>,
+    coordinator_thread: Mutex<Option<JoinHandle<()>>>,
     database_path: PathBuf,
     /// The read connections that no call uses now. A call takes one, or opens one, so a search
     /// never waits for a listing.
@@ -234,7 +234,7 @@ impl Replica {
             Replica {
                 inbox,
                 published,
-                coordinator_thread: Some(coordinator_thread),
+                coordinator_thread: Mutex::new(Some(coordinator_thread)),
                 database_path: settings.database_path,
                 idle_queries: Mutex::new(Vec::new()),
                 followed,
@@ -393,13 +393,20 @@ impl Replica {
     }
 
     /// Stops the coordinator after the request in flight, if one is.
-    pub fn shutdown(mut self) {
+    pub fn shutdown(self) {
         self.stop();
     }
 
-    fn stop(&mut self) {
+    /// Stops the coordinator without consuming the handle, so callers sharing an `Arc<Replica>`
+    /// can shut down without waiting on unrelated representation downloads.
+    pub fn stop(&self) {
         let _ = self.inbox.send(CoordinatorInput::Shutdown);
-        if let Some(thread) = self.coordinator_thread.take() {
+        if let Some(thread) = self
+            .coordinator_thread
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .take()
+        {
             let _ = thread.join();
         }
     }

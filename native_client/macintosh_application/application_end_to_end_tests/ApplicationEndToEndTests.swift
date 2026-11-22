@@ -10,9 +10,9 @@ final class ApplicationEndToEndTests: XCTestCase {
 	func testTheApplicationFollowsTheCollectorToAnEnrolledFolder() async throws {
 		let delegate = try XCTUnwrap(NSApp.delegate as? ApplicationDelegate)
 		let controller = delegate.controller
-		XCTAssertEqual(controller.environment.collectorConfiguration.credentialStorage, .processMemory)
-		try await waitUntil("the collector runs without an archive", controller) { status in
-			status.archive == .notConfigured
+		XCTAssertEqual(controller.environment.applicationConfiguration.credentialStorage, .processMemory)
+		try await waitUntil("the application runs without an archive", controller) { _, libraryStatus in
+			libraryStatus?.archive == .notConfigured
 		}
 		XCTAssertNotNil(controller.statusItem.item.button)
 		XCTAssertTrue(controller.statusItem.item.isVisible)
@@ -29,7 +29,7 @@ final class ApplicationEndToEndTests: XCTestCase {
 		try Data("%PDF-1.7 a letter".utf8).write(to: folder.appending(path: "letter.pdf"))
 
 		let enrolled = try await controller.commands.enrollFolder(root: folder.path(percentEncoded: false))
-		try await waitUntil("the enrolled folder is surveying", controller) { status in
+		try await waitUntil("the enrolled folder is surveying", controller) { status, _ in
 			status.folders.contains { listed in
 				guard listed.folder == enrolled, case .surveying = listed.admission else {
 					return false
@@ -43,11 +43,11 @@ final class ApplicationEndToEndTests: XCTestCase {
 	private func waitUntil(
 		_ expectation: String,
 		_ controller: ApplicationController,
-		_ condition: (CollectorStatus) -> Bool
+		_ condition: (CollectorStatus, LibraryStatus?) -> Bool
 	) async throws {
 		let deadline = ContinuousClock.now + .seconds(30)
 		while true {
-			if case let .running(status) = controller.situation, condition(status) {
+			if case let .running(status) = controller.situation, condition(status, controller.libraryStatus) {
 				return
 			}
 			guard ContinuousClock.now < deadline else {

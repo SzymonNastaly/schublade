@@ -64,18 +64,18 @@ custom_rules:
     message: "The application is pure AppKit, so SwiftUI is imported nowhere."
     severity: error
   collector_start_outside_gateway:
-    name: "Collector start outside the gateway"
-    regex: '\bstartCollector\b'
+    name: "Application start outside the gateway"
+    regex: '\bstartApplicationCore\b'
     match_kinds: [identifier]
     excluded: 'application_interface/CollectorGateway\.swift$'
-    message: "Only CollectorGateway starts the collector."
+    message: "Only CollectorGateway starts the application core."
     severity: error
   collector_outside_gateway:
-    name: "Collector outside the gateway"
-    regex: '\b(Collector|CollectorProtocol)\b'
+    name: "Bindings objects outside the gateway"
+    regex: '\b(ApplicationCore|ApplicationCoreProtocol|Library|LibraryProtocol|Collector|CollectorProtocol)\b'
     match_kinds: [typeidentifier]
     excluded: 'application_interface/CollectorGateway\.swift$'
-    message: "Only CollectorGateway holds the collector; send a command through CollectorCommands."
+    message: "Only CollectorGateway holds the bindings objects; send a command through CollectorCommands."
     severity: error
   unchecked_sendable_forbidden:
     name: "Unchecked Sendable"

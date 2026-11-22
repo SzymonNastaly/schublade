@@ -1,12 +1,13 @@
-//! The status as an application shows it. What the core holds as two fields that must agree is
-//! one enum here, every folder is named with its root, and the counts are the three a person
-//! reads.
+//! The collector status and the shared archive connection as an application shows them.
 //!
-//! `publish` is the one conversion. It destructures every core struct without `..` and matches
-//! every core enum without a wildcard arm, so a field or variant added to the core fails to
-//! compile here until this file says what an application shows for it.
+//! `publish` and `derive_archive_connection` destructure every core struct without `..` and match
+//! every core enum without a wildcard arm, so a field or variant added to a core fails to compile
+//! here until this file says what an application shows for it.
 
 use std::time::{Duration, SystemTime};
+
+use archive_access::{ArchiveCondition, Timestamp};
+use archive_replica::{ReplicaStatus, SynchronizationState};
 
 /// A record, so that the foreign language gets a distinct type and not an integer.
 #[derive(uniffi::Record, Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -37,10 +38,8 @@ pub struct FolderReference {
 #[derive(uniffi::Record, Clone, Debug, PartialEq, Eq)]
 pub struct CollectorStatus {
     /// Rises with every change of the fields below and never with a read, so
-    /// `Collector::status_after` with it waits for the next change. It can also rise for a change
-    /// in the core that this status does not show.
+    /// `Collector::status_after` with it waits for the next change.
     pub revision: u64,
-    pub archive: ArchiveConnection,
     pub folders: Vec<FolderStatus>,
     pub progress: CollectionProgress,
     /// What is in flight now. Empty while the collector rests.
@@ -50,6 +49,8 @@ pub struct CollectorStatus {
     pub recent_receipts: Vec<Receipt>,
 }
 
+/// The one connection to the archive, derived from both the local copy's and the collector's
+/// observations and published once in `LibraryStatus`.
 #[derive(uniffi::Enum, Clone, Debug, PartialEq, Eq)]
 pub enum ArchiveConnection {
     NotConfigured,
@@ -59,7 +60,16 @@ pub enum ArchiveConnection {
         /// `archive.example.org`, with the port when the origin names one, for sentences.
         host: String,
         condition: ConnectionCondition,
+        permission: ArchivePermission,
+        restricted: bool,
     },
+}
+
+#[derive(uniffi::Enum, Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum ArchivePermission {
+    CollectOnly,
+    ReadOnly,
+    ReadAndCollect,
 }
 
 #[derive(uniffi::Enum, Clone, Debug, PartialEq, Eq)]
@@ -76,6 +86,7 @@ pub enum ConnectionCondition {
     Suspended {
         reason: SuspensionReason,
     },
+    ArchiveOutdated,
 }
 
 #[derive(uniffi::Enum, Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -216,8 +227,8 @@ pub enum DocumentOutcome {
 pub(crate) fn publish(status: collection_core::CollectorStatus) -> CollectorStatus {
     let collection_core::CollectorStatus {
         revision,
-        connection,
-        archive_origin,
+        connection: _,
+        archive_origin: _,
         folders,
         // Every waiting folder summed, for the command-line program. A confirmation is per folder.
         backlog: _,
@@ -237,7 +248,6 @@ pub(crate) fn publish(status: collection_core::CollectorStatus) -> CollectorStat
     };
     CollectorStatus {
         revision,
-        archive: archive_connection(connection, archive_origin),
         progress: collection_progress(counts),
         // A listing can still be in flight for a folder that was withdrawn.
         activities: activities
@@ -253,35 +263,157 @@ pub(crate) fn publish(status: collection_core::CollectorStatus) -> CollectorStat
     }
 }
 
-fn archive_connection(
-    connection: collection_core::ConnectionStatus,
-    archive_origin: Option<String>,
+pub(crate) fn derive_archive_connection(
+    replica: &ReplicaStatus,
+    collector: Option<&(Option<String>, collection_core::ConnectionStatus)>,
 ) -> ArchiveConnection {
-    let condition = match connection {
-        collection_core::ConnectionStatus::Unconfigured => None,
-        collection_core::ConnectionStatus::Connected { archive_origin: _ } => Some(ConnectionCondition::Connected),
-        collection_core::ConnectionStatus::Unreachable { since, next_attempt_at } => {
-            Some(ConnectionCondition::Unreachable {
-                since: system_time(since),
-                next_attempt_at: system_time(next_attempt_at),
-            })
-        }
-        collection_core::ConnectionStatus::Checking => Some(ConnectionCondition::Checking),
-        collection_core::ConnectionStatus::Deferred { until } => Some(ConnectionCondition::Deferred {
-            until: system_time(until),
-        }),
-        collection_core::ConnectionStatus::Suspended { reason, since: _ } => Some(ConnectionCondition::Suspended {
-            reason: suspension_reason(reason),
-        }),
-    };
-    // The core reports an origin in every state but Unconfigured.
-    match (condition, archive_origin) {
-        (Some(condition), Some(origin)) => ArchiveConnection::Configured {
+    let replica_entry = replica.archive.as_ref().map(|mirrored| {
+        let condition = replica_connection_condition(&replica.synchronization);
+        (mirrored.origin.clone(), mirrored.restricted, condition)
+    });
+    let collector_entry = collector.and_then(|(origin, connection)| {
+        let condition = collector_connection_condition(connection)?;
+        let origin = origin.as_ref()?;
+        Some((origin.clone(), condition))
+    });
+
+    match (replica_entry, collector_entry) {
+        (None, None) => ArchiveConnection::NotConfigured,
+        (Some((origin, restricted, condition)), None) => ArchiveConnection::Configured {
             host: origin_host(&origin),
             origin,
             condition,
+            permission: ArchivePermission::ReadOnly,
+            restricted,
         },
-        (None, _) | (_, None) => ArchiveConnection::NotConfigured,
+        (None, Some((origin, condition))) => ArchiveConnection::Configured {
+            host: origin_host(&origin),
+            origin,
+            condition,
+            permission: ArchivePermission::CollectOnly,
+            restricted: false,
+        },
+        (Some((origin, restricted, replica_condition)), Some((_, collector_condition))) => {
+            ArchiveConnection::Configured {
+                host: origin_host(&origin),
+                origin,
+                condition: merge_conditions(replica_condition, collector_condition),
+                permission: if restricted {
+                    ArchivePermission::ReadOnly
+                } else {
+                    ArchivePermission::ReadAndCollect
+                },
+                restricted,
+            }
+        }
+    }
+}
+
+fn replica_connection_condition(synchronization: &SynchronizationState) -> ConnectionCondition {
+    match synchronization {
+        // A mirror row with Disconnected means startup found no matching token for this archive.
+        SynchronizationState::Disconnected => ConnectionCondition::Suspended {
+            reason: SuspensionReason::CredentialRefused,
+        },
+        SynchronizationState::Filling { .. }
+        | SynchronizationState::Following { .. }
+        | SynchronizationState::CatchingUp => ConnectionCondition::Connected,
+        SynchronizationState::Unreachable {
+            since,
+            attempts: _,
+            retry_at,
+            condition,
+        } => match condition {
+            ArchiveCondition::ServiceUnavailable { .. } => ConnectionCondition::Deferred {
+                until: system_time(*retry_at),
+            },
+            ArchiveCondition::ConnectionFailed
+            | ArchiveCondition::TimedOut
+            | ArchiveCondition::ServerError
+            | ArchiveCondition::ProtocolViolation { .. }
+            | ArchiveCondition::CredentialRefused
+            | ArchiveCondition::CredentialInsufficient
+            | ArchiveCondition::RouteUnknown => ConnectionCondition::Unreachable {
+                since: system_time(*since),
+                next_attempt_at: system_time(*retry_at),
+            },
+        },
+        SynchronizationState::Suspended { reason } => ConnectionCondition::Suspended {
+            reason: match reason {
+                archive_replica::replica_synchronization::SuspensionReason::CredentialRefused => {
+                    SuspensionReason::CredentialRefused
+                }
+                archive_replica::replica_synchronization::SuspensionReason::CredentialInsufficient => {
+                    SuspensionReason::CredentialInsufficient
+                }
+            },
+        },
+        SynchronizationState::ArchiveOutdated { retry_at: _ } => ConnectionCondition::ArchiveOutdated,
+    }
+}
+
+fn collector_connection_condition(connection: &collection_core::ConnectionStatus) -> Option<ConnectionCondition> {
+    Some(match connection {
+        collection_core::ConnectionStatus::Unconfigured => return None,
+        collection_core::ConnectionStatus::Connected { archive_origin: _ } => ConnectionCondition::Connected,
+        collection_core::ConnectionStatus::Unreachable { since, next_attempt_at } => ConnectionCondition::Unreachable {
+            since: system_time(*since),
+            next_attempt_at: system_time(*next_attempt_at),
+        },
+        collection_core::ConnectionStatus::Checking => ConnectionCondition::Checking,
+        collection_core::ConnectionStatus::Deferred { until } => ConnectionCondition::Deferred {
+            until: system_time(*until),
+        },
+        collection_core::ConnectionStatus::Suspended { reason, since: _ } => ConnectionCondition::Suspended {
+            reason: suspension_reason(*reason),
+        },
+    })
+}
+
+fn condition_rank(condition: &ConnectionCondition) -> u8 {
+    match condition {
+        ConnectionCondition::Suspended {
+            reason: SuspensionReason::CredentialRefused,
+        } => 6,
+        ConnectionCondition::Suspended {
+            reason: SuspensionReason::CredentialInsufficient,
+        } => 5,
+        ConnectionCondition::ArchiveOutdated => 4,
+        ConnectionCondition::Unreachable { .. } => 3,
+        ConnectionCondition::Deferred { .. } => 2,
+        ConnectionCondition::Checking => 1,
+        ConnectionCondition::Connected => 0,
+    }
+}
+
+fn merge_conditions(first: ConnectionCondition, second: ConnectionCondition) -> ConnectionCondition {
+    match (first, second) {
+        (
+            ConnectionCondition::Unreachable {
+                since: first_since,
+                next_attempt_at: first_next,
+            },
+            ConnectionCondition::Unreachable {
+                since: second_since,
+                next_attempt_at: second_next,
+            },
+        ) => ConnectionCondition::Unreachable {
+            since: first_since.min(second_since),
+            next_attempt_at: first_next.min(second_next),
+        },
+        (
+            ConnectionCondition::Deferred { until: first_until },
+            ConnectionCondition::Deferred { until: second_until },
+        ) => ConnectionCondition::Deferred {
+            until: first_until.max(second_until),
+        },
+        (first, second) => {
+            if condition_rank(&first) >= condition_rank(&second) {
+                first
+            } else {
+                second
+            }
+        }
     }
 }
 
@@ -510,9 +642,9 @@ fn receipt(receipt: collection_core::Receipt) -> Receipt {
     }
 }
 
-/// The collector's clock never reads a time before 1970.
-fn system_time(timestamp: collection_core::Timestamp) -> SystemTime {
-    let collection_core::Timestamp(milliseconds) = timestamp;
+/// The archive and collector clocks never read a time before 1970.
+pub(crate) fn system_time(timestamp: Timestamp) -> SystemTime {
+    let Timestamp(milliseconds) = timestamp;
     SystemTime::UNIX_EPOCH + Duration::from_millis(u64::try_from(milliseconds).unwrap_or(0))
 }
 
@@ -521,6 +653,8 @@ mod tests {
     use std::collections::BTreeMap;
     use std::path::PathBuf;
 
+    use archive_access::PermissionLevel;
+    use archive_replica::MirroredArchive;
     use collection_core::archive_connection::SuspensionReason as CoreSuspensionReason;
     use collection_core::candidate_classification::{DisregardReason, ExclusionReason};
     use collection_core::domain_types::{DocumentIdentifier, DocumentStatus};
@@ -644,13 +778,6 @@ mod tests {
             published,
             CollectorStatus {
                 revision: 12,
-                archive: ArchiveConnection::Configured {
-                    origin: "http://localhost:3000".to_owned(),
-                    host: "localhost:3000".to_owned(),
-                    condition: ConnectionCondition::Suspended {
-                        reason: SuspensionReason::CredentialRefused
-                    },
-                },
                 folders: vec![
                     FolderStatus {
                         folder: downloads.clone(),
@@ -708,6 +835,66 @@ mod tests {
                     received_at: SystemTime::UNIX_EPOCH + Duration::from_secs(1_700_000_060),
                     outcome: DocumentOutcome::Processing,
                 }],
+            }
+        );
+    }
+
+    #[test]
+    fn archive_connection_merges_replica_and_collector_observations() {
+        let empty = ReplicaStatus {
+            revision: 0,
+            content_revision: 0,
+            documents: 0,
+            documents_awaiting_text: 0,
+            archive: None,
+            synchronization: SynchronizationState::Disconnected,
+        };
+        assert_eq!(
+            derive_archive_connection(&empty, None),
+            ArchiveConnection::NotConfigured
+        );
+
+        let collector_connected = (
+            Some("https://archive.example.org".to_owned()),
+            ConnectionStatus::Connected {
+                archive_origin: "https://archive.example.org".to_owned(),
+            },
+        );
+        assert_eq!(
+            derive_archive_connection(&empty, Some(&collector_connected)),
+            ArchiveConnection::Configured {
+                origin: "https://archive.example.org".to_owned(),
+                host: "archive.example.org".to_owned(),
+                condition: ConnectionCondition::Connected,
+                permission: ArchivePermission::CollectOnly,
+                restricted: false,
+            }
+        );
+
+        let outdated_replica = ReplicaStatus {
+            revision: 2,
+            content_revision: 0,
+            documents: 0,
+            documents_awaiting_text: 0,
+            archive: Some(MirroredArchive {
+                origin: "https://archive.example.org".to_owned(),
+                permission_level: PermissionLevel::Read,
+                restricted: false,
+                fill_complete: false,
+                synchronized_at: None,
+            }),
+            synchronization: SynchronizationState::ArchiveOutdated {
+                retry_at: Timestamp(1_700_003_600_000),
+            },
+        };
+        assert_eq!(
+            derive_archive_connection(&outdated_replica, Some(&collector_connected)),
+            ArchiveConnection::Configured {
+                origin: "https://archive.example.org".to_owned(),
+                host: "archive.example.org".to_owned(),
+                condition: ConnectionCondition::ArchiveOutdated,
+                permission: ArchivePermission::ReadAndCollect,
+                restricted: false,
             }
         );
     }

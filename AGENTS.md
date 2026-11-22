@@ -211,7 +211,9 @@ native_client/                           The native client's Cargo workspace apa
 		library_scenarios.rs                 The difference of two listings over seeded changes, the search of German paperwork, and the files of originals
 		scenario_support/mod.rs              The seeded generator, the identifiers, and a Replica over the scripted archive, for both scenario files
 		client_protocol_fixtures.rs          The HTTP reader against a local tiny_http server that answers test_fixtures/client_protocol
-	scripted_archive/src/lib.rs            ScriptedArchive and ArchiveScope: records and a change journal in memory by the server's rules, the text, original, and thumbnail a script gives a document, the writes of a script, and ArchiveReader in process
+	scripted_archive/src/
+		lib.rs                               ScriptedArchive and ArchiveScope: records, change journal, held contents, and scripted failures implementing both `ArchiveReader` and `ArchiveClient`
+		bin/scripted_archive_server.rs       `scripted-archive-server`: the scripted archive over HTTP serving all eight routes of the client protocol plus `/scripted/held` and `/scripted/documents`
 	collection_core/src/
 		lib.rs                               Collector, CollectorSettings, CollectorEvent, CommandRefusal, and the re-exports the bindings and the program use
 		domain_types.rs                      FileSignature, FolderIdentifier, DirectoryKey, EntryName, PathKey, DocumentStatus, TimingPolicy, and the re-exports of archive_access's ContentDigest, DocumentIdentifier, and Timestamp
@@ -227,20 +229,19 @@ native_client/                           The native client's Cargo workspace apa
 		work_execution.rs                    The worker lanes: threads that perform one Assignment and send its result back
 		collection_coordinator.rs            The one owner thread: batches, transactions, reservations, timers, planning, status
 		archive_client.rs                    ArchiveClient trait and HttpArchiveClient, the three collector routes over ArchiveExchange; no wire type leaves it
-		scripted_archive.rs                  The in-process archive with scripted answers and failures for scenarios
 		status_report.rs                     CollectorStatus and everything it is made of
 	collection_core/tests/
 		collection_scenarios.rs              The corpus scenarios: a Collector over test_fixtures/collection_corpus against the scripted archive with a manual clock
+		coordinator_scenarios.rs             Coordinator command, lock, and origin tests against the scripted archive
 		http_archive_client.rs               The HTTP client against a local tiny_http server
 	collection_command/src/main.rs         `schublade-collector`: connect, enroll, survey, decide, collect, status
-	collection_core/examples/
-		scripted_archive_server.rs           The scripted archive over HTTP for an application's end-to-end test: the three collection routes, `GET /scripted/held`, and an end with its standard input
 	application_bindings/src/
-		lib.rs                               CollectorConfiguration, CredentialStorage, startCollector, and the Collector object an application calls through UniFFI; each call waits on a thread of the blocking pool
-		published_status.rs                  publish, the one conversion of the core's status into what an application shows; no `..` and no wildcard arm
-		refusals.rs                          CollectorStartFailure, CollectorFault, and one refusal type per command
-		status_following.rs                  RevisionAnnouncements: the wait of `status_after` for an announcement above the revision a follower holds
-		collector_fixture.rs                 The tests' collector over the scripted archive on the wall clock
+		lib.rs                               ApplicationConfiguration, CollectionPlacement, CredentialStorage, ConnectionGrant, start_application_core, ApplicationCore, Library, and Collector exported through UniFFI; each call waits on a thread of the blocking pool
+		published_status.rs                  publish, derive_archive_connection, CollectorStatus, and ArchiveConnection; no `..` and no wildcard arm
+		published_library.rs                 publish_library_status, DocumentListing, ListingAnswer, LibraryFacets, and DocumentDetail; no `..` and no wildcard arm
+		refusals.rs                          ApplicationStartFailure, ApplicationFault, and one refusal type per command or representation read
+		status_following.rs                  RevisionAnnouncements and LibraryAnnouncements: the wait of `status_after` for a newer revision, forwarding collector connection changes and accepted uploads
+		application_fixture.rs               The tests' ApplicationCore over the unified scripted archive on the wall clock
 	application_bindings_generator/src/main.rs  `uniffi-bindgen-swift`, in its own crate so that its command-line dependencies stay out of the static library
 	macintosh_application/                 Schublade for macOS, pure AppKit over application_bindings, generated by XcodeGen
 		project.yml                          The targets ApplicationBindings, ApplicationInterface, Schublade, and ApplicationEndToEndTests, the bundle identifiers, and the scheme with the isolated test environment
@@ -346,9 +347,9 @@ eslint.config.js, .prettierrc.json, knip.json, tsconfig.json
 - **The end-to-end test runs inside the Debug application.** Xcode loads `ApplicationEndToEndTests` into the Debug build, and the scheme starts it with `SCHUBLADE_APPLICATION_ENVIRONMENT=isolated`. `ApplicationEnvironment` then gives the collector a new temporary data directory and keeps the token in process memory, so the test never reads the Keychain or the state of an installed application. The isolated environment exists only under `#if DEBUG`, so a Release build ignores the variable.
 - **A status read is not a revision, and the revision rises with every change a status shows.** A follower waits for a `StatusChanged` above the revision it holds (`status_following.rs`). A read that raised the revision woke every follower on its own reads, and two followers woke each other in turns. A change that left the revision alone, such as a timer that moved the connection or planning that started assignments, left a following screen on the old state for good. So only the commands that change what a status shows count, `change_connection` is the one writer of the connection after the start, and `plan` raises the revision when it starts assignments.
 - **The confirmation is per folder.** `FolderStatus.backlog` holds one folder's counts while it awaits its decision, and the bindings publish it as `FolderAdmission::AwaitingDecision`, so an application passes exactly that folder to `decide_backlog`. `CollectorStatus.backlog` sums every waiting folder for the program; `publish` leaves it out.
-- **A new token is tried before it is stored.** `Collector::connect_archive` in `application_bindings` calls `HttpArchiveClient::verify_credential`, one lookup of the all-zero digest, and stores the token only when the archive answers it.
+- **A new token is tried before it is stored.** `ApplicationCore::connect_archive` in `application_bindings` calls `read_authorization` (`GET /api/v1/authorization`) and stores the token only when the archive answers it.
 - **A collector stays with its first archive.** The core refuses `connect_archive` with another origin (`ArchiveOriginDiffers`) once any folder is enrolled or any content recorded, because standings and receipts belong to the connected archive. Starting over means removing the application's data directory.
-- **One collector per database.** `StateStore::open` locks `<database>.lock`, and a second collector fails with `StoreOpenFailure::InUse`, which the bindings answer as `CollectorStartFailure::DatabaseInUse`. A start failure never ends the application: its menu bar item says what happened.
+- **One collector per database.** `StateStore::open` locks `<database>.lock`, and a second collector fails with `StoreOpenFailure::InUse`, which the bindings answer as `ApplicationStartFailure::DatabaseInUse`. A start failure never ends the application: its menu bar item says what happened.
 - **A Debug build is another application.** `project.yml` gives Debug the identifier `org.schublade.application.development` and the name "Schublade Development", and the data directory and the Keychain service follow the identifier. The Release bundle keeps `org.schublade.application`.
 - **The application and the program are two collectors.** The application's Keychain service is its identifier and the program's is `Schublade collector`, so connecting one never replaces the other's token. The application keeps `collector.sqlite` in `~/Library/Application Support/org.schublade.application` and the program in `~/Library/Application Support/Schublade collector`. Do not run both on the same folders.
 - **The copy has no migrations.** `replica.sqlite` holds nothing the archive does not hold. `ReplicaStore::open` deletes a file whose `user_version` is not `SCHEMA_VERSION`, or that SQLite cannot read, and the archive fills it again. A change to `replica_schema.sql` therefore raises `SCHEMA_VERSION` in `replica_store.rs` and never adds a migration. A document row is updated in place and never replaced, so its `document_row` stays for tables that refer to it.
@@ -361,7 +362,6 @@ eslint.config.js, .prettierrc.json, knip.json, tsconfig.json
 - **A text request that fails waits for the next page.** The coordinator requests no text until a page of changes has been applied again, which shows that the archive answers, and a 404 or an unreadable answer is stored as a row without Markdown, so one document never holds back the texts older than it.
 - **The replica's coordinator requests its pages itself.** It reads a page and applies it in one step on its own thread, so no page is ever held across a new connection or a discarded copy. `apply_page` compares only the cursor, and before a first page both cursors are absent, so a page requested before the copy started over would be applied to the new fill. Code that moves the request to another thread must drop such a page. A command waits for the request in flight, at most the exchange's 30 seconds, while `Replica::status` reads the published status and never waits.
 - **A replica reads its clock when an input arrives.** The coordinator waits for its deadline at most 60 seconds at a time, by the system's clock. A test that moves a `ManualClock` to the deadline of a status sends a command afterwards, such as `set_attendance`, and follows the revision.
-- **Two scripted archives exist.** The crate `scripted_archive` keeps records and a journal and answers `ArchiveReader`. `collection_core::scripted_archive` keeps contents and answers `ArchiveClient`, and the collector's scenarios, the bindings' fixture, and the example server use it. They are not united, because `collection_core`'s own unit tests use the module, and a crate that `collection_core` only depends on for tests would implement the trait of another build of `collection_core`. Uniting them means moving those unit tests to `collection_core/tests/` first.
 - **The Mac runner copies the tree at launch.** `scripts/execute_on_macintosh.sh` rsyncs what git tracks before it runs the command, so a file written after the launch is not on the Mac, and `cargo fmt --check` there judges the copy, not your working tree.
 
 ## Commands

@@ -25,11 +25,13 @@ name = "application_bindings"
 version = "0.1.0"
 dependencies = [
  "archive_access",
+ "archive_replica",
  "blocking",
  "collection_core",
  "event-listener",
  "pollster",
  "scripted_archive",
+ "sha2",
  "tempfile",
  "uniffi",
 ]

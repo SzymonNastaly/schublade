@@ -4,7 +4,7 @@ import Foundation
 /// Where this process keeps its state. Everything that differs between the installed application
 /// and the end-to-end test is here, so no other type reads the process environment.
 struct ApplicationEnvironment {
-	let collectorConfiguration: CollectorConfiguration
+	let applicationConfiguration: ApplicationConfiguration
 
 	/// The installed environment, or in a Debug build started with
 	/// `SCHUBLADE_APPLICATION_ENVIRONMENT=isolated`, the isolated one.
@@ -17,8 +17,8 @@ struct ApplicationEnvironment {
 		return installed()
 	}
 
-	/// The state in Application Support and the token in the Keychain, both under the bundle
-	/// identifier.
+	/// The state in Application Support, caches in Caches, and the token in the Keychain, all under
+	/// the bundle identifier.
 	private static func installed() -> ApplicationEnvironment {
 		guard let bundleIdentifier = Bundle.main.bundleIdentifier else {
 			preconditionFailure("The application bundle has no identifier")
@@ -27,23 +27,35 @@ struct ApplicationEnvironment {
 			path: bundleIdentifier,
 			directoryHint: .isDirectory
 		)
-		return ApplicationEnvironment(collectorConfiguration: CollectorConfiguration(
+		let cacheDirectory = URL.cachesDirectory.appending(
+			path: bundleIdentifier,
+			directoryHint: .isDirectory
+		)
+		return ApplicationEnvironment(applicationConfiguration: ApplicationConfiguration(
 			dataDirectory: dataDirectory.path(percentEncoded: false),
-			credentialStorage: .keychain(serviceName: bundleIdentifier)
+			cacheDirectory: cacheDirectory.path(percentEncoded: false),
+			originalStorageLimit: nil,
+			credentialStorage: .keychain(serviceName: bundleIdentifier),
+			collection: .collector
 		))
 	}
 
 	#if DEBUG
-	/// A new temporary data directory and the token in process memory, so a test never reads the
+	/// A new temporary directory and the token in process memory, so a test never reads the
 	/// Keychain or the state of an installed application.
 	private static func isolated() -> ApplicationEnvironment {
-		let dataDirectory = URL.temporaryDirectory.appending(
-			path: "schublade_collector_\(UUID().uuidString)",
+		let baseDirectory = URL.temporaryDirectory.appending(
+			path: "schublade_application_\(UUID().uuidString)",
 			directoryHint: .isDirectory
 		)
-		return ApplicationEnvironment(collectorConfiguration: CollectorConfiguration(
+		let dataDirectory = baseDirectory.appending(path: "data", directoryHint: .isDirectory)
+		let cacheDirectory = baseDirectory.appending(path: "cache", directoryHint: .isDirectory)
+		return ApplicationEnvironment(applicationConfiguration: ApplicationConfiguration(
 			dataDirectory: dataDirectory.path(percentEncoded: false),
-			credentialStorage: .processMemory
+			cacheDirectory: cacheDirectory.path(percentEncoded: false),
+			originalStorageLimit: nil,
+			credentialStorage: .processMemory,
+			collection: .collector
 		))
 	}
 	#endif
