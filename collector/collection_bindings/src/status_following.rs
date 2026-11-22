@@ -94,8 +94,8 @@ mod tests {
     };
 
     const CORPUS: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../test_fixtures/collection_corpus");
-    /// A read still unanswered after this long is waiting: by then the coordinator has announced
-    /// the read before it.
+    /// A read still unanswered after this long is taken to wait for an announcement. A read with
+    /// nothing to wait for answers within milliseconds.
     const WAITING_INTERVAL: Duration = Duration::from_millis(100);
 
     #[test]
@@ -201,11 +201,43 @@ mod tests {
             last.progress,
             CollectionProgress {
                 documents_in_archive: 0,
-                files_awaiting_submission: 33,
+                documents_awaiting_submission: 33,
                 files_under_examination: 0,
             }
         );
         pollster::block_on(Arc::clone(collector).shutdown());
+    }
+
+    #[test]
+    fn two_followers_each_read_a_change_and_then_wait_for_the_next() {
+        let fixture = CollectorFixture::start();
+        let collector = &fixture.collector;
+        let first = pollster::block_on(Arc::clone(collector).status_after(None)).unwrap();
+        let waiting = [
+            read_after(collector, Some(first.revision)),
+            read_after(collector, Some(first.revision)),
+        ];
+        let answers_before_the_change = waiting.each_ref().map(|waiting| waiting.recv_timeout(WAITING_INTERVAL));
+
+        pollster::block_on(Arc::clone(collector).connect_archive(ARCHIVE_ADDRESS.to_owned(), TOKEN.to_owned()))
+            .unwrap();
+        let answers = waiting.map(|waiting| waiting.recv_timeout(ANSWER_LIMIT).unwrap().unwrap());
+        let resting = answers
+            .each_ref()
+            .map(|answer| read_after(collector, Some(answer.revision)));
+        let answers_without_a_change = resting.map(|resting| resting.recv_timeout(WAITING_INTERVAL));
+        pollster::block_on(Arc::clone(collector).shutdown());
+
+        let timed_out = || Err(RecvTimeoutError::Timeout);
+        assert_eq!(answers_before_the_change, [timed_out(), timed_out()]);
+        for answer in &answers {
+            assert!(
+                matches!(answer.archive, ArchiveConnection::Configured { .. }),
+                "{:?}",
+                answer.archive
+            );
+        }
+        assert_eq!(answers_without_a_change, [timed_out(), timed_out()]);
     }
 
     #[test]

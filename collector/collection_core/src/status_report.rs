@@ -13,7 +13,9 @@ use crate::folder_admission::{FolderAdmission, FolderAvailability};
 
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize)]
 pub struct CollectorStatus {
-    /// Grows with every committed batch. The window compares it to drop stale reads.
+    /// Rises with every change of the fields below but `next_scheduled_at`, and never with a read,
+    /// so two statuses that differ in what they show never share a revision. The window compares
+    /// it to drop stale reads.
     pub revision: u64,
     pub connection: ConnectionStatus,
     /// The origin the collector is configured for, in every connection state but Unconfigured, so

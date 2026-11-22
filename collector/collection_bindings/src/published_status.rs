@@ -36,7 +36,9 @@ pub struct FolderReference {
 
 #[derive(uniffi::Record, Clone, Debug, PartialEq, Eq)]
 pub struct CollectorStatus {
-    /// Grows with every change and with every read. `Collector::status_after` takes it back.
+    /// Rises with every change of the fields below and never with a read, so
+    /// `Collector::status_after` with it waits for the next change. It can also rise for a change
+    /// in the core that this status does not show.
     pub revision: u64,
     pub archive: ArchiveConnection,
     pub folders: Vec<FolderStatus>,
@@ -142,9 +144,15 @@ pub enum SkipReason {
 
 #[derive(uniffi::Record, Clone, Copy, Debug, PartialEq, Eq)]
 pub struct CollectionProgress {
+    /// Distinct contents the collector found that the archive holds as documents, one document
+    /// each however many files carry it.
     pub documents_in_archive: u64,
-    pub files_awaiting_submission: u64,
-    /// Still settling, being read, or waiting for the archive's answer about their content.
+    /// Distinct contents the collector found that the archive lacks, one each however many files
+    /// carry it. Each becomes one document when it is submitted, after its folder's decision
+    /// while the folder awaits one.
+    pub documents_awaiting_submission: u64,
+    /// Files still settling or waiting to be read, plus the distinct contents still waiting for
+    /// the archive's answer.
     pub files_under_examination: u64,
 }
 
@@ -416,7 +424,7 @@ fn collection_progress(counts: collection_core::StateCounts) -> CollectionProgre
     } = counts;
     CollectionProgress {
         documents_in_archive: contents_present,
-        files_awaiting_submission: contents_awaiting_submission,
+        documents_awaiting_submission: contents_awaiting_submission,
         files_under_examination: paths_stabilizing + paths_awaiting_digest + contents_unresolved,
     }
 }
@@ -673,7 +681,7 @@ mod tests {
                 ],
                 progress: CollectionProgress {
                     documents_in_archive: 6,
-                    files_awaiting_submission: 5,
+                    documents_awaiting_submission: 5,
                     files_under_examination: 7,
                 },
                 activities: vec![

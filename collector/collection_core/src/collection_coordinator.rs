@@ -114,6 +114,10 @@ pub struct VolatileState {
     pub clock: Arc<dyn Clock>,
     pub credential_store: Box<dyn CredentialStore>,
     pub archive_clients: ArchiveClientConstructor,
+    /// Rises with every change of what a status shows but `next_scheduled_at`: each command but
+    /// the two reads, each listing and work result, each start of assignments in `plan`, each
+    /// change of the connection in `change_connection`, and each concluded survey. No read raises
+    /// it, so a follower that reads after each announcement comes to rest.
     pub revision: u64,
     pub published_revision: u64,
     pub last_status_emitted_at: Option<Timestamp>,
@@ -273,15 +277,15 @@ impl CollectionCoordinator {
     fn apply_batch(&mut self, batch: Vec<CoordinatorInput>) -> rusqlite::Result<BatchOutcome> {
         let mut outcome = BatchOutcome::default();
         let transaction = self.store.begin()?;
-        let before = self.volatile.revision;
         for input in batch {
             self.volatile
                 .apply_input(&self.store, &transaction, input, &mut outcome)?;
         }
         self.volatile.apply_timers(&self.store, &transaction)?;
         self.volatile.conclude_surveys(&self.store, &transaction)?;
+        // The revision stays raised after a failed commit, because what the batch changed in
+        // memory stays changed.
         if let Err(error) = transaction.commit() {
-            self.volatile.revision = before;
             for reply in outcome.replies {
                 reply.fail(CommandRefusal::StoreFailed {
                     detail: error.to_string(),
@@ -409,11 +413,11 @@ impl VolatileState {
         let record = store.connection_record().map_err(store_failure)?;
         self.archive = Some((self.archive_clients)(&address, &token));
         self.archive_origin = Some(address.origin());
-        self.connection = match record.and_then(|record| record.suspension) {
+        let connection = match record.and_then(|record| record.suspension) {
             Some((reason, since)) => ConnectionState::Suspended { reason, since },
             None => advance_connection(&self.connection, ConnectionEvent::Configured, &self.timing),
         };
-        Ok(())
+        self.change_connection(transaction, connection).map_err(store_failure)
     }
 
     fn enroll_folder(
@@ -734,6 +738,12 @@ impl VolatileState {
         event: ConnectionEvent,
     ) -> rusqlite::Result<()> {
         let next = advance_connection(&self.connection, event, &self.timing);
+        self.change_connection(transaction, next)
+    }
+
+    /// The one writer of the connection after the start, so that no change of it, a timer's or a
+    /// wake's included, leaves the revision behind.
+    fn change_connection(&mut self, transaction: &StoreTransaction<'_>, next: ConnectionState) -> rusqlite::Result<()> {
         if next == self.connection {
             return Ok(());
         }
@@ -741,6 +751,7 @@ impl VolatileState {
             transaction.store_suspension(Some((reason, since)))?;
         }
         self.connection = next;
+        self.revision += 1;
         Ok(())
     }
 
@@ -810,7 +821,8 @@ impl VolatileState {
     }
 
     /// Candidates from the store plus the listings scheduled here, through the planner, into
-    /// assignments with their reservations recorded.
+    /// assignments with their reservations recorded. Their reservations are the activities a
+    /// status shows, so a start is a revision as each result is.
     fn plan(&mut self, store: &StateStore) -> rusqlite::Result<Vec<Assignment>> {
         let now = self.clock.now();
         let available = self.available_folders();
@@ -835,7 +847,11 @@ impl VolatileState {
             now,
             &self.timing,
         );
-        Ok(work.into_iter().filter_map(|work| self.assignment_of(work)).collect())
+        let assignments: Vec<Assignment> = work.into_iter().filter_map(|work| self.assignment_of(work)).collect();
+        if !assignments.is_empty() {
+            self.revision += 1;
+        }
+        Ok(assignments)
     }
 
     fn assignment_of(&mut self, work: Work) -> Option<Assignment> {
@@ -1178,6 +1194,48 @@ mod tests {
                 ),
                 file_name: "Invoice.pdf".to_owned(),
             })
+        );
+    }
+
+    #[test]
+    fn the_probe_of_an_unreachable_archive_raises_the_revision() {
+        let temporary = tempfile::tempdir().unwrap();
+        let folder_root = temporary.path().join("Downloads");
+        std::fs::create_dir(&folder_root).unwrap();
+        std::fs::write(folder_root.join("Invoice.pdf"), b"%PDF-1.7 one invoice").unwrap();
+        let archive = Arc::new(ScriptedArchive::new());
+        archive.fail_next(crate::archive_connection::ArchiveCondition::ConnectionFailed);
+        let clock = Arc::new(ManualClock::starting_at(Timestamp(1_700_000_000_000)));
+        let (collector, _events) = start(&temporary.path().join("collector.sqlite"), &archive, &clock);
+        collector
+            .connect_archive(
+                ArchiveAddress::parse("https://archive.example.org").unwrap(),
+                IngestToken::new("token".to_owned()),
+            )
+            .unwrap();
+        let folder = collector.enroll_folder(folder_root).unwrap();
+        let next_attempt_at = loop {
+            let status = collector.wait_until_idle(Duration::from_secs(30)).unwrap();
+            if let ConnectionStatus::Unreachable { next_attempt_at, .. } = status.connection {
+                break next_attempt_at;
+            }
+            clock.set(status.next_scheduled_at.expect("the lookup is due later"));
+        };
+
+        // Without a folder, the probe has no request to send, so nothing after it raises the
+        // revision on its behalf.
+        collector.withdraw_folder(folder).unwrap();
+        let withdrawn = collector.status().unwrap();
+        clock.set(next_attempt_at);
+        let probing = collector.status().unwrap();
+
+        assert!(matches!(withdrawn.connection, ConnectionStatus::Unreachable { .. }));
+        assert_eq!(probing.connection, ConnectionStatus::Checking);
+        assert!(
+            probing.revision > withdrawn.revision,
+            "{} after {}",
+            probing.revision,
+            withdrawn.revision
         );
     }
 
