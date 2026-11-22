@@ -138,6 +138,8 @@ targets:
       base:
         PRODUCT_NAME: $(APPLICATION_PRODUCT_NAME)
         CODE_SIGN_ENTITLEMENTS: application/Schublade.entitlements
+        # Each profile is named in local_signing.xcconfig, which scripts/provision_device_signing.rb writes.
+        PROVISIONING_PROFILE_SPECIFIER: $(APPLICATION_PROVISIONING_PROFILE)
         PRODUCT_BUNDLE_IDENTIFIER: $(APPLICATION_BUNDLE_IDENTIFIER)
         PRODUCT_MODULE_NAME: Schublade
         # The website's blue tints every control, as on the Mac.
@@ -179,6 +181,7 @@ targets:
         PRODUCT_NAME: ShareExtension
         PRODUCT_BUNDLE_IDENTIFIER: $(APPLICATION_BUNDLE_IDENTIFIER).share-extension
         CODE_SIGN_ENTITLEMENTS: share_extension/ShareExtension.entitlements
+        PROVISIONING_PROFILE_SPECIFIER: $(SHARE_EXTENSION_PROVISIONING_PROFILE)
         SWIFT_DEFAULT_ACTOR_ISOLATION: MainActor
         LIBRARY_SEARCH_PATHS: $(RUST_TARGET_DIRECTORY)
         OTHER_LDFLAGS: $(APPLICATION_BINDINGS_LINKER_FLAGS)
@@ -203,6 +206,7 @@ targets:
       base:
         PRODUCT_NAME: ControlExtension
         PRODUCT_BUNDLE_IDENTIFIER: $(APPLICATION_BUNDLE_IDENTIFIER).controls
+        PROVISIONING_PROFILE_SPECIFIER: $(CONTROL_EXTENSION_PROVISIONING_PROFILE)
 
   ApplicationEndToEndTests:
     type: bundle.unit-test
