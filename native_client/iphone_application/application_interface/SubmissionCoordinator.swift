@@ -15,9 +15,13 @@ final class SubmissionCoordinator {
 	private let queue: SubmissionQueue
 	private let credentials: CredentialStorage
 	private let gateway: ApplicationGateway
-	/// The application's session, which sends, then the share extension's, whose answers arrive here
-	/// once the extension ended.
-	@ObservationIgnored private var transfers: [SubmissionTransfer] = []
+	@ObservationIgnored private var sessions: ApplicationEnvironment.TransferSessions?
+	/// The application's own session, which sends.
+	@ObservationIgnored private var sending: SubmissionTransfer?
+	/// The share extension's session while the system delivers its answers to the application.
+	/// One process at a time may use a background session, so the application lets it go once they
+	/// are delivered, and a later share can upload in it.
+	@ObservationIgnored private var attached: SubmissionTransfer?
 	@ObservationIgnored private var inFlight: Set<UUID> = []
 	@ObservationIgnored private var retry: Task<Void, Never>?
 	/// The archive's origin while one is connected.
@@ -29,29 +33,46 @@ final class SubmissionCoordinator {
 		self.gateway = gateway
 	}
 
-	/// Opens the application's session and attaches to the others. A background session delivers
-	/// the answers that arrived while the application was not running as soon as it is created.
-	func open(sending: URLSessionConfiguration, attaching: [URLSessionConfiguration]) {
-		transfers = ([sending] + attaching).map { configuration in
-			SubmissionTransfer(configuration: configuration) { [weak self] identifier, answer in
-				Task { @MainActor in
-					self?.received(answer, for: identifier)
-				}
-			} onProgress: { [weak self] identifier, fraction in
-				Task { @MainActor in
-					self?.progress[identifier] = fraction
-				}
-			}
-		}
+	/// Opens the application's session, which delivers the answers that arrived while the
+	/// application was not running as soon as it is created.
+	func open(sessions: ApplicationEnvironment.TransferSessions) {
+		self.sessions = sessions
+		sending = transfer(configuration: sessions.sendingConfiguration)
 		reload()
 	}
 
+	/// Receives the events of the session the system launched the application for: its own, or the
+	/// share extension's, which it creates for the events alone.
 	func handleBackgroundEvents(session identifier: String, completion: @escaping @MainActor () -> Void) {
-		guard let transfer = transfers.first(where: { $0.sessionIdentifier == identifier }) else {
+		if let sending, sending.sessionIdentifier == identifier {
+			sending.handleBackgroundEvents(completion: completion)
+			return
+		}
+		guard let configuration = sessions?.shareExtensionConfiguration(identifier: identifier) else {
 			completion()
 			return
 		}
-		transfer.handleBackgroundEvents(completion: completion)
+		let attached = attached ?? transfer(configuration: configuration)
+		self.attached = attached
+		attached.handleBackgroundEvents { @MainActor [weak self] in
+			completion()
+			attached.invalidate()
+			if self?.attached === attached {
+				self?.attached = nil
+			}
+		}
+	}
+
+	private func transfer(configuration: URLSessionConfiguration) -> SubmissionTransfer {
+		SubmissionTransfer(configuration: configuration) { [weak self] identifier, answer in
+			Task { @MainActor in
+				self?.received(answer, for: identifier)
+			}
+		} onProgress: { [weak self] identifier, fraction in
+			Task { @MainActor in
+				self?.progress[identifier] = fraction
+			}
+		}
 	}
 
 	/// Moves `document` into the queue and sends it.
@@ -76,7 +97,7 @@ final class SubmissionCoordinator {
 	/// Removes a submission from the list, and stops its upload if one is under way.
 	func remove(_ identifier: UUID) {
 		Task {
-			for transfer in transfers {
+			for transfer in [sending, attached].compactMap(\.self) {
 				await transfer.cancel(identifier)
 			}
 		}
@@ -85,16 +106,15 @@ final class SubmissionCoordinator {
 		reload()
 	}
 
-	/// Starts every submission that waits: unanswered ones without an upload in either session, such
-	/// as one the share extension queued but did not start, and unavailable ones whose time has come.
-	/// Called at launch, on returning to the foreground, and when a connection is made.
+	/// Starts every submission that waits: unanswered ones without an upload in the application's
+	/// session, and unavailable ones whose time has come. Called at launch, on returning to the
+	/// foreground, and when a connection is made.
 	func resume() {
 		queue.removeExpired()
 		reload()
 		Task {
-			for transfer in transfers {
-				let underWay = await transfer.submissionsInFlight()
-				inFlight.formUnion(underWay)
+			if let sending {
+				await inFlight.formUnion(sending.submissionsInFlight())
 			}
 			let now = Date.now
 			for entry in entries where !inFlight.contains(entry.id) {
@@ -120,14 +140,14 @@ final class SubmissionCoordinator {
 	}
 
 	private func send(_ entry: SubmissionEntry) {
-		guard let transfer = transfers.first, let archiveOrigin else {
+		guard let sending, let archiveOrigin else {
 			return
 		}
 		inFlight.insert(entry.id)
 		Task {
 			switch await queue.prepare(entry, archiveOrigin: archiveOrigin, credentials: credentials) {
 			case let .prepared(request, body):
-				transfer.send(entry.id, request: request, body: body)
+				sending.send(entry.id, request: request, body: body)
 			case let .answered(answer):
 				inFlight.remove(entry.id)
 				record(answer, for: entry.id)

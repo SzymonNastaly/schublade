@@ -51,10 +51,7 @@ final class ApplicationController {
 	}
 
 	func launch() {
-		submissions.open(
-			sending: environment.sendingConfiguration,
-			attaching: environment.attachedConfigurations
-		)
+		submissions.open(sessions: environment.transferSessions)
 		Task {
 			do throws(ApplicationStartFailure) {
 				try await gateway.start(configuration: environment.applicationConfiguration)

@@ -12,8 +12,8 @@ public final class ApplicationDelegate: UIResponder, UIApplicationDelegate {
 		return true
 	}
 
-	/// The system launched the application for answers of a background session, its own or the
-	/// share extension's, which the session delivers once `launch` has created it.
+	/// The system launched the application for answers of a background session, its own, which
+	/// `launch` created, or the share extension's, which the submissions create for these events.
 	public func application(
 		_: UIApplication,
 		handleEventsForBackgroundURLSession identifier: String,

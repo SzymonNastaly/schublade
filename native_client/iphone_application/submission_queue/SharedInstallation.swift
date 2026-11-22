@@ -50,8 +50,8 @@ public struct SharedInstallation: Sendable {
 		"\(applicationBundleIdentifier).submission-transfer"
 	}
 
-	/// The share extension's background session, which the application attaches to as well, to
-	/// receive the answers that arrive after the extension ended.
+	/// The share extension's background session. The application creates it only while the system
+	/// delivers to it the answers that arrived after the extension ended.
 	public var shareExtensionTransferSessionIdentifier: String {
 		"\(applicationBundleIdentifier).share-extension.submission-transfer"
 	}

@@ -16,7 +16,7 @@ public final class SubmissionTransfer: NSObject, URLSessionDataDelegate, Sendabl
 	private struct State {
 		var session: URLSession?
 		var answerBodies: [Int: Data] = [:]
-		var backgroundEventsCompletion: (@MainActor @Sendable () -> Void)?
+		var backgroundEventsCompletions: [@MainActor @Sendable () -> Void] = []
 	}
 
 	private let state = Mutex(State())
@@ -92,7 +92,16 @@ public final class SubmissionTransfer: NSObject, URLSessionDataDelegate, Sendabl
 	/// Holds the system's completion handler of a launch for this session's events, which the
 	/// session calls once it delivered them.
 	public func handleBackgroundEvents(completion: @escaping @MainActor @Sendable () -> Void) {
-		state.withLock { $0.backgroundEventsCompletion = completion }
+		state.withLock { $0.backgroundEventsCompletions.append(completion) }
+	}
+
+	/// Lets the session go once its tasks end, so that another process may create it.
+	public func invalidate() {
+		let session = state.withLock { state in
+			defer { state.session = nil }
+			return state.session
+		}
+		session?.finishTasksAndInvalidate()
 	}
 
 	public func urlSession(_: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
@@ -128,12 +137,14 @@ public final class SubmissionTransfer: NSObject, URLSessionDataDelegate, Sendabl
 	}
 
 	public func urlSessionDidFinishEvents(forBackgroundURLSession _: URLSession) {
-		let completion = state.withLock { state in
-			defer { state.backgroundEventsCompletion = nil }
-			return state.backgroundEventsCompletion
+		let completions = state.withLock { state in
+			defer { state.backgroundEventsCompletions = [] }
+			return state.backgroundEventsCompletions
 		}
 		Task { @MainActor in
-			completion?()
+			for completion in completions {
+				completion()
+			}
 		}
 	}
 }

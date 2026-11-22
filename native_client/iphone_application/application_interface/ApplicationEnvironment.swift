@@ -9,40 +9,49 @@ struct ApplicationEnvironment {
 	/// Where submissions wait to be sent and answered, and where the share extension reads the
 	/// connected archive.
 	let sharedContainer: SharedContainer
-	/// The names of the two background sessions and their App Group, or nil for sessions that end
-	/// with the process, as a test needs, because a background session cannot deliver to it.
-	let backgroundTransfer: SharedInstallation?
+	let transferSessions: TransferSessions
 	/// In a Debug build, an archive to connect at launch and files to send, so a screen examination
 	/// on the simulator needs no typing.
 	var examination: Examination?
+
+	/// How this process uploads.
+	enum TransferSessions {
+		/// In background sessions, which continue while the application is suspended or ended.
+		case background(SharedInstallation)
+		/// In a session that ends with the process, as a test needs, because a background session
+		/// cannot deliver its events to a test.
+		case ephemeral
+
+		var sendingConfiguration: URLSessionConfiguration {
+			switch self {
+			case let .background(installation):
+				SubmissionTransfer.backgroundConfiguration(
+					identifier: installation.applicationTransferSessionIdentifier,
+					sharedContainer: installation.applicationGroupIdentifier
+				)
+			case .ephemeral:
+				.ephemeral
+			}
+		}
+
+		/// The share extension's session when `identifier` names it, else nil.
+		func shareExtensionConfiguration(identifier: String) -> URLSessionConfiguration? {
+			guard case let .background(installation) = self,
+			      identifier == installation.shareExtensionTransferSessionIdentifier
+			else {
+				return nil
+			}
+			return SubmissionTransfer.backgroundConfiguration(
+				identifier: identifier,
+				sharedContainer: installation.applicationGroupIdentifier
+			)
+		}
+	}
 
 	struct Examination {
 		let address: String
 		let token: String
 		let documents: URL?
-	}
-
-	var sendingConfiguration: URLSessionConfiguration {
-		guard let backgroundTransfer else {
-			return .ephemeral
-		}
-		return SubmissionTransfer.backgroundConfiguration(
-			identifier: backgroundTransfer.applicationTransferSessionIdentifier,
-			sharedContainer: backgroundTransfer.applicationGroupIdentifier
-		)
-	}
-
-	/// The share extension's session, whose answers reach the application after the extension ended.
-	var attachedConfigurations: [URLSessionConfiguration] {
-		guard let backgroundTransfer else {
-			return []
-		}
-		return [
-			SubmissionTransfer.backgroundConfiguration(
-				identifier: backgroundTransfer.shareExtensionTransferSessionIdentifier,
-				sharedContainer: backgroundTransfer.applicationGroupIdentifier
-			),
-		]
 	}
 
 	/// The installed environment, or in a Debug build started with
@@ -87,7 +96,7 @@ struct ApplicationEnvironment {
 				collection: .absent
 			),
 			sharedContainer: container,
-			backgroundTransfer: installation
+			transferSessions: .background(installation)
 		)
 	}
 
@@ -132,7 +141,7 @@ struct ApplicationEnvironment {
 				path: "shared",
 				directoryHint: .isDirectory
 			)),
-			backgroundTransfer: nil
+			transferSessions: .ephemeral
 		)
 	}
 	#endif
