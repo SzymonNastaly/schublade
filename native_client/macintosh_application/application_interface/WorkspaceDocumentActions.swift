@@ -8,7 +8,7 @@ import ApplicationPresentation
 final class WorkspaceDocumentActions {
 	private let queries: any LibraryQueries
 	private let collectorCommands: any CollectorCommands
-	private let quickLookCoordinator = QuickLookCoordinator()
+	private let quickLookCoordinator = QuickLookCoordinator.shared
 	private let renderMode: InterfaceRenderMode
 	private var newestPreviewRequest: UInt64 = 0
 

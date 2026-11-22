@@ -87,7 +87,8 @@ public final class StatusItemController: NSObject, NSMenuDelegate {
 
 	public func menuNeedsUpdate(_: NSMenu) {
 		Task {
-			let request = ListingRequest.browse(scope: .recentlyAdded, order: .addition)
+			// The archive's newest documents, however old: Recently Added covers only 30 days.
+			let request = ListingRequest.browse(scope: .allDocuments, order: .addition)
 			guard let reply = try? await queries.listDocuments(request: request, preceding: nil) else {
 				return
 			}

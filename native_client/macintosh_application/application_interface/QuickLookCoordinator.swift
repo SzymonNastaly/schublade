@@ -1,10 +1,19 @@
 import AppKit
 import QuickLookUI
 
-/// Presents Quick Look for the currently selected document without leaking panel state across tabs.
+/// The one Quick Look panel of the application and the document it shows. The panel may take a
+/// data source only from a responder that controls it, or AppKit raises an exception that ends the
+/// application, so the document table takes control and hands the panel to this coordinator.
 @MainActor
 final class QuickLookCoordinator: NSObject, QLPreviewPanelDataSource {
+	static let shared = QuickLookCoordinator()
+
 	private var currentItem: PreviewedDocumentItem?
+	private var controlledPanel: QLPreviewPanel?
+
+	var isPreviewVisible: Bool {
+		QLPreviewPanel.sharedPreviewPanelExists() && QLPreviewPanel.shared()?.isVisible == true
+	}
 
 	func togglePreview(for item: PreviewedDocumentItem) {
 		currentItem = item
@@ -13,28 +22,33 @@ final class QuickLookCoordinator: NSObject, QLPreviewPanelDataSource {
 		}
 		if panel.isVisible {
 			panel.orderOut(nil)
-			return
+		} else {
+			panel.makeKeyAndOrderFront(nil)
 		}
-		panel.dataSource = self
-		panel.reloadData()
-		panel.makeKeyAndOrderFront(nil)
-	}
-
-	var isPreviewVisible: Bool {
-		QLPreviewPanel.sharedPreviewPanelExists() && QLPreviewPanel.shared()?.isVisible == true
 	}
 
 	func updatePreviewIfVisible(item: PreviewedDocumentItem?) {
 		currentItem = item
-		guard QLPreviewPanel.sharedPreviewPanelExists(), let panel = QLPreviewPanel.shared(), panel.isVisible else {
+		guard let panel = controlledPanel, panel.isVisible else {
 			return
 		}
-		if item != nil {
-			panel.dataSource = self
-			panel.reloadData()
-		} else {
+		if item == nil {
 			panel.orderOut(nil)
+		} else {
+			panel.reloadData()
 		}
+	}
+
+	/// Called by the responder that took control of the panel.
+	func beginControl(of panel: QLPreviewPanel) {
+		controlledPanel = panel
+		panel.dataSource = self
+		panel.reloadData()
+	}
+
+	func endControl(of panel: QLPreviewPanel) {
+		panel.dataSource = nil
+		controlledPanel = nil
 	}
 
 	func numberOfPreviewItems(in _: QLPreviewPanel?) -> Int {
