@@ -12,6 +12,18 @@ public final class ApplicationDelegate: UIResponder, UIApplicationDelegate {
 		return true
 	}
 
+	/// The system launched the application for answers of the background session, which the
+	/// session delivers once `launch` has created it.
+	public func application(
+		_: UIApplication,
+		handleEventsForBackgroundURLSession _: String,
+		completionHandler: @escaping () -> Void
+	) {
+		controller.submissions.handleBackgroundEvents {
+			completionHandler()
+		}
+	}
+
 	public func application(
 		_: UIApplication,
 		configurationForConnecting connectingSceneSession: UISceneSession,

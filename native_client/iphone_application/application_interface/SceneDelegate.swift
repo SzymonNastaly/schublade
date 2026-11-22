@@ -11,10 +11,12 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
 			return
 		}
 		let window = UIWindow(windowScene: windowScene)
-		window.rootViewController = UINavigationController(
-			rootViewController: LibraryStateViewController(controller: delegate.controller)
-		)
+		window.rootViewController = RootViewController(controller: delegate.controller)
 		window.makeKeyAndVisible()
 		self.window = window
+	}
+
+	func sceneDidBecomeActive(_: UIScene) {
+		(UIApplication.shared.delegate as? ApplicationDelegate)?.controller.becameActive()
 	}
 }

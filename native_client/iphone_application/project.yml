@@ -63,11 +63,22 @@ targets:
         OTHER_SWIFT_FLAGS: -parse-as-library
         ENABLE_USER_SCRIPT_SANDBOXING: NO
 
+  SubmissionQueue:
+    type: library.static
+    platform: iOS
+    sources: [submission_queue]
+    dependencies:
+      - target: ApplicationBindings
+    settings:
+      base:
+        SWIFT_DEFAULT_ACTOR_ISOLATION: nonisolated
+
   ApplicationInterface:
     type: library.static
     platform: iOS
     sources: [application_interface]
     dependencies:
+      - target: SubmissionQueue
       - target: ApplicationBindings
     settings:
       base:
@@ -76,9 +87,13 @@ targets:
   Schublade:
     type: application
     platform: iOS
-    sources: [application]
+    sources:
+      # The drawing is the source of the icon, not a resource of the bundle.
+      - path: application
+        excludes: ["*.svg"]
     dependencies:
       - target: ApplicationInterface
+      - target: SubmissionQueue
       - target: ApplicationBindings
     info:
       path: application/Info.plist
@@ -90,11 +105,14 @@ targets:
         # A phone application in portrait, which the system allows only for one that fills the screen.
         UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait]
         UIRequiresFullScreen: true
+        NSCameraUsageDescription: $(APPLICATION_DISPLAY_NAME) scans letters and receipts with the camera and sends them to your archive.
     settings:
       base:
         PRODUCT_NAME: $(APPLICATION_PRODUCT_NAME)
         PRODUCT_BUNDLE_IDENTIFIER: $(APPLICATION_BUNDLE_IDENTIFIER)
         PRODUCT_MODULE_NAME: Schublade
+        # The website's blue tints every control, as on the Mac.
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
         SWIFT_DEFAULT_ACTOR_ISOLATION: MainActor
         LIBRARY_SEARCH_PATHS: $(RUST_TARGET_DIRECTORY)
         OTHER_LDFLAGS: $(APPLICATION_BINDINGS_LINKER_FLAGS)

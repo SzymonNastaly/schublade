@@ -206,3 +206,12 @@ Unit I2 landed with these points settled:
 - The collector's `MAXIMUM_CONTENT_BYTES` is now `archive_access::MAXIMUM_DOCUMENT_BYTES`, so the two limits cannot drift.
 - `scripted_archive` models a person's upload with `ScriptedArchive::upload`, which brings back a document the owner deleted where the collector's route answers 409, and `scripted-archive-server` serves `POST /api/documents/ingest` with a multipart reader of its own.
 - The copy does not see a sent document until it next reads the archive's changes, every 15 minutes while no screen attends it. An `Archived` answer therefore calls `Library::synchronize()`, which the simulator test found when the document did not arrive within 30 seconds without it.
+
+Unit I3 landed with these points settled:
+
+- The queue lives in the application's own Application Support directory until I4 names an App Group, with one background session, `<bundle identifier>.submission-transfer`. Its module, `SubmissionQueue`, imports only Foundation and the bindings, so the share extension can link it unchanged.
+- A body is prepared each time an upload starts, not when a submission is created, because the authorization header must be read from the Keychain at that moment anyway and the body file is removed with every answer. A submission that waits for the connection stays unanswered and starts when `followLibrary` first sees the archive's origin.
+- An unavailable submission is sent again a minute after its first failure, doubling to at most an hour, and a removed row cancels its upload.
+- A scan is named "Scan 2026-11-22 21.30.pdf", without the colon that Files shows as a slash. The scan writer's test draws three 12-megapixel pages and finds three A4 pages of the PDF under the limit; the document camera itself needs the owner's iPhone, because the simulator offers none.
+- The iPhone's icon is the Mac's drawing with its plate filling the square, rendered by Quick Look on the Mac and flattened, because an icon with an alpha channel is refused. Xcode 27 fails the build of an iPhone application without one.
+- Peekaboo cannot type into Device Hub, so the screens were examined through the Debug examination launch: three test documents archived and a text file refused, in both appearances.
