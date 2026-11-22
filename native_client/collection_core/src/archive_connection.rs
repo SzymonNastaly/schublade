@@ -262,7 +262,10 @@ fn connection_event(condition: ArchiveCondition, at: Timestamp) -> ConnectionEve
         ArchiveCondition::CredentialRefused => ConnectionEvent::CredentialRefused { at },
         ArchiveCondition::CredentialInsufficient => ConnectionEvent::CredentialInsufficient { at },
         ArchiveCondition::ServiceUnavailable { retry_after } => ConnectionEvent::ServiceUnavailable { retry_after, at },
-        ArchiveCondition::ConnectionFailed
+        // The collector's routes exist in every archive, so one that does not offer them violates
+        // the protocol.
+        ArchiveCondition::RouteUnknown
+        | ArchiveCondition::ConnectionFailed
         | ArchiveCondition::TimedOut
         | ArchiveCondition::ServerError
         | ArchiveCondition::ProtocolViolation { .. } => ConnectionEvent::ConnectionFailed { at },

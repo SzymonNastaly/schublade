@@ -53,6 +53,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "archive_replica"
+version = "0.1.0"
+dependencies = [
+ "archive_access",
+ "rusqlite",
+ "scripted_archive",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tiny_http",
+]
+
+[[package]]
 name = "ascii"
 version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1100,6 +1113,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "93fc1dc3aaa9bfed95e02e6eadabb4baf7e3078b0bd1b4d7b6b0b68378900502"
 dependencies = [
  "winapi-util",
+]
+
+[[package]]
+name = "scripted_archive"
+version = "0.1.0"
+dependencies = [
+ "archive_access",
+ "archive_replica",
+ "serde_json",
+ "sha2",
 ]
 
 [[package]]

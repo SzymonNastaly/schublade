@@ -16,7 +16,6 @@ use crate::archive_connection::{
     ArchiveAnswer, ConnectionEvent, ConnectionState, Consequences, advance_connection, consequences, next_timer,
 };
 use crate::candidate_classification::{DisregardReason, ReadableSignature};
-use crate::clock::Clock;
 use crate::content_synchronization::{ContentEvent, SubmissionOutcome, advance_content};
 use crate::directory_reconciliation::{DirectoryListing, ListingOutcome, reconcile_directory};
 use crate::domain_types::{ContentDigest, DirectoryKey, FolderIdentifier, PathKey, Timestamp, TimingPolicy};
@@ -30,6 +29,7 @@ use crate::status_report::{Activity, AttentionItem, BacklogSummary, CollectorSta
 use crate::work_execution::{Assignment, WorkerLanes};
 use crate::work_planning::{ContentReservation, LaneCapacity, LookupBatch, Reservations, Work, plan_work};
 use crate::{ArchiveClientConstructor, CollectorCommand, CollectorEvent, CommandRefusal};
+use archive_access::Clock;
 
 /// Everything that reaches the coordinator. Workers and the watcher only send these.
 pub enum CoordinatorInput {
@@ -1098,9 +1098,9 @@ mod tests {
     use std::path::Path;
 
     use super::*;
-    use crate::clock::ManualClock;
     use crate::scripted_archive::ScriptedArchive;
     use crate::{Collector, CollectorSettings};
+    use archive_access::ManualClock;
 
     const HOUR: Duration = Duration::from_secs(60 * 60);
 

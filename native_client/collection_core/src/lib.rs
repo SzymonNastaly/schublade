@@ -5,7 +5,6 @@
 pub mod archive_client;
 pub mod archive_connection;
 pub mod candidate_classification;
-pub mod clock;
 pub mod collection_coordinator;
 pub mod content_synchronization;
 pub mod directory_reconciliation;
@@ -26,8 +25,8 @@ use std::sync::mpsc::{Receiver, Sender, channel};
 use std::thread::JoinHandle;
 use std::time::Duration;
 
+pub use archive_access::{Clock, ManualClock, SystemClock};
 pub use archive_client::{ArchiveClient, HttpArchiveClient};
-pub use clock::{Clock, ManualClock, SystemClock};
 pub use domain_types::{FolderIdentifier, Timestamp, TimingPolicy};
 pub use scripted_archive::ScriptedArchive;
 pub use status_report::{

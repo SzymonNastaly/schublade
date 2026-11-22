@@ -17,10 +17,10 @@ use crate::candidate_classification::{
     EntryKind, LEADING_BYTES_LENGTH, MAXIMUM_CONTENT_BYTES, NameDisposition, ReadableSignature, classify_entry_name,
     identify_content_kind,
 };
-use crate::clock::Clock;
 use crate::directory_reconciliation::{DirectoryListing, ListingOutcome};
 use crate::domain_types::{ContentDigest, DirectoryKey, EntryName, FileSignature, FolderIdentifier, Timestamp};
 use crate::path_lifecycle::DigestFinding;
+use archive_access::Clock;
 
 /// The SHA-256 of bytes held in memory.
 pub fn content_digest_of(bytes: &[u8]) -> ContentDigest {
@@ -426,7 +426,7 @@ mod tests {
 
     use super::*;
     use crate::candidate_classification::{DisregardReason, classify_signature};
-    use crate::clock::ManualClock;
+    use archive_access::ManualClock;
 
     const FOLDER: FolderIdentifier = FolderIdentifier::new(4);
 

@@ -761,6 +761,25 @@ Unit S1, the journal, landed as commit `70144d1`. Unit S2, the client protocol, 
 - `collection_protocol/` is part of `src/client_protocol/`: `client_paths.ts` holds the one route table with each route's method and level, and `client_requests.ts` the one gate. `deniedTagsAllExist` moved from `archive_tools.ts` to `document_listing.ts`, and `document_representation.ts` exposes `readStoredRepresentation` to both the browser's route and the client's.
 - The representation routes and the authorization answer 400 to a query parameter, as every route of the protocol does. The collector's three routes do not check query parameters, as before.
 
+Unit R3's first half landed after S1 and S2: `archive_replica` with its store, its reader, its machine, and its coordinator, and `scripted_archive`. It changed these points of the design.
+
+- `archive_access` also holds `Timestamp`, `Clock`, `SystemClock`, and `ManualClock`, so both cores read one clock, and `ContentDigest`, `DocumentIdentifier`, `ArchiveAuthorization`, `PermissionLevel`, and `read_authorization`, which R2 had left in `collection_core` or unwritten. `collection_core` re-exports what it had. `ArchiveCredential` is still unwritten.
+- `ArchiveCondition::RouteUnknown` exists. The exchange answers it for a 403 whose content type is not `application/problem+json`, and the collector counts it as a failed connection.
+- `ArchiveExchange::get_within` takes the limit of one answer. The reader accepts 8,000,000 bytes of a page of changes, and a longer answer is a protocol violation.
+- An extracted field of a type the client does not know is left out of its document, as an entry of an unknown kind is left out of its page. An unknown failure reason is kept as text, as an unknown status is.
+- The schema is `replica_schema.sql` and not `migrations/0001_replica.sql`, because the copy has no migrations. The mirror row gains `credential_fingerprint`. A start reads the token from the credential store and follows the archive only with the token the copy was attached with, because another token may see another scope. With another token or none, the status still shows the mirrored archive, so `Disconnected` no longer means an empty store.
+- `Filling` carries the remaining entries alone, and `Unreachable` carries the condition that caused it. `PageApplied` carries the store's `fill_complete` in place of an entry count, which tells a fill from a catch-up after a failure. The machine answers one optional effect, `RequestPage` or `AwaitDeadline`. It has no `DiscardCopy`, because the coordinator discards the copy before it reports `JournalReplaced`.
+- Attendance is an argument of the machine, set by `Replica::set_attendance`. It takes effect with the next page, and a window that appears also wakes the replica.
+- While the archive is unreachable, a wake caused by a person, by the application coming to the front, or by the system's wake retries at once. An accepted document does not, because the upload of a backlog reports one many times a minute and would undo the back-off. An outdated archive is asked at once only when a person asks.
+- The coordinator requests a page on its own thread and applies it in the same step, as the usage above shows. It publishes the status where `Replica::status` reads it without the coordinator, so a status never waits for a request, while a command waits for the request in flight.
+- `content_revision` rises only when a page changed a record. A document delivered again in the same state, as after a write to `indexed_at`, leaves it alone.
+- A failure of the store is logged and ends the coordinator. The next start replaces a file it cannot open.
+- A member's removal first gives its documents the assignment the archive gives a document without a member, because the schema checks `person_assignment` and the member together.
+- After a 410 the mirror row keeps the former journal identifier, because the client reads nothing from a cursor. The next attachment then sees another identifier and empties the copy once more.
+- `ReplicaStore::stage_page` writes a page without committing it. `apply_page` and the restart of the interleaving test are its callers.
+- `scripted_archive` keeps records and a journal and answers `ArchiveReader`. `collection_core::scripted_archive` stays for the collector, because `collection_core`'s own unit tests use it, and a crate that `collection_core` depended on for tests would implement the trait of another build of `collection_core`. The crate answers no scripted failure yet.
+- The interleaving test follows 60 seeds of 60 steps each, not 300 of 400, to finish in about a second. It fails at its first seed when `apply_page` stops comparing the cursor, when a removal is ignored, and when the scripted journal issues a number twice.
+
 ## Open questions and risks
 
 1. Should `connect_archive` compare the origin with the collector's before it reads the authorization? The flow reads the authorization first, as decided, so an unreachable second archive still answers `ArchiveUnreachable` where `ArchiveDiffers` is the better refusal. The comparison needs no network, so it can come first.
@@ -768,8 +787,8 @@ Unit S1, the journal, landed as commit `70144d1`. Unit S2, the client protocol, 
 3. The scripted archive cannot yet answer 409, 503, 415, or 405. `scripted_archive` must before the end-to-end test relies on those answers.
 4. What made one run of the corpus following test on the Mac count differently?
 5. How does the library's revision follow the collector's observation of the connection? `ArchiveConnection` lives in `LibraryStatus` and derives from both cores, so `Library::status_after` must answer when either changes. The sources do not say how the bindings compose that revision.
-6. Which body limit does the client apply to a page of changes? The page size is the server's choice, at most 500 journal entries and the records they refer to.
-7. What does a client do with an extracted field whose `type` it does not know? The protocol names `text`, `number`, and `date` today.
+6. The reader's limit of 8,000,000 bytes for a page of changes is an estimate: 250 journal entries of about 2,000 bytes each. The first fill against staging measures real pages.
+7. The copy requests every 5 seconds while it holds a document in ingestion. A document that stays there for good, such as an email that never prints, keeps every client at that interval. Should the interval grow with the document's age?
 8. Should a 404 on a representation start a synchronization, so the removal arrives at once?
 9. How does the details search treat a term of fewer than three characters, which the trigram table cannot match?
 10. Is a delay of up to a minute acceptable for a document that arrives by mail while the window shows? If not, the changes route gains a `wait` parameter that holds the request until the archive's coordinator announces a change. The route's shape does not change.
@@ -783,10 +802,12 @@ Unit S1, the journal, landed as commit `70144d1`. Unit S2, the client protocol, 
 18. The trigram index's size grows with distinct trigrams, and the measured 93.9 MB came from a vocabulary of 65 words. The first fill against staging measures real text.
 19. The end-to-end test ran in 10 seconds with a trivial application. With both cores, FSEvents, and the stabilization interval it takes longer. It should stay under a minute.
 20. The application icon uses the classic icon set. macOS 26 draws its own material for an Icon Composer file, which only a graphical tool writes.
+21. `apply_page` compares the cursor alone, and before a first page both cursors are absent. A page requested before the copy started over would therefore apply to the new fill. The coordinator cannot hold such a page, because it requests and applies in one step. A second writer of the file, such as a background task on the iPhone, would need a count of fills in the mirror row.
+22. A token's scope cannot change today, so the copy trusts the scope digest it was attached with and never reads the authorization again. If Settings ever edits a token's scope, the replica must read the authorization when it follows.
 
 ## Next implementation step
 
-Units S1 (`70144d1`) and S2 are committed, so the Worker serves every route the native client reads. Build R3 next, against `test_fixtures/client_protocol/`. Applying migrations 0008 and 0009 to staging and the deploy that serves the routes need the owner.
+Units S1 (`70144d1`) and S2 (`39dcb64`) are committed, so the Worker serves every route the native client reads. The first half of R3 is committed with this note: the copy's store, reader, machine, and coordinator, `scripted_archive`, the interleaving test, and the wire fixture test. Build the second half of R3 next: the search tables and their upkeep, the listings with their difference, the facets, the document detail, the text lanes, and the cache of originals and thumbnails. The unit after it, R4, also unites the two scripted archives: it moves `collection_core`'s unit tests that use `collection_core::scripted_archive` to `collection_core/tests/`, lets the crate `scripted_archive` answer `ArchiveClient` and scripted failures, and deletes the module. Applying migrations 0008 and 0009 to staging and the deploy that serves the routes need the owner.
 
 Units 1 and 2 of the first design are committed (`7ce2f82`, `94ca40c`), and so are D (`1f9ce3a`), R1 (`5d78532`), and R2 (this commit). Two streams run side by side because they touch disjoint trees: the Worker (`src/`, `drizzle/`, `test_fixtures/`) and the native client (`collector/`, then `native_client/`). Each unit ends in its check and one commit on `main`.
 

@@ -2,6 +2,8 @@
 resolver = "3"
 members = [
     "archive_access",
+    "archive_replica",
+    "scripted_archive",
     "collection_core",
     "collection_command",
     "application_bindings",

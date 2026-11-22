@@ -11,8 +11,11 @@ use crate::archive_token::ArchiveToken;
 pub enum ArchiveCondition {
     /// 401.
     CredentialRefused,
-    /// 403.
+    /// 403 with a problem document: the token lacks the level of the route.
     CredentialInsufficient,
+    /// 403 without a problem document: the path fell through to Cloudflare Access, so the archive
+    /// is older than the route.
+    RouteUnknown,
     /// 503.
     ServiceUnavailable {
         retry_after: Duration,
@@ -21,7 +24,8 @@ pub enum ArchiveCondition {
     TimedOut,
     /// 500.
     ServerError,
-    /// 400, 404 on a route, 405, or a body that does not parse: a bug on one side.
+    /// 400, 404 on a route, 405, a body that does not parse, or one over the limit of its
+    /// request: a bug on one side.
     ProtocolViolation {
         detail: String,
     },
@@ -37,10 +41,13 @@ fn parse_retry_after(header: Option<&str>) -> Duration {
 }
 
 /// The conditions of a status that every route shares, or `None` for a status the route reads.
-fn shared_condition(status: u16, retry_after: Option<&str>) -> Option<ArchiveCondition> {
+fn shared_condition(status: u16, content_type: Option<&str>, retry_after: Option<&str>) -> Option<ArchiveCondition> {
     Some(match status {
         401 => ArchiveCondition::CredentialRefused,
-        403 => ArchiveCondition::CredentialInsufficient,
+        403 if content_type.is_some_and(|content_type| content_type.starts_with("application/problem+json")) => {
+            ArchiveCondition::CredentialInsufficient
+        }
+        403 => ArchiveCondition::RouteUnknown,
         500 => ArchiveCondition::ServerError,
         503 => ArchiveCondition::ServiceUnavailable {
             retry_after: parse_retry_after(retry_after),
@@ -91,12 +98,18 @@ impl ArchiveExchange {
 
     /// `path` starts with `/`.
     pub fn get(&self, path: &str) -> Result<ArchiveResponse, ArchiveCondition> {
+        self.get_within(path, MAXIMUM_ANSWER_BYTES)
+    }
+
+    /// A GET whose answer may hold up to `answer_limit` bytes, for a route that answers more than
+    /// the 256,000 bytes every other answer stays within.
+    pub fn get_within(&self, path: &str, answer_limit: u64) -> Result<ArchiveResponse, ArchiveCondition> {
         let sent = self
             .agent
             .get(format!("{}{path}", self.origin))
             .header("Authorization", &self.authorization_header)
             .call();
-        response_of(sent)
+        response_of(sent, answer_limit)
     }
 
     pub fn post_json(&self, path: &str, body: &[u8]) -> Result<ArchiveResponse, ArchiveCondition> {
@@ -106,7 +119,7 @@ impl ArchiveExchange {
             .header("Authorization", &self.authorization_header)
             .header("Content-Type", "application/json")
             .send(body);
-        response_of(sent)
+        response_of(sent, MAXIMUM_ANSWER_BYTES)
     }
 
     pub fn put_octets(&self, path: &str, octets: &[u8]) -> Result<ArchiveResponse, ArchiveCondition> {
@@ -121,7 +134,7 @@ impl ArchiveExchange {
             .header("Authorization", &self.authorization_header)
             .header("Content-Type", "application/octet-stream")
             .send(octets);
-        response_of(sent)
+        response_of(sent, MAXIMUM_ANSWER_BYTES)
     }
 }
 
@@ -129,24 +142,31 @@ impl ArchiveExchange {
 /// cut off on the way is a connection failure whatever its status.
 fn response_of(
     sent: Result<ureq::http::Response<ureq::Body>, ureq::Error>,
+    answer_limit: u64,
 ) -> Result<ArchiveResponse, ArchiveCondition> {
     let mut response = sent.map_err(|error| match error {
         ureq::Error::Timeout(_) => ArchiveCondition::TimedOut,
         _ => ArchiveCondition::ConnectionFailed,
     })?;
     let status = response.status().as_u16();
-    let retry_after = response
-        .headers()
-        .get("Retry-After")
-        .and_then(|value| value.to_str().ok())
-        .map(str::to_owned);
+    let header = |name: &str| {
+        let value = response.headers().get(name)?;
+        value.to_str().ok().map(str::to_owned)
+    };
+    let content_type = header("Content-Type");
+    let retry_after = header("Retry-After");
     let body = response
         .body_mut()
         .with_config()
-        .limit(MAXIMUM_ANSWER_BYTES)
+        .limit(answer_limit)
         .read_to_string()
-        .map_err(|_| ArchiveCondition::ConnectionFailed)?;
-    match shared_condition(status, retry_after.as_deref()) {
+        .map_err(|error| match error {
+            ureq::Error::BodyExceedsLimit(_) => ArchiveCondition::ProtocolViolation {
+                detail: format!("{status}: the answer holds more than {answer_limit} bytes"),
+            },
+            _ => ArchiveCondition::ConnectionFailed,
+        })?;
+    match shared_condition(status, content_type.as_deref(), retry_after.as_deref()) {
         Some(condition) => Err(condition),
         None => Ok(ArchiveResponse { status, body }),
     }

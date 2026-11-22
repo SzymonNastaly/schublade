@@ -101,7 +101,9 @@ impl From<ArchiveCondition> for ConnectionRefusal {
             ArchiveCondition::ServiceUnavailable { retry_after: _ } => ConnectionRefusal::ArchiveUnavailable,
             ArchiveCondition::ConnectionFailed | ArchiveCondition::TimedOut => ConnectionRefusal::ArchiveUnreachable,
             ArchiveCondition::ServerError => ConnectionRefusal::ArchiveFailed,
-            ArchiveCondition::ProtocolViolation { detail: _ } => ConnectionRefusal::NotAnArchive,
+            ArchiveCondition::RouteUnknown | ArchiveCondition::ProtocolViolation { detail: _ } => {
+                ConnectionRefusal::NotAnArchive
+            }
         }
     }
 }

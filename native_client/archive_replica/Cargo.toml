@@ -1,0 +1,22 @@
+[package]
+name = "archive_replica"
+description = "The local copy of one Schublade archive's records and the synchronization that keeps it equal to the archive"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+# Every version is an exact pin, and Cargo.lock is committed, so each machine builds the same code.
+[dependencies]
+archive_access = { path = "../archive_access" }
+rusqlite = { version = "=0.43.0", features = ["bundled"] }
+serde = { version = "=1.0.229", features = ["derive"] }
+# `float_roundtrip` reads a number as the nearest double, so an amount such as 72.09 is the value
+# the archive wrote. The default parser may differ in the last bit.
+serde_json = { version = "=1.0.154", features = ["float_roundtrip"] }
+
+[dev-dependencies]
+scripted_archive = { path = "../scripted_archive" }
+tempfile = "=3.27.0"
+tiny_http = "=0.12.0"

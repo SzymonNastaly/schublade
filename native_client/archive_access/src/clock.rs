@@ -1,10 +1,28 @@
-//! The wall clock in production and a manual clock in tests. Only the coordinator and the workers
-//! read it; the machines receive times inside events.
+//! Time as every core of the client reads it: the wall clock in production and a manual clock in
+//! tests. Only coordinators and workers read a clock, and their machines receive times as values.
 
 use std::sync::atomic::{AtomicI64, Ordering};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use crate::domain_types::Timestamp;
+/// Milliseconds since the Unix epoch. Every time enters the machines as a field of an event;
+/// no pure function reads a clock.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize)]
+pub struct Timestamp(pub i64);
+
+impl Timestamp {
+    pub fn after(self, duration: Duration) -> Timestamp {
+        Timestamp(
+            self.0
+                .saturating_add(i64::try_from(duration.as_millis()).unwrap_or(i64::MAX)),
+        )
+    }
+
+    /// Zero when `earlier` lies after `self`, so a wall clock that moved backwards never makes an
+    /// interval look elapsed.
+    pub fn elapsed_since(self, earlier: Timestamp) -> Duration {
+        Duration::from_millis(u64::try_from(self.0.saturating_sub(earlier.0)).unwrap_or(0))
+    }
+}
 
 pub trait Clock: Send + Sync {
     fn now(&self) -> Timestamp;
@@ -54,6 +72,15 @@ impl Clock for ManualClock {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_timestamp_never_reports_a_negative_elapsed_interval() {
+        let earlier = Timestamp(1_000);
+        let later = earlier.after(Duration::from_millis(2_500));
+        assert_eq!(later, Timestamp(3_500));
+        assert_eq!(later.elapsed_since(earlier), Duration::from_millis(2_500));
+        assert_eq!(earlier.elapsed_since(later), Duration::ZERO);
+    }
 
     #[test]
     fn a_manual_clock_moves_only_when_told() {

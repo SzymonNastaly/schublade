@@ -1,5 +1,6 @@
-//! The identities the machines share: times, content digests, folders, directories, entry names,
-//! file signatures, documents, and the one timing policy. Every value here is a plain datum;
+//! The identities the machines share: folders, directories, entry names, file signatures,
+//! document statuses, and the one timing policy, with the times, content digests, and document
+//! identifiers that `archive_access` defines for every client. Every value here is a plain datum;
 //! nothing reads a clock, a file, or the network.
 
 use std::ffi::{OsStr, OsString};
@@ -8,68 +9,7 @@ use std::time::Duration;
 
 use unicode_normalization::UnicodeNormalization;
 
-/// Milliseconds since the Unix epoch. Every time enters the machines as a field of an event;
-/// no pure function reads a clock.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize)]
-pub struct Timestamp(pub i64);
-
-impl Timestamp {
-    pub fn after(self, duration: Duration) -> Timestamp {
-        Timestamp(
-            self.0
-                .saturating_add(i64::try_from(duration.as_millis()).unwrap_or(i64::MAX)),
-        )
-    }
-
-    /// Zero when `earlier` lies after `self`, so a wall clock that moved backwards never makes an
-    /// interval look elapsed.
-    pub fn elapsed_since(self, earlier: Timestamp) -> Duration {
-        Duration::from_millis(u64::try_from(self.0.saturating_sub(earlier.0)).unwrap_or(0))
-    }
-}
-
-/// The SHA-256 of one exact byte sequence, the name of a content in the archive and here.
-/// Parsed from lowercase hexadecimal only at the boundaries (the store and the archive client).
-#[derive(Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub struct ContentDigest([u8; 32]);
-
-impl ContentDigest {
-    pub fn from_bytes(bytes: [u8; 32]) -> ContentDigest {
-        ContentDigest(bytes)
-    }
-
-    /// Accepts exactly 64 lowercase hexadecimal characters, as the server's `sha256Pattern`.
-    pub fn parse_hexadecimal(text: &str) -> Option<ContentDigest> {
-        if text.len() != 64 {
-            return None;
-        }
-        let mut bytes = [0u8; 32];
-        for (index, pair) in text.as_bytes().chunks(2).enumerate() {
-            let high = lowercase_hexadecimal_value(pair[0])?;
-            let low = lowercase_hexadecimal_value(pair[1])?;
-            bytes[index] = high << 4 | low;
-        }
-        Some(ContentDigest(bytes))
-    }
-
-    pub fn hexadecimal(&self) -> String {
-        self.0.iter().map(|byte| format!("{byte:02x}")).collect()
-    }
-}
-
-fn lowercase_hexadecimal_value(character: u8) -> Option<u8> {
-    match character {
-        b'0'..=b'9' => Some(character - b'0'),
-        b'a'..=b'f' => Some(character - b'a' + 10),
-        _ => None,
-    }
-}
-
-impl std::fmt::Debug for ContentDigest {
-    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(formatter, "ContentDigest({})", self.hexadecimal())
-    }
-}
+pub use archive_access::{ContentDigest, DocumentIdentifier, Timestamp};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, serde::Serialize)]
 pub struct FolderIdentifier(i64);
@@ -245,27 +185,6 @@ pub struct FileSignature {
     pub dataless: bool,
 }
 
-/// A UUID as the archive writes it, validated against the server's pattern at the boundary.
-#[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, serde::Serialize)]
-pub struct DocumentIdentifier(String);
-
-impl DocumentIdentifier {
-    /// Accepts `8-4-4-4-12` lowercase hexadecimal groups, as the server's route pattern.
-    pub fn parse(text: &str) -> Option<DocumentIdentifier> {
-        const GROUP_LENGTHS: [usize; 5] = [8, 4, 4, 4, 12];
-        let groups: Vec<&str> = text.split('-').collect();
-        let well_formed = groups.len() == GROUP_LENGTHS.len()
-            && groups.iter().zip(GROUP_LENGTHS).all(|(group, length)| {
-                group.len() == length && group.bytes().all(|byte| lowercase_hexadecimal_value(byte).is_some())
-            });
-        well_formed.then(|| DocumentIdentifier(text.to_owned()))
-    }
-
-    pub fn as_str(&self) -> &str {
-        &self.0
-    }
-}
-
 /// The statuses the archive reports, in the order of the server's `documentStatuses`. `Failed`
 /// carries the archive's reason.
 #[derive(Clone, Debug, PartialEq, Eq, serde::Serialize)]
@@ -377,25 +296,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn a_content_digest_round_trips_through_lowercase_hexadecimal_only() {
-        let text = "b60d823ff8fc9d5e3f8979eb7be7fd57d31bcb959dcc0ec5260c4daf6ec98150";
-        let digest = ContentDigest::parse_hexadecimal(text).unwrap();
-        assert_eq!(digest.hexadecimal(), text);
-        assert_eq!(format!("{digest:?}"), format!("ContentDigest({text})"));
-        assert_eq!(ContentDigest::parse_hexadecimal(&text.to_uppercase()), None);
-        assert_eq!(ContentDigest::parse_hexadecimal(&text[..63]), None);
-        assert_eq!(ContentDigest::parse_hexadecimal(&format!("{text}0")), None);
-    }
-
-    #[test]
-    fn a_document_identifier_follows_the_route_pattern_of_the_server() {
-        assert!(DocumentIdentifier::parse("4c5d6e7f-8091-4a2b-9c3d-4e5f60718293").is_some());
-        assert_eq!(DocumentIdentifier::parse("4C5D6E7F-8091-4A2B-9C3D-4E5F60718293"), None);
-        assert_eq!(DocumentIdentifier::parse("4c5d6e7f80914a2b9c3d4e5f60718293"), None);
-        assert_eq!(DocumentIdentifier::parse("4c5d6e7f-8091-4a2b-9c3d-4e5f6071829"), None);
-    }
-
-    #[test]
     fn directory_keys_normalize_to_nfc_and_judge_containment_by_whole_components() {
         let decomposed = DirectoryKey::from_relative_path(Path::new("Vertra\u{0308}ge/2026"));
         let composed = DirectoryKey::root()
@@ -426,15 +326,6 @@ mod tests {
             PathBuf::from(OsStr::from_bytes(b"caf\xE9")).join("caf%E9")
         );
         assert_eq!(DirectoryKey::root().relative_path(), PathBuf::new());
-    }
-
-    #[test]
-    fn a_timestamp_never_reports_a_negative_elapsed_interval() {
-        let earlier = Timestamp(1_000);
-        let later = earlier.after(Duration::from_millis(2_500));
-        assert_eq!(later, Timestamp(3_500));
-        assert_eq!(later.elapsed_since(earlier), Duration::from_millis(2_500));
-        assert_eq!(earlier.elapsed_since(later), Duration::ZERO);
     }
 
     #[test]

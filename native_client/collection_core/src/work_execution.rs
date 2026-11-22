@@ -9,7 +9,6 @@ use std::thread;
 use crate::archive_client::ArchiveClient;
 use crate::archive_connection::ArchiveAnswer;
 use crate::candidate_classification::ReadableSignature;
-use crate::clock::Clock;
 use crate::collection_coordinator::{CoordinatorInput, SubmissionResult, WorkResult};
 use crate::content_synchronization::SubmissionAuthorization;
 use crate::directory_reconciliation::ListingOutcome;
@@ -18,6 +17,7 @@ use crate::file_system_observation::{
     absolute_path, compute_digest, list_directory, observe_signature, read_submission_source,
 };
 use crate::work_planning::{LaneCapacity, LookupBatch};
+use archive_access::Clock;
 
 /// One planned unit of work with everything its lane needs: the folder root for the disk, the
 /// archive client for a request.
