@@ -142,11 +142,7 @@ final class WorkspaceDocumentActions {
 	) async {
 		do {
 			let localFile = try await queries.original(document)
-			let sourceURL = URL(fileURLWithPath: localFile.path)
-			if FileManager.default.fileExists(atPath: destination.path(percentEncoded: false)) {
-				try FileManager.default.removeItem(at: destination)
-			}
-			try FileManager.default.copyItem(at: sourceURL, to: destination)
+			try OriginalFileCopy.write(from: URL(fileURLWithPath: localFile.path), to: destination)
 		} catch let refusal as RepresentationRefusal {
 			presentRepresentationAlert(refusal, in: window)
 		} catch {

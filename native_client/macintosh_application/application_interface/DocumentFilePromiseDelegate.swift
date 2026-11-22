@@ -56,11 +56,7 @@ nonisolated class DocumentFilePromiseDelegate: NSObject, NSFilePromiseProviderDe
 			let result: Result<Void, any Error>
 			do {
 				let sourcePath = try await fetchOriginalPath(document)
-				let sourceURL = URL(fileURLWithPath: sourcePath)
-				if FileManager.default.fileExists(atPath: url.path(percentEncoded: false)) {
-					try FileManager.default.removeItem(at: url)
-				}
-				try FileManager.default.copyItem(at: sourceURL, to: url)
+				try OriginalFileCopy.write(from: URL(fileURLWithPath: sourcePath), to: url)
 				result = .success(())
 			} catch let refusal as RepresentationRefusal {
 				await reportFailure(refusal)
