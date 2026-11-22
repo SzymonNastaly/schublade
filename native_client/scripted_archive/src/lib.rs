@@ -19,11 +19,19 @@ use archive_replica::replica_records::{
 use archive_replica::{ArchiveReader, OriginalAnswer, PageAnswer, ThumbnailAnswer};
 use collection_core::ArchiveClient;
 use collection_core::archive_connection::SubmissionCondition;
-use collection_core::candidate_classification::identify_content_kind;
+use collection_core::candidate_classification::{MAXIMUM_CONTENT_BYTES, identify_content_kind};
 use collection_core::content_synchronization::{LookupAnswer, SubmissionAuthorization, SubmissionOutcome};
 use collection_core::domain_types::DocumentStatus;
 use collection_core::file_system_observation::VerifiedContent;
 use sha2::{Digest, Sha256};
+
+/// The answer to one file of a person's upload, as the Worker's `UploadOutcome` has it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum UploadOutcome {
+    Accepted(DocumentIdentifier),
+    AlreadyArchived(DocumentIdentifier),
+    Rejected(String),
+}
 
 /// What a token may see: the four lists of the server's `AuthorizationScope`. A scope without a
 /// list sees every record, and one with any list is restricted.
@@ -108,6 +116,42 @@ struct Archive {
 }
 
 impl Archive {
+    /// Archives bytes the archive does not hold as a new document in ingestion, with its original
+    /// and a journal entry, as the Worker's `archiveContent` does.
+    fn archive_new_document(&mut self, digest: ContentDigest, bytes: &[u8]) -> DocumentIdentifier {
+        let document = ScriptedArchive::document_of(&digest);
+        let media_type = identify_content_kind(bytes)
+            .map_or("application/pdf", |kind| kind.media_type())
+            .to_owned();
+        let byte_size = u64::try_from(bytes.len()).unwrap_or(u64::MAX);
+        let arrived_at = Timestamp(self.next_arrival_ms);
+        self.next_arrival_ms += 1_000;
+        self.contents.insert(digest, LookupAnswer::Present(document.clone()));
+        self.originals.insert(document.clone(), bytes.to_vec());
+        self.documents.insert(
+            document.clone(),
+            DocumentRecord {
+                identifier: document.clone(),
+                condition: DocumentCondition::Arriving(IngestionStage::Processing),
+                title: None,
+                document_date: None,
+                sender: None,
+                category: None,
+                person: PersonAssignment::Unassigned,
+                summary: None,
+                media_type,
+                byte_size,
+                page_count: None,
+                original: Some(digest),
+                arrived_at,
+                tags: BTreeSet::new(),
+                fields: BTreeMap::new(),
+            },
+        );
+        self.journal(JournaledRecord::Document(document.clone()));
+        document
+    }
+
     /// Gives the record's entry the next number, as every trigger of the server does inside the
     /// statement that fired it.
     fn journal(&mut self, record: JournaledRecord) {
@@ -614,6 +658,28 @@ impl ScriptedArchive {
     }
 
     /// Whether the archive holds a document for this content.
+    /// One file of `POST /api/documents/ingest`, as a person's upload: bytes of an unaccepted kind
+    /// or above 25 MB are rejected, bytes a document holds answer that document, and any other
+    /// bytes become a new document, even bytes whose document the owner deleted, because a person
+    /// chose to send them.
+    pub fn upload(&self, bytes: &[u8]) -> UploadOutcome {
+        if identify_content_kind(bytes).is_none() {
+            return UploadOutcome::Rejected("Only PDF, JPEG, PNG, and WebP files can be archived.".to_owned());
+        }
+        if u64::try_from(bytes.len()).unwrap_or(u64::MAX) > MAXIMUM_CONTENT_BYTES {
+            return UploadOutcome::Rejected("The file is larger than 25 MB".to_owned());
+        }
+        let digest = ContentDigest::from_bytes(Sha256::digest(bytes).into());
+        let mut archive = self.archive();
+        archive.submissions.push(digest);
+        match archive.contents.get(&digest).cloned() {
+            Some(LookupAnswer::Present(document)) => UploadOutcome::AlreadyArchived(document),
+            Some(LookupAnswer::Deleted | LookupAnswer::Absent) | None => {
+                UploadOutcome::Accepted(archive.archive_new_document(digest, bytes))
+            }
+        }
+    }
+
     pub fn holds(&self, digest: &ContentDigest) -> bool {
         matches!(self.archive().contents.get(digest), Some(LookupAnswer::Present(_)))
     }
@@ -844,36 +910,7 @@ impl ArchiveClient for ScriptedArchive {
                 SubmissionOutcome::AlreadyHeld { document, status }
             }
             Some(LookupAnswer::Absent) | None => {
-                let document = ScriptedArchive::document_of(&digest);
-                let media_type = identify_content_kind(content.bytes())
-                    .map_or("application/pdf", |kind| kind.media_type())
-                    .to_owned();
-                let byte_size = u64::try_from(content.bytes().len()).unwrap_or(u64::MAX);
-                let arrived_at = Timestamp(archive.next_arrival_ms);
-                archive.next_arrival_ms += 1_000;
-                archive.contents.insert(digest, LookupAnswer::Present(document.clone()));
-                archive.originals.insert(document.clone(), content.bytes().to_vec());
-                archive.documents.insert(
-                    document.clone(),
-                    DocumentRecord {
-                        identifier: document.clone(),
-                        condition: DocumentCondition::Arriving(IngestionStage::Processing),
-                        title: None,
-                        document_date: None,
-                        sender: None,
-                        category: None,
-                        person: PersonAssignment::Unassigned,
-                        summary: None,
-                        media_type,
-                        byte_size,
-                        page_count: None,
-                        original: Some(digest),
-                        arrived_at,
-                        tags: BTreeSet::new(),
-                        fields: BTreeMap::new(),
-                    },
-                );
-                archive.journal(JournaledRecord::Document(document.clone()));
+                let document = archive.archive_new_document(digest, content.bytes());
                 SubmissionOutcome::Accepted {
                     document,
                     status: DocumentStatus::Processing,
@@ -912,6 +949,19 @@ mod tests {
             },
         };
         authorize_submission(&record, Timestamp(1), &TimingPolicy::default()).unwrap()
+    }
+
+    #[test]
+    fn a_persons_upload_brings_back_a_document_the_owner_deleted() {
+        let archive = ScriptedArchive::new();
+        let scan = b"%PDF-1.7 a scanned letter";
+        let UploadOutcome::Accepted(document) = archive.upload(scan) else {
+            panic!("new bytes become a document");
+        };
+        assert_eq!(archive.upload(scan), UploadOutcome::AlreadyArchived(document.clone()));
+
+        archive.delete(&ContentDigest::from_bytes(Sha256::digest(scan).into()));
+        assert_eq!(archive.upload(scan), UploadOutcome::Accepted(document));
     }
 
     #[test]

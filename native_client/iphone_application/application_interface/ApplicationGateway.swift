@@ -42,6 +42,12 @@ final class ApplicationGateway {
 		}
 	}
 
+	/// Asks the copy to read the archive's changes now, as after a sent document was archived,
+	/// instead of at its next scheduled time.
+	func synchronize() {
+		library?.synchronize()
+	}
+
 	/// Stops the coordinator after its current work, which ends every waiting read.
 	func shutdown() async {
 		await core?.shutdown()

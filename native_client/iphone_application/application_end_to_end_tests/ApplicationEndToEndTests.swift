@@ -51,6 +51,51 @@ final class ApplicationEndToEndTests: XCTestCase {
 		await second.shutdown()
 	}
 
+	/// A scan sent as the iPhone sends it: the body prepared in Rust with the token from the Keychain,
+	/// uploaded from its file by `URLSession`, its answer read in Rust, and the new document
+	/// copied into the library, which an archived answer asks to synchronize at once.
+	@MainActor
+	func testASentScanArrivesInTheLibrary() async throws {
+		var configuration = ApplicationEnvironment.isolated().applicationConfiguration
+		let credentials = CredentialStorage.sharedKeychain(
+			serviceName: "org.schublade.iphone.end-to-end-tests.\(UUID().uuidString)",
+			accessGroup: nil
+		)
+		configuration.credentialStorage = credentials
+		let gateway = ApplicationGateway()
+		try await gateway.start(configuration: configuration)
+		let grant = try await gateway.connectArchive(address: Self.archiveAddress(), token: Self.token)
+		let filled = try await Self.awaitDocuments(Self.seededDocuments, in: gateway)
+
+		let directory = URL.temporaryDirectory.appending(path: UUID().uuidString, directoryHint: .isDirectory)
+		try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+		let scan = directory.appending(path: "document.pdf")
+		try Data("%PDF-1.4\nA letter scanned on the iPhone \(UUID().uuidString)\n%%EOF\n".utf8).write(to: scan)
+		let body = directory.appending(path: "request_body")
+		let prepared = try prepareDocumentSubmission(
+			archiveOrigin: grant.origin,
+			credentialStorage: credentials,
+			documentPath: scan.path(percentEncoded: false),
+			fileName: "Scan 2026-11-22.pdf",
+			mediaType: .pdf,
+			destinationPath: body.path(percentEncoded: false)
+		)
+		var request = try URLRequest(url: XCTUnwrap(URL(string: prepared.url)))
+		request.httpMethod = "POST"
+		request.setValue(prepared.contentType, forHTTPHeaderField: "Content-Type")
+		request.setValue(prepared.authorization, forHTTPHeaderField: "Authorization")
+		let (answerBody, response) = try await URLSession.shared.upload(for: request, fromFile: body)
+		let status = try XCTUnwrap(response as? HTTPURLResponse).statusCode
+		let answer = readDocumentSubmissionAnswer(status: UInt16(status), body: answerBody)
+		guard case .archived(_, alreadyHeld: false) = answer else {
+			return XCTFail("The archive answered \(answer)")
+		}
+
+		gateway.synchronize()
+		_ = try await Self.awaitDocuments(filled.counts.documents + 1, in: gateway)
+		await gateway.shutdown()
+	}
+
 	private static func archiveAddress() throws -> String {
 		try XCTUnwrap(
 			ProcessInfo.processInfo.environment["SCHUBLADE_SCRIPTED_ARCHIVE"],

@@ -7,7 +7,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::io::{Read, Write};
 
-use archive_access::{ArchiveCondition, ContentDigest, DocumentIdentifier, PermissionLevel, Timestamp};
+use archive_access::{ArchiveCondition, ContentDigest, DocumentIdentifier, INGEST_PATH, PermissionLevel, Timestamp};
 use archive_replica::replica_records::{
     CalendarDate, CategoryIdentifier, CategoryRecord, DocumentCondition, DocumentRecord, FieldValue, JournalCursor,
     JournalPage, PersonAssignment, RemovedRecord, SenderIdentifier, SenderRecord, TagIdentifier,
@@ -20,7 +20,7 @@ use collection_core::content_synchronization::{
 };
 use collection_core::domain_types::{DocumentStatus, TimingPolicy};
 use collection_core::file_system_observation::{VerifiedContent, content_digest_of};
-use scripted_archive::ScriptedArchive;
+use scripted_archive::{ScriptedArchive, UploadOutcome};
 use sha2::{Digest, Sha256};
 
 const DEFAULT_TOKEN: &str = "scripted-ingest-token";
@@ -627,14 +627,77 @@ fn seed_corpus(archive: &ScriptedArchive, count: usize) {
     }
 }
 
+/// The files of a `multipart/form-data` body in fields named `files`, each with its file name.
+/// `None` when the content type names no boundary or the body does not follow it.
+fn multipart_files(content_type: Option<&str>, body: &[u8]) -> Option<Vec<(String, Vec<u8>)>> {
+    let boundary = content_type?
+        .strip_prefix("multipart/form-data")?
+        .split(';')
+        .find_map(|parameter| parameter.trim().strip_prefix("boundary="))?
+        .trim_matches('"');
+    let delimiter = format!("--{boundary}").into_bytes();
+    let position = |haystack: &[u8], needle: &[u8]| haystack.windows(needle.len()).position(|window| window == needle);
+    let mut rest = &body[position(body, &delimiter)? + delimiter.len()..];
+    let mut files = Vec::new();
+    while !rest.starts_with(b"--") {
+        rest = rest.strip_prefix(b"\r\n")?;
+        let headers_end = position(rest, b"\r\n\r\n")?;
+        let headers = String::from_utf8_lossy(&rest[..headers_end]).into_owned();
+        rest = &rest[headers_end + 4..];
+        let content_end = position(rest, &[b"\r\n".as_slice(), &delimiter].concat())?;
+        let file_name = headers
+            .split("filename=\"")
+            .nth(1)
+            .and_then(|tail| tail.split('"').next())
+            .map(str::to_owned);
+        if headers.contains("name=\"files\"")
+            && let Some(file_name) = file_name
+        {
+            files.push((file_name, rest[..content_end].to_vec()));
+        }
+        rest = &rest[content_end + 2 + delimiter.len()..];
+    }
+    Some(files)
+}
+
+/// `POST /api/documents/ingest`: each file of the body answered as `src/ingestion/document_upload.ts`
+/// answers it.
+fn ingest(archive: &ScriptedArchive, content_type: Option<&str>, body: &[u8]) -> Answer {
+    let Some(files) = multipart_files(content_type, body) else {
+        return Answer::json(
+            400,
+            serde_json::json!({ "error": "Send the documents as multipart form fields named files" }),
+        );
+    };
+    let outcomes: Vec<serde_json::Value> = files
+        .into_iter()
+        .map(|(file_name, bytes)| match archive.upload(&bytes) {
+            UploadOutcome::Accepted(document) => serde_json::json!({
+                "kind": "accepted", "fileName": file_name, "documentId": document.as_str(),
+            }),
+            UploadOutcome::AlreadyArchived(document) => serde_json::json!({
+                "kind": "already_archived", "fileName": file_name, "documentId": document.as_str(),
+            }),
+            UploadOutcome::Rejected(reason) => serde_json::json!({
+                "kind": "rejected", "fileName": file_name, "reason": reason,
+            }),
+        })
+        .collect();
+    Answer::json(200, serde_json::json!({ "outcomes": outcomes }))
+}
+
 fn route_request(
     archive: &ScriptedArchive,
     authorized: bool,
     method: &tiny_http::Method,
     url: &str,
-    if_none_match: Option<&str>,
+    headers: RequestHeaders<'_>,
     body: Vec<u8>,
 ) -> Answer {
+    let RequestHeaders {
+        if_none_match,
+        content_type,
+    } = headers;
     use tiny_http::Method;
     let (path, query) = split_url(url);
     if path == HELD_DIGESTS_PATH && *method == Method::Get {
@@ -660,6 +723,7 @@ fn route_request(
         (Method::Get, AUTHORIZATION_PATH) => serve_authorization(archive, query),
         (Method::Get, CHANGES_PATH) => serve_changes(archive, query),
         (Method::Post, LOOKUP_PATH) => look_up(archive, &body),
+        (Method::Post, INGEST_PATH) => ingest(archive, content_type, &body),
         (Method::Put, path)
             if let Some(digest) = path
                 .strip_prefix(CONTENT_PATH_PREFIX)
@@ -682,6 +746,12 @@ fn route_request(
     };
     answer.headers.push(("Cache-Control", "no-store".to_owned()));
     answer
+}
+
+/// The request headers a route reads.
+struct RequestHeaders<'request> {
+    if_none_match: Option<&'request str>,
+    content_type: Option<&'request str>,
 }
 
 struct Options {
@@ -738,17 +808,24 @@ fn main() {
             .headers()
             .iter()
             .any(|header| header.field.equiv("Authorization") && header.value.as_str() == expected_auth);
-        let if_none_match = request
-            .headers()
-            .iter()
-            .find(|header| header.field.equiv("If-None-Match"))
-            .map(|header| header.value.as_str().to_owned());
+        let header = |name: &'static str| {
+            request
+                .headers()
+                .iter()
+                .find(|header| header.field.equiv(name))
+                .map(|header| header.value.as_str().to_owned())
+        };
+        let (if_none_match, content_type) = (header("If-None-Match"), header("Content-Type"));
         let mut body = Vec::new();
         let answer = if request.as_reader().read_to_end(&mut body).is_err() {
             Answer::problem(400, "The body could not be read")
         } else {
             let (method, url) = (request.method().clone(), request.url().to_owned());
-            route_request(&archive, authorized, &method, &url, if_none_match.as_deref(), body)
+            let headers = RequestHeaders {
+                if_none_match: if_none_match.as_deref(),
+                content_type: content_type.as_deref(),
+            };
+            route_request(&archive, authorized, &method, &url, headers, body)
         };
         let mut headers = Vec::new();
         if let Some(content_type) = answer.content_type {

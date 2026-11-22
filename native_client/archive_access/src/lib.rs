@@ -10,6 +10,7 @@ mod archive_identifiers;
 mod archive_token;
 mod clock;
 mod credential_storage;
+mod document_submission;
 
 pub use archive_address::{ArchiveAddress, ArchiveAddressRefusal};
 pub use archive_authorization::{ArchiveAuthorization, PermissionLevel, UNRESTRICTED_SCOPE_DIGEST, read_authorization};
@@ -24,4 +25,8 @@ pub use credential_storage::SharedKeychainCredentialStore;
 pub use credential_storage::{
     CredentialStorageFailure, CredentialStore, FixedCredentialStore, RememberingCredentialStore,
     TOKEN_ENVIRONMENT_VARIABLE,
+};
+pub use document_submission::{
+    INGEST_PATH, MAXIMUM_DOCUMENT_BYTES, PreparedSubmission, SubmissionAnswer, SubmissionMediaType,
+    SubmissionPreparationFailure, prepare_submission, read_submission_answer,
 };

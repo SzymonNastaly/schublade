@@ -5,7 +5,7 @@
 use crate::domain_types::{EntryName, FileSignature};
 
 /// The server's `MAXIMUM_DOCUMENT_BYTES`, decimal.
-pub const MAXIMUM_CONTENT_BYTES: u64 = 25_000_000;
+pub const MAXIMUM_CONTENT_BYTES: u64 = archive_access::MAXIMUM_DOCUMENT_BYTES;
 
 /// What `lstat` says an entry is, before anything is opened. Symbolic links are never followed.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

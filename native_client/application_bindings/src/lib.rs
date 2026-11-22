@@ -15,6 +15,7 @@ uniffi::setup_scaffolding!();
 mod application_fixture;
 mod published_library;
 mod published_status;
+mod published_submission;
 mod refusals;
 mod status_following;
 
@@ -41,6 +42,10 @@ pub use published_status::{
     Activity, ArchiveConnection, ArchivePermission, AttentionItem, BacklogSummary, CollectionProgress, CollectorStatus,
     ConnectionCondition, FolderAdmission, FolderIdentifier, FolderReference, FolderStatus, FolderUnavailability,
     Receipt, SkipReason, SkippedCount, SuspensionReason,
+};
+pub use published_submission::{
+    DocumentMediaType, DocumentSubmissionAnswer, DocumentSubmissionRequest, SubmissionPreparationRefusal,
+    prepare_document_submission, read_document_submission_answer,
 };
 pub use refusals::{
     ApplicationFault, ApplicationStartFailure, ConnectionRefusal, DecisionRefusal, EnrollmentRefusal,

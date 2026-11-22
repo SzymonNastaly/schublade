@@ -198,3 +198,11 @@ Unit I1 landed with these points settled:
 - `produce_application_bindings.sh` moved to `native_client/scripts/` and serves both projects, choosing the Rust target from Xcode's `PLATFORM_NAME`. It builds the generator without `SDKROOT` and `IPHONEOS_DEPLOYMENT_TARGET`, which Xcode sets for an iPhone build and which would link a Mac program against the iPhone's SDK.
 - The bundle identifiers are `org.schublade.iphone` and `org.schublade.iphone.development`, and the deployment target is iOS 18. The simulator on the Mac runs iOS 26.5 under Xcode 27.2.
 - The end-to-end test proves the Keychain by restarting the core after a document arrived: a second start that does not read the token stays at the old count, which a run with the token in process memory confirmed.
+
+Unit I2 landed with these points settled:
+
+- `prepare_submission` takes the token itself, and the bindings' `prepare_document_submission` reads it from the `CredentialStorage` the caller names, so the share extension passes its Keychain item and no token crosses into Swift but the header value. The multipart boundary is `schublade-` and the file's SHA-256, so the same file gives the same body and the boundary cannot occur inside it; a test asserts the body byte for byte.
+- `read_submission_answer` maps 400, 405, 413, and 415 to `Rejected` with the archive's sentence, because the same body would be refused again, and every 5xx, the outcome `failed`, and an answer it cannot read to `ArchiveUnavailable`.
+- The collector's `MAXIMUM_CONTENT_BYTES` is now `archive_access::MAXIMUM_DOCUMENT_BYTES`, so the two limits cannot drift.
+- `scripted_archive` models a person's upload with `ScriptedArchive::upload`, which brings back a document the owner deleted where the collector's route answers 409, and `scripted-archive-server` serves `POST /api/documents/ingest` with a multipart reader of its own.
+- The copy does not see a sent document until it next reads the archive's changes, every 15 minutes while no screen attends it. An `Archived` answer therefore calls `Library::synchronize()`, which the simulator test found when the document did not arrive within 30 seconds without it.
