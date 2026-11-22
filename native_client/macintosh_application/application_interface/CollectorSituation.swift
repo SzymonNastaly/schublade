@@ -1,4 +1,4 @@
-import CollectionBindings
+import ApplicationBindings
 
 /// What the application knows of the collector. Only `ApplicationController` changes it.
 enum CollectorSituation {

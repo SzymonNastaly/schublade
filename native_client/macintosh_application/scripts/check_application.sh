@@ -1,7 +1,7 @@
 #!/bin/bash
-# The one check of the Mac application: the collector's cargo checks, SwiftFormat, SwiftLint, the
+# The one check of the Mac application: the workspace's cargo checks, SwiftFormat, SwiftLint, the
 # build of every target in both configurations, and the end-to-end test.
-#   collector/macintosh_application/scripts/check_application.sh
+#   native_client/macintosh_application/scripts/check_application.sh
 set -euo pipefail
 export PATH="/opt/homebrew/bin:$HOME/.cargo/bin:$PATH"
 cd "$(dirname "$0")/.."
@@ -18,7 +18,7 @@ if [ -n "$interface_builder_files" ]; then
 fi
 
 xcodegen generate --quiet
-project=(-project SchubladeCollector.xcodeproj -scheme SchubladeCollector -derivedDataPath build
+project=(-project Schublade.xcodeproj -scheme Schublade -derivedDataPath build
 	-destination "platform=macOS,arch=arm64")
 xcodebuild -quiet "${project[@]}" -configuration Release build
 # Not quiet, so that the test's own result lines show. The filter keeps every diagnostic.

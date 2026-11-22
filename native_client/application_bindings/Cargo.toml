@@ -1,5 +1,5 @@
 [package]
-name = "collection_bindings"
+name = "application_bindings"
 description = "The collector as an application sees it: one object, the published status, and the refusals, exported through UniFFI"
 version.workspace = true
 edition.workspace = true
@@ -17,7 +17,7 @@ crate-type = ["staticlib", "lib"]
 blocking = "=1.7.0"
 collection_core = { path = "../collection_core" }
 event-listener = "=5.4.2"
-# Proc macros in library mode. `collection_bindings_generator` pins the same version.
+# Proc macros in library mode. `application_bindings_generator` pins the same version.
 uniffi = "=0.32.2"
 
 [dev-dependencies]

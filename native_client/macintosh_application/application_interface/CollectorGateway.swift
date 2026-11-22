@@ -1,4 +1,4 @@
-import CollectionBindings
+import ApplicationBindings
 
 /// The only type that calls the bindings. Every call into the core waits on a thread of the Rust
 /// side, so the main actor never waits on the coordinator, the network, or the Keychain.

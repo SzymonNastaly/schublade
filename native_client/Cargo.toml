@@ -3,8 +3,8 @@ resolver = "3"
 members = [
     "collection_core",
     "collection_command",
-    "collection_bindings",
-    "collection_bindings_generator",
+    "application_bindings",
+    "application_bindings_generator",
 ]
 
 [workspace.package]

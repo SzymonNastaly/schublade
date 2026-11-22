@@ -1,6 +1,6 @@
 //! The collector as an application sees it: one function that starts it and one object with
 //! seven methods. An application links this crate as a static library and reaches it through the
-//! bindings that `collection_bindings_generator` writes.
+//! bindings that `application_bindings_generator` writes.
 //!
 //! What this crate keeps from every application, so that none repeats it:
 //! - following the status by revision (`status_following`);

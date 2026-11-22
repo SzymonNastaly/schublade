@@ -1,7 +1,7 @@
 import AppKit
-import CollectionBindings
+import ApplicationBindings
 import XCTest
-@testable import CollectorInterface
+@testable import ApplicationInterface
 
 /// Xcode loads this bundle into the Debug application, which the scheme starts in the isolated
 /// environment. XCTestCase is nonisolated, so the module keeps nonisolated default isolation.

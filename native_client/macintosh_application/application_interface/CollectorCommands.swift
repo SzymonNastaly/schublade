@@ -1,4 +1,4 @@
-import CollectionBindings
+import ApplicationBindings
 
 /// Everything a screen asks of the collector. Each command throws the one refusal it can answer.
 protocol CollectorCommands {

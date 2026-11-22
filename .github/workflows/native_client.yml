@@ -1,17 +1,17 @@
-name: Collector
+name: Native client
 
 on:
   push:
     branches: [main]
     paths:
-      - "collector/**"
+      - "native_client/**"
       - "test_fixtures/collection_corpus/**"
       # candidate_classification compares its leading-byte signatures with this file.
       - "src/ingestion/source_file.ts"
-      - ".github/workflows/collector.yml"
+      - ".github/workflows/native_client.yml"
 
 concurrency:
-  group: collector-${{ github.ref }}
+  group: native_client-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -23,7 +23,7 @@ jobs:
     timeout-minutes: 20
     defaults:
       run:
-        working-directory: collector
+        working-directory: native_client
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
@@ -31,7 +31,7 @@ jobs:
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: collector
+          workspaces: native_client
       - run: cargo fmt --check
       - run: cargo clippy --all-targets --locked -- -D warnings
       - run: cargo test --locked

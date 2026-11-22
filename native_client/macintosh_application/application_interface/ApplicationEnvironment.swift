@@ -1,4 +1,4 @@
-import CollectionBindings
+import ApplicationBindings
 import Foundation
 
 /// Where this process keeps its state. Everything that differs between the installed application
@@ -7,10 +7,10 @@ struct ApplicationEnvironment {
 	let collectorConfiguration: CollectorConfiguration
 
 	/// The installed environment, or in a Debug build started with
-	/// `SCHUBLADE_COLLECTOR_ENVIRONMENT=isolated`, the isolated one.
+	/// `SCHUBLADE_APPLICATION_ENVIRONMENT=isolated`, the isolated one.
 	static func current() -> ApplicationEnvironment {
 		#if DEBUG
-		if ProcessInfo.processInfo.environment["SCHUBLADE_COLLECTOR_ENVIRONMENT"] == "isolated" {
+		if ProcessInfo.processInfo.environment["SCHUBLADE_APPLICATION_ENVIRONMENT"] == "isolated" {
 			return isolated()
 		}
 		#endif

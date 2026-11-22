@@ -1,5 +1,5 @@
 import AppKit
-import CollectorInterface
+import ApplicationInterface
 
 let application = NSApplication.shared
 let delegate = ApplicationDelegate()

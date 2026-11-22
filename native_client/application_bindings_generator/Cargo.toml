@@ -1,6 +1,6 @@
 [package]
-name = "collection_bindings_generator"
-description = "uniffi-bindgen-swift for collection_bindings, in its own crate so that its command-line dependencies stay out of the static library"
+name = "application_bindings_generator"
+description = "uniffi-bindgen-swift for application_bindings, in its own crate so that its command-line dependencies stay out of the static library"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

@@ -21,6 +21,25 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "330a5ed07fa54e4702c9d6c4174f74427fc0ef6e214bbd677ae50a5099946470"
 
 [[package]]
+name = "application_bindings"
+version = "0.1.0"
+dependencies = [
+ "blocking",
+ "collection_core",
+ "event-listener",
+ "pollster",
+ "tempfile",
+ "uniffi",
+]
+
+[[package]]
+name = "application_bindings_generator"
+version = "0.1.0"
+dependencies = [
+ "uniffi",
+]
+
+[[package]]
 name = "ascii"
 version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -251,25 +270,6 @@ name = "clap_lex"
 version = "1.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e0921b3876b3a1df8a1c9f912e7f94342458022c2e84288015893d83c4d62a79"
-
-[[package]]
-name = "collection_bindings"
-version = "0.1.0"
-dependencies = [
- "blocking",
- "collection_core",
- "event-listener",
- "pollster",
- "tempfile",
- "uniffi",
-]
-
-[[package]]
-name = "collection_bindings_generator"
-version = "0.1.0"
-dependencies = [
- "uniffi",
-]
 
 [[package]]
 name = "collection_command"

@@ -4,7 +4,7 @@
 set -euo pipefail
 
 if [[ $# -eq 0 ]]; then
-	echo "Usage: scripts/execute_on_macintosh.sh COMMAND [ARGS...]   e.g. scripts/execute_on_macintosh.sh cargo test --manifest-path collector/Cargo.toml" >&2
+	echo "Usage: scripts/execute_on_macintosh.sh COMMAND [ARGS...]   e.g. scripts/execute_on_macintosh.sh cargo test --manifest-path native_client/Cargo.toml" >&2
 	exit 1
 fi
 

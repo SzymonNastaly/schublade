@@ -2,7 +2,7 @@
 included:
   - application
   - application_end_to_end_tests
-  - collector_interface
+  - application_interface
 excluded:
   - build
   - generated_bindings
@@ -67,14 +67,14 @@ custom_rules:
     name: "Collector start outside the gateway"
     regex: '\bstartCollector\b'
     match_kinds: [identifier]
-    excluded: 'collector_interface/CollectorGateway\.swift$'
+    excluded: 'application_interface/CollectorGateway\.swift$'
     message: "Only CollectorGateway starts the collector."
     severity: error
   collector_outside_gateway:
     name: "Collector outside the gateway"
     regex: '\b(Collector|CollectorProtocol)\b'
     match_kinds: [typeidentifier]
-    excluded: 'collector_interface/CollectorGateway\.swift$'
+    excluded: 'application_interface/CollectorGateway\.swift$'
     message: "Only CollectorGateway holds the collector; send a command through CollectorCommands."
     severity: error
   unchecked_sendable_forbidden:

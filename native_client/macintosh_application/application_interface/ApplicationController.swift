@@ -1,4 +1,4 @@
-import CollectionBindings
+import ApplicationBindings
 
 /// The one owner of the collector's situation. It starts the collector, follows every status in
 /// order, and renders the menu bar item after each change.

@@ -10,4 +10,4 @@ schublade.deploy.json
 .DS_Store
 .tanstack/
 .claude/worktrees/
-collector/target/
+native_client/target/

@@ -3,5 +3,5 @@ src/routeTree.gen.ts
 test_fixtures/
 *.md
 drizzle/
-# The collector's workspace is checked with cargo and its own scripts.
-collector/
+# The native client's workspace is checked with cargo and its own scripts.
+native_client/
