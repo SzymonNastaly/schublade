@@ -63,6 +63,14 @@ struct CollectorNoticesTests {
 		#expect(CollectorNotices.arising(previous: refused, next: refused, context: Self.context()).isEmpty)
 	}
 
+	@Test func aDecisionAndAnAcceptedTokenWithdrawTheirNotifications() {
+		let waiting = Self.status(Self.awaiting, attention: [.credentialSuspended(reason: .credentialInsufficient)])
+		#expect(CollectorNotices.arising(previous: Self.status(Self.awaiting), next: waiting, context: Self.context())
+			.map(\.title) == ["The token may not upload documents"])
+		#expect(CollectorNotices.settled(previous: waiting, next: Self.status(.collecting))
+			== ["folder-surveyed-1", "token-refused"])
+	}
+
 	@Test func theFirstStatusAfterLaunchNotifiesNothing() {
 		let waiting = Self.status(Self.awaiting, attention: [.credentialSuspended(reason: .credentialRefused)])
 		#expect(CollectorNotices.arising(previous: nil, next: waiting, context: Self.context()).isEmpty)

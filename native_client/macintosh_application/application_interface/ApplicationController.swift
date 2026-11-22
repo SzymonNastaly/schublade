@@ -131,7 +131,11 @@ final class ApplicationController {
 			},
 			revisionOf: { $0.revision },
 			onStatus: { [weak self] status in
-				self?.notifier.observe(status, context: WordingContext.current())
+				self?.notifier.observe(
+					status,
+					context: WordingContext.current(),
+					windowAttended: self?.mainWindowController.isAttending ?? false
+				)
 				self?.updateRunning {
 					$0.collectorFault = nil
 					$0.collector = status

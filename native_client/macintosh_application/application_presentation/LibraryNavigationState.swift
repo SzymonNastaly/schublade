@@ -33,6 +33,22 @@ public struct LibraryNavigationState: Equatable, Sendable {
 		self.replacingTokenOrigin = replacingTokenOrigin
 	}
 
+	/// Takes a search's text. A page such as a folder or Needs Attention has no list to search, so a
+	/// search typed there moves to All Documents.
+	public mutating func search(_ text: String) {
+		searchText = text
+		guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+			return
+		}
+		switch destination {
+		case .library:
+			break
+		case .needsAttention, .folder:
+			destination = .library(.allDocuments, title: nil)
+			selectedDocument = nil
+		}
+	}
+
 	public var trimmedSearchText: String {
 		searchText.trimmingCharacters(in: .whitespacesAndNewlines)
 	}

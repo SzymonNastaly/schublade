@@ -179,6 +179,15 @@ struct WindowContentAndSidebarTests {
 		#expect(folderItems.map(\.title) == ["Dokumente", "Add Folder…"])
 	}
 
+	@Test func aSearchTypedOnAPageMovesToAllDocuments() {
+		var navigation = LibraryNavigationState(destination: .folder(FolderIdentifier(value: 2)))
+		navigation.search("  ")
+		#expect(navigation.destination == .folder(FolderIdentifier(value: 2)))
+		navigation.search("Nordbank")
+		#expect(navigation.destination == .library(.allDocuments, title: nil))
+		#expect(navigation.searchText == "Nordbank")
+	}
+
 	@Test func emptyListAndTokenReplacementTransitions() {
 		let statuses = Self.makeStatuses(condition: .suspended(reason: .credentialRefused))
 		var navigation = LibraryNavigationState()

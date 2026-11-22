@@ -25,9 +25,12 @@ final class WorkspacePageViewController: NSViewController {
 		onReplaceToken: @escaping () -> Void
 	) {
 		self.onReplaceToken = onReplaceToken
-		folderPage = FolderPageViewController(commands: commands, renderMode: renderMode) { document in
-			onNavigate(.library(.allDocuments, title: nil), document)
-		}
+		folderPage = FolderPageViewController(
+			commands: commands,
+			renderMode: renderMode,
+			onSelectDocument: { onNavigate(.library(.allDocuments, title: nil), $0) },
+			onFolderWithdrawn: { onNavigate(.library(.allDocuments, title: nil), nil) }
+		)
 		attentionPage = NeedsAttentionViewController(
 			onAction: { action in
 				switch action {

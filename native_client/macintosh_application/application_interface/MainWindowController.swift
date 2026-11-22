@@ -324,7 +324,7 @@ private extension MainWindowController {
 		guard navigation.searchText != text else {
 			return
 		}
-		updateNavigation { $0.searchText = text }
+		updateNavigation { $0.search(text) }
 	}
 
 	func toggleInspector() {

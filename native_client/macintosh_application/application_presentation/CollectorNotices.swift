@@ -20,21 +20,49 @@ public enum CollectorNotices {
 			}
 			let name = context.folderName(folder.folder.root)
 			return CollectorNotice(
-				identifier: "folder-surveyed-\(folder.folder.identifier.value)",
+				identifier: folderNoticeIdentifier(folder.folder.identifier),
 				title: "\(name) is ready for your decision",
 				body: "Schublade looked through the files already there. Nothing uploads before you decide.",
 				action: .decideBacklog(folder.folder.identifier)
 			)
 		}
-		if suspensionReason(in: next) != nil, suspensionReason(in: previous) == nil {
+		if let reason = suspensionReason(in: next), suspensionReason(in: previous) == nil {
 			notices.append(CollectorNotice(
-				identifier: "token-refused",
-				title: "Schublade refused the token",
+				identifier: tokenNoticeIdentifier,
+				title: reason == .credentialRefused
+					? "Schublade refused the token"
+					: "The token may not upload documents",
 				body: "Nothing uploads until you replace the token.",
 				action: .replaceToken
 			))
 		}
 		return notices
+	}
+
+	/// The identifiers of notifications whose event is over: a folder decided or removed, and a token
+	/// no longer refused. Notification Center withdraws them, so a late click never opens a stale page.
+	public static func settled(previous: CollectorStatus?, next: CollectorStatus) -> [String] {
+		guard let previous else {
+			return []
+		}
+		var identifiers = previous.folders.compactMap { folder -> String? in
+			guard awaitsDecision(folder.folder.identifier, in: previous),
+			      !awaitsDecision(folder.folder.identifier, in: next)
+			else {
+				return nil
+			}
+			return folderNoticeIdentifier(folder.folder.identifier)
+		}
+		if suspensionReason(in: previous) != nil, suspensionReason(in: next) == nil {
+			identifiers.append(tokenNoticeIdentifier)
+		}
+		return identifiers
+	}
+
+	private static let tokenNoticeIdentifier = "token-refused"
+
+	private static func folderNoticeIdentifier(_ folder: FolderIdentifier) -> String {
+		"folder-surveyed-\(folder.value)"
 	}
 
 	private static func awaitsDecision(_ folder: FolderIdentifier, in status: CollectorStatus) -> Bool {

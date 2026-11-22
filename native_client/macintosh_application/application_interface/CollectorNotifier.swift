@@ -24,15 +24,31 @@ final class CollectorNotifier: NSObject, UNUserNotificationCenterDelegate {
 		}
 	}
 
-	func observe(_ status: CollectorStatus, context: WordingContext) {
+	/// Follows a collector status. Permission is asked when a folder is added, never at launch;
+	/// nothing is posted while the window has the person's attention, because it shows the same;
+	/// and a notification whose event is over is withdrawn.
+	func observe(_ status: CollectorStatus, context: WordingContext, windowAttended: Bool) {
 		let notices = CollectorNotices.arising(previous: previous, next: status, context: context)
+		let settled = CollectorNotices.settled(previous: previous, next: status)
+		let folderAdded = status.folders.count > (previous?.folders.count ?? status.folders.count)
 		previous = status
-		guard isEnabled, !notices.isEmpty else {
+		guard isEnabled else {
+			return
+		}
+		let center = UNUserNotificationCenter.current()
+		if !settled.isEmpty {
+			center.removeDeliveredNotifications(withIdentifiers: settled)
+		}
+		if folderAdded {
+			Task {
+				_ = try? await center.requestAuthorization(options: [.alert, .sound])
+			}
+		}
+		guard !notices.isEmpty, !windowAttended else {
 			return
 		}
 		Task {
-			let center = UNUserNotificationCenter.current()
-			guard await (try? center.requestAuthorization(options: [.alert, .sound])) == true else {
+			guard await center.notificationSettings().authorizationStatus == .authorized else {
 				return
 			}
 			for notice in notices {

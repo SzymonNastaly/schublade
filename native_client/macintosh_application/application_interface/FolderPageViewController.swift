@@ -13,25 +13,40 @@ final class FolderPageViewController: NSViewController {
 		let commandPending: Bool
 	}
 
+	/// A command in flight: the folder it is for and the admission it found, so its result never
+	/// lands on another folder's page and the buttons stay off until the status shows the change.
+	private struct PendingCommand {
+		let folder: FolderIdentifier
+		let admission: Int
+	}
+
 	private let commands: any CollectorCommands
 	private let renderMode: InterfaceRenderMode
 	private let onSelectDocument: (DocumentIdentifier) -> Void
+	private let onFolderWithdrawn: () -> Void
 	private let page = PageColumnView()
 	private var shown: Shown?
+	private var stateDetail: NSTextField?
 	private var folder: FolderStatus?
 	private var receipts: [Receipt] = []
 	private var context: WordingContext?
 	private var failure: String?
-	private var commandPending = false
+	private var pending: PendingCommand?
+
+	private var commandPending: Bool {
+		pending != nil && pending?.folder == folder?.folder.identifier
+	}
 
 	init(
 		commands: any CollectorCommands,
 		renderMode: InterfaceRenderMode,
-		onSelectDocument: @escaping (DocumentIdentifier) -> Void
+		onSelectDocument: @escaping (DocumentIdentifier) -> Void,
+		onFolderWithdrawn: @escaping () -> Void
 	) {
 		self.commands = commands
 		self.renderMode = renderMode
 		self.onSelectDocument = onSelectDocument
+		self.onFolderWithdrawn = onFolderWithdrawn
 		super.init(nibName: nil, bundle: nil)
 	}
 
@@ -45,9 +60,16 @@ final class FolderPageViewController: NSViewController {
 	}
 
 	func render(folder: FolderStatus?, receipts: [Receipt], context: WordingContext) {
-		if folder?.folder.identifier != self.folder?.folder.identifier {
+		let admission = folder.map { Self.kind(of: $0.admission) }
+		let changed = folder?.folder.identifier != self.folder?.folder.identifier
+			|| folder?.unavailability != self.folder?.unavailability
+			|| admission != self.folder.map { Self.kind(of: $0.admission) }
+		if changed {
 			failure = nil
-			commandPending = false
+		}
+		// The status shows the command's effect, so the buttons may come back.
+		if let pending, pending.folder == folder?.folder.identifier, pending.admission != admission {
+			self.pending = nil
 		}
 		self.folder = folder
 		self.receipts = receipts
@@ -57,12 +79,20 @@ final class FolderPageViewController: NSViewController {
 
 	private func rebuild() {
 		guard let folder, let context else {
-			page.show([PageText.body("This folder is no longer collected.", color: .secondaryLabelColor)])
+			// A folder just added, or opened from a notification before the first status, is listed soon.
+			page.show([PageText.body("Opening the folder…", color: .secondaryLabelColor)])
 			shown = nil
 			return
 		}
-		let next = Shown(folder: folder, receipts: receipts, failure: failure, commandPending: commandPending)
+		let next = Shown(
+			folder: Self.withoutProgress(folder),
+			receipts: receipts,
+			failure: failure,
+			commandPending: commandPending
+		)
 		guard next != shown else {
+			// During a survey only the count of files under examination moves; it changes in place.
+			stateDetail?.stringValue = CollectorWording.folderState(folder).detail ?? ""
 			return
 		}
 		shown = next
@@ -85,6 +115,26 @@ final class FolderPageViewController: NSViewController {
 		}
 		views.append(PageText.secondary(Self.collectionNote))
 		page.show(views)
+	}
+
+	/// The case of an admission, without the counts that change while it lasts.
+	private static func kind(of admission: FolderAdmission) -> Int {
+		switch admission {
+		case .surveying:
+			0
+		case .awaitingDecision:
+			1
+		case .collecting:
+			2
+		}
+	}
+
+	private static func withoutProgress(_ folder: FolderStatus) -> FolderStatus {
+		var structure = folder
+		if case .surveying = folder.admission {
+			structure.admission = .surveying(filesUnderExamination: 0)
+		}
+		return structure
 	}
 
 	private static let collectionNote = "Schublade reads the PDF, JPEG, PNG, and WebP files in this folder and its "
@@ -140,9 +190,22 @@ private extension FolderPageViewController {
 		let line = NSStackView(views: views)
 		line.spacing = 6
 		guard let detail = state.detail else {
+			stateDetail = nil
 			return line
 		}
-		let block = NSStackView(views: [line, PageText.body(detail, color: .secondaryLabelColor)])
+		let detailLabel = PageText.body(detail, color: .secondaryLabelColor)
+		stateDetail = detailLabel
+		var rows: [NSView] = [line, detailLabel]
+		if folder?.unavailability == .accessDenied {
+			let settings = NSButton(
+				title: "Open System Settings…",
+				target: self,
+				action: #selector(openPrivacySettings)
+			)
+			settings.bezelStyle = .rounded
+			rows.append(settings)
+		}
+		let block = NSStackView(views: rows)
 		block.orientation = .vertical
 		block.alignment = .leading
 		block.spacing = 4
@@ -172,7 +235,6 @@ private extension FolderPageViewController {
 		remove.bezelStyle = .rounded
 		let upload = NSButton(title: wording.uploadLabel, target: self, action: #selector(uploadPressed))
 		upload.bezelStyle = .rounded
-		upload.keyEquivalent = "\r"
 		upload.setAccessibilityIdentifier(InterfaceIdentifier.folderPageUploadButton)
 		for button in [remove, upload] {
 			button.isEnabled = !commandPending
@@ -246,9 +308,11 @@ private extension FolderPageViewController {
 		}
 		let name = context.folderName(folder.folder.root)
 		let withdraw = { [weak self] in
-			self?.perform { commands throws(WithdrawalRefusal) in
-				try await commands.withdrawFolder(folder.folder.identifier)
-			} describing: { CollectorRefusalWording.withdrawalRefusalSentence($0) }
+			self?.perform(
+				{ commands throws(WithdrawalRefusal) in try await commands.withdrawFolder(folder.folder.identifier) },
+				withdrawing: true,
+				describing: { CollectorRefusalWording.withdrawalRefusalSentence($0) }
+			)
 		}
 		guard renderMode == .interactive, let window = view.window else {
 			withdraw()
@@ -271,21 +335,40 @@ private extension FolderPageViewController {
 	/// refusal as one sentence. The status that follows a success redraws the page.
 	func perform<Refusal: Error>(
 		_ command: @escaping (any CollectorCommands) async throws(Refusal) -> Void,
+		withdrawing: Bool = false,
 		describing: @escaping (Refusal) -> String
 	) {
-		commandPending = true
+		guard let folder, !commandPending else {
+			return
+		}
+		let target = folder.folder.identifier
+		pending = PendingCommand(folder: target, admission: Self.kind(of: folder.admission))
 		failure = nil
 		rebuild()
 		let commands = commands
 		Task {
 			do throws(Refusal) {
 				try await command(commands)
-				failure = nil
+				if withdrawing, self.folder?.folder.identifier == target {
+					pending = nil
+					onFolderWithdrawn()
+				}
 			} catch {
-				failure = describing(error)
+				if pending?.folder == target {
+					pending = nil
+				}
+				if self.folder?.folder.identifier == target {
+					failure = describing(error)
+				}
 			}
-			commandPending = false
 			rebuild()
+		}
+	}
+
+	@objc func openPrivacySettings() {
+		let address = "x-apple.systempreferences:com.apple.preference.security?Privacy_FilesAndFolders"
+		if let settings = URL(string: address) {
+			NSWorkspace.shared.open(settings)
 		}
 	}
 }
