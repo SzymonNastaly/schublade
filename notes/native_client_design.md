@@ -751,6 +751,16 @@ Commit `1f9ce3a` deleted the Tauri application and its React window ahead of the
 
 Under this design units 1 and 2 keep their behaviour and change their names in unit R1: `collection_bindings` becomes `application_bindings`, `CollectionBindings` becomes `ApplicationBindings`, `CollectorInterface` with `collector_interface/` becomes `ApplicationInterface` with `application_interface/`, `CollectorGateway` becomes `ApplicationGateway`, `CollectorSituation` becomes `ApplicationSituation`, `SchubladeCollector` becomes `Schublade`, and `produce_collector_bindings.sh` becomes `produce_application_bindings.sh`.
 
+Unit S1, the journal, landed as commit `70144d1`. Unit S2, the client protocol, settled these points against `notes/client_protocol.md`, which now says the same.
+
+- A page holds at most 250 journal entries today, the server's choice, which a client must not assume.
+- A page without `after` holds removals too, so a fill and a catch-up read by one path.
+- A cursor's number has at most 15 digits, so it stays below 2^53.
+- `readJournalPage` reads the highest issued number as `max(sequence_number)` and counts the entries after the page's last entry in the same batch, which the wire carries as `remaining`.
+- The entries of `changes` come in no promised order. The fixture test compares them keyed by record kind and identifier.
+- `collection_protocol/` is part of `src/client_protocol/`: `client_paths.ts` holds the one route table with each route's method and level, and `client_requests.ts` the one gate. `deniedTagsAllExist` moved from `archive_tools.ts` to `document_listing.ts`, and `document_representation.ts` exposes `readStoredRepresentation` to both the browser's route and the client's.
+- The representation routes and the authorization answer 400 to a query parameter, as every route of the protocol does. The collector's three routes do not check query parameters, as before.
+
 ## Open questions and risks
 
 1. Should `connect_archive` compare the origin with the collector's before it reads the authorization? The flow reads the authorization first, as decided, so an unreachable second archive still answers `ArchiveUnreachable` where `ArchiveDiffers` is the better refusal. The comparison needs no network, so it can come first.
@@ -776,7 +786,7 @@ Under this design units 1 and 2 keep their behaviour and change their names in u
 
 ## Next implementation step
 
-Build unit S1 first, the two migrations, the schema's two tables and two lists, and `change_journal.ts` with its tests, because everything else reads what it writes.
+Units S1 (`70144d1`) and S2 are committed, so the Worker serves every route the native client reads. Build R3 next, against `test_fixtures/client_protocol/`. Applying migrations 0008 and 0009 to staging and the deploy that serves the routes need the owner.
 
 Units 1 and 2 of the first design are committed (`7ce2f82`, `94ca40c`), and so are D (`1f9ce3a`), R1 (`5d78532`), and R2 (this commit). Two streams run side by side because they touch disjoint trees: the Worker (`src/`, `drizzle/`, `test_fixtures/`) and the native client (`collector/`, then `native_client/`). Each unit ends in its check and one commit on `main`.
 

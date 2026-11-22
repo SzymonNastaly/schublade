@@ -136,7 +136,7 @@ async function follow(database: ArchiveDatabase, scope: AuthorizationScope, repl
 			else replica.records.delete(`${change.kind} ${change.id}`)
 		}
 		replica.cursor = outcome.page.nextCursor
-		if (!outcome.page.moreFollow) return received
+		if (outcome.page.remainingEntries === 0) return received
 	}
 }
 
@@ -404,7 +404,7 @@ test("a cursor of another journal or beyond the journal's end is refused, and ma
 		beyondTheEnd: { kind: "cursor_refused", reason: "beyond_end" },
 		atTheEnd: {
 			kind: "page",
-			page: { changes: [], nextCursor: { journalIdentifier, sequenceNumber: 1 }, moreFollow: false },
+			page: { changes: [], nextCursor: { journalIdentifier, sequenceNumber: 1 }, remainingEntries: 0 },
 		},
 	})
 })

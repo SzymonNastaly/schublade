@@ -63,6 +63,16 @@ function everyTagExists(tagIds: Array<string>): SQL {
 }
 
 /**
+ * Whether every tag the scope denies still exists. A scope whose denied tag was merged away admits
+ * nothing, which scopeAdmission enforces inside each statement; a route asks this first to say so.
+ */
+export async function deniedTagsAllExist(database: ArchiveDatabase, deniedTags: Array<string> = []): Promise<boolean> {
+	const distinctTagIds = [...new Set(deniedTags)]
+	if (distinctTagIds.length === 0) return true
+	return (await database.$count(tags, isListed(tags.id, distinctTagIds))) === distinctTagIds.length
+}
+
+/**
  * Whether a scope admits a row of documents, as a condition for any statement that reads that
  * table under its own name. It is the one definition: the listing, the facets, the tools of /mcp,
  * and the change journal all read through it. Only archived documents qualify, because a document

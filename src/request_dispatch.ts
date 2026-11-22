@@ -1,8 +1,8 @@
 import { ARCHIVE_CHANGES_PATH, connectToArchiveChanges } from "./archive/archive_changes"
 import { requireAccess } from "./authentication/access_verification"
 import { crossSiteRequestRejection } from "./authentication/cross_site_requests"
-import { matchCollectionRoute } from "./collection_protocol/collection_paths"
-import { serveCollectionRequest } from "./collection_protocol/collection_requests"
+import { matchClientRoute } from "./client_protocol/client_paths"
+import { serveClientRequest } from "./client_protocol/client_requests"
 import { receiveTokenIngestion } from "./ingestion/token_ingestion"
 import { TOKEN_INGESTION_PATH } from "./ingestion/token_ingestion_path"
 import { serveAuthorizationServer } from "./model_context_protocol/authorization_server"
@@ -28,7 +28,7 @@ const accessBypassingPaths = new Set(ACCESS_BYPASSING_PATHS)
 
 /**
  * Routes every request of the Worker entry. Cross-site writes and WebSocket upgrades are refused
- * first. Exactly the token ingestion path, the collector routes, and the paths of OAuth clients
+ * first. Exactly the token ingestion path, the client routes, and the paths of OAuth clients
  * authenticate a bearer token, or need no credential, instead of an Access assertion. Every other
  * path, including their subpaths, the archive changes socket, and the consent page, stays behind
  * Access.
@@ -43,8 +43,8 @@ export function createRequestDispatcher(serveApplication: ApplicationHandler, de
 		if (rejection) return rejection
 		const { pathname } = new URL(request.url)
 		if (pathname === TOKEN_INGESTION_PATH) return receiveTokenIngestion(environment, request)
-		const collectionRoute = matchCollectionRoute(pathname)
-		if (collectionRoute) return serveCollectionRequest(environment, request, collectionRoute)
+		const clientRoute = matchClientRoute(pathname)
+		if (clientRoute) return serveClientRequest(environment, request, clientRoute)
 		if (accessBypassingPaths.has(pathname)) return serveAuthorizationServer(request, environment, context)
 		const serveMember: ApplicationHandler = (memberRequest, caller) => {
 			if (pathname === ARCHIVE_CHANGES_PATH) return connectToArchiveChanges(environment, memberRequest)

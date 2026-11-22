@@ -95,6 +95,7 @@ test("POST /api/documents/ingest refuses a missing, unknown, or read-only token 
 test("every other path requires an Access assertion even with a valid token, and cross-site writes are refused first", async () => {
 	const { environment, token } = await prepareArchive()
 	const bearer = { Authorization: `Bearer ${token}` }
+	const documentPath = "/api/v1/documents/4d1f0c9e-2a6b-4c3e-9a51-0b7f6e2d8c11"
 
 	const responses = [
 		await dispatch(uploadRequest("/api/documents", bearer), environment),
@@ -105,6 +106,18 @@ test("every other path requires an Access assertion even with a valid token, and
 		await dispatch(uploadRequest("/api/v1/documents/not-an-identifier", bearer), environment),
 		await dispatch(uploadRequest("/api/v1/x", bearer), environment),
 		await dispatch(uploadRequest("/api/v1", bearer), environment),
+		await dispatch(new Request("https://archive.test/api/v1/authorization/", { headers: bearer }), environment),
+		await dispatch(new Request("https://archive.test/api/v1/Authorization", { headers: bearer }), environment),
+		await dispatch(new Request("https://archive.test/api/v1/changes/", { headers: bearer }), environment),
+		await dispatch(new Request("https://archive.test/api/v1/journal", { headers: bearer }), environment),
+		await dispatch(
+			new Request(`https://archive.test${documentPath.toUpperCase()}/original`, { headers: bearer }),
+			environment,
+		),
+		await dispatch(new Request(`https://archive.test${documentPath}/original/`, { headers: bearer }), environment),
+		await dispatch(new Request(`https://archive.test${documentPath}/originals`, { headers: bearer }), environment),
+		await dispatch(new Request(`https://archive.test${documentPath}/text/page`, { headers: bearer }), environment),
+		await dispatch(new Request(`https://archive.test${documentPath}/Thumbnail`, { headers: bearer }), environment),
 		await dispatch(new Request("https://archive.test/settings", { headers: bearer }), environment),
 		await dispatch(new Request("https://archive.test/authorize", { headers: bearer }), environment),
 		await dispatch(uploadRequest("/mcp/", bearer), environment),
@@ -118,17 +131,27 @@ test("every other path requires an Access assertion even with a valid token, and
 	]
 
 	expect(await Promise.all(responses.map(outcome))).toEqual([
-		...Array.from({ length: 14 }, () => ({ status: 403, body: "Access denied: assertion_missing" })),
+		...Array.from({ length: 23 }, () => ({ status: 403, body: "Access denied: assertion_missing" })),
 		{ status: 403, body: "Cross-site request refused: https://elsewhere.example" },
 	])
 })
 
-test("the collector routes authenticate a bearer token without an Access assertion, and refuse another method with 405", async () => {
+test("the client routes authenticate a bearer token without an Access assertion, and refuse another method with 405", async () => {
 	const { environment, token } = await prepareArchive()
 	const bearer = { Authorization: `Bearer ${token}` }
 	const lookupBody = JSON.stringify({ sha256: ["b60d823ff8fc9d5e3f8979eb7be7fd57d31bcb959dcc0ec5260c4daf6ec98150"] })
 	const unknownDocument = "/api/v1/documents/00000000-0000-4000-8000-000000000000"
+	const reading = [
+		"/api/v1/authorization",
+		"/api/v1/changes",
+		`${unknownDocument}/original`,
+		`${unknownDocument}/text`,
+		`${unknownDocument}/thumbnail`,
+	]
 
+	const readingResponses = await Promise.all(
+		reading.map((path) => dispatch(new Request(`https://archive.test${path}`, { headers: bearer }), environment)),
+	)
 	const responses = [
 		await dispatch(
 			new Request("https://archive.test/api/v1/contents/lookup", { method: "POST", headers: bearer, body: lookupBody }),
@@ -150,11 +173,13 @@ test("the collector routes authenticate a bearer token without an Access asserti
 	]
 
 	expect({
+		readingStatuses: readingResponses.map((response) => response.status),
 		statuses: responses.map((response) => response.status),
 		allow: responses[3]?.headers.get("Allow"),
 		challenge: responses[4]?.headers.get("WWW-Authenticate"),
 		problemTypes: responses.slice(3).map((response) => response.headers.get("Content-Type")),
 	}).toEqual({
+		readingStatuses: [200, 200, 404, 404, 404],
 		statuses: [200, 202, 404, 405, 401],
 		allow: "POST",
 		challenge: "Bearer",

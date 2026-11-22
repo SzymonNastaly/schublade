@@ -87,7 +87,7 @@ test("mailRecordsBlockingEmailRouting names the apex MX records Email Routing di
 	})
 })
 
-test("tokenIngestionDestinations lists the token ingestion path and the prefix of the collector routes", () => {
+test("tokenIngestionDestinations lists the token ingestion path and the prefix of the client routes", () => {
 	expect(tokenIngestionDestinations("staging.example.org")).toEqual([
 		"staging.example.org/api/documents/ingest",
 		"staging.example.org/api/v1",

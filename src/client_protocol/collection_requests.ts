@@ -1,8 +1,5 @@
 import { z } from "zod"
 import { queryDocumentStatuses } from "../archive/document_listing"
-import { authenticateApiToken } from "../authentication/api_tokens"
-import { permits } from "../authorization/caller_authorization"
-import { connectDatabase } from "../database/client"
 import { sha256Pattern } from "../database/schema"
 import { awaitsContentDigests, lookupContents, sha256Hexadecimal } from "../ingestion/content_identity"
 import {
@@ -13,10 +10,10 @@ import {
 	readDocumentBody,
 } from "../ingestion/document_upload"
 import { identifySourceFile } from "../ingestion/source_file"
-import { documentStatusPath } from "./collection_paths"
+import { documentStatusPath } from "./client_paths"
+import { documentNotFound, problem } from "./problem_details"
 import type { ArchiveDatabase } from "../database/client"
 import type { UploadEnvironment } from "../ingestion/document_upload"
-import type { CollectionRoute } from "./collection_paths"
 
 const MAXIMUM_LOOKUP_DIGESTS = 1000
 // The Cron Trigger runs the digest backfill every 15 minutes.
@@ -29,47 +26,32 @@ const contentLookupSchema = z.strictObject({
 })
 
 /**
- * The reason phrase of each status an answer can carry. Every problem has the type about:blank,
- * which RFC 9457 reserves for a problem that the status code describes in full, so a collector
- * reads the status and the detail sentence.
+ * Until every document has its digest, a lookup would call archived bytes absent, and an upload of
+ * them would make a second document, so both wait for the scheduled backfill.
  */
-const problemTitles = {
-	400: "Bad Request",
-	401: "Unauthorized",
-	403: "Forbidden",
-	404: "Not Found",
-	405: "Method Not Allowed",
-	409: "Conflict",
-	413: "Content Too Large",
-	415: "Unsupported Media Type",
-	422: "Unprocessable Content",
-	500: "Internal Server Error",
-	503: "Service Unavailable",
-} as const satisfies Record<number, string>
-
-type ProblemStatus = keyof typeof problemTitles
-
-function problem(status: ProblemStatus, detail: string, headers: Record<string, string> = {}): Response {
-	return Response.json(
-		{ type: "about:blank", title: problemTitles[status], status, detail },
-		{ status, headers: { ...headers, "Content-Type": "application/problem+json" } },
-	)
+async function digestBackfillRefusal(database: ArchiveDatabase): Promise<Response | undefined> {
+	if (!(await awaitsContentDigests(database))) return undefined
+	return problem(503, "The archive is still recording the digests of its documents. Send the request again later.", {
+		"Retry-After": String(DIGEST_BACKFILL_INTERVAL_SECONDS),
+	})
 }
 
-async function documentStatusResponse(
+export async function documentStatusResponse(
 	database: ArchiveDatabase,
 	documentId: string,
 	status: 200 | 202 = 200,
 ): Promise<Response> {
 	const [record] = await queryDocumentStatuses(database, [documentId])
-	if (!record) return problem(404, `No document has the identifier ${documentId}`)
+	if (!record) return documentNotFound(documentId)
 	return Response.json(
 		{ document_id: record.documentId, status: record.status, failure_reason: record.failureReason },
 		{ status, headers: { Location: documentStatusPath(record.documentId) } },
 	)
 }
 
-async function serveContentLookup(database: ArchiveDatabase, request: Request): Promise<Response> {
+export async function serveContentLookup(database: ArchiveDatabase, request: Request): Promise<Response> {
+	const refusal = await digestBackfillRefusal(database)
+	if (refusal) return refusal
 	const limited = limitRequestBody(request, MAXIMUM_LOOKUP_BYTES)
 	const body: unknown = await new Response(limited.body).json().catch(() => undefined)
 	if (limited.exceeded()) {
@@ -102,12 +84,14 @@ async function serveContentLookup(database: ArchiveDatabase, request: Request): 
 // through the browser, a token, or mail still goes through archiveContent, which archives it again.
 // A digest other than the one in the path means the bytes were corrupted on the way or sent in error,
 // so they are refused before their kind is read, which corrupted bytes could fail for good.
-async function serveContentSubmission(
+export async function serveContentSubmission(
 	environment: UploadEnvironment,
 	database: ArchiveDatabase,
 	request: Request,
 	sha256: string,
 ): Promise<Response> {
+	const refusal = await digestBackfillRefusal(database)
+	if (refusal) return refusal
 	const [known] = await lookupContents(database, [sha256])
 	if (known?.state === "deleted") {
 		return problem(409, "The owner deleted this document. Only an upload through the browser brings it back.")
@@ -122,49 +106,4 @@ async function serveContentSubmission(
 	if (!sourceFile) return problem(415, UNACCEPTED_FILE_KIND)
 	const archival = await archiveContent(environment, { content: body.content, sourceFile, sha256 })
 	return documentStatusResponse(database, archival.documentId, archival.kind === "accepted" ? 202 : 200)
-}
-
-/**
- * Answers a collector request on a matched route: the method, then the ingest token, then the
- * route. A missing token and an unknown one get the same answer, so the answer reveals no token.
- * Every answer but a document is a problem details document.
- */
-export async function serveCollectionRequest(
-	environment: UploadEnvironment,
-	request: Request,
-	route: CollectionRoute,
-): Promise<Response> {
-	if (request.method !== route.method) {
-		return problem(405, `Send this request with ${route.method}`, { Allow: route.method })
-	}
-	const database = connectDatabase(environment.DATABASE)
-	const caller = await authenticateApiToken(database, request.headers.get("Authorization"))
-	if (caller === undefined) {
-		return problem(401, "Send a valid API token in the Authorization header", { "WWW-Authenticate": "Bearer" })
-	}
-	if (!permits(caller, "ingest")) return problem(403, "The API token does not permit ingesting documents")
-	try {
-		// Until every document has its digest, a lookup would call archived bytes absent, and an
-		// upload of them would make a second document, so both wait for the scheduled backfill.
-		if (route.kind !== "document_status" && (await awaitsContentDigests(database))) {
-			return problem(
-				503,
-				"The archive is still recording the digests of its documents. Send the request again later.",
-				{
-					"Retry-After": String(DIGEST_BACKFILL_INTERVAL_SECONDS),
-				},
-			)
-		}
-		switch (route.kind) {
-			case "content_lookup":
-				return await serveContentLookup(database, request)
-			case "content_submission":
-				return await serveContentSubmission(environment, database, request, route.sha256)
-			case "document_status":
-				return await documentStatusResponse(database, route.documentId)
-		}
-	} catch (error) {
-		console.error(`The collector request ${request.method} ${new URL(request.url).pathname} failed`, error)
-		return problem(500, "The archive could not complete the request. Send it again.")
-	}
 }

@@ -26,11 +26,11 @@ Schublade is a self-hosted document archive that runs as one Cloudflare Worker. 
 ```text
 src/
 	server.ts                              Worker entry: request dispatch with the caller as TanStack Start request context; the scheduled indexing, mail rendering, and digest backfills; the email handler; the Workflow and Durable Object classes
-	request_dispatch.ts                    Cross-site refusal, then bearer tokens for exactly /api/documents/ingest and the collector routes under /api/v1, the OAuth paths of /mcp, Access for every other path, and the archive changes socket and consent page behind it
+	request_dispatch.ts                    Cross-site refusal, then bearer tokens for exactly /api/documents/ingest and the client routes under /api/v1, the OAuth paths of /mcp, Access for every other path, and the archive changes socket and consent page behind it
 	request_dispatch.workerd.test.ts
 	ambient_declarations.d.ts              Types for import.meta.env, the PDFium WebAssembly import, and PDF fixture imports
 	authorization/
-		caller_authorization.ts              Caller union, PermissionLevel order, AuthorizationScope schema, permits(), and the level of each server function
+		caller_authorization.ts              Caller union, PermissionLevel order, AuthorizationScope schema, isRestrictedScope(), permits(), and the level of each server function
 		caller_authorization.test.ts
 	authentication/
 		access_verification.ts               requireAccess: Cloudflare Access assertion verification with jose; hands on a member_session caller
@@ -40,15 +40,15 @@ src/
 		cross_site_requests.ts               crossSiteRequestRejection: 403 for a write or WebSocket upgrade whose Origin names another site
 		cross_site_requests.test.ts
 	database/
-		schema.ts                            The ten Drizzle tables and their drizzle-zod insert schemas
+		schema.ts                            The twelve Drizzle tables, change_journal (one entry per record a client copies, numbered by its latest change) and change_journal_identity (the journal's random identifier) among them, journaledTables and tablesNotReplicated, and the drizzle-zod insert schemas
 		client.ts                            Drizzle bound to env.DATABASE, and connectDatabase for a passed binding
 		database_migrations.workerd.test.ts  Every migration applied in order to rows written under the first schema
 	archive/
 		archive_changes.ts                   The socket path, the connection to the household's coordinator, and the announcement that tells open browsers to read the archive again
 		archive_changes.workerd.test.ts
-		document_listing.ts                  The document listing query with its filters, the facet options with their archived document counts, and the status records of given documents
+		document_listing.ts                  The document listing query with its filters, scopeAdmission and deniedTagsAllExist, the facet options with their archived document counts, and the status records of given documents
 		document_listing.workerd.test.ts
-		document_representation.ts           The original file, the extracted Markdown, or a first-page thumbnail rendered on first request, served with nosniff and a sandbox policy
+		document_representation.ts           The original file, the extracted Markdown, or a first-page thumbnail rendered on first request, served with nosniff and a sandbox policy; readStoredRepresentation, which the client routes share
 		document_representation.workerd.test.ts
 		failed_documents.ts                  The documents whose ingestion failed, newest first, and their count
 		failed_documents.workerd.test.ts
@@ -94,9 +94,16 @@ src/
 		grant_selection.test.ts
 		authorization_grants.ts              The D1 record of each grant: the scope a request reads, and what Settings lists and disconnects
 		archive_access.workerd.test.ts       Registration, consent, token, and each tool under a restricted grant
-	collection_protocol/                   The routes under /api/v1 that collectors reach with an ingest token; collection_paths.ts is pure
-		collection_paths.ts                  The prefix Access bypasses, shared with the provisioning script, and the anchored pattern of each route
-		collection_requests.ts               Method, token, and level checks, 503 for the lookup and the upload while a document awaits its digest, then the lookup of digests, the upload of one file under its digest (409 for a content whose document the owner deleted), and the status of a document, with RFC 9457 problem details
+	client_protocol/                       The routes under /api/v1 that the native client and collectors reach with a bearer token, as notes/client_protocol.md defines them; client_paths.ts is pure
+		client_paths.ts                      The prefix Access bypasses, shared with the provisioning script, and the one route table: each route's anchored pattern, method, and level
+		client_requests.ts                   The one gate: method, token, level, then the route's handler, and 500 for a handler that throws
+		client_requests.workerd.test.ts      The wire fixtures, the refusals of the read routes, entity tags, and cursors
+		problem_details.ts                   RFC 9457 problem details and the 400 for an undefined query parameter
+		change_journal.ts                    readJournalPage: one page of the journal after a cursor, read in one batch, with the records its documents refer to; the cursor and the journal identity
+		change_journal.workerd.test.ts       Every table journaled or not replicated, paging against the real writers, and a restricted scope
+		journal_requests.ts                  GET authorization and GET changes, and the wire names of both
+		representation_requests.ts           GET the original, the text, or the thumbnail of a document the scope admits, with entity tags and 304
+		collection_requests.ts               The collector's routes: 503 for the lookup and the upload while a document awaits its digest, then the lookup of digests, the upload of one file under its digest (409 for a content whose document the owner deleted), and the status of a document
 		collection_requests.workerd.test.ts
 	interface/
 		application_shell.tsx                The header with its one Documents tab and the Failed documents and Settings links, the one search field, and the toolbar that every page sits inside
@@ -174,16 +181,31 @@ scripts/
 	execute_on_macintosh.sh                Copies what git tracks to the build account on the Mac (`ssh mac`) and runs a command there, for FSEvents, st_flags, and the Keychain
 	test_document_generation/              Document catalog, page layout, and scan and photograph simulation
 native_client/                           The native client's Cargo workspace apart from pnpm: the crate every client of the archive shares, the collector's crates, the bindings, and the Mac application; `notes/collector_design.md` is the collector's design
-	Cargo.toml                             Workspace: archive_access, collection_core, collection_command, application_bindings, application_bindings_generator; dependencies build with opt-level 2 in dev so SHA-256 and SQLite run at speed in tests
+	Cargo.toml                             Workspace: archive_access, archive_replica, scripted_archive, collection_core, collection_command, application_bindings, application_bindings_generator; dependencies build with opt-level 2 in dev so SHA-256 and SQLite run at speed in tests
 	archive_access/src/                    What every client of one archive needs and nothing of collecting; it builds on Linux and for the iPhone simulator (`--target aarch64-apple-ios-sim`)
-		lib.rs                               The re-exports of the four private modules
+		lib.rs                               The re-exports of the seven private modules
 		archive_address.rs                   ArchiveAddress, the origin of a pasted address
 		archive_token.rs                     ArchiveToken, never logged, stored, or serialized, and its fingerprint
+		archive_authorization.rs             ArchiveAuthorization, PermissionLevel, and read_authorization, the one request of GET /api/v1/authorization
+		archive_identifiers.rs               ContentDigest, DocumentIdentifier, and is_record_identifier, the pattern of every record identifier
+		clock.rs                             Timestamp, Clock, SystemClock, ManualClock
 		credential_storage.rs                CredentialStore; the Keychain through keyring on macOS, a fixed token from SCHUBLADE_INGEST_TOKEN elsewhere, and RememberingCredentialStore, which reads its inner store once per origin until a write
-		archive_exchange.rs                  ArchiveExchange, the ureq agent with its timeouts and the bearer header; ArchiveCondition, what every route answers alike; ArchiveResponse, every other answer, for its route to read
+		archive_exchange.rs                  ArchiveExchange, the ureq agent with its timeouts and the bearer header, and get_within for an answer above 256,000 bytes; ArchiveCondition, what every route answers alike, with RouteUnknown for a 403 without a problem document; ArchiveResponse, every other answer, for its route to read
+	archive_replica/src/                   The local copy of one archive's records and its synchronization; it depends on archive_access alone and builds for the iPhone simulator
+		lib.rs                               Replica, ReplicaSettings, ReplicaEvent, ReplicaFault, ReplicaStatus, MirroredArchive
+		replica_records.rs                   JournalCursor, the five record types and their identifiers, DocumentCondition, CalendarDate, JournalPage, RemovedRecord, ArchiveRecords
+		archive_reader.rs                    ArchiveReader, PageAnswer, and HttpArchiveReader over ArchiveExchange; no wire type leaves it
+		replica_store.rs                     replica.sqlite and the only module with SQL: open, which replaces a file of another schema version, attach, apply_page, stage_page, discard, records
+		replica_schema.sql                   The schema: the mirror row, the five record tables, the tag links, and the extracted fields
+		replica_synchronization.rs           SynchronizationState, advance_synchronization, SynchronizationTiming: the pure machine with its seven states
+		replica_coordinator.rs               The one owner thread: commands, exchange_page, the deadline, the published status and its revision
+	archive_replica/tests/
+		replica_scenarios.rs                 A seeded script against the scripted archive: a copy equals the archive after any interleaving; a follower of a whole Replica sees the fill complete
+		client_protocol_fixtures.rs          The HTTP reader against a local tiny_http server that answers test_fixtures/client_protocol
+	scripted_archive/src/lib.rs            ScriptedArchive and ArchiveScope: records and a change journal in memory by the server's rules, the writes of a script, and ArchiveReader in process
 	collection_core/src/
 		lib.rs                               Collector, CollectorSettings, CollectorEvent, CommandRefusal, and the re-exports the bindings and the program use
-		domain_types.rs                      ContentDigest, FileSignature, FolderIdentifier, DirectoryKey, EntryName, PathKey, Timestamp, DocumentStatus, TimingPolicy
+		domain_types.rs                      FileSignature, FolderIdentifier, DirectoryKey, EntryName, PathKey, DocumentStatus, TimingPolicy, and the re-exports of archive_access's ContentDigest, DocumentIdentifier, and Timestamp
 		candidate_classification.rs          The name filter, ReadableSignature, the leading-byte table compared with src/ingestion/source_file.ts
 		path_lifecycle.rs                    PathState and advance_path, the first pure machine
 		content_synchronization.rs           ArchiveStanding, advance_content, SubmissionAuthorization, the second
@@ -198,7 +220,6 @@ native_client/                           The native client's Cargo workspace apa
 		archive_client.rs                    ArchiveClient trait and HttpArchiveClient, the three collector routes over ArchiveExchange; no wire type leaves it
 		scripted_archive.rs                  The in-process archive with scripted answers and failures for scenarios
 		status_report.rs                     CollectorStatus and everything it is made of
-		clock.rs                             Clock, SystemClock, ManualClock
 	collection_core/tests/
 		collection_scenarios.rs              The corpus scenarios: a Collector over test_fixtures/collection_corpus against the scripted archive with a manual clock
 		http_archive_client.rs               The HTTP client against a local tiny_http server
@@ -226,6 +247,7 @@ test_fixtures/
 	documents/                             Synthetic test documents and expected_extraction.json
 	collection_corpus/                     Folders a Mac user might enroll (Downloads, Desktop, Documents/Scans, Cloud Storage), with duplicates, incomplete downloads, and files that are no documents
 	expected_collection.json               Each corpus file with its SHA-256 and whether the collector archives, sets aside, or ignores it
+	client_protocol/                       changes_page.json and authorization.json, one answer of each route as notes/client_protocol.md specifies it, which the Worker's test answers and the Rust reader's test parses
 	inference_recordings/                  Workers AI responses recorded from the test documents for workerd tests
 .agents/skills/                          Project skills; .claude/skills links here
 .github/workflows/check.yml              Runs `pnpm check` on each push to main
@@ -263,12 +285,16 @@ eslint.config.js, .prettierrc.json, knip.json, tsconfig.json
   - `cf dev` printed `Error: internal error; reference = …` three times while two uploads archived normally, with no error span in the local explorer's observability tables. The cause is unknown.
 - **Local development runs as `schublade-development`.** The remote preview of a Worker that shares a deployed name sits behind that deployment's Access application and fails without a service token. `cloudflare.config.ts` therefore names the Worker `schublade-development` in every local mode, and `pnpm evaluate:extraction` addresses the local Workflow under that name. Never provision an environment with that worker name.
 - **Local development does not run the Cron Trigger.** Every 15 minutes a deployed Worker starts up to 20 emails still awaiting rendering and runs the scheduled backfill, which uploads up to 100 archived documents that AI Search lacks, failed to index, or holds a stale revision of, and logs one `Scheduled search indexing:` line. It also digests up to 25 documents whose `original_sha256` is null, passing over those it cannot read, and logs one `Scheduled content digests:` line. To run it once on a dev server, request `http://localhost:3000/cdn-cgi/local/scheduled?format=json`. It lists and uploads into the billed development instance.
-- **Only `/api/documents/ingest`, the three collector routes under `/api/v1`, and the OAuth paths skip Access.** `request_dispatch.ts` compares the exact pathname with the token ingestion path, matches the anchored patterns of `collection_paths.ts` (`POST /api/v1/contents/lookup`, `PUT /api/v1/contents/<64 lowercase hex>`, `GET /api/v1/documents/<uuid>`), and compares with `ACCESS_BYPASSING_PATHS`. Access bypasses those paths through the applications "schublade <worker>: token ingestion", whose destinations `tokenIngestionDestinations` names, and "schublade <worker>: model context protocol", whose destinations `ACCESS_BYPASS_DESTINATIONS` names. Subpaths inherit the bypass, so the Worker keeps every path it does not know behind `requireAccess`, a trailing slash, uppercase hexadecimal, or `/api/v1/x` included. The consent page at `/authorize` stays behind Access. Never widen a comparison to a prefix or loosen a pattern; `request_dispatch.workerd.test.ts` fails when you do.
+- **Only `/api/documents/ingest`, the eight client routes under `/api/v1`, and the OAuth paths skip Access.** `request_dispatch.ts` compares the exact pathname with the token ingestion path, matches the anchored patterns of the route table in `client_paths.ts` (`GET /api/v1/authorization`, `GET /api/v1/changes`, `GET /api/v1/documents/<uuid>/original`, `/text`, and `/thumbnail`, `POST /api/v1/contents/lookup`, `PUT /api/v1/contents/<64 lowercase hex>`, `GET /api/v1/documents/<uuid>`), and compares with `ACCESS_BYPASSING_PATHS`. Access bypasses those paths through the applications "schublade <worker>: token ingestion", whose destinations `tokenIngestionDestinations` names, and "schublade <worker>: model context protocol", whose destinations `ACCESS_BYPASS_DESTINATIONS` names. Subpaths inherit the bypass, so the Worker keeps every path it does not know behind `requireAccess`, a trailing slash, uppercase hexadecimal, another case, an extra segment, or `/api/v1/x` included. A new route is one entry of that table, which cannot omit its method or level. The consent page at `/authorize` stays behind Access. Never widen a comparison to a prefix or loosen a pattern; `request_dispatch.workerd.test.ts` fails when you do.
 - **`/mcp` is stateless and read-only.** `McpAgent` is deprecated in `agents` 0.33, so `archive_tools.ts` builds an `McpServer` for each request through `createMcpHandler` from `agents/mcp/server`, and no Durable Object takes part. `@modelcontextprotocol/server` stays at the exact version that the installed `agents` release names as its peer.
 - **D1 decides whether a grant stands, and every tool must pass the scope.** `@cloudflare/workers-oauth-provider` requires the binding name `OAUTH_KV` and keeps clients and tokens there, but KV is eventually consistent, so a refresh at a location that still caches a deleted grant writes it back. `authorization_grants` therefore holds the scope and `revoked_at`, the token carries only the row identifier in its `props`, and `serveArchiveTools` reads that row on every request. Disconnecting a client leaves its KV tokens to expire. Scope lists hold record identifiers, so a rename leaves a grant intact, and they bind as one JSON parameter through `json_each`, because D1 allows 100 bound parameters per query. A query without `authorizationScope` reads the whole archive, so a new tool passes it to every query. A merge deletes the tag it folds away, so a scope whose denied tag no longer exists admits nothing, and each scoped statement asks that itself.
 - **`cf dev` can scramble a large remote response.** In local runs, the PDF from the remote `BROWSER_RENDERER` binding reached the Worker with 8 KiB chunks out of order in 3 of 4 renderings, which shifted its objects by multiples of 8192 bytes. The same request through `cf browser-run quick-action pdf` was intact. PDFium repairs such a file, but PDF.js and `toMarkdown` then read some fonts as text such as `6XEMHFW` for `Subject`. `pdftotext` warns about the cross-reference table of such a file, so check that before suspecting the markup.
 - **Mail markup is made inert before printing.** `printMail` removes scripts, `noscript`, frames, refresh tags, and `<base>` with `HTMLRewriter`, because `allowResourceTypes` must include `document` or Browser Run prints a blank page, and a frame is a document too. It repeats until the output stops changing, because removing a tag can join the text around it into a new tag. `HTMLRewriter` exists only in workerd, so `mail_rendering.ts` is tested there.
 - **`toMarkdown()` can keep only part of a tagged PDF.** Chromium prints tagged PDFs. On a forwarded email, `toMarkdown()` kept the three header lines of page 1, dropped the layout tables below them, and returned page 2 empty, while PDFium read both pages in full. A complete conversion held every letter and digit of the text layer on all 27 digital pages of the test documents, so `selectPageTextSources` takes a converted section only when it holds at least 90% of a readable text layer. A printed email skips the conversion, because Chromium wrote its text layer from the HTML. Converting that HTML to Markdown instead gave 95% tracking URLs and collapsed the layout tables into one row.
+- **Every table is journaled or listed as not replicated.** Triggers on the seven tables of `journaledTables` in `schema.ts` move a record's entry in `change_journal`, and `tablesNotReplicated` names every other table. A new table goes into one of the two lists, and a copied one gets its three triggers in a custom migration, as `0009_journal_record_changes.sql` has them. `change_journal.workerd.test.ts` fails otherwise.
+- **A migration that rebuilds a journaled table drops its triggers.** SQLite drops a table's triggers with the table, so a migration that recreates one, as drizzle-kit does for many column changes, must create its three triggers again. `change_journal.workerd.test.ts` catches the omission.
+- **Migrations 0008 and 0009 come before the deploy that reads the journal.** Apply them to a deployed database with `cf d1 migrations apply <database identifier> --dir drizzle` first, because `/api/v1/authorization` and `/api/v1/changes` read `change_journal_identity` and `change_journal`.
+- **A database restore needs a new journal identifier.** After a D1 Time Travel restore, run `cf d1 raw <database identifier> --sql "UPDATE change_journal_identity SET journal_identifier = lower(hex(randomblob(16)))"`, so the archive answers each native client with 410 and the client fills its copy again. `notes/client_protocol.md` has the procedure.
 - **The manifest link needs `crossOrigin: "use-credentials"`.** Access protects `public/` like everything else, and a browser sends no cookie for a manifest without that attribute.
 - **Tokens are bound to the origin of the request.** `authorizationServerOptions` receives it from `request.url`, so a local dev server works at `http://localhost:3000` with no configuration and a token issued for one hostname is refused on another.
 - **`pnpm dev` waits for an answer before a pending migration.** In a tool that cannot type into the terminal, start it with `CI=true VITE_ACCESS_DEVELOPMENT_EXEMPTION=true pnpm dev`, which accepts the prompt.
@@ -312,6 +338,11 @@ eslint.config.js, .prettierrc.json, knip.json, tsconfig.json
 - **One collector per database.** `StateStore::open` locks `<database>.lock`, and a second collector fails with `StoreOpenFailure::InUse`, which the bindings answer as `CollectorStartFailure::DatabaseInUse`. A start failure never ends the application: its menu bar item says what happened.
 - **A Debug build is another application.** `project.yml` gives Debug the identifier `org.schublade.application.development` and the name "Schublade Development", and the data directory and the Keychain service follow the identifier. The Release bundle keeps `org.schublade.application`.
 - **The application and the program are two collectors.** The application's Keychain service is its identifier and the program's is `Schublade collector`, so connecting one never replaces the other's token. The application keeps `collector.sqlite` in `~/Library/Application Support/org.schublade.application` and the program in `~/Library/Application Support/Schublade collector`. Do not run both on the same folders.
+- **The copy has no migrations.** `replica.sqlite` holds nothing the archive does not hold. `ReplicaStore::open` deletes a file whose `user_version` is not `SCHEMA_VERSION`, or that SQLite cannot read, and the archive fills it again. A change to `replica_schema.sql` therefore raises `SCHEMA_VERSION` in `replica_store.rs` and never adds a migration. A document row is updated in place and never replaced, so its `document_row` stays for tables that refer to it.
+- **The wire fixtures have two readers.** `test_fixtures/client_protocol/changes_page.json` and `authorization.json` are the one wire format: `client_protocol_fixtures.rs` asserts the literal records they hold, and the Worker's test answers the same files for a seeded archive. Change a file only together with both tests.
+- **The replica's coordinator requests its pages itself.** It reads a page and applies it in one step on its own thread, so no page is ever held across a new connection or a discarded copy. `apply_page` compares only the cursor, and before a first page both cursors are absent, so a page requested before the copy started over would be applied to the new fill. Code that moves the request to another thread must drop such a page. A command waits for the request in flight, at most the exchange's 30 seconds, while `Replica::status` reads the published status and never waits.
+- **A replica reads its clock when an input arrives.** The coordinator waits for its deadline at most 60 seconds at a time, by the system's clock. A test that moves a `ManualClock` to the deadline of a status sends a command afterwards, such as `set_attendance`, and follows the revision.
+- **Two scripted archives exist.** The crate `scripted_archive` keeps records and a journal and answers `ArchiveReader`. `collection_core::scripted_archive` keeps contents and answers `ArchiveClient`, and the collector's scenarios, the bindings' fixture, and the example server use it. They are not united, because `collection_core`'s own unit tests use the module, and a crate that `collection_core` only depends on for tests would implement the trait of another build of `collection_core`. Uniting them means moving those unit tests to `collection_core/tests/` first.
 - **The Mac runner copies the tree at launch.** `scripts/execute_on_macintosh.sh` rsyncs what git tracks before it runs the command, so a file written after the launch is not on the Mac, and `cargo fmt --check` there judges the copy, not your working tree.
 
 ## Commands

@@ -3,7 +3,7 @@
  * kept apart from scripts/provision_environment.ts so they can be tested without Cloudflare.
  */
 
-import { COLLECTION_PATH_PREFIX } from "../src/collection_protocol/collection_paths.ts"
+import { CLIENT_PATH_PREFIX } from "../src/client_protocol/client_paths.ts"
 import { TOKEN_INGESTION_PATH } from "../src/ingestion/token_ingestion_path.ts"
 import { ACCESS_BYPASS_DESTINATIONS } from "../src/model_context_protocol/authorization_server_paths.ts"
 
@@ -47,11 +47,11 @@ export function bypassPolicyBody(name: string) {
 
 /**
  * The paths that bearer tokens reach without an Access session. Access applies an application to
- * the subpaths of a destination as well, so one destination covers every collector route, and the
+ * the subpaths of a destination as well, so one destination covers every client route, and the
  * Worker admits only the exact routes it knows.
  */
 export function tokenIngestionDestinations(hostname: string): Array<string> {
-	return [`${hostname}${TOKEN_INGESTION_PATH}`, `${hostname}${COLLECTION_PATH_PREFIX}`]
+	return [`${hostname}${TOKEN_INGESTION_PATH}`, `${hostname}${CLIENT_PATH_PREFIX}`]
 }
 
 export function modelContextProtocolDestinations(hostname: string): Array<string> {

@@ -1,11 +1,9 @@
 import { McpServer } from "@modelcontextprotocol/server"
 import { createMcpHandler } from "agents/mcp/server"
-import { inArray } from "drizzle-orm"
 import { z } from "zod"
-import { queryArchiveFacets, queryDocumentListing } from "../archive/document_listing"
+import { deniedTagsAllExist, queryArchiveFacets, queryDocumentListing } from "../archive/document_listing"
 import { permits } from "../authorization/caller_authorization"
 import { connectDatabase } from "../database/client"
-import { tags } from "../database/schema"
 import { contentObjectKey } from "../ingestion/source_file"
 import { searchDocuments } from "../search/document_search"
 import { searchCriteriaSchema } from "../search/search_criteria"
@@ -146,12 +144,6 @@ function createArchiveServer({ database, environment, authorizationScope, origin
 }
 
 const grantPropertiesSchema = z.object({ authorizationGrantId: z.uuid() })
-
-/** The check in scopeAdmission closes the same gap inside each query, without this message. */
-async function deniedTagsAllExist(database: ArchiveDatabase, deniedTags: Array<string> = []): Promise<boolean> {
-	if (deniedTags.length === 0) return true
-	return (await database.$count(tags, inArray(tags.id, deniedTags))) === new Set(deniedTags).size
-}
 
 const refusal = (error: string) => Response.json({ error }, { status: 403 })
 

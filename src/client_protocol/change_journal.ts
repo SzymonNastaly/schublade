@@ -123,8 +123,11 @@ interface JournalPage {
 	changes: Array<RecordChange>
 	/** What the client sends to read the page after this one. */
 	nextCursor: JournalCursor
-	/** The journal held entries after this page when it was read. */
-	moreFollow: boolean
+	/**
+	 * The entries after this page when it was read, removals and records the scope hides included,
+	 * so it bounds what the following pages hold.
+	 */
+	remainingEntries: number
 }
 
 export type JournalPageOutcome =
@@ -199,10 +202,12 @@ export async function readJournalPage(
 
 	const [[identity], entries, documentRows, tagLinks, fieldRows, memberRows, senderRows, categoryRows, tagRows] =
 		await database.batch([
-			database
+			snapshot
 				.select({
 					journalIdentifier: changeJournalIdentity.journalIdentifier,
 					lastSequenceNumber: sql<number>`(SELECT coalesce(max(${changeJournal.sequenceNumber}), 0) FROM ${changeJournal})`,
+					// A count over the primary key's range after the page's last entry, for a client's progress.
+					remainingEntries: sql<number>`(SELECT count(*) FROM ${changeJournal} WHERE ${changeJournal.sequenceNumber} > coalesce((SELECT max(${page.sequenceNumber}) FROM ${page}), ${cursor?.sequenceNumber ?? 0}))`,
 				})
 				.from(changeJournalIdentity),
 			snapshot.select().from(page).orderBy(asc(page.sequenceNumber)),
@@ -345,7 +350,7 @@ export async function readJournalPage(
 					.map((entry): RecordChange => ({ change: "removal", kind: entry.recordKind, id: entry.recordIdentifier })),
 			],
 			nextCursor: { journalIdentifier: identity.journalIdentifier, sequenceNumber: lastSequenceNumber },
-			moreFollow: lastSequenceNumber < identity.lastSequenceNumber,
+			remainingEntries: identity.remainingEntries,
 		},
 	}
 }

@@ -28,7 +28,7 @@ import {
 	writeDeploymentParameters,
 } from "../cloudflare.config.ts"
 import { searchIndexMetadataFields } from "../src/search/search_index_item.ts"
-import { COLLECTION_PATH_PREFIX } from "../src/collection_protocol/collection_paths.ts"
+import { CLIENT_PATH_PREFIX } from "../src/client_protocol/client_paths.ts"
 import { TOKEN_INGESTION_PATH } from "../src/ingestion/token_ingestion_path.ts"
 import { MODEL_CONTEXT_PROTOCOL_PATH } from "../src/model_context_protocol/authorization_server_paths.ts"
 import {
@@ -888,7 +888,9 @@ async function main(): Promise<void> {
 	console.log(`\nSchublade runs at https://${primaryHostname} behind Cloudflare Access.`)
 	console.log(`Sign in as ${accessEmails.join(" or ")}. Ship later code changes with \`pnpm run deploy\`.`)
 	console.log(`Scanners and Shortcuts upload to https://${primaryHostname}${TOKEN_INGESTION_PATH} with an API token.`)
-	console.log(`Collectors use the routes under https://${primaryHostname}${COLLECTION_PATH_PREFIX} with an API token.`)
+	console.log(
+		`The native application and collectors use the routes under https://${primaryHostname}${CLIENT_PATH_PREFIX} with an API token.`,
+	)
 	console.log(`MCP clients connect to https://${primaryHostname}${MODEL_CONTEXT_PROTOCOL_PATH}.`)
 	if (ingestionEmailAddress !== undefined) {
 		console.log(`Mail from ${accessEmails.join(" or ")} to ${ingestionEmailAddress} is archived.`)
