@@ -27,6 +27,10 @@ settings:
     APPLICATION_BINDINGS_LINKER_FLAGS: >-
       -lapplication_bindings -framework Security -framework CoreFoundation -framework CoreServices
       -framework SystemConfiguration -liconv -Wl,-fatal_warnings
+    # The application and its share extension share the submissions in this App Group and the token
+    # in this Keychain access group. A build without a team has no prefix.
+    SHARED_APPLICATION_GROUP: group.$(APPLICATION_BUNDLE_IDENTIFIER)
+    SHARED_KEYCHAIN_ACCESS_GROUP: $(AppIdentifierPrefix)$(APPLICATION_BUNDLE_IDENTIFIER)
   configs:
     Debug:
       APPLICATION_PRODUCT_NAME: $(APPLICATION_DISPLAY_NAME) Development
@@ -90,7 +94,7 @@ targets:
     sources:
       # The drawing is the source of the icon, not a resource of the bundle.
       - path: application
-        excludes: ["*.svg"]
+        excludes: ["*.svg", "*.entitlements"]
     dependencies:
       - target: ApplicationInterface
       - target: SubmissionQueue
@@ -106,9 +110,14 @@ targets:
         UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait]
         UIRequiresFullScreen: true
         NSCameraUsageDescription: $(APPLICATION_DISPLAY_NAME) scans letters and receipts with the camera and sends them to your archive.
+        # SharedInstallation reads these, in the application and the share extension alike.
+        SchubladeApplicationBundleIdentifier: $(APPLICATION_BUNDLE_IDENTIFIER)
+        SchubladeApplicationGroup: $(SHARED_APPLICATION_GROUP)
+        SchubladeKeychainAccessGroup: $(SHARED_KEYCHAIN_ACCESS_GROUP)
     settings:
       base:
         PRODUCT_NAME: $(APPLICATION_PRODUCT_NAME)
+        CODE_SIGN_ENTITLEMENTS: application/Schublade.entitlements
         PRODUCT_BUNDLE_IDENTIFIER: $(APPLICATION_BUNDLE_IDENTIFIER)
         PRODUCT_MODULE_NAME: Schublade
         # The website's blue tints every control, as on the Mac.

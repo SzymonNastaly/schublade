@@ -65,6 +65,63 @@ final class SubmissionTests: XCTestCase {
 		await controller.gateway.shutdown()
 	}
 
+	/// Connecting records the archive where the share extension reads it while offline.
+	@MainActor
+	func testConnectingRecordsTheArchiveForTheShareExtension() async throws {
+		let environment = ApplicationEnvironment.isolated()
+		let controller = ApplicationController(environment: environment)
+		controller.launch()
+		let address = try XCTUnwrap(ProcessInfo.processInfo.environment["SCHUBLADE_SCRIPTED_ARCHIVE"])
+		try await waitUntil("the core starts") { controller.situation != .starting }
+		XCTAssertNil(environment.sharedContainer.connectedArchive())
+
+		let refusal = await controller.connect(address: address, token: "scripted-end-to-end-token")
+		XCTAssertNil(refusal)
+
+		try await waitUntil("the archive is recorded") { environment.sharedContainer.connectedArchive() != nil }
+		XCTAssertEqual(
+			environment.sharedContainer.connectedArchive(),
+			ConnectedArchive(origin: address, restricted: false)
+		)
+		await controller.gateway.shutdown()
+	}
+
+	/// A submission that another process queued without starting it, as the share extension leaves
+	/// one when it is ended in between, is sent when the application resumes, and arrives.
+	@MainActor
+	func testASubmissionAnotherProcessQueuedIsSentOnResume() async throws {
+		let environment = ApplicationEnvironment.isolated()
+		let controller = ApplicationController(environment: environment)
+		controller.launch()
+		let address = try XCTUnwrap(ProcessInfo.processInfo.environment["SCHUBLADE_SCRIPTED_ARCHIVE"])
+		try await waitUntil("the core starts") { controller.situation != .starting }
+		_ = await controller.connect(address: address, token: "scripted-end-to-end-token")
+		try await waitUntil("five documents") { Self.documents(controller) >= 5 }
+		let before = Self.documents(controller)
+
+		let shared = URL.temporaryDirectory.appending(path: "\(UUID().uuidString).pdf")
+		try Data("%PDF-1.4\nA letter shared from Mail \(UUID().uuidString)\n%%EOF\n".utf8).write(to: shared)
+		let entry = try environment.sharedContainer.submissionQueue.enqueue(
+			document: shared,
+			fileName: "Letter.pdf",
+			kind: .pdf,
+			origin: .share
+		)
+		XCTAssertFalse(controller.submissions.entries.contains { $0.id == entry.id })
+
+		controller.submissions.resume()
+
+		try await waitUntil("the shared submission is archived") {
+			if case .archived = controller.submissions.entries.first(where: { $0.id == entry.id })?.answer {
+				true
+			} else {
+				false
+			}
+		}
+		try await waitUntil("the document arrives in the library") { Self.documents(controller) == before + 1 }
+		await controller.gateway.shutdown()
+	}
+
 	@MainActor
 	private static func documents(_ controller: ApplicationController) -> UInt64 {
 		guard case let .running(status) = controller.situation else {

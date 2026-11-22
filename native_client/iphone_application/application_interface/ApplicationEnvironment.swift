@@ -6,11 +6,12 @@ import SubmissionQueue
 /// and the end-to-end test is here, so no other type reads the process environment.
 struct ApplicationEnvironment {
 	let applicationConfiguration: ApplicationConfiguration
-	/// Where submissions wait to be sent and answered.
-	let submissionQueueRoot: URL
-	/// The background session's identifier, or nil for a session that ends with the process, as a
-	/// test needs.
-	let transferSessionIdentifier: String?
+	/// Where submissions wait to be sent and answered, and where the share extension reads the
+	/// connected archive.
+	let sharedContainer: SharedContainer
+	/// The names of the two background sessions and their App Group, or nil for sessions that end
+	/// with the process, as a test needs, because a background session cannot deliver to it.
+	let backgroundTransfer: SharedInstallation?
 	/// In a Debug build, an archive to connect at launch and files to send, so a screen examination
 	/// on the simulator needs no typing.
 	var examination: Examination?
@@ -21,11 +22,28 @@ struct ApplicationEnvironment {
 		let documents: URL?
 	}
 
-	var transferConfiguration: URLSessionConfiguration {
-		guard let transferSessionIdentifier else {
+	/// The session the application sends in.
+	var sendingConfiguration: URLSessionConfiguration {
+		guard let backgroundTransfer else {
 			return .ephemeral
 		}
-		return SubmissionTransfer.backgroundConfiguration(identifier: transferSessionIdentifier, sharedContainer: nil)
+		return SubmissionTransfer.backgroundConfiguration(
+			identifier: backgroundTransfer.applicationTransferSessionIdentifier,
+			sharedContainer: backgroundTransfer.applicationGroupIdentifier
+		)
+	}
+
+	/// The share extension's session, whose answers reach the application after the extension ended.
+	var attachedConfigurations: [URLSessionConfiguration] {
+		guard let backgroundTransfer else {
+			return []
+		}
+		return [
+			SubmissionTransfer.backgroundConfiguration(
+				identifier: backgroundTransfer.shareExtensionTransferSessionIdentifier,
+				sharedContainer: backgroundTransfer.applicationGroupIdentifier
+			),
+		]
 	}
 
 	/// The installed environment, or in a Debug build started with
@@ -42,12 +60,19 @@ struct ApplicationEnvironment {
 		return installed()
 	}
 
-	/// The state in Application Support, caches in Caches, and the token in the Keychain, under the
-	/// bundle identifier. The iPhone has no collector, and keeps at most 500 MB of originals.
+	/// The copy in Application Support and its caches in Caches, under the bundle identifier; the
+	/// submissions and the token where the share extension reads them, in the App Group and the
+	/// Keychain access group. The iPhone has no collector, and keeps at most 500 MB of originals.
 	private static func installed() -> ApplicationEnvironment {
-		guard let bundleIdentifier = Bundle.main.bundleIdentifier else {
-			preconditionFailure("The application bundle has no identifier")
+		let installation: SharedInstallation
+		let container: SharedContainer
+		do throws(SharedInstallation.ResolutionFailure) {
+			installation = try SharedInstallation.read()
+			container = try installation.container()
+		} catch {
+			preconditionFailure("The application is not signed with its App Group: \(error)")
 		}
+		let bundleIdentifier = installation.applicationBundleIdentifier
 		return ApplicationEnvironment(
 			applicationConfiguration: ApplicationConfiguration(
 				dataDirectory: URL.applicationSupportDirectory.appending(
@@ -59,14 +84,11 @@ struct ApplicationEnvironment {
 					directoryHint: .isDirectory
 				).path(percentEncoded: false),
 				originalStorageLimit: 500_000_000,
-				credentialStorage: .sharedKeychain(serviceName: bundleIdentifier, accessGroup: nil),
+				credentialStorage: installation.credentialStorage,
 				collection: .absent
 			),
-			submissionQueueRoot: URL.applicationSupportDirectory.appending(
-				path: "\(bundleIdentifier)/submission_queue",
-				directoryHint: .isDirectory
-			),
-			transferSessionIdentifier: "\(bundleIdentifier).submission-transfer"
+			sharedContainer: container,
+			backgroundTransfer: installation
 		)
 	}
 
@@ -85,9 +107,10 @@ struct ApplicationEnvironment {
 		)
 	}
 
-	/// A new temporary directory and a Keychain item under a service name of its own, so a test
-	/// never reads the state of an installed application. The token is not kept in process memory,
-	/// because sending reads it from the Keychain without the core, as the share extension does.
+	/// A new temporary directory and a Keychain item under a service name of its own, in the shared
+	/// access group, so a test never reads the state of an installed application. The token is not
+	/// kept in process memory, because sending reads it from the Keychain without the core, as the
+	/// share extension does.
 	static func isolated() -> ApplicationEnvironment {
 		let baseDirectory = URL.temporaryDirectory.appending(
 			path: "schublade_application_\(UUID().uuidString)",
@@ -102,12 +125,15 @@ struct ApplicationEnvironment {
 				originalStorageLimit: nil,
 				credentialStorage: .sharedKeychain(
 					serviceName: "org.schublade.iphone.isolated.\(UUID().uuidString)",
-					accessGroup: nil
+					accessGroup: try? SharedInstallation.read().keychainAccessGroup
 				),
 				collection: .absent
 			),
-			submissionQueueRoot: baseDirectory.appending(path: "submission_queue", directoryHint: .isDirectory),
-			transferSessionIdentifier: nil
+			sharedContainer: SharedContainer(root: baseDirectory.appending(
+				path: "shared",
+				directoryHint: .isDirectory
+			)),
+			backgroundTransfer: nil
 		)
 	}
 	#endif

@@ -3,13 +3,26 @@ import SubmissionQueue
 import UIKit
 
 /// The main screen: Scan at the bottom, Add in the navigation bar, and every submission with what
-/// the archive answered.
+/// the archive answered. A restricted token cannot send, so the screen says why in place of both.
 final class SubmissionsViewController: UIViewController, UICollectionViewDelegate {
 	private let controller: ApplicationController
 	private lazy var capture = DocumentCapture(presenter: self, submissions: controller.submissions)
 	private var collectionView: UICollectionView?
 	private var dataSource: UICollectionViewDiffableDataSource<Int, UUID>?
 	private let scanButton = UIButton(configuration: .filled())
+	private let restrictionLabel = UILabel()
+	private lazy var addItem = UIBarButtonItem(
+		title: "Add",
+		image: UIImage(systemName: "plus"),
+		menu: UIMenu(children: [
+			UIAction(title: "Photos", image: UIImage(systemName: "photo.on.rectangle")) { [weak self] _ in
+				self?.capture.choosePhotos()
+			},
+			UIAction(title: "Files", image: UIImage(systemName: "folder")) { [weak self] _ in
+				self?.capture.chooseFiles()
+			},
+		])
+	)
 
 	init(controller: ApplicationController) {
 		self.controller = controller
@@ -26,20 +39,9 @@ final class SubmissionsViewController: UIViewController, UICollectionViewDelegat
 		title = "Schublade"
 		navigationController?.navigationBar.prefersLargeTitles = true
 		view.backgroundColor = .systemGroupedBackground
-		navigationItem.rightBarButtonItem = UIBarButtonItem(
-			title: "Add",
-			image: UIImage(systemName: "plus"),
-			menu: UIMenu(children: [
-				UIAction(title: "Photos", image: UIImage(systemName: "photo.on.rectangle")) { [weak self] _ in
-					self?.capture.choosePhotos()
-				},
-				UIAction(title: "Files", image: UIImage(systemName: "folder")) { [weak self] _ in
-					self?.capture.chooseFiles()
-				},
-			])
-		)
 		buildList()
 		buildScanButton()
+		buildRestrictionLabel()
 		follow()
 	}
 
@@ -102,6 +104,22 @@ final class SubmissionsViewController: UIViewController, UICollectionViewDelegat
 		])
 	}
 
+	private func buildRestrictionLabel() {
+		restrictionLabel.text = ConnectedArchive.restrictionSentence
+		restrictionLabel.numberOfLines = 0
+		restrictionLabel.textAlignment = .center
+		restrictionLabel.font = .preferredFont(forTextStyle: .footnote)
+		restrictionLabel.adjustsFontForContentSizeCategory = true
+		restrictionLabel.textColor = .secondaryLabel
+		restrictionLabel.translatesAutoresizingMaskIntoConstraints = false
+		view.addSubview(restrictionLabel)
+		NSLayoutConstraint.activate([
+			restrictionLabel.leadingAnchor.constraint(equalTo: view.layoutMarginsGuide.leadingAnchor),
+			restrictionLabel.trailingAnchor.constraint(equalTo: view.layoutMarginsGuide.trailingAnchor),
+			restrictionLabel.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -16),
+		])
+	}
+
 	private func configure(_ cell: UICollectionViewListCell, _ identifier: UUID) {
 		let submissions = controller.submissions
 		guard let entry = submissions.entries.first(where: { $0.id == identifier }) else {
@@ -121,10 +139,11 @@ final class SubmissionsViewController: UIViewController, UICollectionViewDelegat
 		cell.contentConfiguration = content
 	}
 
-	/// Shows the submissions, and again on their next change.
+	/// Shows the submissions and what the token permits, and again on their next change.
 	private func follow() {
 		withObservationTracking {
 			show(controller.submissions.entries, progress: controller.submissions.progress)
+			showSending(permitted: controller.sendingPermitted)
 		} onChange: { [weak self] in
 			Task { @MainActor in
 				self?.follow()
@@ -146,9 +165,16 @@ final class SubmissionsViewController: UIViewController, UICollectionViewDelegat
 		var empty = UIContentUnavailableConfiguration.empty()
 		empty.image = UIImage(systemName: "tray")
 		empty.text = "Nothing Sent Yet"
-		empty.secondaryText = "Scan a letter, or add a PDF or photo. Schublade sends it to your archive, "
-			+ "which reads and files it."
+		empty.secondaryText = controller.sendingPermitted
+			? "Scan a letter, or add a PDF or photo. Schublade sends it to your archive, which reads and files it."
+			: nil
 		contentUnavailableConfiguration = entries.isEmpty ? empty : nil
+	}
+
+	private func showSending(permitted: Bool) {
+		navigationItem.rightBarButtonItem = permitted ? addItem : nil
+		scanButton.isHidden = !permitted
+		restrictionLabel.isHidden = permitted
 	}
 
 	func collectionView(_ collectionView: UICollectionView, didSelectItemAt indexPath: IndexPath) {

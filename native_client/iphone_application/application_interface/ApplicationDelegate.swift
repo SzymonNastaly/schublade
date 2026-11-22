@@ -12,14 +12,14 @@ public final class ApplicationDelegate: UIResponder, UIApplicationDelegate {
 		return true
 	}
 
-	/// The system launched the application for answers of the background session, which the
-	/// session delivers once `launch` has created it.
+	/// The system launched the application for answers of a background session, its own or the
+	/// share extension's, which the session delivers once `launch` has created it.
 	public func application(
 		_: UIApplication,
-		handleEventsForBackgroundURLSession _: String,
+		handleEventsForBackgroundURLSession identifier: String,
 		completionHandler: @escaping () -> Void
 	) {
-		controller.submissions.handleBackgroundEvents {
+		controller.submissions.handleBackgroundEvents(session: identifier) {
 			completionHandler()
 		}
 	}

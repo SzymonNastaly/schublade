@@ -17,15 +17,18 @@ final class ApplicationController {
 	let gateway: ApplicationGateway
 	let submissions: SubmissionCoordinator
 	private(set) var situation = Situation.starting
+	/// What the share extension last read about the connected archive.
+	@ObservationIgnored private var recordedArchive: ConnectedArchive?
 
 	init(environment: ApplicationEnvironment) {
 		self.environment = environment
 		gateway = ApplicationGateway()
 		submissions = SubmissionCoordinator(
-			queue: SubmissionQueue(root: environment.submissionQueueRoot),
+			queue: environment.sharedContainer.submissionQueue,
 			credentials: environment.applicationConfiguration.credentialStorage,
 			gateway: gateway
 		)
+		recordedArchive = environment.sharedContainer.connectedArchive()
 	}
 
 	/// The archive's origin while one is connected.
@@ -36,8 +39,22 @@ final class ApplicationController {
 		return origin
 	}
 
+	/// Whether the connected token may send. A restricted token reads only part of the archive, and
+	/// the ingest route refuses it.
+	var sendingPermitted: Bool {
+		guard case let .running(status) = situation,
+		      case let .configured(_, _, _, _, restricted) = status.archive
+		else {
+			return false
+		}
+		return !restricted
+	}
+
 	func launch() {
-		submissions.open(configuration: environment.transferConfiguration)
+		submissions.open(
+			sending: environment.sendingConfiguration,
+			attaching: environment.attachedConfigurations
+		)
 		Task {
 			do throws(ApplicationStartFailure) {
 				try await gateway.start(configuration: environment.applicationConfiguration)
@@ -73,7 +90,8 @@ final class ApplicationController {
 	}
 
 	/// Follows the library's status until the core stops. A newly connected archive sends the
-	/// submissions that waited for it.
+	/// submissions that waited for it, and the share extension learns of every change of the archive
+	/// or of its restriction.
 	private func followLibrary() async {
 		var revision: UInt64?
 		while true {
@@ -81,6 +99,7 @@ final class ApplicationController {
 				let status = try await gateway.libraryStatusAfter(revision)
 				revision = status.revision
 				situation = .running(status)
+				record(Self.connectedArchive(status.archive))
 			} catch {
 				return
 			}
@@ -88,6 +107,27 @@ final class ApplicationController {
 				submissions.archiveOrigin = archiveOrigin
 				submissions.resume()
 			}
+		}
+	}
+
+	private static func connectedArchive(_ connection: ArchiveConnection) -> ConnectedArchive? {
+		switch connection {
+		case .notConfigured:
+			nil
+		case let .configured(origin, _, _, _, restricted):
+			ConnectedArchive(origin: origin, restricted: restricted)
+		}
+	}
+
+	private func record(_ archive: ConnectedArchive?) {
+		guard archive != recordedArchive else {
+			return
+		}
+		do {
+			try environment.sharedContainer.record(archive)
+			recordedArchive = archive
+		} catch {
+			// The next status tries again; until then the share extension reads the previous record.
 		}
 	}
 

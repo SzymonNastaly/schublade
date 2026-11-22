@@ -2,8 +2,9 @@ import ApplicationBindings
 import Foundation
 import Synchronization
 
-/// Uploads prepared bodies in one `URLSession`, a background session in the application, so an
-/// upload continues while the application is suspended or ended, and reads each answer in Rust.
+/// Uploads prepared bodies in one `URLSession`, a background session in the application and the
+/// share extension, so an upload continues while the process is suspended or ended, and reads each
+/// answer in Rust.
 /// The session calls its delegate on its own queue, so this class, in a nonisolated module, keeps its
 /// state behind a mutex.
 public final class SubmissionTransfer: NSObject, URLSessionDataDelegate, Sendable {
@@ -19,6 +20,8 @@ public final class SubmissionTransfer: NSObject, URLSessionDataDelegate, Sendabl
 	}
 
 	private let state = Mutex(State())
+	/// The background session's identifier, nil for a session that ends with the process.
+	public let sessionIdentifier: String?
 	private let onAnswer: AnswerHandler
 	private let onProgress: ProgressHandler
 
@@ -29,6 +32,7 @@ public final class SubmissionTransfer: NSObject, URLSessionDataDelegate, Sendabl
 		onAnswer: @escaping AnswerHandler,
 		onProgress: @escaping ProgressHandler
 	) {
+		sessionIdentifier = configuration.identifier
 		self.onAnswer = onAnswer
 		self.onProgress = onProgress
 		super.init()
@@ -36,11 +40,11 @@ public final class SubmissionTransfer: NSObject, URLSessionDataDelegate, Sendabl
 		state.withLock { $0.session = session }
 	}
 
-	/// A background configuration whose uploads continue without the application. Its files lie in
-	/// the queue's root, which the share extension shares once an App Group names it.
+	/// A background configuration whose uploads continue without the process that started them. Its
+	/// files lie in the App Group's container, which the session can read only when it names the group.
 	public static func backgroundConfiguration(
 		identifier: String,
-		sharedContainer: String?
+		sharedContainer: String
 	) -> URLSessionConfiguration {
 		let configuration = URLSessionConfiguration.background(withIdentifier: identifier)
 		configuration.sharedContainerIdentifier = sharedContainer

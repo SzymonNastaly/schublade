@@ -15,7 +15,9 @@ final class SubmissionCoordinator {
 	private let queue: SubmissionQueue
 	private let credentials: CredentialStorage
 	private let gateway: ApplicationGateway
-	@ObservationIgnored private var transfer: SubmissionTransfer?
+	/// The application's session, which sends, then the share extension's, whose answers arrive here
+	/// once the extension ended.
+	@ObservationIgnored private var transfers: [SubmissionTransfer] = []
 	@ObservationIgnored private var inFlight: Set<UUID> = []
 	@ObservationIgnored private var retry: Task<Void, Never>?
 	/// The archive's origin while one is connected.
@@ -27,23 +29,30 @@ final class SubmissionCoordinator {
 		self.gateway = gateway
 	}
 
-	/// Opens the session. A background session delivers the answers that arrived while the
-	/// application was not running as soon as it is created.
-	func open(configuration: URLSessionConfiguration) {
-		transfer = SubmissionTransfer(configuration: configuration) { [weak self] identifier, answer in
-			Task { @MainActor in
-				self?.received(answer, for: identifier)
-			}
-		} onProgress: { [weak self] identifier, fraction in
-			Task { @MainActor in
-				self?.progress[identifier] = fraction
+	/// Opens the application's session and attaches to the others. A background session delivers
+	/// the answers that arrived while the application was not running as soon as it is created.
+	func open(sending: URLSessionConfiguration, attaching: [URLSessionConfiguration]) {
+		transfers = ([sending] + attaching).map { configuration in
+			SubmissionTransfer(configuration: configuration) { [weak self] identifier, answer in
+				Task { @MainActor in
+					self?.received(answer, for: identifier)
+				}
+			} onProgress: { [weak self] identifier, fraction in
+				Task { @MainActor in
+					self?.progress[identifier] = fraction
+				}
 			}
 		}
 		reload()
 	}
 
-	func handleBackgroundEvents(completion: @escaping @MainActor () -> Void) {
-		transfer?.handleBackgroundEvents(completion: completion)
+	/// Hands the system's completion handler to the session it launched the application for.
+	func handleBackgroundEvents(session identifier: String, completion: @escaping @MainActor () -> Void) {
+		guard let transfer = transfers.first(where: { $0.sessionIdentifier == identifier }) else {
+			completion()
+			return
+		}
+		transfer.handleBackgroundEvents(completion: completion)
 	}
 
 	/// Moves `document` into the queue and sends it.
@@ -68,22 +77,26 @@ final class SubmissionCoordinator {
 	/// Removes a submission from the list, and stops its upload if one is under way.
 	func remove(_ identifier: UUID) {
 		Task {
-			await transfer?.cancel(identifier)
+			for transfer in transfers {
+				await transfer.cancel(identifier)
+			}
 		}
 		inFlight.remove(identifier)
 		queue.remove(identifier)
 		reload()
 	}
 
-	/// Starts every submission that waits: unanswered ones without an upload, and unavailable ones
-	/// whose time has come. Called at launch, on returning to the foreground, and when a connection
-	/// is made.
+	/// Starts every submission that waits: unanswered ones without an upload in either session, such
+	/// as one the share extension queued but did not start, and unavailable ones whose time has come.
+	/// Called at launch, on returning to the foreground, and when a connection is made.
 	func resume() {
 		queue.removeExpired()
 		reload()
 		Task {
-			let underWay = await transfer?.submissionsInFlight() ?? []
-			inFlight.formUnion(underWay)
+			for transfer in transfers {
+				let underWay = await transfer.submissionsInFlight()
+				inFlight.formUnion(underWay)
+			}
 			let now = Date.now
 			for entry in entries where !inFlight.contains(entry.id) {
 				switch entry.answer {
@@ -108,7 +121,7 @@ final class SubmissionCoordinator {
 	}
 
 	private func send(_ entry: SubmissionEntry) {
-		guard let transfer, let archiveOrigin else {
+		guard let transfer = transfers.first, let archiveOrigin else {
 			return
 		}
 		inFlight.insert(entry.id)
