@@ -11,12 +11,14 @@
 //! rows. All of it happens in the transaction of the record, so a search never sees a name the
 //! records no longer hold.
 
+use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
+use std::time::Duration;
 
 use archive_access::{ArchiveAuthorization, ContentDigest, DocumentIdentifier, PermissionLevel, Timestamp};
 use rusqlite::types::Type;
-use rusqlite::{Connection, OpenFlags, OptionalExtension, Row, Transaction, params};
+use rusqlite::{Connection, ErrorCode, OpenFlags, OptionalExtension, Row, Transaction, params};
 
 use crate::replica_records::{
     ArchiveRecords, CalendarDate, CategoryIdentifier, CategoryRecord, DocumentCondition, DocumentRecord,
@@ -27,8 +29,9 @@ use crate::text_retrieval::{AwaitedText, RetrievedText};
 
 /// The `user_version` of a file with the schema of `replica_schema.sql`. Raise it with every
 /// change of the schema: a file of another version is replaced and filled again.
-const SCHEMA_VERSION: u32 = 2;
+const SCHEMA_VERSION: u32 = 3;
 const SCHEMA: &str = include_str!("replica_schema.sql");
+const BUSY_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// More than the statements this module runs repeatedly, so none is prepared twice.
 const STATEMENT_CACHE_CAPACITY: usize = 64;
@@ -89,34 +92,32 @@ impl StagedPage<'_> {
 }
 
 impl ReplicaStore {
-    /// Opens the copy, or replaces a file that is not a copy of this schema version by an empty
-    /// one.
+    /// Opens the copy, or replaces a missing, corrupt, or other-version file by an empty one.
+    /// Live database lock or permission errors are returned untouched so another process is never
+    /// unlinked out from under its lock.
     pub fn open(path: &Path) -> rusqlite::Result<ReplicaStore> {
         let existing = OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_NO_MUTEX;
-        let current = Connection::open_with_flags(path, existing).and_then(|connection| {
-            let version: u32 = connection.pragma_query_value(None, "user_version", |row| row.get(0))?;
-            Ok((version == SCHEMA_VERSION).then_some(connection))
-        });
+        let current = if path.exists() {
+            Connection::open_with_flags(path, existing).and_then(|connection| {
+                connection.busy_timeout(BUSY_TIMEOUT)?;
+                let version: u32 = connection.pragma_query_value(None, "user_version", |row| row.get(0))?;
+                Ok((version == SCHEMA_VERSION).then_some(connection))
+            })
+        } else {
+            Ok(None)
+        };
         let connection = match current {
             Ok(Some(connection)) => connection,
-            Ok(None) | Err(_) => {
-                for suffix in ["", "-wal", "-shm"] {
-                    let mut file = path.as_os_str().to_owned();
-                    file.push(suffix);
-                    // A file that is not there needs no removal, and one that cannot be removed
-                    // fails the creation below.
-                    let _ = std::fs::remove_file(file);
-                }
-                let connection = Connection::open(path)?;
-                // Nothing is flushed while the empty copy is created. A power failure then leaves
-                // a file of another version or none, which the next start replaces.
-                connection.pragma_update(None, "synchronous", "OFF")?;
-                connection.pragma_update(None, "journal_mode", "WAL")?;
-                connection.execute_batch(&format!(
-                    "BEGIN; {SCHEMA} PRAGMA user_version = {SCHEMA_VERSION}; COMMIT;"
-                ))?;
-                connection
+            Ok(None) => recreate_database(path)?,
+            Err(error)
+                if matches!(
+                    error.sqlite_error_code(),
+                    Some(ErrorCode::NotADatabase | ErrorCode::DatabaseCorrupt)
+                ) =>
+            {
+                recreate_database(path)?
             }
+            Err(error) => return Err(error),
         };
         // The write-ahead log is not flushed at every commit. A power failure can then lose the
         // last pages, which the archive delivers again, and never damages the file.
@@ -264,16 +265,19 @@ impl ReplicaStore {
         }
         // The search rows come after every text row and in the order of their rows, for the
         // reason `StaleSearchRows` gives.
+        let mut indexed_text = false;
         for (document_row, markdown) in &recorded {
             if let Some(markdown) = markdown {
+                let indexed = index_body_text(markdown);
                 run(
                     &transaction,
                     "INSERT INTO document_text_search (rowid, markdown) VALUES (?1, ?2)",
-                    params![document_row, markdown],
+                    params![document_row, indexed.as_ref()],
                 )?;
+                indexed_text = true;
             }
         }
-        if !recorded.is_empty() {
+        if indexed_text {
             run(
                 &transaction,
                 "UPDATE mirror SET content_revision = content_revision + 1",
@@ -433,9 +437,9 @@ impl StaleSearchRows {
     }
 
     /// Writes the detail search rows from the records as they stand: the title, the names the
-    /// document refers to, its field values, and its summary. A number is indexed with a full
-    /// stop and with a comma, and a date as the archive writes it and as a German letter prints
-    /// it, because a person types what the paper shows.
+    /// document refers to, the document's own date, its field values, and its summary. Both the
+    /// trigram table (`document_detail_search`) and the word-prefix table (`document_detail_words`)
+    /// are updated in ascending `document_row` order.
     fn rewrite(self, transaction: &Transaction<'_>) -> rusqlite::Result<()> {
         for document_row in &self.texts {
             run(
@@ -450,39 +454,61 @@ impl StaleSearchRows {
                 "DELETE FROM document_detail_search WHERE rowid = ?1",
                 [document_row],
             )?;
-            let details: Option<[Option<String>; 7]> = transaction
+            run(
+                transaction,
+                "DELETE FROM document_detail_words WHERE rowid = ?1",
+                [document_row],
+            )?;
+            let details: Option<(String, [Option<String>; 7])> = transaction
                 .prepare_cached(
-                    "SELECT documents.title, senders.name, categories.name, \
+                    "SELECT documents.id, documents.title, senders.name, categories.name, \
                      (SELECT group_concat(tags.name, char(10)) FROM document_tags \
                       JOIN tags ON tags.id = document_tags.tag_id WHERE document_tags.document_id = documents.id), \
-                     members.display_name, \
-                     (SELECT group_concat(CASE field_type \
-                      WHEN 'number' THEN printf('%.2f', value_number) || ' ' \
-                      || replace(printf('%.2f', value_number), '.', ',') \
-                      WHEN 'date' THEN value_text || ' ' || substr(value_text, 9, 2) || '.' \
-                      || substr(value_text, 6, 2) || '.' || substr(value_text, 1, 4) \
-                      ELSE value_text END, char(10)) FROM extracted_fields WHERE document_id = documents.id), \
-                     documents.summary \
+                     members.display_name, documents.document_date, documents.summary \
                      FROM documents LEFT JOIN senders ON senders.id = documents.sender_id \
                      LEFT JOIN categories ON categories.id = documents.category_id \
                      LEFT JOIN members ON members.id = documents.member_id WHERE documents.document_row = ?1",
                 )?
                 .query_row([document_row], |row| {
-                    Ok([
+                    Ok((
                         row.get(0)?,
-                        row.get(1)?,
-                        row.get(2)?,
-                        row.get(3)?,
-                        row.get(4)?,
-                        row.get(5)?,
-                        row.get(6)?,
-                    ])
+                        [
+                            row.get(1)?,
+                            row.get(2)?,
+                            row.get(3)?,
+                            row.get(4)?,
+                            row.get(5)?,
+                            row.get(6)?,
+                            row.get(7)?,
+                        ],
+                    ))
                 })
                 .optional()?;
-            if let Some([title, sender, category, tags, person, fields, summary]) = details {
+            if let Some((document_id, [title, sender, category, tags, person, document_date, summary])) = details {
+                let mut field_statement = transaction.prepare_cached(
+                    "SELECT field_type, value_text, value_number FROM extracted_fields WHERE document_id = ?1",
+                )?;
+                let extracted_fields = field_statement
+                    .query_map([&document_id], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))?
+                    .collect::<rusqlite::Result<Vec<(String, Option<String>, Option<f64>)>>>()?;
+                let fields = format_indexed_fields(document_date.as_deref(), &extracted_fields);
+                let title = title.map(|value| index_detail_text(&value));
+                let sender = sender.map(|value| index_detail_text(&value));
+                let category = category.map(|value| index_detail_text(&value));
+                let tags = tags.map(|value| index_detail_text(&value));
+                let person = person.map(|value| index_detail_text(&value));
+                let fields = fields.map(|value| index_detail_text(&value));
+                let summary = summary.map(|value| index_detail_text(&value));
                 run(
                     transaction,
                     "INSERT INTO document_detail_search \
+                     (rowid, title, sender, category, tags, person, fields, summary) \
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+                    params![document_row, title, sender, category, tags, person, fields, summary],
+                )?;
+                run(
+                    transaction,
+                    "INSERT INTO document_detail_words \
                      (rowid, title, sender, category, tags, person, fields, summary) \
                      VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
                     params![document_row, title, sender, category, tags, person, fields, summary],
@@ -493,6 +519,215 @@ impl StaleSearchRows {
     }
 }
 
+fn recreate_database(path: &Path) -> rusqlite::Result<Connection> {
+    for suffix in ["", "-wal", "-shm"] {
+        let mut file = path.as_os_str().to_owned();
+        file.push(suffix);
+        let _ = std::fs::remove_file(file);
+    }
+    let connection = Connection::open(path)?;
+    connection.busy_timeout(BUSY_TIMEOUT)?;
+    // Nothing is flushed while the empty copy is created. A power failure then leaves a file of
+    // another version or none, which the next start replaces.
+    connection.pragma_update(None, "synchronous", "OFF")?;
+    connection.pragma_update(None, "journal_mode", "WAL")?;
+    connection.execute_batch(&format!(
+        "BEGIN; {SCHEMA} PRAGMA user_version = {SCHEMA_VERSION}; COMMIT;"
+    ))?;
+    Ok(connection)
+}
+
+fn format_indexed_fields(
+    document_date: Option<&str>,
+    fields: &[(String, Option<String>, Option<f64>)],
+) -> Option<String> {
+    let mut parts: Vec<String> = Vec::new();
+    if let Some(date) = document_date {
+        push_date_forms(&mut parts, date);
+    }
+    for (field_type, value_text, value_number) in fields {
+        match (field_type.as_str(), value_text.as_deref(), value_number) {
+            ("number", _, Some(number)) => push_number_forms(&mut parts, *number),
+            ("date", Some(date), _) => push_date_forms(&mut parts, date),
+            ("text", Some(text), _) => {
+                parts.push(text.to_owned());
+                if let Some((compact, spaced)) = iban_forms(text) {
+                    parts.push(compact);
+                    parts.push(spaced);
+                }
+            }
+            (_, Some(text), _) => parts.push(text.to_owned()),
+            _ => {}
+        }
+    }
+    (!parts.is_empty()).then(|| parts.join("\n"))
+}
+
+fn push_date_forms(parts: &mut Vec<String>, iso: &str) {
+    parts.push(iso.to_owned());
+    let bytes = iso.as_bytes();
+    if bytes.len() == 10 && bytes[4] == b'-' && bytes[7] == b'-' {
+        parts.push(format!("{}.{}.{}", &iso[8..10], &iso[5..7], &iso[0..4]));
+    }
+}
+
+fn push_number_forms(parts: &mut Vec<String>, value: f64) {
+    let number = if value == 0.0 { 0.0 } else { value };
+    let plain = format!("{number:.2}");
+    parts.push(plain.clone());
+    parts.push(plain.replace('.', ","));
+    let (signed_integer, fraction) = plain.split_once('.').unwrap_or((&plain, ""));
+    let (sign, integer_digits) = signed_integer
+        .strip_prefix('-')
+        .map_or(("", signed_integer), |digits| ("-", digits));
+    if number.abs() >= 1000.0 {
+        let german = group_thousands(integer_digits, '.');
+        let english = group_thousands(integer_digits, ',');
+        parts.push(format!("{sign}{german},{fraction}"));
+        parts.push(format!("{sign}{english}.{fraction}"));
+    }
+    if number.fract() == 0.0 {
+        parts.push(format!("{sign}{integer_digits}"));
+        if number.abs() >= 1000.0 {
+            parts.push(format!("{sign}{}", group_thousands(integer_digits, '.')));
+            parts.push(format!("{sign}{}", group_thousands(integer_digits, ',')));
+        }
+    }
+}
+
+fn group_thousands(digits: &str, separator: char) -> String {
+    let mut grouped = String::with_capacity(digits.len() + digits.len() / 3);
+    for (index, character) in digits.chars().enumerate() {
+        if index > 0 && (digits.len() - index).is_multiple_of(3) {
+            grouped.push(separator);
+        }
+        grouped.push(character);
+    }
+    grouped
+}
+
+fn iban_forms(text: &str) -> Option<(String, String)> {
+    let compact: String = text
+        .chars()
+        .filter(|character| !character.is_ascii_whitespace())
+        .collect();
+    let bytes = compact.as_bytes();
+    let valid = (15..=34).contains(&bytes.len())
+        && bytes[0].is_ascii_alphabetic()
+        && bytes[1].is_ascii_alphabetic()
+        && bytes[2].is_ascii_digit()
+        && bytes[3].is_ascii_digit()
+        && bytes.iter().all(u8::is_ascii_alphanumeric);
+    if !valid {
+        return None;
+    }
+    let spaced = bytes
+        .chunks(4)
+        .map(|chunk| std::str::from_utf8(chunk).expect("ASCII IBAN chunk"))
+        .collect::<Vec<_>>()
+        .join(" ");
+    Some((compact, spaced))
+}
+
+fn is_combining_mark(character: char) -> bool {
+    matches!(
+        character,
+        '\u{0300}'..='\u{036F}'
+            | '\u{1AB0}'..='\u{1AFF}'
+            | '\u{1DC0}'..='\u{1DFF}'
+            | '\u{20D0}'..='\u{20FF}'
+            | '\u{FE20}'..='\u{FE2F}'
+    )
+}
+
+fn normalize_for_index(text: &str) -> (String, String, bool) {
+    let mut base = String::with_capacity(text.len());
+    let mut expanded = String::with_capacity(text.len());
+    let mut has_umlaut = false;
+    let mut chars = text.chars().peekable();
+    while let Some(character) = chars.next() {
+        if matches!(character, 'ß' | 'ẞ') {
+            base.push_str("ss");
+            expanded.push_str("ss");
+            continue;
+        }
+        let mut next_is_diaeresis = false;
+        while let Some(&next) = chars.peek()
+            && is_combining_mark(next)
+        {
+            if next == '\u{0308}' {
+                next_is_diaeresis = true;
+            }
+            chars.next();
+        }
+        if next_is_diaeresis
+            && let Some(digraph) = match character {
+                'a' => Some("ae"),
+                'A' => Some("Ae"),
+                'o' => Some("oe"),
+                'O' => Some("Oe"),
+                'u' => Some("ue"),
+                'U' => Some("Ue"),
+                _ => None,
+            }
+        {
+            has_umlaut = true;
+            base.push(character);
+            expanded.push_str(digraph);
+            continue;
+        }
+        if let Some(digraph) = match character {
+            'ä' => Some("ae"),
+            'Ä' => Some("Ae"),
+            'ö' => Some("oe"),
+            'Ö' => Some("Oe"),
+            'ü' => Some("ue"),
+            'Ü' => Some("Ue"),
+            _ => None,
+        } {
+            has_umlaut = true;
+            base.push(character);
+            expanded.push_str(digraph);
+            continue;
+        }
+        base.push(character);
+        expanded.push(character);
+    }
+    (base, expanded, has_umlaut)
+}
+
+fn index_detail_text(text: &str) -> String {
+    let (mut base, expanded, has_umlaut) = normalize_for_index(text);
+    if has_umlaut {
+        base.push(' ');
+        base.push_str(&expanded);
+    }
+    base
+}
+
+fn index_body_text(markdown: &str) -> Cow<'_, str> {
+    let needs_work = markdown
+        .chars()
+        .any(|character| matches!(character, 'ß' | 'ẞ' | 'ä' | 'Ä' | 'ö' | 'Ö' | 'ü' | 'Ü' | '\u{0308}'));
+    if !needs_work {
+        return Cow::Borrowed(markdown);
+    }
+    let (mut out, _, has_umlaut) = normalize_for_index(markdown);
+    if has_umlaut {
+        for word in markdown.split(|character: char| !character.is_alphanumeric() && !is_combining_mark(character)) {
+            if word.is_empty() {
+                continue;
+            }
+            let (_, expanded, word_umlaut) = normalize_for_index(word);
+            if word_umlaut {
+                out.push(' ');
+                out.push_str(&expanded);
+            }
+        }
+    }
+    Cow::Owned(out)
+}
+
 /// Empties every record table and resets what the mirror row says of the copy's extent.
 fn start_over(transaction: &Transaction<'_>) -> rusqlite::Result<()> {
     let mut removed = 0;
@@ -500,7 +735,11 @@ fn start_over(transaction: &Transaction<'_>) -> rusqlite::Result<()> {
     for table in ["documents", "members", "senders", "categories", "tags"] {
         removed += run(transaction, &format!("DELETE FROM {table}"), [])?;
     }
-    for table in ["document_detail_search", "document_text_search"] {
+    for table in [
+        "document_detail_search",
+        "document_detail_words",
+        "document_text_search",
+    ] {
         run(
             transaction,
             &format!("INSERT INTO {table} ({table}) VALUES ('delete-all')"),

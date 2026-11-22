@@ -146,6 +146,7 @@ impl RepresentationCache {
                 }
             }
         }
+        cache.evict_originals();
         cache
     }
 
@@ -206,7 +207,7 @@ impl RepresentationCache {
         content: Option<ContentDigest>,
         download: impl FnOnce(&mut dyn Write) -> Result<bool, RepresentationRefusal>,
     ) -> Result<bool, RepresentationRefusal> {
-        let Some(_admission) = self.admit(path) else {
+        let Some(admission) = self.admit(path) else {
             return Ok(true);
         };
         let mut partial = path.as_os_str().to_owned();
@@ -219,6 +220,7 @@ impl RepresentationCache {
             }
             Ok(received)
         });
+        drop(admission);
         match written {
             Ok(true) if content.is_some() => self.evict_originals(),
             Ok(true) => {}
@@ -231,14 +233,16 @@ impl RepresentationCache {
     }
 
     /// Removes originals, the one handed out longest ago first, until they fit the limit. A
-    /// file handed out within the last minute stays, so the originals can exceed the limit for
-    /// that long. A file that cannot be read or removed is left to the next eviction.
+    /// file handed out within the last minute (or ahead of a stepped-back clock) stays, so the
+    /// originals can exceed the limit for that long. Serialized with `downloads` so eviction
+    /// cannot remove a path simultaneously being checked or handed out.
     fn evict_originals(&self) {
         let Some(limit) = self.original_byte_limit else {
             return;
         };
+        let downloads = self.downloads();
         let mut originals: Vec<(SystemTime, u64, PathBuf)> = files_in(&self.originals)
-            .filter(|path| !is_partial(path))
+            .filter(|path| !is_partial(path) && !downloads.contains(path))
             .filter_map(|path| {
                 let metadata = path.metadata().ok()?;
                 Some((metadata.modified().ok()?, metadata.len(), path))
@@ -248,7 +252,9 @@ impl RepresentationCache {
         let mut held: u64 = originals.iter().map(|(_, size, _)| size).sum();
         let now = SystemTime::now();
         for (handed_out_at, size, path) in originals {
-            let recent = now.duration_since(handed_out_at).is_ok_and(|age| age < RECENT_OPENING);
+            let recent = now
+                .duration_since(handed_out_at)
+                .map_or(true, |age| age < RECENT_OPENING);
             if held <= limit || recent {
                 return;
             }

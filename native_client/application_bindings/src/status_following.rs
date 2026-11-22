@@ -156,7 +156,7 @@ impl LibraryAnnouncements {
                         }
                     }
                 }
-                raised.mark_ended();
+                raised.mark_channel_closed();
             })
             .expect("the system starts the replica announcement thread");
         Ok(announcements)
@@ -166,7 +166,14 @@ impl LibraryAnnouncements {
         self.state.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
-    pub(crate) fn mark_ended(&self) {
+    pub(crate) fn mark_stopped(&self) {
+        let mut state = self.state();
+        state.ended = true;
+        state.fault = None;
+        self.changed.notify(usize::MAX);
+    }
+
+    fn mark_channel_closed(&self) {
         self.state().ended = true;
         self.changed.notify(usize::MAX);
     }
@@ -211,6 +218,14 @@ impl LibraryAnnouncements {
             return;
         };
         let replica_status = replica.status();
+        if let Some(fault) = replica_status.fault {
+            let mut state = self.state();
+            if !state.ended {
+                state.fault = Some(fault.into());
+                self.changed.notify(usize::MAX);
+            }
+            return;
+        }
         let (cached_facets, current_collector_connection) = {
             let mut state = self.state();
             if state.ended {
@@ -263,11 +278,11 @@ impl LibraryAnnouncements {
     pub(crate) async fn status_after(&self, revision: Option<u64>) -> Result<LibraryStatus, ApplicationFault> {
         let Some(known) = revision else {
             let state = self.state();
-            if state.ended {
-                return Err(ApplicationFault::Stopped);
-            }
             if let Some(fault) = &state.fault {
                 return Err(fault.clone());
+            }
+            if state.ended {
+                return Err(ApplicationFault::Stopped);
             }
             return Ok(state.latest.clone());
         };
@@ -275,11 +290,11 @@ impl LibraryAnnouncements {
             let announcement = self.changed.listen();
             {
                 let state = self.state();
-                if state.ended {
-                    return Err(ApplicationFault::Stopped);
-                }
                 if let Some(fault) = &state.fault {
                     return Err(fault.clone());
+                }
+                if state.ended {
+                    return Err(ApplicationFault::Stopped);
                 }
                 if state.latest.revision > known {
                     return Ok(state.latest.clone());

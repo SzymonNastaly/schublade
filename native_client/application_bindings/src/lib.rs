@@ -328,7 +328,7 @@ impl ApplicationCore {
             if let Some(announcements) = &self.collector_announcements {
                 announcements.mark_ended();
             }
-            self.library_announcements.mark_ended();
+            self.library_announcements.mark_stopped();
             if let Some(collector) = collector {
                 collector.shutdown();
             }

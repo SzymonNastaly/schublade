@@ -33,6 +33,7 @@ const EXCERPTED_DOCUMENTS: usize = 200;
 
 /// More than the statements of every scope in every order, so none is prepared twice.
 const STATEMENT_CACHE_CAPACITY: usize = 64;
+const BUSY_TIMEOUT: Duration = Duration::from_secs(5);
 
 pub struct ReplicaQueries {
     connection: Connection,
@@ -63,6 +64,7 @@ impl ReplicaQueries {
     pub fn open(path: &Path) -> rusqlite::Result<ReplicaQueries> {
         let flags = OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX;
         let connection = Connection::open_with_flags(path, flags)?;
+        connection.busy_timeout(BUSY_TIMEOUT)?;
         connection.set_prepared_statement_cache_capacity(STATEMENT_CACHE_CAPACITY);
         Ok(ReplicaQueries { connection })
     }
@@ -492,7 +494,7 @@ fn found_rows(
     for term in expression.terms() {
         let in_details = match term.detail_expression() {
             Some(expression) => matching("document_detail_search", &expression)?,
-            None => BTreeSet::new(),
+            None => matching("document_detail_words", &term.text_expression())?,
         };
         let in_text = matching("document_text_search", &term.text_expression())?;
         found = narrowed(found, &in_details | &in_text);

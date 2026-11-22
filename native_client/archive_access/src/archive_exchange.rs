@@ -41,13 +41,20 @@ fn parse_retry_after(header: Option<&str>) -> Duration {
         .unwrap_or(DEFAULT_RETRY_AFTER)
 }
 
+/// Whether a `Content-Type` header names `application/problem+json` (ignoring case and parameters).
+fn is_problem_json(content_type: Option<&str>) -> bool {
+    let Some(value) = content_type else {
+        return false;
+    };
+    let media_type = value.split(';').next().unwrap_or("").trim();
+    media_type.eq_ignore_ascii_case("application/problem+json")
+}
+
 /// The conditions of a status that every route shares, or `None` for a status the route reads.
 fn shared_condition(status: u16, content_type: Option<&str>, retry_after: Option<&str>) -> Option<ArchiveCondition> {
     Some(match status {
         401 => ArchiveCondition::CredentialRefused,
-        403 if content_type.is_some_and(|content_type| content_type.starts_with("application/problem+json")) => {
-            ArchiveCondition::CredentialInsufficient
-        }
+        403 if is_problem_json(content_type) => ArchiveCondition::CredentialInsufficient,
         403 => ArchiveCondition::RouteUnknown,
         500 => ArchiveCondition::ServerError,
         503 => ArchiveCondition::ServiceUnavailable {
@@ -151,6 +158,9 @@ impl ArchiveExchange {
                     return match ureq::Error::from(error) {
                         ureq::Error::BodyExceedsLimit(_) => Ok(ArchiveDownload::LimitExceeded),
                         ureq::Error::Timeout(_) => Err(DownloadFailure::Archive(ArchiveCondition::TimedOut)),
+                        ureq::Error::Io(io) if io.kind() == ErrorKind::TimedOut => {
+                            Err(DownloadFailure::Archive(ArchiveCondition::TimedOut))
+                        }
                         _ => Err(DownloadFailure::Archive(ArchiveCondition::ConnectionFailed)),
                     };
                 }
@@ -184,14 +194,15 @@ impl ArchiveExchange {
     }
 }
 
-/// The body is read whole, up to the limit, before the shared conditions are read, so an answer
-/// cut off on the way is a connection failure whatever its status.
+/// Shared status conditions are checked from the response status and headers before reading the
+/// body so error answers with non-UTF-8 or oversized proxy bodies keep their status and headers.
 fn response_of(
     sent: Result<ureq::http::Response<ureq::Body>, ureq::Error>,
     answer_limit: u64,
 ) -> Result<ArchiveResponse, ArchiveCondition> {
     let mut response = sent.map_err(|error| match error {
         ureq::Error::Timeout(_) => ArchiveCondition::TimedOut,
+        ureq::Error::Io(io) if io.kind() == ErrorKind::TimedOut => ArchiveCondition::TimedOut,
         _ => ArchiveCondition::ConnectionFailed,
     })?;
     let status = response.status().as_u16();
@@ -201,21 +212,26 @@ fn response_of(
     };
     let content_type = header("Content-Type");
     let retry_after = header("Retry-After");
-    let body = response
+    if let Some(condition) = shared_condition(status, content_type.as_deref(), retry_after.as_deref()) {
+        return Err(condition);
+    }
+    let bytes = response
         .body_mut()
         .with_config()
         .limit(answer_limit)
-        .read_to_string()
+        .read_to_vec()
         .map_err(|error| match error {
             ureq::Error::BodyExceedsLimit(_) => ArchiveCondition::ProtocolViolation {
                 detail: format!("{status}: the answer holds more than {answer_limit} bytes"),
             },
+            ureq::Error::Timeout(_) => ArchiveCondition::TimedOut,
+            ureq::Error::Io(io) if io.kind() == ErrorKind::TimedOut => ArchiveCondition::TimedOut,
             _ => ArchiveCondition::ConnectionFailed,
         })?;
-    match shared_condition(status, content_type.as_deref(), retry_after.as_deref()) {
-        Some(condition) => Err(condition),
-        None => Ok(ArchiveResponse { status, body }),
-    }
+    let body = String::from_utf8(bytes).map_err(|_| ArchiveCondition::ProtocolViolation {
+        detail: format!("{status}: the answer is not valid UTF-8"),
+    })?;
+    Ok(ArchiveResponse { status, body })
 }
 
 /// What a download made of the archive's answer.

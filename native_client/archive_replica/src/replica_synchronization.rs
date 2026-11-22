@@ -213,6 +213,13 @@ pub fn advance_synchronization(
             | Input::DeadlineReached,
         ) => (state, true),
         (
+            state @ Unreachable {
+                condition: ArchiveCondition::ServiceUnavailable { .. },
+                ..
+            },
+            Input::Woken(ApplicationActivated | SystemResumed | DocumentAccepted),
+        ) => (state, false),
+        (
             state @ Unreachable { .. },
             Input::Woken(ApplicationActivated | SystemResumed | PersonRequested) | Input::DeadlineReached,
         ) => (state, true),
@@ -346,6 +353,58 @@ mod tests {
                     condition: ArchiveCondition::ConnectionFailed,
                 },
                 Some(AwaitDeadline(Timestamp(115 * SECOND)))
+            )
+        );
+
+        let service_unavailable = Unreachable {
+            since: Timestamp(100 * SECOND),
+            attempts: 1,
+            retry_at: Timestamp(130 * SECOND),
+            condition: ArchiveCondition::ServiceUnavailable {
+                retry_after: Duration::from_secs(30),
+            },
+        };
+        assert_eq!(
+            advance(
+                CatchingUp,
+                RequestFailed(ArchiveCondition::ServiceUnavailable {
+                    retry_after: Duration::from_secs(30),
+                })
+            ),
+            (
+                service_unavailable.clone(),
+                Some(AwaitDeadline(Timestamp(130 * SECOND)))
+            )
+        );
+        for wake in [
+            WakeReason::ApplicationActivated,
+            WakeReason::SystemResumed,
+            WakeReason::DocumentAccepted,
+        ] {
+            assert_eq!(
+                advance(service_unavailable.clone(), Woken(wake)),
+                (
+                    service_unavailable.clone(),
+                    Some(AwaitDeadline(Timestamp(130 * SECOND)))
+                )
+            );
+        }
+        assert_eq!(
+            advance(service_unavailable.clone(), Woken(WakeReason::PersonRequested)),
+            (service_unavailable.clone(), Some(RequestPage))
+        );
+        assert_eq!(
+            advance(service_unavailable, DeadlineReached),
+            (
+                Unreachable {
+                    since: Timestamp(100 * SECOND),
+                    attempts: 1,
+                    retry_at: Timestamp(130 * SECOND),
+                    condition: ArchiveCondition::ServiceUnavailable {
+                        retry_after: Duration::from_secs(30),
+                    },
+                },
+                Some(RequestPage)
             )
         );
     }

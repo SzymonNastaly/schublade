@@ -37,12 +37,14 @@ pub struct RetrievedText {
 }
 
 pub(crate) struct TextAssignment {
+    pub(crate) generation: u64,
     pub(crate) reader: Arc<dyn ArchiveReader>,
     pub(crate) documents: Vec<AwaitedText>,
 }
 
 /// The end of one assignment.
 pub(crate) struct TextReport {
+    pub(crate) generation: u64,
     /// Every document of the assignment, which is no longer in flight.
     pub(crate) assigned: Vec<DocumentIdentifier>,
     pub(crate) retrieved: Vec<RetrievedText>,
@@ -93,6 +95,7 @@ fn next_assignment(assigned: &Mutex<Receiver<TextAssignment>>) -> Option<TextAss
 
 fn retrieve(assignment: TextAssignment) -> TextReport {
     let mut report = TextReport {
+        generation: assignment.generation,
         assigned: assignment
             .documents
             .iter()

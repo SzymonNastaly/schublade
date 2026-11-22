@@ -130,6 +130,15 @@ CREATE VIRTUAL TABLE document_detail_search USING fts5 (
 	tokenize = 'trigram remove_diacritics 1'
 );
 
+-- Word-prefix detail index for 1-2 character terms that lack trigrams, such as "O2", "5", or the
+-- trailing "00" of a space-grouped German IBAN.
+CREATE VIRTUAL TABLE document_detail_words USING fts5 (
+	title, sender, category, tags, person, fields, summary,
+	content = '', contentless_delete = 1,
+	tokenize = 'unicode61 remove_diacritics 2',
+	prefix = '1 2'
+);
+
 -- The extracted text by words and their beginnings, which keeps the index of 8,000 bytes per
 -- document small. The prefix indexes answer a beginning of two or three characters as a person
 -- types it.

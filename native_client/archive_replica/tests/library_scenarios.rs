@@ -11,7 +11,8 @@ use std::time::{Duration, SystemTime};
 
 use archive_access::{ArchiveToken, ContentDigest, DocumentIdentifier, Timestamp};
 use archive_replica::replica_records::{
-    CalendarDate, DocumentCondition, DocumentRecord, IngestionStage, PersonAssignment, SenderIdentifier, SenderRecord,
+    CalendarDate, DocumentCondition, DocumentRecord, ExtractedField, FieldValue, IngestionStage, PersonAssignment,
+    SenderIdentifier, SenderRecord,
 };
 use archive_replica::{
     ArchiveReader, DocumentListing, LibraryScope, ListingDifference, ListingOrder, ListingRequest, ListingRow, Replica,
@@ -385,9 +386,125 @@ fn a_search_finds_german_paperwork_by_its_details_first_and_then_by_its_text() {
         name: "Talbrücker Energie GmbH".to_owned(),
     });
     replica.wake(WakeReason::PersonRequested);
-    settled(&replica, &events, revision);
+    let revision = settled(&replica, &events, revision);
     assert_eq!(found(&replica, "stadtwerke"), [] as [&str; 0]);
     assert_eq!(found(&replica, "energie"), ["DetailsMatched", "Jahresabrechnung Strom"]);
+
+    // Search coverage for document_date, spaced IBANs, 1-2 char detail terms, quoted/punctuated
+    // terms, thousands-grouped numbers, umlaut/sharp-s variants, NUL safety, NFD & multi-part
+    // excerpts, and clearing old text hits when original_sha256 changes.
+    let practice = SenderIdentifier::parse(&identifier(2, 3)).unwrap();
+    archive.put_sender(SenderRecord {
+        identifier: practice.clone(),
+        name: "Kinderarztpraxis Müller".to_owned(),
+    });
+    archive.put_document(DocumentRecord {
+        sender: Some(practice),
+        fields: BTreeMap::from([
+            (
+                "due_date".to_owned(),
+                ExtractedField {
+                    value: FieldValue::Date(CalendarDate::parse("2026-04-01").unwrap()),
+                    confidence: None,
+                },
+            ),
+            (
+                "amount".to_owned(),
+                ExtractedField {
+                    value: FieldValue::Number(1234.50),
+                    confidence: None,
+                },
+            ),
+            (
+                "iban".to_owned(),
+                ExtractedField {
+                    value: FieldValue::Text("DE89370400440532013000".to_owned()),
+                    confidence: None,
+                },
+            ),
+            (
+                "address".to_owned(),
+                ExtractedField {
+                    value: FieldValue::Text("Hauptstraße 5".to_owned()),
+                    confidence: None,
+                },
+            ),
+        ]),
+        ..letter(5, "O2 Mobilfunk Anschluss", "2026-03-15")
+    });
+    let digest_a = content_of(b"version-a");
+    let digest_b = content_of(b"version-b");
+    archive.put_document(DocumentRecord {
+        original: Some(digest_a),
+        ..letter(6, "Schreiben ohne Umlaut", "2026-03-10")
+    });
+    archive.put_text(
+        &document_identifier(6),
+        "Ku\u{0308}ndigung zum Monatsende. Nach 72 Tage folgt ein langer Absatz bis nach der \
+         achtundvierzigsten Stelle fuer 72,09 EUR als eigener Auszug.",
+    );
+    replica.wake(WakeReason::PersonRequested);
+    let revision = settled(&replica, &events, revision);
+
+    for query in [
+        "15.03.2026",
+        "2026-03-15",
+        "01.04.2026",
+        "2026-04-01",
+        "DE89 3704 0044 0532 0130 00",
+        "O2 Mobilfunk",
+        "Hauptstraße 5",
+        "Hauptstrasse",
+        "\"Müller\"",
+        "Müller,",
+        "1.234,50",
+        "Mueller",
+        "Mobil\0funk",
+    ] {
+        assert_eq!(
+            found(&replica, query),
+            ["DetailsMatched", "O2 Mobilfunk Anschluss"],
+            "query {query:?}"
+        );
+    }
+    assert_eq!(found(&replica, "Rech\0nung"), found(&replica, "Rechnung"));
+    assert_eq!(found(&replica, "a\0b"), found(&replica, "ab"));
+    assert_eq!(found(&replica, "a\0"), found(&replica, "a"));
+    let kuendigung = found(&replica, "Ku\u{0308}ndigung");
+    assert_eq!(kuendigung[0], "DetailsMatched");
+    assert!(
+        kuendigung
+            .iter()
+            .any(|row| row.starts_with("Schreiben ohne Umlaut:") && row.contains("Ku\u{0308}ndigung")),
+        "{kuendigung:?}"
+    );
+    let decimal_hits = found(&replica, "72,09");
+    assert_eq!(decimal_hits[0], "TextMatched");
+    assert!(
+        decimal_hits
+            .iter()
+            .any(|row| row.starts_with("Schreiben ohne Umlaut:") && row.contains("72,09 EUR")),
+        "{decimal_hits:?}"
+    );
+    assert_eq!(
+        found(&replica, "Monatsende"),
+        [
+            "TextMatched",
+            "Schreiben ohne Umlaut: Ku\u{0308}ndigung zum Monatsende. Nach 72 Tage folgt ein langer Absatz bis nach \
+             der achtundvierzigsten Stelle fuer 72,09 EUR als eigener Auszug."
+        ]
+    );
+
+    archive.put_document(DocumentRecord {
+        original: Some(digest_b),
+        ..letter(6, "Schreiben ohne Umlaut", "2026-03-10")
+    });
+    archive.put_text(&document_identifier(6), "Neuer Inhalt ohne das alte Wort.");
+    replica.wake(WakeReason::PersonRequested);
+    settled(&replica, &events, revision);
+    assert_eq!(found(&replica, "Monatsende"), [] as [&str; 0]);
+    let replaced = found(&replica, "Neuer");
+    assert!(replaced.iter().any(|row| row.contains("Neuer Inhalt")), "{replaced:?}");
 }
 
 fn content_of(bytes: &[u8]) -> ContentDigest {
@@ -456,4 +573,21 @@ fn an_original_is_downloaded_once_kept_only_when_its_bytes_are_its_content_and_e
     kept.push(name(4));
     kept.sort();
     assert_eq!(files_in(&originals), (kept, 1_200));
+
+    // After restart, aged excess files are evicted on open while a file with a future
+    // modification time (clock step-back) is treated as recent and kept.
+    replica.shutdown();
+    std::fs::File::open(originals.join(name(2)))
+        .unwrap()
+        .set_modified(SystemTime::now() - Duration::from_secs(120))
+        .unwrap();
+    std::fs::File::open(originals.join(name(4)))
+        .unwrap()
+        .set_modified(SystemTime::now() + Duration::from_secs(3_600))
+        .unwrap();
+    let (reopened, _) = start_replica(&archive, directory.path(), Some(1_000));
+    reopened.shutdown();
+    let mut after_open = vec![name(3), name(4)];
+    after_open.sort();
+    assert_eq!(files_in(&originals), (after_open, 800));
 }

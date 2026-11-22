@@ -153,6 +153,8 @@ pub struct ReplicaStatus {
     /// The archive the copy mirrors, from the store, so it is known before the archive answers.
     pub archive: Option<MirroredArchive>,
     pub synchronization: SynchronizationState,
+    /// Set if the coordinator terminated due to a database failure.
+    pub fault: Option<ReplicaFault>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -199,6 +201,7 @@ impl Replica {
             documents_awaiting_text: 0,
             archive: None,
             synchronization: SynchronizationState::Disconnected,
+            fault: None,
         }));
         let followed = FollowedArchive::default();
         let mut coordinator = ReplicaCoordinator {
@@ -206,6 +209,7 @@ impl Replica {
             reader: None,
             followed: Arc::clone(&followed),
             text_lanes: TextLanes::start(&inbox),
+            connection_generation: 0,
             text_assignments: 0,
             texts_in_flight: HashSet::new(),
             texts_interrupted: false,

@@ -3,17 +3,20 @@
 //! are the one wire format of both implementations.
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::io::Cursor;
 use std::thread;
+use std::time::Duration;
 
 use archive_access::{
-    ArchiveAddress, ArchiveAuthorization, ArchiveToken, ContentDigest, DocumentIdentifier, PermissionLevel, Timestamp,
+    ArchiveAddress, ArchiveAuthorization, ArchiveCondition, ArchiveToken, ContentDigest, DocumentIdentifier,
+    PermissionLevel, Timestamp,
 };
 use archive_replica::replica_records::{
     CalendarDate, CategoryIdentifier, CategoryRecord, DocumentCondition, DocumentRecord, ExtractedField, FailureReason,
     FieldValue, IngestionStage, JournalCursor, JournalPage, MemberIdentifier, MemberRecord, PersonAssignment,
     RemovedRecord, SenderIdentifier, SenderRecord, TagIdentifier, TagRecord,
 };
-use archive_replica::{ArchiveReader, HttpArchiveReader, PageAnswer};
+use archive_replica::{ArchiveReader, HttpArchiveReader, OriginalAnswer, PageAnswer, ThumbnailAnswer};
 
 const AUTHORIZATION: &str = include_str!("../../../test_fixtures/client_protocol/authorization.json");
 const CHANGES_PAGE: &str = include_str!("../../../test_fixtures/client_protocol/changes_page.json");
@@ -187,4 +190,107 @@ fn the_reader_parses_the_fixtures_into_the_records_they_hold() {
             ],
         }))
     );
+}
+
+#[test]
+fn the_reader_handles_representation_routes_and_shared_error_classifications() {
+    let document = DocumentIdentifier::parse("4d1f0c9e-2a6b-4c3e-9a51-0b7f6e2d8c11").unwrap();
+    let server = tiny_http::Server::http("127.0.0.1:0").unwrap();
+    let address = ArchiveAddress::parse(&format!("http://{}", server.server_addr())).unwrap();
+    let serving = thread::spawn(move || {
+        for (index, request) in server.incoming_requests().take(11).enumerate() {
+            let response: tiny_http::Response<Cursor<Vec<u8>>> = match (index, request.url()) {
+                (0, path) if path.ends_with("/text") => {
+                    tiny_http::Response::from_string("# Extracted").with_status_code(200)
+                }
+                (1, path) if path.ends_with("/text") => {
+                    tiny_http::Response::from_data(vec![0xFF, 0xFE, 0xFD]).with_status_code(200)
+                }
+                (2, path) if path.ends_with("/text") => {
+                    tiny_http::Response::from_string("missing").with_status_code(404)
+                }
+                (3, path) if path.ends_with("/original") => {
+                    tiny_http::Response::from_data(b"%PDF-1.7".to_vec()).with_status_code(200)
+                }
+                (4, path) if path.ends_with("/original") => {
+                    tiny_http::Response::from_string("unprinted").with_status_code(409)
+                }
+                (5, path) if path.ends_with("/original") => {
+                    tiny_http::Response::from_string("deleted").with_status_code(404)
+                }
+                (6, path) if path.ends_with("/thumbnail") => {
+                    tiny_http::Response::from_data(b"\x89PNG".to_vec()).with_status_code(200)
+                }
+                (7, path) if path.ends_with("/thumbnail") => {
+                    tiny_http::Response::from_string("no thumb").with_status_code(404)
+                }
+                (8, "/api/v1/changes") => {
+                    let header =
+                        tiny_http::Header::from_bytes("Content-Type", "Application/Problem+JSON; charset=utf-8")
+                            .unwrap();
+                    tiny_http::Response::from_string("{}")
+                        .with_status_code(403)
+                        .with_header(header)
+                }
+                (9, "/api/v1/changes") => {
+                    let header = tiny_http::Header::from_bytes("Content-Type", "text/html").unwrap();
+                    tiny_http::Response::from_string("Access denied")
+                        .with_status_code(403)
+                        .with_header(header)
+                }
+                (10, "/api/v1/changes") => {
+                    let header = tiny_http::Header::from_bytes("Retry-After", "42").unwrap();
+                    tiny_http::Response::from_data(vec![0xFF, 0x80])
+                        .with_status_code(503)
+                        .with_header(header)
+                }
+                other => panic!("unexpected request: {other:?}"),
+            };
+            request.respond(response).unwrap();
+        }
+    });
+    let reader = HttpArchiveReader::new(&address, &ArchiveToken::new("schublade_fixture_token".to_owned()));
+
+    assert_eq!(reader.read_text(&document), Ok(Some("# Extracted".to_owned())));
+    assert!(matches!(
+        reader.read_text(&document),
+        Err(ArchiveCondition::ProtocolViolation { .. })
+    ));
+    assert_eq!(reader.read_text(&document), Ok(None));
+
+    let mut original = Vec::new();
+    assert_eq!(
+        reader.download_original(&document, &mut original).unwrap(),
+        OriginalAnswer::Received
+    );
+    assert_eq!(original, b"%PDF-1.7");
+    assert_eq!(
+        reader.download_original(&document, &mut Vec::new()).unwrap(),
+        OriginalAnswer::NotPrinted
+    );
+    assert_eq!(
+        reader.download_original(&document, &mut Vec::new()).unwrap(),
+        OriginalAnswer::DocumentAbsent
+    );
+
+    let mut thumbnail = Vec::new();
+    assert_eq!(
+        reader.download_thumbnail(&document, &mut thumbnail).unwrap(),
+        ThumbnailAnswer::Received
+    );
+    assert_eq!(thumbnail, b"\x89PNG");
+    assert_eq!(
+        reader.download_thumbnail(&document, &mut Vec::new()).unwrap(),
+        ThumbnailAnswer::Absent
+    );
+
+    assert_eq!(reader.read_changes(None), Err(ArchiveCondition::CredentialInsufficient));
+    assert_eq!(reader.read_changes(None), Err(ArchiveCondition::RouteUnknown));
+    assert_eq!(
+        reader.read_changes(None),
+        Err(ArchiveCondition::ServiceUnavailable {
+            retry_after: Duration::from_secs(42),
+        })
+    );
+    serving.join().unwrap();
 }

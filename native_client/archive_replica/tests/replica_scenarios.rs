@@ -7,11 +7,14 @@ mod scenario_support;
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Debug;
 use std::io::Write;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::mpsc::{Receiver, Sender, channel};
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use archive_access::{
-    ArchiveAuthorization, ArchiveCondition, ArchiveToken, DocumentIdentifier, DownloadFailure, PermissionLevel,
-    Timestamp,
+    ArchiveAddress, ArchiveAuthorization, ArchiveCondition, ArchiveToken, DocumentIdentifier, DownloadFailure,
+    FixedCredentialStore, ManualClock, PermissionLevel, Timestamp,
 };
 use archive_replica::replica_records::{
     ArchiveRecords, CalendarDate, CategoryIdentifier, CategoryRecord, DocumentCondition, DocumentRecord,
@@ -20,7 +23,8 @@ use archive_replica::replica_records::{
 };
 use archive_replica::{
     ArchiveReader, LibraryScope, ListingHeading, ListingRequest, ListingRow, MirroredArchive, OriginalAnswer,
-    PageAnswer, ReplicaStatus, ReplicaStore, RowPassage, SynchronizationInput, SynchronizationState, ThumbnailAnswer,
+    PageAnswer, Replica, ReplicaEvent, ReplicaFault, ReplicaSettings, ReplicaStatus, ReplicaStore, RowPassage,
+    SuspensionReason, SynchronizationInput, SynchronizationState, SynchronizationTiming, ThumbnailAnswer,
     exchange_page,
 };
 use scenario_support::{ARCHIVE_ORIGIN, Generator, START, TOKEN, attach, identifier, start_replica, status_after};
@@ -588,6 +592,7 @@ fn a_follower_sees_the_fill_complete_with_every_text_and_never_an_older_revision
             documents_awaiting_text: 0,
             archive: None,
             synchronization: SynchronizationState::Disconnected,
+            fault: None,
         })
     );
     let revisions: Vec<u64> = followed.iter().map(|status| status.revision).collect();
@@ -616,6 +621,7 @@ fn a_follower_sees_the_fill_complete_with_every_text_and_never_an_older_revision
             synchronization: SynchronizationState::Following {
                 next_request_at: Timestamp(START.0 + 15 * 60 * 1_000),
             },
+            fault: None,
         }
     );
     let found: Vec<(Option<ListingHeading>, Option<RowPassage>)> = found
@@ -644,4 +650,390 @@ fn a_follower_sees_the_fill_complete_with_every_text_and_never_an_older_revision
             .unwrap(),
         archive.records()
     );
+}
+
+#[test]
+fn open_preserves_a_locked_database_and_coordinator_fault_reaches_status() {
+    #[cfg(unix)]
+    use std::os::unix::fs::MetadataExt;
+
+    let directory = tempfile::tempdir().unwrap();
+    let path = directory.path().join("replica.sqlite");
+    let archive = ScriptedArchive::with_page_entries(4);
+    archive.put_document(DocumentRecord {
+        identifier: DocumentIdentifier::parse(&identifier(5, 1)).unwrap(),
+        condition: DocumentCondition::Archived,
+        title: Some("Kept across lock".to_owned()),
+        document_date: CalendarDate::parse("2026-09-22"),
+        sender: None,
+        category: None,
+        person: PersonAssignment::Household,
+        summary: None,
+        media_type: "application/pdf".to_owned(),
+        byte_size: 128,
+        page_count: Some(1),
+        original: None,
+        arrived_at: START,
+        tags: BTreeSet::new(),
+        fields: BTreeMap::new(),
+    });
+    {
+        let mut store = ReplicaStore::open(&path).unwrap();
+        let fingerprint = ArchiveToken::new(TOKEN.to_owned()).fingerprint();
+        store
+            .attach(ARCHIVE_ORIGIN, &archive.read_authorization().unwrap(), &fingerprint)
+            .unwrap();
+        assert!(matches!(
+            exchange_page(&mut store, &archive, START).unwrap(),
+            Some(SynchronizationInput::PageApplied { .. })
+        ));
+    }
+    #[cfg(unix)]
+    let original_inode = std::fs::metadata(&path).unwrap().ino();
+
+    let blocker = rusqlite::Connection::open(&path).unwrap();
+    blocker
+        .execute_batch("PRAGMA locking_mode = EXCLUSIVE; BEGIN EXCLUSIVE; UPDATE mirror SET fill_complete = fill_complete; COMMIT;")
+        .unwrap();
+    assert!(ReplicaStore::open(&path).is_err());
+    drop(blocker);
+
+    let reopened = ReplicaStore::open(&path).unwrap();
+    #[cfg(unix)]
+    assert_eq!(std::fs::metadata(&path).unwrap().ino(), original_inode);
+    assert_eq!(reopened.records().unwrap().documents.len(), 1);
+    drop(reopened);
+
+    // A write failure inside the coordinator publishes fault and Disconnected, then announces.
+    let fault_directory = tempfile::tempdir().unwrap();
+    let fault_path = fault_directory.path().join("replica.sqlite");
+    let scripted = Arc::new(ScriptedArchive::with_page_entries(4));
+    let reader: Arc<dyn ArchiveReader> = scripted.clone();
+    let (replica, events) = Replica::start(ReplicaSettings {
+        database_path: fault_path.clone(),
+        representation_directory: fault_directory.path().join("representations"),
+        original_byte_limit: None,
+        credential_store: Box::new(FixedCredentialStore::new(None)),
+        archive_readers: Box::new(move |_, _| Arc::clone(&reader)),
+        timing: SynchronizationTiming::default(),
+        clock: Arc::new(ManualClock::starting_at(START)),
+    })
+    .unwrap();
+    let blocker = rusqlite::Connection::open(&fault_path).unwrap();
+    blocker.execute_batch("BEGIN IMMEDIATE;").unwrap();
+    let authorization = scripted.read_authorization().unwrap();
+    let attach_result = replica.attach_archive(
+        ArchiveAddress::parse(ARCHIVE_ORIGIN).unwrap(),
+        ArchiveToken::new(TOKEN.to_owned()),
+        authorization,
+    );
+    assert!(matches!(attach_result, Err(ReplicaFault::StoreFailed { .. })));
+    let ReplicaEvent::StatusChanged { .. } = events
+        .recv_timeout(Duration::from_secs(10))
+        .expect("fault status change announced");
+    let status = replica.status();
+    assert!(
+        matches!(status.fault, Some(ReplicaFault::StoreFailed { .. })),
+        "{status:?}"
+    );
+    assert_eq!(status.synchronization, SynchronizationState::Disconnected);
+    drop(blocker);
+    replica.shutdown();
+}
+
+struct BlockingFirstConnectionReader {
+    archive: Arc<ScriptedArchive>,
+    blocked_document: DocumentIdentifier,
+    mode: u8,
+    entered: Mutex<Option<Sender<()>>>,
+    release: Mutex<Option<Receiver<()>>>,
+}
+
+impl ArchiveReader for BlockingFirstConnectionReader {
+    fn read_authorization(&self) -> Result<ArchiveAuthorization, ArchiveCondition> {
+        self.archive.read_authorization()
+    }
+
+    fn read_changes(&self, after: Option<&JournalCursor>) -> Result<PageAnswer, ArchiveCondition> {
+        self.archive.read_changes(after)
+    }
+
+    fn read_text(&self, document: &DocumentIdentifier) -> Result<Option<String>, ArchiveCondition> {
+        if self.mode == 1 && document == &self.blocked_document {
+            if let Some(entered) = self.entered.lock().unwrap().take() {
+                let _ = entered.send(());
+            }
+            if let Some(release) = self.release.lock().unwrap().take() {
+                let _ = release.recv();
+            }
+            return Err(ArchiveCondition::CredentialRefused);
+        }
+        if self.mode == 2 {
+            return Err(ArchiveCondition::CredentialRefused);
+        }
+        self.archive.read_text(document)
+    }
+
+    fn download_original(
+        &self,
+        document: &DocumentIdentifier,
+        destination: &mut dyn Write,
+    ) -> Result<OriginalAnswer, DownloadFailure> {
+        self.archive.download_original(document, destination)
+    }
+
+    fn download_thumbnail(
+        &self,
+        document: &DocumentIdentifier,
+        destination: &mut dyn Write,
+    ) -> Result<ThumbnailAnswer, DownloadFailure> {
+        self.archive.download_thumbnail(document, destination)
+    }
+}
+
+#[test]
+fn a_stale_text_lane_failure_never_stalls_a_new_connection_while_a_current_auth_failure_suspends() {
+    let first_archive = Arc::new(ScriptedArchive::with_page_entries(10));
+    let doc_1 = DocumentIdentifier::parse(&identifier(5, 1)).unwrap();
+    first_archive.put_document(DocumentRecord {
+        identifier: doc_1.clone(),
+        condition: DocumentCondition::Archived,
+        title: Some("First connection".to_owned()),
+        document_date: CalendarDate::parse("2026-09-20"),
+        sender: None,
+        category: None,
+        person: PersonAssignment::Household,
+        summary: None,
+        media_type: "application/pdf".to_owned(),
+        byte_size: 100,
+        page_count: Some(1),
+        original: None,
+        arrived_at: START,
+        tags: BTreeSet::new(),
+        fields: BTreeMap::new(),
+    });
+    first_archive.put_text(&doc_1, "First text");
+
+    let second_archive = Arc::new(ScriptedArchive::with_page_entries(10));
+    let doc_2 = DocumentIdentifier::parse(&identifier(5, 2)).unwrap();
+    second_archive.put_document(DocumentRecord {
+        identifier: doc_2.clone(),
+        condition: DocumentCondition::Archived,
+        title: Some("Second connection".to_owned()),
+        document_date: CalendarDate::parse("2026-09-21"),
+        sender: None,
+        category: None,
+        person: PersonAssignment::Household,
+        summary: None,
+        media_type: "application/pdf".to_owned(),
+        byte_size: 100,
+        page_count: Some(1),
+        original: None,
+        arrived_at: START,
+        tags: BTreeSet::new(),
+        fields: BTreeMap::new(),
+    });
+    second_archive.put_text(&doc_2, "Second text");
+
+    let (entered_tx, entered_rx) = channel();
+    let (release_tx, release_rx) = channel();
+    let entered_tx = Mutex::new(Some(entered_tx));
+    let release_rx = Mutex::new(Some(release_rx));
+    let calls = Arc::new(AtomicUsize::new(0));
+    let first_reader = Arc::new(BlockingFirstConnectionReader {
+        archive: Arc::clone(&first_archive),
+        blocked_document: doc_1.clone(),
+        mode: 1,
+        entered: Mutex::new(entered_tx.lock().unwrap().take()),
+        release: Mutex::new(release_rx.lock().unwrap().take()),
+    });
+    let second_reader = Arc::new(BlockingFirstConnectionReader {
+        archive: Arc::clone(&second_archive),
+        blocked_document: doc_1,
+        mode: 0,
+        entered: Mutex::new(None),
+        release: Mutex::new(None),
+    });
+    let third_reader = Arc::new(BlockingFirstConnectionReader {
+        archive: Arc::clone(&second_archive),
+        blocked_document: doc_2.clone(),
+        mode: 2,
+        entered: Mutex::new(None),
+        release: Mutex::new(None),
+    });
+
+    let directory = tempfile::tempdir().unwrap();
+    let (replica, events) = Replica::start(ReplicaSettings {
+        database_path: directory.path().join("replica.sqlite"),
+        representation_directory: directory.path().join("representations"),
+        original_byte_limit: None,
+        credential_store: Box::new(FixedCredentialStore::new(None)),
+        archive_readers: Box::new(move |_, _| match calls.fetch_add(1, Ordering::Relaxed) {
+            0 => Arc::clone(&first_reader) as Arc<dyn ArchiveReader>,
+            1 => Arc::clone(&second_reader) as Arc<dyn ArchiveReader>,
+            _ => Arc::clone(&third_reader) as Arc<dyn ArchiveReader>,
+        }),
+        timing: SynchronizationTiming::default(),
+        clock: Arc::new(ManualClock::starting_at(START)),
+    })
+    .unwrap();
+
+    replica
+        .attach_archive(
+            ArchiveAddress::parse(ARCHIVE_ORIGIN).unwrap(),
+            ArchiveToken::new(TOKEN.to_owned()),
+            first_archive.read_authorization().unwrap(),
+        )
+        .unwrap();
+    entered_rx
+        .recv_timeout(Duration::from_secs(10))
+        .expect("old text lane started reading");
+
+    // Reconnect to a different archive while the old lane is still in flight, then unblock the old lane.
+    replica
+        .attach_archive(
+            ArchiveAddress::parse("https://second.example.org").unwrap(),
+            ArchiveToken::new("sch_second_token".to_owned()),
+            second_archive.read_authorization().unwrap(),
+        )
+        .unwrap();
+    release_tx.send(()).unwrap();
+
+    let mut revision = replica.status().revision;
+    loop {
+        let status = status_after(&replica, &events, revision);
+        revision = status.revision;
+        assert!(
+            !matches!(status.synchronization, SynchronizationState::Suspended { .. }),
+            "stale failure must not suspend the new connection: {status:?}"
+        );
+        if matches!(status.synchronization, SynchronizationState::Following { .. })
+            && status.documents_awaiting_text == 0
+        {
+            break;
+        }
+    }
+    assert_eq!(replica.extracted_text(&doc_2), Ok("Second text".to_owned()));
+
+    // A 401 from a current-generation text lane suspends synchronization.
+    let doc_3 = DocumentIdentifier::parse(&identifier(5, 3)).unwrap();
+    second_archive.put_document(DocumentRecord {
+        identifier: doc_3.clone(),
+        condition: DocumentCondition::Archived,
+        title: Some("Triggers 401".to_owned()),
+        document_date: CalendarDate::parse("2026-09-22"),
+        sender: None,
+        category: None,
+        person: PersonAssignment::Household,
+        summary: None,
+        media_type: "application/pdf".to_owned(),
+        byte_size: 100,
+        page_count: Some(1),
+        original: None,
+        arrived_at: START,
+        tags: BTreeSet::new(),
+        fields: BTreeMap::new(),
+    });
+    second_archive.put_text(&doc_3, "Third text");
+    // Reconnect with the same archive origin/journal to use the third reader whose text call returns 401.
+    let mut second_auth = second_archive.read_authorization().unwrap();
+    second_auth
+        .journal_identifier
+        .clone_from(&second_archive.read_authorization().unwrap().journal_identifier);
+    replica
+        .attach_archive(
+            ArchiveAddress::parse("https://second.example.org").unwrap(),
+            ArchiveToken::new("sch_third_token".to_owned()),
+            second_auth,
+        )
+        .unwrap();
+    loop {
+        let status = status_after(&replica, &events, revision);
+        revision = status.revision;
+        if status.synchronization
+            == (SynchronizationState::Suspended {
+                reason: SuspensionReason::CredentialRefused,
+            })
+        {
+            break;
+        }
+    }
+    replica.shutdown();
+}
+
+struct RepeatingCursorReader {
+    cursor: JournalCursor,
+}
+
+impl ArchiveReader for RepeatingCursorReader {
+    fn read_authorization(&self) -> Result<ArchiveAuthorization, ArchiveCondition> {
+        Ok(ArchiveAuthorization {
+            journal_identifier: "0".repeat(32),
+            token_description: "Test".to_owned(),
+            permission_level: PermissionLevel::Read,
+            restricted: false,
+            scope_digest: archive_access::UNRESTRICTED_SCOPE_DIGEST.to_owned(),
+        })
+    }
+
+    fn read_changes(&self, _after: Option<&JournalCursor>) -> Result<PageAnswer, ArchiveCondition> {
+        Ok(PageAnswer::Page(JournalPage {
+            cursor: self.cursor.clone(),
+            complete: false,
+            remaining_entries: 5,
+            members: Vec::new(),
+            senders: Vec::new(),
+            categories: Vec::new(),
+            tags: Vec::new(),
+            documents: Vec::new(),
+            removed: Vec::new(),
+        }))
+    }
+
+    fn read_text(&self, _document: &DocumentIdentifier) -> Result<Option<String>, ArchiveCondition> {
+        Ok(None)
+    }
+
+    fn download_original(
+        &self,
+        _document: &DocumentIdentifier,
+        _destination: &mut dyn Write,
+    ) -> Result<OriginalAnswer, DownloadFailure> {
+        Ok(OriginalAnswer::DocumentAbsent)
+    }
+
+    fn download_thumbnail(
+        &self,
+        _document: &DocumentIdentifier,
+        _destination: &mut dyn Write,
+    ) -> Result<ThumbnailAnswer, DownloadFailure> {
+        Ok(ThumbnailAnswer::Absent)
+    }
+}
+
+#[test]
+fn non_advancing_incomplete_page_is_a_protocol_violation() {
+    let directory = tempfile::tempdir().unwrap();
+    let mut store = ReplicaStore::open(&directory.path().join("replica.sqlite")).unwrap();
+    let reader = RepeatingCursorReader {
+        cursor: JournalCursor::parse("00000000000000000000000000000000.1").unwrap(),
+    };
+    store
+        .attach(
+            ARCHIVE_ORIGIN,
+            &reader.read_authorization().unwrap(),
+            &ArchiveToken::new(TOKEN.to_owned()).fingerprint(),
+        )
+        .unwrap();
+
+    assert!(matches!(
+        exchange_page(&mut store, &reader, START).unwrap(),
+        Some(SynchronizationInput::PageApplied { complete: false, .. })
+    ));
+    assert!(matches!(
+        exchange_page(&mut store, &reader, START).unwrap(),
+        Some(SynchronizationInput::RequestFailed(
+            ArchiveCondition::ProtocolViolation { .. }
+        ))
+    ));
 }

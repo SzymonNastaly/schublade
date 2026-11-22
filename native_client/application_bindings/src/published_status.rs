@@ -848,6 +848,7 @@ mod tests {
             documents_awaiting_text: 0,
             archive: None,
             synchronization: SynchronizationState::Disconnected,
+            fault: None,
         };
         assert_eq!(
             derive_archive_connection(&empty, None),
@@ -886,6 +887,7 @@ mod tests {
             synchronization: SynchronizationState::ArchiveOutdated {
                 retry_at: Timestamp(1_700_003_600_000),
             },
+            fault: None,
         };
         assert_eq!(
             derive_archive_connection(&outdated_replica, Some(&collector_connected)),

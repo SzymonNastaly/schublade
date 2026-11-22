@@ -21,10 +21,10 @@ pub struct SearchExpression {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SearchTerm {
-    /// As the person typed it.
+    /// Trimmed and cleaned token for SQLite FTS5.
     text: String,
-    /// Its first run of letters and digits, folded, which an excerpt looks for.
-    opening_word: String,
+    /// Its alphanumeric runs, folded, which an excerpt matches consecutively.
+    words: Vec<String>,
 }
 
 impl SearchExpression {
@@ -32,13 +32,30 @@ impl SearchExpression {
     pub fn parse(text: &str) -> SearchExpression {
         let terms = text
             .split_whitespace()
-            .filter_map(|term| {
-                let opening_word = term
-                    .split(|character: char| !character.is_alphanumeric())
-                    .find(|run| !run.is_empty())?;
+            .filter_map(|token| {
+                let mut cleaned = String::with_capacity(token.len());
+                for character in token.chars() {
+                    if character == '\0' || is_combining_mark(character) {
+                        continue;
+                    }
+                    if matches!(character, 'ß' | 'ẞ') {
+                        cleaned.push_str("ss");
+                    } else {
+                        cleaned.push(character);
+                    }
+                }
+                let trimmed = cleaned.trim_matches(|character: char| !is_word_character(character));
+                let words: Vec<String> = trimmed
+                    .split(|character: char| !is_word_character(character))
+                    .filter(|run| !run.is_empty())
+                    .map(|run| run.chars().map(folded).collect())
+                    .collect();
+                if words.is_empty() {
+                    return None;
+                }
                 Some(SearchTerm {
-                    text: term.to_owned(),
-                    opening_word: opening_word.chars().map(folded).collect(),
+                    text: trimmed.to_owned(),
+                    words,
                 })
             })
             .take(MAXIMUM_TERMS)
@@ -62,7 +79,9 @@ impl SearchExpression {
         let mut may_open = [false; 256];
         may_open[0xC0..].fill(true);
         for term in &self.terms {
-            if let Some(first) = term.opening_word.bytes().next().filter(u8::is_ascii) {
+            if let Some(opening) = term.words.first()
+                && let Some(first) = opening.bytes().next().filter(u8::is_ascii)
+            {
                 may_open[usize::from(first)] = true;
                 may_open[usize::from(first.to_ascii_uppercase())] = true;
             }
@@ -74,7 +93,7 @@ impl SearchExpression {
             let begins_word = text[..offset]
                 .chars()
                 .next_back()
-                .is_none_or(|before| !is_word_character(before));
+                .is_none_or(|before| !is_word_character(before) && !is_combining_mark(before));
             if begins_word && self.terms.iter().any(|term| term.opens(&text[offset..])) {
                 return Some(passage_around(text, offset));
             }
@@ -91,8 +110,8 @@ impl SearchTerm {
         (self.text.chars().count() >= SHORTEST_DETAIL_TERM_CHARACTERS).then(|| self.phrase())
     }
 
-    /// The expression that finds the term at the beginning of a word of the text. A term of
-    /// several words, such as `nk-2021`, is those words in a row.
+    /// The expression that finds the term at the beginning of a word of the text or detail word
+    /// table. A term of several words, such as `nk-2021`, is those words in a row.
     pub fn text_expression(&self) -> String {
         format!("{}*", self.phrase())
     }
@@ -101,13 +120,107 @@ impl SearchTerm {
         format!("\"{}\"", self.text.replace('"', "\"\""))
     }
 
-    /// Whether the text begins with the term's opening word.
+    /// Whether the text begins with all alphanumeric runs of this term in order.
     fn opens(&self, text: &str) -> bool {
-        let mut letters = text.chars().map(folded);
-        self.opening_word
-            .chars()
-            .all(|expected| letters.next() == Some(expected))
+        let mut cursor = text;
+        for (index, word) in self.words.iter().enumerate() {
+            let whole_word = index + 1 < self.words.len();
+            let Some(consumed) = match_word(word, cursor, whole_word) else {
+                return false;
+            };
+            cursor = &cursor[consumed..];
+            if whole_word {
+                let separator_len = cursor
+                    .char_indices()
+                    .find(|&(_, character)| is_word_character(character))
+                    .map_or(cursor.len(), |(byte_index, _)| byte_index);
+                if separator_len == 0 {
+                    return false;
+                }
+                cursor = &cursor[separator_len..];
+            }
+        }
+        true
     }
+}
+
+fn is_combining_mark(character: char) -> bool {
+    matches!(
+        character,
+        '\u{0300}'..='\u{036F}'
+            | '\u{1AB0}'..='\u{1AFF}'
+            | '\u{1DC0}'..='\u{1DFF}'
+            | '\u{20D0}'..='\u{20FF}'
+            | '\u{FE20}'..='\u{FE2F}'
+    )
+}
+
+/// Matches a folded query word against the start of `text`, returning the consumed byte length.
+fn match_word(query: &str, text: &str, whole_word: bool) -> Option<usize> {
+    match_word_at(query, text, whole_word, 0)
+}
+
+fn match_word_at(query: &str, text: &str, whole_word: bool, mut offset: usize) -> Option<usize> {
+    while let Some(character) = text[offset..].chars().next()
+        && is_combining_mark(character)
+    {
+        offset += character.len_utf8();
+    }
+    if query.is_empty() {
+        if whole_word && text[offset..].chars().next().is_some_and(is_word_character) {
+            return None;
+        }
+        return Some(offset);
+    }
+    let character = text[offset..].chars().next()?;
+    if !is_word_character(character) {
+        return None;
+    }
+    let mut next_offset = offset + character.len_utf8();
+    let mut has_diaeresis = false;
+    while let Some(mark) = text[next_offset..].chars().next()
+        && is_combining_mark(mark)
+    {
+        if mark == '\u{0308}' {
+            has_diaeresis = true;
+        }
+        next_offset += mark.len_utf8();
+    }
+    if matches!(character, 'ß' | 'ẞ') {
+        if let Some(rest) = query.strip_prefix("ss") {
+            return match_word_at(rest, text, whole_word, next_offset);
+        }
+        if !whole_word && query == "s" {
+            return Some(next_offset);
+        }
+        return None;
+    }
+    let digraph = match character {
+        'ä' | 'Ä' => Some(("ae", "a")),
+        'ö' | 'Ö' => Some(("oe", "o")),
+        'ü' | 'Ü' => Some(("ue", "u")),
+        'a' | 'A' if has_diaeresis => Some(("ae", "a")),
+        'o' | 'O' if has_diaeresis => Some(("oe", "o")),
+        'u' | 'U' if has_diaeresis => Some(("ue", "u")),
+        _ => None,
+    };
+    if let Some((expanded, base)) = digraph {
+        if let Some(rest) = query.strip_prefix(expanded)
+            && let Some(matched) = match_word_at(rest, text, whole_word, next_offset)
+        {
+            return Some(matched);
+        }
+        if let Some(rest) = query.strip_prefix(base) {
+            return match_word_at(rest, text, whole_word, next_offset);
+        }
+        return None;
+    }
+    let expected = folded(character);
+    let mut query_chars = query.chars();
+    if query_chars.next() == Some(expected) {
+        return match_word_at(query_chars.as_str(), text, whole_word, next_offset);
+    }
+    None
 }
 
 /// Whether the character belongs to a word, as the text table's tokenizer decides it. The

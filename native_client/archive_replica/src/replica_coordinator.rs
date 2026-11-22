@@ -9,7 +9,9 @@ use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender, TryRecvError};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
-use archive_access::{ArchiveAddress, ArchiveAuthorization, ArchiveToken, Clock, DocumentIdentifier, Timestamp};
+use archive_access::{
+    ArchiveAddress, ArchiveAuthorization, ArchiveCondition, ArchiveToken, Clock, DocumentIdentifier, Timestamp,
+};
 
 use crate::archive_reader::{ArchiveReader, PageAnswer};
 use crate::replica_store::{PageApplication, ReplicaStore};
@@ -52,15 +54,23 @@ pub fn exchange_page(
 ) -> rusqlite::Result<Option<SynchronizationInput>> {
     let requested_after = store.cursor()?;
     Ok(Some(match reader.read_changes(requested_after.as_ref()) {
-        Ok(PageAnswer::Page(page)) => match store.apply_page(requested_after.as_ref(), &page, now)? {
-            PageApplication::Applied { unsettled_documents } => SynchronizationInput::PageApplied {
-                complete: page.complete,
-                fill_complete: store.mirror()?.is_some_and(|mirror| mirror.fill_complete),
-                remaining_entries: page.remaining_entries,
-                unsettled_documents,
-            },
-            PageApplication::CursorMoved => return Ok(None),
-        },
+        Ok(PageAnswer::Page(page)) => {
+            if !page.complete && requested_after.as_ref() == Some(&page.cursor) {
+                SynchronizationInput::RequestFailed(ArchiveCondition::ProtocolViolation {
+                    detail: format!("incomplete page did not advance cursor {}", page.cursor.as_str()),
+                })
+            } else {
+                match store.apply_page(requested_after.as_ref(), &page, now)? {
+                    PageApplication::Applied { unsettled_documents } => SynchronizationInput::PageApplied {
+                        complete: page.complete,
+                        fill_complete: store.mirror()?.is_some_and(|mirror| mirror.fill_complete),
+                        remaining_entries: page.remaining_entries,
+                        unsettled_documents,
+                    },
+                    PageApplication::CursorMoved => return Ok(None),
+                }
+            }
+        }
         Ok(PageAnswer::JournalReplaced) => {
             store.discard()?;
             SynchronizationInput::JournalReplaced
@@ -76,6 +86,8 @@ pub(crate) struct ReplicaCoordinator {
     /// The same reader, where a call that downloads a representation finds it.
     pub(crate) followed: FollowedArchive,
     pub(crate) text_lanes: TextLanes,
+    /// Incremented whenever a connection is established so stale text reports are discarded.
+    pub(crate) connection_generation: u64,
     /// The assignments the lanes have not reported yet, and their documents.
     pub(crate) text_assignments: usize,
     pub(crate) texts_in_flight: HashSet<DocumentIdentifier>,
@@ -98,6 +110,16 @@ impl ReplicaCoordinator {
     pub(crate) fn run(mut self, inbox: Receiver<CoordinatorInput>) {
         if let Err(error) = self.follow(&inbox) {
             eprintln!("replica: the local copy failed, and its synchronization stops: {error}");
+            let revision = {
+                let mut published = self.published.lock().unwrap_or_else(PoisonError::into_inner);
+                published.revision += 1;
+                published.synchronization = SynchronizationState::Disconnected;
+                published.fault = Some(ReplicaFault::StoreFailed {
+                    detail: error.to_string(),
+                });
+                published.revision
+            };
+            let _ = self.events.send(ReplicaEvent::StatusChanged { revision });
         }
     }
 
@@ -143,11 +165,21 @@ impl ReplicaCoordinator {
                 }
                 Ok(CoordinatorInput::TextsRetrieved(report)) => {
                     self.text_assignments -= 1;
-                    for document in &report.assigned {
-                        self.texts_in_flight.remove(document);
+                    if report.generation == self.connection_generation {
+                        for document in &report.assigned {
+                            self.texts_in_flight.remove(document);
+                        }
+                        self.store.record_texts(&report.retrieved)?;
+                        if let Some(condition) = report.interruption {
+                            self.texts_interrupted = true;
+                            if matches!(
+                                condition,
+                                ArchiveCondition::CredentialRefused | ArchiveCondition::CredentialInsufficient
+                            ) {
+                                self.advance(SynchronizationInput::RequestFailed(condition));
+                            }
+                        }
                     }
-                    self.store.record_texts(&report.retrieved)?;
-                    self.texts_interrupted |= report.interruption.is_some();
                 }
                 Ok(CoordinatorInput::TextRead(text)) => self.store.record_texts(&[text])?,
                 Ok(CoordinatorInput::Wake(reason)) => self.advance(SynchronizationInput::Woken(reason)),
@@ -208,6 +240,7 @@ impl ReplicaCoordinator {
                 .extend(documents.iter().map(|awaited| awaited.document.clone()));
             self.text_assignments += 1;
             self.text_lanes.assign(TextAssignment {
+                generation: self.connection_generation,
                 reader: Arc::clone(&reader),
                 documents,
             });
@@ -220,6 +253,8 @@ impl ReplicaCoordinator {
         let reader = (self.archive_readers)(address, token);
         *self.followed.lock().unwrap_or_else(PoisonError::into_inner) = Some(Arc::clone(&reader));
         self.reader = Some(reader);
+        self.connection_generation += 1;
+        self.texts_in_flight.clear();
         self.texts_interrupted = false;
         let fill_complete = self.store.mirror()?.is_some_and(|mirror| mirror.fill_complete);
         self.advance(SynchronizationInput::ConnectionEstablished { fill_complete });
@@ -255,6 +290,7 @@ impl ReplicaCoordinator {
                 synchronized_at: mirror.synchronized_at,
             }),
             synchronization: self.state.clone(),
+            fault: None,
         })
     }
 
