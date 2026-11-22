@@ -112,14 +112,14 @@ public final class LibraryWorkspaceViewController: NSSplitViewController {
 		} else {
 			NSSplitViewItem(viewController: sidebarController)
 		}
-		sidebarItem.minimumThickness = 180
+		// The design's width, which a sidebar must not lose to the window's first, narrower layouts.
+		sidebarItem.minimumThickness = 214
 		sidebarItem.maximumThickness = 280
 		sidebarItem.canCollapse = true
 		let detailItem = NSSplitViewItem(viewController: rightContainerController)
 		detailItem.minimumThickness = 620
 		addSplitViewItem(sidebarItem)
 		addSplitViewItem(detailItem)
-		splitView.setPosition(214, ofDividerAt: 0)
 		showingPage = false
 		rightContainerController.display(detailSplitController)
 	}

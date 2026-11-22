@@ -284,7 +284,8 @@ private extension DocumentReaderViewController {
 		view.addSubview(contentHost)
 
 		NSLayoutConstraint.activate([
-			headerView.topAnchor.constraint(equalTo: view.topAnchor),
+			// Below the toolbar, which the window's full-size content would otherwise put over it.
+			headerView.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
 			headerView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
 			headerView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
 			contentHost.topAnchor.constraint(equalTo: headerView.bottomAnchor),

@@ -158,11 +158,9 @@ public final class ConnectionFormViewController: NSViewController, NSTextFieldDe
 	private func activateFormConstraints(formStack: NSStackView, instructionLabel: NSTextField) {
 		NSLayoutConstraint.activate([
 			formStack.centerXAnchor.constraint(equalTo: view.centerXAnchor),
-			formStack.centerYAnchor.constraint(equalTo: view.centerYAnchor),
-			formStack.leadingAnchor.constraint(greaterThanOrEqualTo: view.leadingAnchor, constant: 32),
-			formStack.trailingAnchor.constraint(lessThanOrEqualTo: view.trailingAnchor, constant: -32),
-			formStack.widthAnchor.constraint(lessThanOrEqualToConstant: 440),
-			formStack.widthAnchor.constraint(greaterThanOrEqualToConstant: 360),
+			// A fixed width and top, so a refusal that appears below grows the form downward only.
+			formStack.topAnchor.constraint(equalTo: view.centerYAnchor, constant: -150),
+			formStack.widthAnchor.constraint(equalToConstant: 400),
 			addressField.widthAnchor.constraint(equalTo: formStack.widthAnchor),
 			tokenField.widthAnchor.constraint(equalTo: formStack.widthAnchor),
 			instructionLabel.widthAnchor.constraint(equalTo: formStack.widthAnchor),

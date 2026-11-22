@@ -11,6 +11,7 @@ final class LibraryDetailSplitViewController: NSSplitViewController {
 	/// Called when the window's width, not a person, collapsed or expanded the inspector.
 	var onInspectorVisibilityChanged: ((Bool) -> Void)?
 	private var requestedInspectorVisible = true
+	private var dividersPlaced = false
 
 	init(
 		listController: DocumentListViewController,
@@ -58,13 +59,26 @@ final class LibraryDetailSplitViewController: NSSplitViewController {
 		addSplitViewItem(listItem)
 		addSplitViewItem(readerItem)
 		addSplitViewItem(inspectorItem)
+	}
 
-		splitView.setPosition(330, ofDividerAt: 0)
-		splitView.setPosition(876, ofDividerAt: 1)
+	override func viewDidLayout() {
+		super.viewDidLayout()
+		guard !dividersPlaced, splitView.bounds.width >= 940 else {
+			return
+		}
+		dividersPlaced = true
+		InitialDividerPlacement.place(in: splitView, at: [330, splitView.bounds.width - 250])
+		// The first layouts are narrower than the window, which collapses the inspector; restore it.
+		if requestedInspectorVisible, inspectorItem.isCollapsed {
+			inspectorItem.isCollapsed = false
+		}
 	}
 
 	override func splitViewDidResizeSubviews(_ notification: Notification) {
 		super.splitViewDidResizeSubviews(notification)
+		guard dividersPlaced else {
+			return
+		}
 		let visible = !inspectorItem.isCollapsed
 		if visible != requestedInspectorVisible {
 			requestedInspectorVisible = visible
