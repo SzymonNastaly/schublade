@@ -1,10 +1,11 @@
 import { applyD1Migrations, createExecutionContext, env, reset } from "cloudflare:test"
+import { eq } from "drizzle-orm"
 import { expect, inject, test } from "vitest"
 import scannedInvoice from "../test_fixtures/documents/electricity_invoice_scanned.pdf"
 import { issueApiToken } from "./authentication/api_tokens"
 import { connectDatabase } from "./database/client"
 import { clientRouteDefinitions } from "./client_protocol/client_paths"
-import { documents } from "./database/schema"
+import { apiTokens, documents } from "./database/schema"
 import { createRequestDispatcher } from "./request_dispatch"
 
 const context = createExecutionContext()
@@ -31,6 +32,16 @@ async function prepareArchive() {
 	}
 	const { token } = await issueApiToken(database, { description: "Network scanner", level: "ingest" })
 	return { database, environment, workflowInstances, token }
+}
+
+/** Issues a token whose scope admits no document, as no member can yet in Settings. */
+async function issueRestrictedToken(database: ReturnType<typeof connectDatabase>) {
+	const { token, listing } = await issueApiToken(database, { description: "Tax adviser", level: "read" })
+	await database
+		.update(apiTokens)
+		.set({ authorizationScope: { level: "read", allowedCategories: [] } })
+		.where(eq(apiTokens.id, listing.id))
+	return token
 }
 
 function uploadRequest(path: string, headers: Record<string, string>): Request {
@@ -60,13 +71,15 @@ test("POST /api/documents/ingest archives the files of a request with an ingest 
 	})
 })
 
-test("POST /api/documents/ingest refuses a missing or unknown token without storing a file", async () => {
+test("POST /api/documents/ingest refuses a missing, unknown, or restricted token without storing a file", async () => {
 	const { database, environment } = await prepareArchive()
 	const unknownToken = `schublade_${"A".repeat(43)}`
+	const restrictedToken = await issueRestrictedToken(database)
 
 	const responses = [
 		await dispatch(uploadRequest("/api/documents/ingest", {}), environment),
 		await dispatch(uploadRequest("/api/documents/ingest", { Authorization: `Bearer ${unknownToken}` }), environment),
+		await dispatch(uploadRequest("/api/documents/ingest", { Authorization: `Bearer ${restrictedToken}` }), environment),
 	]
 
 	expect({
@@ -78,6 +91,10 @@ test("POST /api/documents/ingest refuses a missing or unknown token without stor
 		outcomes: [
 			{ status: 401, body: '{"error":"Send a valid API token in the Authorization header"}' },
 			{ status: 401, body: '{"error":"Send a valid API token in the Authorization header"}' },
+			{
+				status: 403,
+				body: '{"error":"The API token is restricted to a part of the archive. Adding documents needs an unrestricted token."}',
+			},
 		],
 		challenge: "Bearer",
 		storedDocuments: [],
@@ -145,11 +162,12 @@ function matchingPath(pattern: RegExp): string {
 	return path
 }
 
-// Every route of the table appears here with what a token of each level gets, so a new route, a
-// changed level, and a pattern that lost an anchor all fail this test.
-test("every client route answers 401 without a token, 405 to another method, and 403 to a token below its level, and a path around its pattern stays behind Access", async () => {
+// Every route of the table appears here with what a token of each level and a restricted token
+// get, so a new route, a changed level, and a pattern that lost an anchor all fail this test.
+test("every client route answers 401 without a token, 405 to another method, and 403 to a token below its level, a collector's route refuses a restricted token, no answer may be stored, and a path around a pattern stays behind Access", async () => {
 	const { database, environment, token: ingestToken } = await prepareArchive()
 	const { token: readToken } = await issueApiToken(database, { description: "Schublade app", level: "read" })
+	const restrictedToken = await issueRestrictedToken(database)
 	const bodies: Record<string, BodyInit | undefined> = {
 		POST: JSON.stringify({ sha256: [SCANNED_INVOICE_SHA256] }),
 		PUT: scannedInvoice,
@@ -171,11 +189,23 @@ test("every client route answers 401 without a token, 405 to another method, and
 	const answers: Record<string, unknown> = {}
 	for (const { method, pattern } of clientRouteDefinitions) {
 		const path = matchingPath(pattern)
+		const withoutToken = await send(method, path)
+		const otherMethod = await send(method === "GET" ? "POST" : "GET", path, readToken)
+		const admissions = [
+			await send(method, path, ingestToken),
+			await send(method, path, readToken),
+			await send(method, path, restrictedToken),
+		]
+		const [ingestAdmission, readAdmission, restrictedAdmission] = await Promise.all(admissions.map(admission))
 		answers[`${method} ${path}`] = {
-			withoutToken: refusal(await send(method, path), "WWW-Authenticate"),
-			otherMethod: refusal(await send(method === "GET" ? "POST" : "GET", path, readToken), "Allow"),
-			ingestToken: await admission(await send(method, path, ingestToken)),
-			readToken: await admission(await send(method, path, readToken)),
+			withoutToken: refusal(withoutToken, "WWW-Authenticate"),
+			otherMethod: refusal(otherMethod, "Allow"),
+			ingestToken: ingestAdmission,
+			readToken: readAdmission,
+			restrictedToken: restrictedAdmission,
+			cacheControl: [
+				...new Set([withoutToken, otherMethod, ...admissions].map((response) => response.headers.get("Cache-Control"))),
+			],
 			aroundThePattern: [
 				await (await send(method, `/x${path}`, readToken)).text(),
 				await (await send(method, `${path}/x`, readToken)).text(),
@@ -186,20 +216,39 @@ test("every client route answers 401 without a token, 405 to another method, and
 	const shared = (method: string) => ({
 		withoutToken: "401 application/problem+json WWW-Authenticate: Bearer",
 		otherMethod: `405 application/problem+json Allow: ${method}`,
+		cacheControl: ["no-store"],
 		aroundThePattern: ["Access denied: assertion_missing", "Access denied: assertion_missing"],
 	})
 	const readingRefused = "The API token does not permit reading the archive"
+	const restrictedRefused =
+		"This API token is restricted to a part of the archive. A collector needs an unrestricted token."
 	expect(answers).toEqual({
-		"GET /api/v1/authorization": { ...shared("GET"), ingestToken: 200, readToken: 200 },
-		"GET /api/v1/changes": { ...shared("GET"), ingestToken: readingRefused, readToken: 200 },
+		"GET /api/v1/authorization": { ...shared("GET"), ingestToken: 200, readToken: 200, restrictedToken: 200 },
+		"GET /api/v1/changes": { ...shared("GET"), ingestToken: readingRefused, readToken: 200, restrictedToken: 200 },
 		[`GET /api/v1/documents/${DOCUMENT_IDENTIFIER}/original`]: {
 			...shared("GET"),
 			ingestToken: readingRefused,
 			readToken: 404,
+			restrictedToken: 404,
 		},
-		"POST /api/v1/contents/lookup": { ...shared("POST"), ingestToken: 200, readToken: 200 },
-		[`PUT /api/v1/contents/${SCANNED_INVOICE_SHA256}`]: { ...shared("PUT"), ingestToken: 202, readToken: 200 },
-		[`GET /api/v1/documents/${DOCUMENT_IDENTIFIER}`]: { ...shared("GET"), ingestToken: 404, readToken: 404 },
+		"POST /api/v1/contents/lookup": {
+			...shared("POST"),
+			ingestToken: 200,
+			readToken: 200,
+			restrictedToken: restrictedRefused,
+		},
+		[`PUT /api/v1/contents/${SCANNED_INVOICE_SHA256}`]: {
+			...shared("PUT"),
+			ingestToken: 202,
+			readToken: 200,
+			restrictedToken: restrictedRefused,
+		},
+		[`GET /api/v1/documents/${DOCUMENT_IDENTIFIER}`]: {
+			...shared("GET"),
+			ingestToken: 404,
+			readToken: 404,
+			restrictedToken: restrictedRefused,
+		},
 	})
 })
 

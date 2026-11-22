@@ -767,6 +767,10 @@ A review of unit S2 on 2026-11-22 found that deploying it would let every token 
 - `GET /api/v1/authorization` needs only `ingest`, so every token can ask what it may do. The changes and the three representations need `read`.
 - Settings issues two kinds of token, "Scanner, script, or Shortcut: adds documents" (`ingest`) and "Schublade app: reads and adds documents" (`read`).
 - `test_fixtures/client_protocol/authorization.json` now holds `"permission_level": "read"`, because its token, "MacBook of Jonas", reads the changes of the other fixture. `archive_access` must order `PermissionLevel` as `Ingest`, `Read`, `Modify`, `Administer`, the fixture test must expect `Read`, and the connection flow must attach the replica only for `read` or above.
+- The collector's three routes answer a token with a restricted scope 403 with a problem document, because a collector must see every content. A restricted token therefore connects the library alone.
+- `If-None-Match` is the one condition a representation honours. An original that R2 lacks answers 404 even to its own digest, and `If-None-Match: *` on an original answers 200.
+- Every answer of the gate carries `Cache-Control: no-store`. The representations no longer send `private, no-store`.
+- A PDF whose first page cannot be drawn is marked, so the thumbnail route answers 404 for a day without reading the original again.
 
 Unit R3's first half landed after S1 and S2: `archive_replica` with its store, its reader, its machine, and its coordinator, and `scripted_archive`. It changed these points of the design.
 

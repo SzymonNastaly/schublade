@@ -15,16 +15,17 @@ const absenceDetails = {
 	thumbnail: "This document has no thumbnail",
 } as const satisfies Record<DocumentRepresentationName, string>
 
-function namesEntityTag(conditions: Headers, entityTag: string): boolean {
-	const named = conditions.get("If-None-Match")
-	return named !== null && named.split(",").some((tag) => [entityTag, "*"].includes(tag.trim().replace(/^W\//, "")))
+function namesEntityTag(named: string, entityTag: string): boolean {
+	return named.split(",").some((tag) => tag.trim().replace(/^W\//, "") === entityTag)
 }
 
 /**
  * Answers GET /api/v1/documents/{id}/original, /text, and /thumbnail. A document the scope does
  * not admit answers the same 404 as one that does not exist. The entity tag of an original is its
  * SHA-256 once the archive recorded it, because the archive never changes the bytes of a content,
- * so a revalidation reads no R2 object. Every other entity tag is R2's, which R2 compares itself.
+ * so a revalidation asks R2 only whether the file is still there. Every other entity tag is R2's,
+ * which R2 compares itself. If-None-Match is the one condition a request can make: any other
+ * precondition and a range are ignored, so an answer without a body always means "not modified".
  */
 export async function serveDocumentRepresentationRequest(
 	storage: R2Bucket,
@@ -50,10 +51,12 @@ export async function serveDocumentRepresentationRequest(
 		return problem(409, "The archive has not printed this email as a PDF yet. Request the original again later.")
 	}
 
-	const headers = representationHeaders("private, no-store")
+	const headers = representationHeaders("no-store")
+	const namedTags = request.headers.get("If-None-Match")
 	const digestTag =
 		representation === "original" && document.originalSha256 !== null ? `"${document.originalSha256}"` : undefined
-	if (digestTag !== undefined && namesEntityTag(request.headers, digestTag)) {
+	if (digestTag !== undefined && namedTags !== null && namesEntityTag(namedTags, digestTag)) {
+		if ((await storage.head(document.storageObjectKey)) === null) return problem(404, absenceDetails.original)
 		headers.set("ETag", digestTag)
 		return new Response(null, { status: 304, headers })
 	}
@@ -61,7 +64,7 @@ export async function serveDocumentRepresentationRequest(
 		storage,
 		document,
 		representation === "text" ? "content" : representation,
-		digestTag === undefined ? request.headers : undefined,
+		digestTag === undefined && namedTags !== null ? new Headers({ "If-None-Match": namedTags }) : undefined,
 	)
 	if (!stored) return problem(404, absenceDetails[representation])
 	headers.set("ETag", digestTag ?? stored.metadata.httpEtag)

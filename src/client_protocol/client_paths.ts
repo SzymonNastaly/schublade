@@ -29,6 +29,12 @@ export const levelRefusals = {
 export interface MatchedRoute {
 	method: "GET" | "POST" | "PUT"
 	level: keyof typeof levelRefusals
+	/**
+	 * What a token whose scope holds a list gets. A route that applies the scope answers only what
+	 * the scope admits. A collector must see every content, or it would archive one a second time,
+	 * so its routes cannot apply a scope and refuse such a token.
+	 */
+	restrictedScope: "applied" | "refused"
 	route: ClientRoute
 }
 
@@ -43,18 +49,21 @@ export const clientRouteDefinitions: ReadonlyArray<RouteDefinition> = [
 	{
 		method: "GET",
 		level: "ingest",
+		restrictedScope: "applied",
 		pattern: new RegExp(`^${CLIENT_PATH_PREFIX}/authorization$`),
 		route: () => ({ kind: "authorization" }),
 	},
 	{
 		method: "GET",
 		level: "read",
+		restrictedScope: "applied",
 		pattern: new RegExp(`^${CLIENT_PATH_PREFIX}/changes$`),
 		route: () => ({ kind: "changes" }),
 	},
 	{
 		method: "GET",
 		level: "read",
+		restrictedScope: "applied",
 		pattern: new RegExp(`^${CLIENT_PATH_PREFIX}/documents/(${DOCUMENT_IDENTIFIER})/(original|text|thumbnail)$`),
 		route: ([, documentId = "", representation]) => ({
 			kind: "document_representation",
@@ -65,18 +74,21 @@ export const clientRouteDefinitions: ReadonlyArray<RouteDefinition> = [
 	{
 		method: "POST",
 		level: "ingest",
+		restrictedScope: "refused",
 		pattern: new RegExp(`^${CLIENT_PATH_PREFIX}/contents/lookup$`),
 		route: () => ({ kind: "content_lookup" }),
 	},
 	{
 		method: "PUT",
 		level: "ingest",
+		restrictedScope: "refused",
 		pattern: new RegExp(`^${CLIENT_PATH_PREFIX}/contents/(${DIGEST})$`),
 		route: ([, sha256 = ""]) => ({ kind: "content_submission", sha256 }),
 	},
 	{
 		method: "GET",
 		level: "ingest",
+		restrictedScope: "refused",
 		pattern: new RegExp(`^${CLIENT_PATH_PREFIX}/documents/(${DOCUMENT_IDENTIFIER})$`),
 		route: ([, documentId = ""]) => ({ kind: "document_status", documentId }),
 	},

@@ -35,6 +35,10 @@ const statement = "4d1f0c9e-2a6b-4c3e-9a51-0b7f6e2d8c11"
 const statementSha256 = "a3f1c2d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f90"
 const note = "7c8d9e0f-1a2b-4c3d-9e4f-5a6b7c8d9e0f"
 const deletedDocument = "61728394-a5b6-4c7d-8e9f-0a1b2c3d4e5f"
+const lostOriginal = "8d9e0f1a-2b3c-4d4e-8f5a-6b7c8d9e0f1a"
+const lostOriginalSha256 = "c7d8e9f0a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8"
+const storedMail = "0a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d"
+const deletedTag = "5f607182-93a4-4b5c-8d6e-7f8091a2b3c4"
 const UNKNOWN_DOCUMENT_ID = "00000000-0000-4000-8000-000000000000"
 
 const context = createExecutionContext()
@@ -45,7 +49,7 @@ const environment = {
 	ACCESS_AUD: "4714c1358e65fe4b408ad6d432a5f878f08194bdb4752441fd56faefa9b2b6f2",
 }
 const database = connectDatabase(env.DATABASE)
-const tokens = { unrestricted: "", invoicesOnly: "" }
+const tokens = { unrestricted: "", invoicesOnly: "", fourLists: "" }
 
 /** Issues a token and gives it the scope, as no member can yet in Settings. */
 async function issueScopedToken(description: string, authorizationScope: AuthorizationScope) {
@@ -57,7 +61,8 @@ async function issueScopedToken(description: string, authorizationScope: Authori
 /**
  * One archive for every test of the file: none of them writes a record the journal follows. The
  * journal had issued 27 numbers when the client read its last page, so the page that follows
- * holds the entries 28 to 38.
+ * holds the entries 28 to 38. The stored email arrived before that page. R2 holds no original of
+ * the document in recognition, as after a lost file.
  */
 beforeAll(async () => {
 	await reset()
@@ -78,13 +83,22 @@ beforeAll(async () => {
 		{ id: electricity, name: "strom", normalizedName: "strom" },
 		{ id: taxYear, name: "steuer 2026", normalizedName: "steuer 2026", colorHex: "#2f6fde" },
 	])
-	await database.insert(documents).values({
-		id: deletedDocument,
-		storageObjectKey: `documents/${deletedDocument}/original.pdf`,
-		mimeType: "application/pdf",
-		byteSize: 1024,
-		status: "archived",
-	})
+	await database.insert(documents).values([
+		{
+			id: deletedDocument,
+			storageObjectKey: `documents/${deletedDocument}/original.pdf`,
+			mimeType: "application/pdf",
+			byteSize: 1024,
+			status: "archived",
+		},
+		{
+			id: storedMail,
+			storageObjectKey: `documents/${storedMail}/original.eml`,
+			mimeType: "message/rfc822",
+			byteSize: 16,
+			status: "awaiting_rendering",
+		},
+	])
 	await env.DATABASE.prepare("UPDATE sqlite_sequence SET seq = 27 WHERE name = 'change_journal'").run()
 
 	await database.insert(documents).values([
@@ -127,11 +141,11 @@ beforeAll(async () => {
 		createdAt: new Date("2026-10-02T17:41:30Z"),
 	})
 	await database.insert(documents).values({
-		id: "8d9e0f1a-2b3c-4d4e-8f5a-6b7c8d9e0f1a",
-		storageObjectKey: "documents/8d9e0f1a-2b3c-4d4e-8f5a-6b7c8d9e0f1a/original.pdf",
+		id: lostOriginal,
+		storageObjectKey: `documents/${lostOriginal}/original.pdf`,
 		mimeType: "application/pdf",
 		byteSize: 912004,
-		originalSha256: "c7d8e9f0a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0c1d2e3f4a5b6c7d8",
+		originalSha256: lostOriginalSha256,
 		pageCount: 3,
 		status: "recognizing_text",
 		createdAt: new Date("2026-10-04T06:03:11Z"),
@@ -168,6 +182,13 @@ beforeAll(async () => {
 	})
 	tokens.unrestricted = (await issueApiToken(database, { description: "MacBook of Jonas", level: "read" })).token
 	tokens.invoicesOnly = await issueScopedToken("Tax adviser", { level: "read", allowedCategories: [invoice] })
+	tokens.fourLists = await issueScopedToken("Auditor", {
+		level: "read",
+		allowedCategories: [invoice],
+		allowedTags: [taxYear, electricity, taxYear],
+		deniedTags: [deletedTag],
+		allowedSenders: [stadtwerke],
+	})
 })
 
 function send(path: string, init: { token?: string; method?: string; headers?: Record<string, string> } = {}) {
@@ -200,61 +221,107 @@ test("the authorization and a page of changes equal the wire fixtures that the n
 	expect({
 		authorization: await authorization.json(),
 		changes: keyedByRecord(await changes.json<Parameters<typeof keyedByRecord>[0]>()),
-		cacheControl: [authorization.headers.get("Cache-Control"), changes.headers.get("Cache-Control")],
 	}).toEqual({
 		authorization: authorizationFixture,
 		changes: keyedByRecord(changesPageFixture),
-		cacheControl: ["no-store", "no-store"],
 	})
 })
 
-test("a document outside a token's scope is not found on any representation route, and one inside it is served", async () => {
+test("a restricted token reads only what its scope admits through the changes and the representations, and no changes once a tag it excludes is gone", async () => {
+	const changes = await send("/api/v1/changes", { token: tokens.invoicesOnly })
+	const page = await changes.json<{ changes: Array<{ record: string; id: string; change: string }> }>()
 	const representations = ["original", "text", "thumbnail"]
 	const outsideScope = await Promise.all(
 		representations.map((name) => send(`/api/v1/documents/${note}/${name}`, { token: tokens.invoicesOnly })),
 	)
 	const insideScope = await send(`/api/v1/documents/${statement}/text`, { token: tokens.invoicesOnly })
+	const authorization = await send("/api/v1/authorization", { token: tokens.fourLists })
+	const excludedTagGone = await send("/api/v1/changes", { token: tokens.fourLists })
 
 	expect({
+		upserts: page.changes.flatMap(({ record, id, change }) => (change === "upsert" ? [`${record} ${id}`] : [])).sort(),
 		outsideScope: await Promise.all(outsideScope.map(answer)),
 		insideScope: await answer(insideScope),
+		authorization: (await authorization.json<{ token: unknown }>()).token,
+		excludedTagGone: await answer(excludedTagGone),
 	}).toEqual({
+		upserts: [
+			`category ${invoice}`,
+			`document ${statement}`,
+			`sender ${stadtwerke}`,
+			`tag ${electricity}`,
+			`tag ${taxYear}`,
+		],
 		outsideScope: representations.map(() => ({
 			status: 404,
 			contentType: "application/problem+json",
 			body: `{"type":"about:blank","title":"Not Found","status":404,"detail":"No document has the identifier ${note}"}`,
 		})),
 		insideScope: { status: 200, contentType: "text/markdown; charset=utf-8", body: "# Annual statement" },
+		// The SHA-256 of the four lists as JSON, each deduplicated and sorted, which differs from the
+		// digest 6cd8cec7… that authorization.json holds for a token without a list.
+		authorization: {
+			description: "Auditor",
+			permission_level: "read",
+			restricted: true,
+			scope_digest: "33044b764227ec4dbd26a8acbef3c7e39de8ef0e6e55ffa09452f39c0edc64c5",
+		},
+		excludedTagGone: {
+			status: 403,
+			contentType: "application/problem+json",
+			body: '{"type":"about:blank","title":"Forbidden","status":403,"detail":"A tag this token excludes no longer exists. Issue a new token."}',
+		},
 	})
 })
 
-test("an original carries its SHA-256 as its entity tag and answers 304 to it, and the text answers 304 to R2's", async () => {
-	const original = await send(`/api/v1/documents/${statement}/original`, { token: tokens.unrestricted })
+test("an original answers 304 to its SHA-256 only while R2 holds the file, the text answers 304 to R2's entity tag, no other precondition empties an answer, and an email not yet printed answers 409", async () => {
+	const reader = { token: tokens.unrestricted }
+	const original = await send(`/api/v1/documents/${statement}/original`, reader)
 	const revalidated = await send(`/api/v1/documents/${statement}/original`, {
-		token: tokens.unrestricted,
+		...reader,
 		headers: { "If-None-Match": `"${statementSha256}"` },
 	})
-	const text = await send(`/api/v1/documents/${statement}/text`, { token: tokens.unrestricted })
+	const anyTag = await send(`/api/v1/documents/${statement}/original`, { ...reader, headers: { "If-None-Match": "*" } })
+	const text = await send(`/api/v1/documents/${statement}/text`, reader)
 	const textTag = text.headers.get("ETag") ?? ""
 	const textRevalidated = await send(`/api/v1/documents/${statement}/text`, {
-		token: tokens.unrestricted,
+		...reader,
 		headers: { "If-None-Match": textTag },
 	})
-	const unknown = await send(`/api/v1/documents/${UNKNOWN_DOCUMENT_ID}/original`, { token: tokens.unrestricted })
+	const failedPrecondition = await send(`/api/v1/documents/${statement}/text`, {
+		...reader,
+		headers: { "If-Match": '"another"' },
+	})
+	const lostFile = await Promise.all(
+		[`"${lostOriginalSha256}"`, "*"].map((named) =>
+			send(`/api/v1/documents/${lostOriginal}/original`, { ...reader, headers: { "If-None-Match": named } }),
+		),
+	)
+	const unknown = await send(`/api/v1/documents/${UNKNOWN_DOCUMENT_ID}/original`, reader)
+	const unprintedMail = await send(`/api/v1/documents/${storedMail}/original`, reader)
 
+	const lostFileAnswer = {
+		status: 404,
+		contentType: "application/problem+json",
+		body: '{"type":"about:blank","title":"Not Found","status":404,"detail":"The original of this document is not stored"}',
+	}
 	expect({
 		original: { ...(await answer(original)), headers: Object.fromEntries(original.headers) },
 		revalidated: { ...(await answer(revalidated)), etag: revalidated.headers.get("ETag") },
+		anyTag: await answer(anyTag),
 		textTagIsR2s: textTag.startsWith('"') && textTag !== `"${statementSha256}"`,
 		textRevalidated: { ...(await answer(textRevalidated)), etag: textRevalidated.headers.get("ETag") },
+		failedPrecondition: await answer(failedPrecondition),
+		lostFile: await Promise.all(lostFile.map(answer)),
 		unknown: (await answer(unknown)).status,
+		unprintedMail: await answer(unprintedMail),
 	}).toEqual({
 		original: {
 			status: 200,
 			contentType: "application/pdf",
 			body: "%PDF-1.7 statement",
 			headers: {
-				"cache-control": "private, no-store",
+				"cache-control": "no-store",
 				"content-disposition": "inline",
 				"content-length": "18",
 				"content-security-policy": "sandbox",
@@ -264,9 +331,17 @@ test("an original carries its SHA-256 as its entity tag and answers 304 to it, a
 			},
 		},
 		revalidated: { status: 304, contentType: null, body: "", etag: `"${statementSha256}"` },
+		anyTag: { status: 200, contentType: "application/pdf", body: "%PDF-1.7 statement" },
 		textTagIsR2s: true,
 		textRevalidated: { status: 304, contentType: null, body: "", etag: textTag },
+		failedPrecondition: { status: 200, contentType: "text/markdown; charset=utf-8", body: "# Annual statement" },
+		lostFile: [lostFileAnswer, lostFileAnswer],
 		unknown: 404,
+		unprintedMail: {
+			status: 409,
+			contentType: "application/problem+json",
+			body: '{"type":"about:blank","title":"Conflict","status":409,"detail":"The archive has not printed this email as a PDF yet. Request the original again later."}',
+		},
 	})
 })
 

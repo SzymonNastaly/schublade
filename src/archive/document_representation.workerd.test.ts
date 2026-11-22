@@ -1,5 +1,5 @@
 import { applyD1Migrations, env } from "cloudflare:test"
-import { expect, inject, test } from "vitest"
+import { expect, inject, test, vi } from "vitest"
 import digitalStatement from "../../test_fixtures/documents/bank_statement_digital.pdf"
 import { connectDatabase } from "../database/client"
 import { documents } from "../database/schema"
@@ -31,19 +31,30 @@ test("the thumbnail of a PDF is rendered on first request and served from storag
 	expect(await served.text()).toBe("stored thumbnail")
 })
 
-test("a PDF that cannot be rendered has no thumbnail", async () => {
-	const documentId = "8d2a4b6c-0e3f-4a79-c1d5-4f9b7e2a0c83"
+test("a PDF that cannot be rendered has no thumbnail, and its original is read once however often the thumbnail is requested", async () => {
+	const documentId = "8d2a4b6c-0e3f-4a79-a1d5-4f9b7e2a0c83"
 	await storePdfDocument(documentId, "this is not a PDF")
+	const reads = vi.spyOn(env.DOCUMENT_STORAGE, "get")
 
-	const response = await serveDocumentRepresentation(env, { documentId, representation: "thumbnail" })
+	const statuses: Array<number> = []
+	for (let request = 0; request < 3; request += 1) {
+		const response = await serveDocumentRepresentation(env, { documentId, representation: "thumbnail" })
+		statuses.push(response.status)
+		await response.body?.cancel()
+	}
+	const readKeys = reads.mock.calls.map(([key]) => key)
+	reads.mockRestore()
 
-	expect(response.status).toBe(404)
-	await response.body?.cancel()
+	expect({
+		statuses,
+		readsOfTheOriginal: readKeys.filter((key) => key === `documents/${documentId}/original.pdf`).length,
+		readsOfTheMark: readKeys.filter((key) => key === `documents/${documentId}/thumbnail.png`).length,
+	}).toEqual({ statuses: [404, 404, 404], readsOfTheOriginal: 1, readsOfTheMark: 3 })
 })
 
 test("an email not yet rendered has no thumbnail", async () => {
 	await applyD1Migrations(env.DATABASE, inject("databaseMigrations"))
-	const documentId = "9e3b5c7d-1f4a-4b8a-d2e6-5a0c8f3b1d94"
+	const documentId = "9e3b5c7d-1f4a-4b8a-92e6-5a0c8f3b1d94"
 	const storageObjectKey = `documents/${documentId}/original.eml`
 	await env.DOCUMENT_STORAGE.put(storageObjectKey, "Subject: Receipt")
 	await connectDatabase(env.DATABASE).insert(documents).values({

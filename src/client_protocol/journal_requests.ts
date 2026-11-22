@@ -14,8 +14,6 @@ import type { JournaledRecord, RecordChange } from "./change_journal"
 
 type ApiTokenCaller = Extract<Caller, { kind: "api_token" }>
 
-const NO_STORE = { "Cache-Control": "no-store" }
-
 /**
  * Equal digests mean equal visibility, so the lists are deduplicated and sorted, an absent list is
  * null, and the level takes no part. A list added to the schema fails to compile here until the
@@ -44,18 +42,15 @@ export async function serveAuthorization(
 		readJournalIdentity(database),
 	])
 	if (!token) throw new Error(`The API token ${caller.tokenId} was revoked while its request ran`)
-	return Response.json(
-		{
-			journal_identifier: journalIdentifier,
-			token: {
-				description: token.description,
-				permission_level: caller.scope.level,
-				restricted: isRestrictedScope(caller.scope),
-				scope_digest: await scopeDigest(caller.scope),
-			},
+	return Response.json({
+		journal_identifier: journalIdentifier,
+		token: {
+			description: token.description,
+			permission_level: caller.scope.level,
+			restricted: isRestrictedScope(caller.scope),
+			scope_digest: await scopeDigest(caller.scope),
 		},
-		{ headers: NO_STORE },
-	)
+	})
 }
 
 /** A creation time holds whole seconds, so its milliseconds are always zero. */
@@ -125,13 +120,10 @@ export async function serveChanges(
 		return problem(410, "This archive holds no such position. Read the journal from the start.")
 	}
 	const { changes, nextCursor, remainingEntries } = outcome.page
-	return Response.json(
-		{
-			changes: changes.map(wireChange),
-			cursor: formatJournalCursor(nextCursor),
-			complete: remainingEntries === 0,
-			remaining: remainingEntries,
-		},
-		{ headers: NO_STORE },
-	)
+	return Response.json({
+		changes: changes.map(wireChange),
+		cursor: formatJournalCursor(nextCursor),
+		complete: remainingEntries === 0,
+		remaining: remainingEntries,
+	})
 }

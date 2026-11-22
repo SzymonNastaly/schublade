@@ -1,5 +1,5 @@
 import { authenticateApiToken } from "../authentication/api_tokens"
-import { permits } from "../authorization/caller_authorization"
+import { isRestrictedScope, permits } from "../authorization/caller_authorization"
 import { connectDatabase } from "../database/client"
 import { receiveDocumentUploads } from "./document_upload"
 
@@ -9,8 +9,10 @@ type TokenIngestionEnvironment = Pick<
 >
 
 /**
- * Accepts the same multipart files as the browser upload from a caller with an ingest token.
- * A missing token and an unknown one get the same answer, so the answer reveals no token.
+ * Accepts the same multipart files as the browser upload from a caller whose token permits
+ * ingesting. A missing token and an unknown one get the same answer, so the answer reveals no
+ * token. A token with a restricted scope is refused, because an upload answers the identifier of
+ * a document that holds the bytes already, whether or not the scope admits that document.
  */
 export async function receiveTokenIngestion(
 	environment: TokenIngestionEnvironment,
@@ -28,6 +30,12 @@ export async function receiveTokenIngestion(
 	}
 	if (!permits(caller, "ingest")) {
 		return Response.json({ error: "The API token does not permit ingesting documents" }, { status: 403 })
+	}
+	if (isRestrictedScope(caller.scope)) {
+		return Response.json(
+			{ error: "The API token is restricted to a part of the archive. Adding documents needs an unrestricted token." },
+			{ status: 403 },
+		)
 	}
 	return receiveDocumentUploads(environment, request)
 }

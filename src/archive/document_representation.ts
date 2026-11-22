@@ -19,6 +19,11 @@ const parametersSchema = z.object({
 const ALWAYS_REVALIDATE = "private, no-store"
 const THUMBNAIL_CACHE_CONTROL = "private, max-age=86400"
 const THUMBNAIL_DOTS_PER_INCH = 40
+// A PDF whose first page could not be drawn keeps an empty object with this metadata where its
+// thumbnail would be. Until the mark is a day old, a request reads the mark and not the original.
+// After that the page is drawn again, so a failure that was not the file's does not last.
+const UNRENDERABLE_MARK = { thumbnail: "unrenderable" }
+const UNRENDERABLE_MARK_VALIDITY_MILLISECONDS = 24 * 60 * 60 * 1000
 
 const notFound = () => new Response("Not found", { status: 404 })
 
@@ -56,7 +61,8 @@ function storedRepresentation(object: R2Object | R2ObjectBody | null): StoredRep
 /**
  * The first page of a PDF as a small image, rendered on first request and kept beside the file,
  * so existing documents need no backfill. Concurrent requests write the same object. An image
- * original is its own thumbnail.
+ * original is its own thumbnail. A page that cannot be drawn is marked, so that asking for its
+ * thumbnail again does not read and draw the whole original again.
  */
 async function readThumbnail(
 	storage: R2Bucket,
@@ -65,7 +71,9 @@ async function readThumbnail(
 ): Promise<StoredRepresentation | undefined> {
 	const key = thumbnailObjectKey(document.id)
 	const stored = await storage.get(key, { onlyIf: conditions })
-	if (stored) return storedRepresentation(stored)
+	const marked = stored?.customMetadata?.thumbnail === UNRENDERABLE_MARK.thumbnail
+	if (stored && !marked) return storedRepresentation(stored)
+	if (stored && Date.now() - stored.uploaded.getTime() < UNRENDERABLE_MARK_VALIDITY_MILLISECONDS) return undefined
 	// A message has no picture, and the row asks again once it is a PDF.
 	if (document.mimeType === MAIL_MEDIA_TYPE) return undefined
 	if (document.mimeType !== "application/pdf") {
@@ -73,14 +81,17 @@ async function readThumbnail(
 	}
 	const original = await storage.get(document.storageObjectKey)
 	if (!original) return undefined
-	try {
-		const { pngBytes } = await rasterizePage(new Uint8Array(await original.arrayBuffer()), 0, THUMBNAIL_DOTS_PER_INCH)
-		const metadata = await storage.put(key, pngBytes, { httpMetadata: { contentType: "image/png" } })
-		return { metadata, body: new Uint8Array(pngBytes) }
-	} catch (error) {
+	const originalBytes = new Uint8Array(await original.arrayBuffer())
+	const rendered = await rasterizePage(originalBytes, 0, THUMBNAIL_DOTS_PER_INCH).catch((error: unknown) => {
 		console.warn(`The thumbnail of document ${document.id} could not be rendered`, error)
 		return undefined
+	})
+	if (!rendered) {
+		await storage.put(key, "", { customMetadata: UNRENDERABLE_MARK })
+		return undefined
 	}
+	const metadata = await storage.put(key, rendered.pngBytes, { httpMetadata: { contentType: "image/png" } })
+	return { metadata, body: new Uint8Array(rendered.pngBytes) }
 }
 
 /**

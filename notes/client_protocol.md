@@ -15,7 +15,7 @@ The routes under `/api/v1` that a native client reaches with a bearer token, agr
 | PUT    | `/api/v1/contents/{sha256}`            | ingest | 200, 202          | 409, 413, 415, 422, 503     |
 | GET    | `/api/v1/documents/{id}`               | ingest | 200               | 404                         |
 
-Every route also answers 401, 403 for a token below its level, 405, and 500. `{id}` is a lowercase UUID, `[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}`. `{sha256}` is 64 lowercase hexadecimal digits, `[0-9a-f]{64}`. The last three routes are the collector's and are unchanged, byte for byte.
+Every route also answers 401, 403 for a token below its level, 405, and 500, and each of the collector's three routes answers 403 to a token with a restricted scope. `{id}` is a lowercase UUID, `[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}`. `{sha256}` is 64 lowercase hexadecimal digits, `[0-9a-f]{64}`. The last three routes are the collector's. For an unrestricted token their paths, methods, levels, bodies, and status codes are unchanged.
 
 `src/client_protocol/client_paths.ts` holds the one route table. Each route has an anchored pattern, its method, and its level, so a route cannot exist without a level. No route requires a level above `read` yet. `ingest` is the lowest level, so the authorization route admits every token, and the four routes that read the archive refuse a token that only adds documents. `request_dispatch.ts` admits a request without Access only when its pathname matches one pattern exactly. A trailing slash, uppercase hexadecimal, another case, and any other path under `/api/v1` stay behind `requireAccess`.
 
@@ -32,7 +32,8 @@ One gate in `src/client_protocol/client_requests.ts` answers every route in this
 1. **Method.** Another method on a matched path answers 405 with `Allow: <method>` and the detail "Send this request with GET".
 2. **Token.** `Authorization: Bearer schublade_…`. A missing, malformed, unknown, or revoked token answers 401 with `WWW-Authenticate: Bearer` and the detail "Send a valid API token in the Authorization header". The answer is the same for all four, so it reveals no token.
 3. **Level.** The levels are ordered `ingest`, `read`, `modify`, `administer`, and each grants every permission of the levels before it (`permits` in `src/authorization/caller_authorization.ts`). A token below the route's level answers 403 with "The API token does not permit reading the archive". No token is below `ingest`. [What a token of each level can do](#what-a-token-of-each-level-can-do) has the table.
-4. **The route.** A handler that throws answers 500 with "The archive could not complete the request. Send it again." and logs the error.
+4. **Scope.** The route table says of each route whether it applies a restricted scope or refuses it. The authorization, the changes, and the representations apply it. A collector must see every content, or it would archive one a second time, so the collector's three routes cannot apply a scope. They answer a token whose scope holds any list 403 with "This API token is restricted to a part of the archive. A collector needs an unrestricted token."
+5. **The route.** A handler that throws answers 500 with "The archive could not complete the request. Send it again." and logs the error.
 
 ### What a token of each level can do
 
@@ -69,7 +70,7 @@ An archive deployed before a route lacks it. Its path then falls through to `req
 - Field names use lower case with underscores.
 - A query parameter or a body member the route does not define answers 400. The detail is "This request takes no parameters, not &lt;names&gt;" on the authorization and the representations. The collector's three routes keep their behaviour and do not check query parameters.
 - A client ignores a response member it does not know.
-- The authorization and the changes answer `Cache-Control: no-store`.
+- Every answer of the gate carries `Cache-Control: no-store`, a problem document and a 304 included, because each answer is for the token that asked. The gate sets the header in one place, after the route answered.
 
 ## GET /api/v1/authorization
 
@@ -361,7 +362,8 @@ A token whose scope holds any list is restricted. One function, `scopeAdmission`
 - **Documents.** A restricted scope admits only archived documents, because classification assigns what a scope reads. A document of the page that the scope does not admit is a `removal`, exactly as a deleted one, so a restricted client receives removals for documents it never held. A document that leaves the scope was written, because its category, sender, or tags changed, so its entry moved and the client learns of it. A document that enters the scope is delivered whole for the same reason.
 - **Members, senders, categories, and tags.** A restricted token receives such a record when its scope admits at least one document that refers to it, anywhere in the archive, and a `removal` for a record of the page that no admitted document refers to. Measured in workerd with 50,000 documents and a tag on every document: one page of tag entries read up to 400,000 rows for a restricted scope (834 ms), bounded by the links of the page's tags, and an unrestricted page read at most 2,901 rows per statement. So a sender renamed while only an admitted document outside the page refers to it is sent. A record whose last admitted document left stays in the client's copy, where no document refers to it, until its own entry next moves.
 - **A denied tag that no longer exists** makes the scope admit nothing. The changes route asks `deniedTagsAllExist` in `src/archive/document_listing.ts`, as `/mcp` does, then answers 403, and the client keeps its copy and stops requesting.
-- **Representations** apply the same condition to the one document. A document outside the scope answers 404 on every document route, as one that does not exist.
+- **Representations** apply the same condition to the one document. A document outside the scope answers 404 on every representation route, as one that does not exist.
+- **The collector's routes** refuse a restricted token with 403, as the order of checks says. Before 2026-11-22 the document status route answered such a token the status of a document outside its scope, and the lookup answered `present` with its identifier. `POST /api/documents/ingest` refuses a restricted token with 403 as well, because an upload answers the identifier of the document that holds the bytes already.
 - An unrestricted token receives every document in every status and every record.
 
 `token.scope_digest` changes exactly when what the token sees changes. A client empties its copy when the journal's identifier or the scope digest differs from the one its copy was filled under.
@@ -378,21 +380,24 @@ If-None-Match: "a3f1c2d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f90
 
 | Route                                 | 200 body                                                                                                                          | `ETag`                                                                       | Other answers                                                                                      |
 | ------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
-| `/api/v1/documents/{id}/original`     | The stored file, with its stored `Content-Type` and `Content-Length`, the size R2 records                                         | `"<original_sha256>"`, or R2's entity tag before the digest is recorded     | 304. 404 for no such document or one outside the scope. 409 for a stored email not yet printed    |
+| `/api/v1/documents/{id}/original`     | The stored file, with its stored `Content-Type` and `Content-Length`, the size R2 records                                         | `"<original_sha256>"`, or R2's entity tag before the digest is recorded     | 304. 404 for no such document, one outside the scope, or a file R2 lacks. 409 for a stored email not yet printed |
 | `/api/v1/documents/{id}/text`         | The extracted Markdown, `text/markdown; charset=utf-8`                                                                            | R2's entity tag                                                              | 304. 404 for no such document, one outside the scope, or a text not stored yet                     |
 | `/api/v1/documents/{id}/thumbnail`    | A PNG of the first page at 40 dots per inch, rendered on the first request and stored. An image original is its own thumbnail      | R2's entity tag                                                              | 304. 404 for no such document, one outside the scope, an email not yet printed, or a page that cannot be drawn |
 
-- All three answer 304 with the entity tag to an `If-None-Match` that names the current one. The archive compares the digest of an original itself and reads no R2 object, and passes the request's conditions to R2 for every other entity tag.
+- All three answer 304 with the entity tag to an `If-None-Match` that names the current one. `If-None-Match` is the one condition a client can make. The archive ignores `If-Match`, `If-Modified-Since`, `If-Unmodified-Since`, and `Range`, and answers such a request 200 with the whole body, so an answer without a body always means "not modified".
+- The archive compares the digest of an original itself, strong or weak, and then asks R2 only whether the file exists, without reading it. An original that R2 lacks answers 404 "The original of this document is not stored", never 304. `If-None-Match: *` does not name the digest, so an original with a recorded digest answers it 200 with the body.
+- For every other entity tag the archive passes the `If-None-Match` header alone to R2, which compares it.
+- A PDF whose first page cannot be drawn gets an empty object with the metadata `thumbnail: unrenderable` where its thumbnail would be. Until that mark is a day old, a request for the thumbnail reads the mark and answers 404 without reading the original. After a day the archive draws the page again.
 - The 409 detail is "The archive has not printed this email as a PDF yet. Request the original again later." A 404 for a document outside the scope has the detail of one that does not exist, and a 404 for a representation not stored yet names the representation.
 - `src/client_protocol/representation_requests.ts` reads through `readStoredRepresentation` in `src/archive/document_representation.ts`, which the browser's route uses as well.
-- All three set `Cache-Control: private, no-store`, `X-Content-Type-Options: nosniff`, and `Content-Security-Policy: sandbox`, the headers of `src/archive/document_representation.ts`.
+- All three set `X-Content-Type-Options: nosniff` and `Content-Security-Policy: sandbox`, the headers of `src/archive/document_representation.ts`, and carry the gate's `Cache-Control: no-store`.
 - An original is at most 25,000,000 bytes, the upload limit.
 - The archive never changes the bytes of a content, and the text of a document is written once, in the step before `classifying`, while `archived` has no transition out. A client keeps an original under its `original_sha256` and its text until the record's `original_sha256` changes.
 - A client reads at most 1 MB of a thumbnail and treats a larger one as absent, because an image original can be several megabytes.
 
 ## The collector's routes
 
-These three routes are unchanged in path, method, level, body, status codes, and limits. Their handlers sit in `src/client_protocol/collection_requests.ts` behind the shared gate, and `collection_requests.workerd.test.ts` asserts what it asserted before the move.
+For an unrestricted token these three routes are unchanged in path, method, level, body, status codes, and limits. A token with a restricted scope gets 403 on each, and every answer carries `Cache-Control: no-store`. Their handlers sit in `src/client_protocol/collection_requests.ts` behind the shared gate, and `collection_requests.workerd.test.ts` asserts what it asserted before the move.
 
 While a document of an accepted kind lacks its `original_sha256`, the lookup and the upload answer 503 with `Retry-After: 900` and "The archive is still recording the digests of its documents. Send the request again later.", because the lookup would call archived bytes absent. The document status route never answers it.
 
