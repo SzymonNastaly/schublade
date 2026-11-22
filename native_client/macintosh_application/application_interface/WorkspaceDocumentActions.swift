@@ -10,6 +10,7 @@ final class WorkspaceDocumentActions {
 	private let collectorCommands: any CollectorCommands
 	private let quickLookCoordinator = QuickLookCoordinator()
 	private let renderMode: InterfaceRenderMode
+	private var newestPreviewRequest: UInt64 = 0
 
 	init(
 		queries: any LibraryQueries,
@@ -21,20 +22,25 @@ final class WorkspaceDocumentActions {
 		self.renderMode = renderMode
 	}
 
-	func updateQuickLookSelection(_ document: DocumentIdentifier?, detail: DocumentDetail?, in window: NSWindow?) {
+	/// Follows the selection while the Quick Look panel shows, and downloads nothing while it does not.
+	func updateQuickLookSelection(_ document: DocumentIdentifier?, detail: DocumentDetail?) {
+		newestPreviewRequest &+= 1
+		guard quickLookCoordinator.isPreviewVisible else {
+			return
+		}
 		guard let document else {
 			quickLookCoordinator.updatePreviewIfVisible(item: nil)
 			return
 		}
+		let request = newestPreviewRequest
 		Task {
-			guard let localFile = try? await queries.original(document) else {
+			guard let localFile = try? await queries.original(document), request == newestPreviewRequest else {
 				return
 			}
 			let title = detail?.title ?? "Document"
 			let item = PreviewedDocumentItem(url: URL(fileURLWithPath: localFile.path), title: title)
 			quickLookCoordinator.updatePreviewIfVisible(item: item)
 		}
-		_ = window
 	}
 
 	func openInDefaultApplication(_ document: DocumentIdentifier, window: NSWindow?) {

@@ -20,6 +20,10 @@ final class QuickLookCoordinator: NSObject, QLPreviewPanelDataSource {
 		panel.makeKeyAndOrderFront(nil)
 	}
 
+	var isPreviewVisible: Bool {
+		QLPreviewPanel.sharedPreviewPanelExists() && QLPreviewPanel.shared()?.isVisible == true
+	}
+
 	func updatePreviewIfVisible(item: PreviewedDocumentItem?) {
 		currentItem = item
 		guard QLPreviewPanel.sharedPreviewPanelExists(), let panel = QLPreviewPanel.shared(), panel.isVisible else {

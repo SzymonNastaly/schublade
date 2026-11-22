@@ -1,7 +1,8 @@
 import ApplicationBindings
 
 /// Holds the detail of the selected document, reads it once per document and content revision,
-/// and drops an answer that a newer selection or revision overtook.
+/// and drops an answer that a newer selection or revision overtook. Its detail is always the
+/// selected document's or nil, so an action never reaches the document selected before.
 final class SelectedDocumentDetailLoader {
 	private let queries: any LibraryQueries
 	private let onLoaded: (DocumentIdentifier, DocumentDetail) -> Void
@@ -18,6 +19,9 @@ final class SelectedDocumentDetailLoader {
 
 	/// Follows the selection, reading the detail when the document or the revision changed.
 	func select(_ document: DocumentIdentifier?, revision: UInt64) {
+		if document != selectedDocument {
+			detail = nil
+		}
 		selectedDocument = document
 		guard let document else {
 			newestRequest &+= 1

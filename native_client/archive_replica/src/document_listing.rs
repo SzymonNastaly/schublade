@@ -6,6 +6,7 @@ use std::collections::HashMap;
 
 use archive_access::{DocumentIdentifier, Timestamp};
 
+use crate::document_detail::{OriginalKind, suggested_file_name};
 use crate::replica_records::{
     CalendarDate, CategoryIdentifier, DocumentCondition, MemberIdentifier, SenderIdentifier, TagIdentifier,
 };
@@ -112,6 +113,22 @@ pub struct DocumentRow {
     /// The archive has recorded the content the document shows, so a picture of its first page
     /// can be asked for and never changes.
     pub content_known: bool,
+    /// The date on the document, or the day it arrived, which names a copy of its original.
+    pub listing_date: CalendarDate,
+    pub original_kind: OriginalKind,
+}
+
+impl DocumentRow {
+    /// The name a copy of the original takes, as `DocumentDetail::suggested_file_name` has it,
+    /// so a row dragged out of a list is named before its detail is read.
+    pub fn suggested_file_name(&self) -> String {
+        suggested_file_name(
+            &self.listing_date.iso_text(),
+            self.sender_name.as_deref(),
+            self.title.as_deref(),
+            self.original_kind,
+        )
+    }
 }
 
 #[derive(Clone, Debug, PartialEq)]

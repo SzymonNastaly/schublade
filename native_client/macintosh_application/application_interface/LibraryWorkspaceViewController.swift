@@ -85,6 +85,9 @@ public final class LibraryWorkspaceViewController: NSSplitViewController {
 		super.init(nibName: nil, bundle: nil)
 		target = self
 		detailSplitController.onToggleSidebar = { [weak self] in self?.toggleWorkspaceSidebar($0) }
+		detailSplitController.onInspectorVisibilityChanged = { [weak self] visible in
+			self?.onNavigationChange? { $0.inspectorVisible = visible }
+		}
 	}
 
 	@available(*, unavailable)
@@ -135,7 +138,7 @@ public final class LibraryWorkspaceViewController: NSSplitViewController {
 			listController.render(navigation: navigation, workspace: workspace, statuses: statuses)
 			detailLoader.select(navigation.selectedDocument, revision: statuses.library?.contentRevision ?? 0)
 			if navigation.selectedDocument == nil {
-				actions.updateQuickLookSelection(nil, detail: nil, in: view.window)
+				actions.updateQuickLookSelection(nil, detail: nil)
 			}
 			renderReaderAndInspector(navigation: navigation)
 		case let .archiveOutdated(message):
@@ -153,6 +156,7 @@ public final class LibraryWorkspaceViewController: NSSplitViewController {
 	public func contentRevisionChanged(to revision: UInt64) {
 		listController.contentRevisionChanged(to: revision)
 		detailLoader.reload(revision: revision)
+		readerController.contentRevisionChanged()
 	}
 }
 
@@ -355,7 +359,7 @@ private extension LibraryWorkspaceViewController {
 	}
 
 	func detailLoaded(_ detail: DocumentDetail, for document: DocumentIdentifier) {
-		actions.updateQuickLookSelection(document, detail: detail, in: view.window)
+		actions.updateQuickLookSelection(document, detail: detail)
 		renderReaderAndInspector(navigation: latestNavigation)
 	}
 
@@ -371,7 +375,7 @@ private extension LibraryWorkspaceViewController {
 			tab: navigation.readerTab,
 			searchTerms: navigation.searchTerms
 		)
-		inspectorController.render(presented)
+		inspectorController.render(presented, hasSelection: navigation.selectedDocument != nil)
 	}
 
 	func openDocument(_ document: DocumentIdentifier) {

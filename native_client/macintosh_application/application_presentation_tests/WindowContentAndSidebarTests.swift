@@ -70,6 +70,7 @@ struct WindowContentAndSidebarTests {
 		condition: ConnectionCondition = .connected,
 		permission: ArchivePermission = .readAndCollect,
 		awaitingText: UInt64 = 0,
+		documents: UInt64 = 1508,
 		collectorAttention: [AttentionItem] = []
 	) -> ApplicationStatuses {
 		let library = LibraryStatus(
@@ -84,7 +85,7 @@ struct WindowContentAndSidebarTests {
 			copy: .complete(synchronizedAt: Date(timeIntervalSince1970: 1_790_000_000)),
 			contentRevision: 3,
 			counts: LibraryCounts(
-				documents: 1508,
+				documents: documents,
 				documentsInIngestion: 2,
 				documentsFailed: 0,
 				documentsAwaitingText: awaitingText
@@ -195,14 +196,26 @@ struct WindowContentAndSidebarTests {
 		#expect(address == "https://archive.example.org")
 		#expect(cancellable)
 
-		let empty = EmptyListPresentation.resolve(
+		let emptyArchive = EmptyListPresentation.resolve(
 			navigation: LibraryNavigationState(),
+			libraryStatus: Self.makeStatuses(documents: 0).library,
+			libraryFault: nil,
+			listingFault: nil,
+			hasCollector: true
+		)
+		#expect(emptyArchive.title == "No Documents Yet")
+		#expect(emptyArchive.showsAddFolderButton)
+
+		var arriving = LibraryNavigationState()
+		arriving.destination = .library(.inIngestion, title: nil)
+		let emptyScope = EmptyListPresentation.resolve(
+			navigation: arriving,
 			libraryStatus: statuses.library,
 			libraryFault: nil,
 			listingFault: nil,
 			hasCollector: true
 		)
-		#expect(empty.title == "No Documents Yet")
-		#expect(empty.showsAddFolderButton)
+		#expect(emptyScope.title == "Nothing Arriving")
+		#expect(!emptyScope.showsAddFolderButton)
 	}
 }

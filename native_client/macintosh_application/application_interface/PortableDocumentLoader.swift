@@ -15,9 +15,13 @@ enum PortableDocumentLoader {
 		guard let source = CGImageSourceCreateWithURL(url as CFURL, nil) else {
 			return nil
 		}
+		// A thumbnail without a size limit is the whole image, and only a thumbnail applies the EXIF
+		// orientation, without which a phone's photograph stands sideways.
 		let options: [CFString: Any] = [
+			kCGImageSourceCreateThumbnailFromImageAlways: true,
+			kCGImageSourceCreateThumbnailWithTransform: true,
 			kCGImageSourceShouldCacheImmediately: true,
 		]
-		return CGImageSourceCreateImageAtIndex(source, 0, options as CFDictionary)
+		return CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary)
 	}
 }

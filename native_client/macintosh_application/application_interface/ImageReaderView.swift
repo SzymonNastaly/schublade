@@ -38,6 +38,10 @@ final class ImageReaderView: NSScrollView {
 		fatalError("Interface Builder is not used")
 	}
 
+	var image: NSImage? {
+		imageView.image
+	}
+
 	func display(image: NSImage?) {
 		imageView.image = image
 		magnification = 1.0

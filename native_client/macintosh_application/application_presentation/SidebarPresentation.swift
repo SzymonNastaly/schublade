@@ -53,7 +53,7 @@ public struct SidebarPresentation: Equatable, Sendable {
 		let totalDocuments = facets?.documents ?? statuses.library?.counts.documents ?? 0
 		let inIngestion = facets?.documentsInIngestion ?? statuses.library?.counts.documentsInIngestion ?? 0
 		let failed = facets?.documentsFailed ?? statuses.library?.counts.documentsFailed ?? 0
-		let attentionCount = attentionTotal(statuses: statuses, failedDocuments: failed)
+		let attentionCount = statuses.attentionCount(failedDocuments: failed)
 
 		var items: [SidebarItemPresentation] = [
 			SidebarItemPresentation(
@@ -197,26 +197,5 @@ public struct SidebarPresentation: Equatable, Sendable {
 		case .collecting:
 			return .symbol(name: "checkmark", tone: .normal)
 		}
-	}
-
-	private static func attentionTotal(statuses: ApplicationStatuses, failedDocuments: UInt64) -> UInt64 {
-		let collectorItems = UInt64(statuses.collector?.attention.count ?? 0)
-		let extraSuspended: UInt64 = hasUnreportedSuspension(statuses: statuses) ? 1 : 0
-		return collectorItems + failedDocuments + extraSuspended
-	}
-
-	private static func hasUnreportedSuspension(statuses: ApplicationStatuses) -> Bool {
-		guard let library = statuses.library, case let .configured(_, _, condition, _, _) = library.archive,
-		      case .suspended = condition
-		else {
-			return false
-		}
-		let collectorReported = statuses.collector?.attention.contains { item in
-			if case .credentialSuspended = item {
-				return true
-			}
-			return false
-		}
-		return collectorReported != true
 	}
 }

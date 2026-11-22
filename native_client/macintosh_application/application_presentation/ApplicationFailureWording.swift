@@ -99,6 +99,14 @@ public enum ApplicationFailureWording {
 		}
 	}
 
+	/// An original that arrived but is neither a PDF nor an image this Mac can draw.
+	public static let unreadableOriginalPlaceholder = RepresentationPlaceholder(
+		title: "This Original Cannot Be Shown",
+		detail: "Open it in its default application, or open the document in the browser.",
+		canRetry: false,
+		allowsTokenReplacement: false
+	)
+
 	public static func originalRefusalPlaceholder(
 		_ refusal: RepresentationRefusal
 	) -> RepresentationPlaceholder {

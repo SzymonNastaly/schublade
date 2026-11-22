@@ -385,7 +385,8 @@ fn listed_documents(
         .prepare_cached(&format!(
             "SELECT documents.document_row, documents.id, documents.status, documents.failure_reason, \
              documents.title, senders.name, documents.document_date, {heading_date}, documents.arrived_at, \
-             documents.summary, documents.original_sha256 IS NOT NULL, documents.amount, documents.currency \
+             documents.summary, documents.original_sha256 IS NOT NULL, documents.amount, documents.currency, \
+             documents.listing_date, documents.media_type \
              FROM documents LEFT JOIN senders ON senders.id = documents.sender_id \
              WHERE {condition} {selection}"
         ))?
@@ -396,6 +397,7 @@ fn listed_documents(
             let failure_reason: Option<String> = row.get(3)?;
             let document_date: Option<String> = row.get(6)?;
             let heading_date: String = row.get(7)?;
+            let listing_date: String = row.get(13)?;
             Ok(ListedDocument {
                 document_row: row.get(0)?,
                 heading_date: CalendarDate::parse(&heading_date).ok_or_else(|| unreadable(7))?,
@@ -419,6 +421,8 @@ fn listed_documents(
                         }),
                         None => None,
                     },
+                    listing_date: CalendarDate::parse(&listing_date).ok_or_else(|| unreadable(13))?,
+                    original_kind: OriginalKind::of_media_type(&row.get::<_, String>(14)?),
                 },
             })
         })?

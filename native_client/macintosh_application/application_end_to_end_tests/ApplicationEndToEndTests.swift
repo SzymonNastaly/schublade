@@ -169,7 +169,7 @@ private extension ApplicationEndToEndTests {
 			in: window,
 			identifier: InterfaceIdentifier.readerTextView,
 			as: NSTextView.self
-		) { !$0.isHidden && $0.string.contains("Rechnung Nummer 5") }
+		) { $0.enclosingScrollView?.isHidden == false && $0.string.contains("Rechnung Nummer 5") }
 		XCTAssertTrue(textView.string.contains("Rechnung Nummer 5 für Haftpflichtversicherung."))
 
 		tabControl.selectedSegment = 0
@@ -206,10 +206,42 @@ private extension ApplicationEndToEndTests {
 		searchField.stringValue = "Nordbank"
 		searchField.sendAction(searchField.action, to: searchField.target)
 		try await waitForCondition("search narrows list to Nordbank match") { tableView.numberOfRows == 2 }
+		window.contentView?.layoutSubtreeIfNeeded()
+		XCTAssertEqual(
+			try rowText(in: tableView, row: 0, identifier: InterfaceIdentifier.headingRowTitle),
+			"Matches in Details"
+		)
+		XCTAssertEqual(
+			try rowText(in: tableView, row: 1, identifier: InterfaceIdentifier.documentRowTitle),
+			"Kontoauszug Oktober 2026"
+		)
 
 		searchField.stringValue = ""
 		searchField.sendAction(searchField.action, to: searchField.target)
 		try await waitForCondition("clearing search restores full list") { tableView.numberOfRows == 8 }
+		try await verifySenderListAndBack(in: window, tableView: tableView)
+	}
+
+	/// The inspector's sender lists that sender's documents under its name, and Back returns.
+	@MainActor
+	func verifySenderListAndBack(in window: NSWindow, tableView: NSTableView) async throws {
+		tableView.selectRowIndexes(IndexSet(integer: 3), byExtendingSelection: false)
+		let senderLink = try await waitForView(
+			"inspector sender link after the search",
+			in: window,
+			identifier: "inspector.field.sender",
+			as: NSButton.self
+		) { $0.title == "Stadtwerke Talbrück GmbH" }
+		senderLink.performClick(nil)
+		try await waitForCondition("the sender's documents are listed under its name") {
+			window.title == "Stadtwerke Talbrück GmbH" && tableView.numberOfRows == 6
+		}
+		let backItem = window.toolbar?.items.first { $0.itemIdentifier.rawValue == "schublade.back" }
+		let backButton = try XCTUnwrap(backItem?.view as? NSButton)
+		backButton.performClick(nil)
+		try await waitForCondition("Back returns to All Documents") {
+			window.title == "All Documents" && tableView.numberOfRows == 8
+		}
 	}
 
 	@MainActor

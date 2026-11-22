@@ -649,6 +649,8 @@ mod tests {
                             text: "Electricity statement".to_owned(),
                         }),
                         content_known: true,
+                        suggested_file_name: "2026-09-22 Stadtwerke Talbrück GmbH Haftpflichtversicherung Rechnung.pdf"
+                            .to_owned(),
                     },
                 },
             ]

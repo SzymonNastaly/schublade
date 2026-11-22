@@ -28,7 +28,8 @@ struct DocumentPresentationTests {
 			arrivedAt: Date(timeIntervalSince1970: 1_790_000_000),
 			amount: Amount(decimalText: "1234.5", currency: "EUR"),
 			passage: .excerpt(text: "Haftpflichtversicherung Rechnung"),
-			contentKnown: true
+			contentKnown: true,
+			suggestedFileName: "document.pdf"
 		)
 		let archived = DocumentRowPresentation.from(archivedRow, context: context)
 		#expect(archived.title == "Untitled Document")
@@ -46,7 +47,8 @@ struct DocumentPresentationTests {
 			arrivedAt: Date(timeIntervalSince1970: 1_790_000_000),
 			amount: nil,
 			passage: nil,
-			contentKnown: true
+			contentKnown: true,
+			suggestedFileName: "document.pdf"
 		)
 		let arriving = DocumentRowPresentation.from(arrivingRow, context: context)
 		#expect(arriving.title == "Processing Document")

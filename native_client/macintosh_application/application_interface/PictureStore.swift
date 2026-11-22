@@ -45,32 +45,61 @@ final class PictureStore {
 		let queries = queries
 		let identifier = document
 		let task = Task<NSImage?, Never> { [weak self] in
-			let image = await Self.loadAndDecode(queries: queries, document: identifier)
+			let answer = await Self.loadAndDecode(queries: queries, document: identifier)
 			if let self {
-				if let image {
+				switch answer {
+				case let .picture(image):
 					let pixelCost = Int(image.size.width * image.size.height * 4)
 					cache.setObject(image, forKey: key, cost: max(pixelCost, 1024))
-				} else {
+				case .absent:
 					unavailableDocuments.insert(identifier.value)
+				case .unanswered:
+					break
 				}
 				inFlightTasks.removeValue(forKey: identifier.value)
 			}
-			return image
+			return answer.picture
 		}
 		inFlightTasks[document.value] = task
 		return await task.value
 	}
 
+	/// What a request for a picture found. Only an absent picture is remembered until the copy
+	/// changes; a refusal of the moment, such as an unreachable archive, is asked again.
+	private enum PictureAnswer {
+		case picture(NSImage)
+		case absent
+		case unanswered
+
+		var picture: NSImage? {
+			if case let .picture(image) = self {
+				return image
+			}
+			return nil
+		}
+	}
+
 	private static func loadAndDecode(
 		queries: any LibraryQueries,
 		document: DocumentIdentifier
-	) async -> NSImage? {
-		guard let localFile = try? await queries.thumbnail(document),
+	) async -> PictureAnswer {
+		let localFile: LocalFile?
+		do {
+			localFile = try await queries.thumbnail(document)
+		} catch {
+			switch error {
+			case .DocumentUnknown, .NotAvailableYet, .NoLongerArchived, .ArchiveOutdated:
+				return .absent
+			case .ArchiveUnreachable, .CredentialRefused, .NotConnected, .ContentDiffers, .StorageFailed, .Application:
+				return .unanswered
+			}
+		}
+		guard let localFile,
 		      let cgImage = await decodeThumbnail(atPath: localFile.path, maximumPixelSize: maximumPixelSize)
 		else {
-			return nil
+			return .absent
 		}
-		return NSImage(cgImage: cgImage, size: NSSize(width: cgImage.width, height: cgImage.height))
+		return .picture(NSImage(cgImage: cgImage, size: NSSize(width: cgImage.width, height: cgImage.height)))
 	}
 
 	@concurrent

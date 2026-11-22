@@ -322,12 +322,6 @@ private extension DocumentListViewController {
 		)
 	}
 
-	func suggestedDragFileName(for row: DocumentRow) -> String {
-		let titlePart = row.title?.trimmingCharacters(in: .whitespacesAndNewlines)
-		let baseName = (titlePart?.isEmpty == false ? titlePart : nil) ?? row.document.value
-		return "\(baseName.replacingOccurrences(of: "/", with: "-")).pdf"
-	}
-
 	func reusableCell<Cell: NSTableCellView>(
 		in tableView: NSTableView,
 		identifier: NSUserInterfaceItemIdentifier,
@@ -382,13 +376,16 @@ extension DocumentListViewController: NSTableViewDataSource, NSTableViewDelegate
 		}
 		let delegate = DocumentFilePromiseDelegate(
 			document: documentRow.document,
-			fileName: suggestedDragFileName(for: documentRow),
+			fileName: documentRow.suggestedFileName,
 			fetchOriginalPath: { [queries] identifier throws(RepresentationRefusal) in
 				try await queries.original(identifier).path
 			},
 			reportFailure: { [onDragFailed] refusal in onDragFailed(refusal) }
 		)
-		return NSFilePromiseProvider(fileType: UTType.data.identifier, delegate: delegate)
+		let provider = NSFilePromiseProvider(fileType: UTType.data.identifier, delegate: delegate)
+		// The provider holds its delegate weakly, so the delegate rides along as its user info.
+		provider.userInfo = delegate
+		return provider
 	}
 
 	func tableViewSelectionDidChange(_: Notification) {

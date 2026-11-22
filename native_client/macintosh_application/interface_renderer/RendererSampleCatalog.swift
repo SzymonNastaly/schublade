@@ -121,7 +121,8 @@ enum RendererSampleCatalog {
 				arrivedAt: Date(timeIntervalSince1970: 1_790_000_100),
 				amount: nil,
 				passage: nil,
-				contentKnown: false
+				contentKnown: false,
+				suggestedFileName: "document.pdf"
 			)),
 			.heading(heading: .period(year: 2026, month: 9)),
 			.document(row: DocumentRow(
@@ -133,7 +134,8 @@ enum RendererSampleCatalog {
 				arrivedAt: Date(timeIntervalSince1970: 1_790_000_000),
 				amount: Amount(decimalText: "1234.5", currency: "EUR"),
 				passage: .summary(text: "Annual electricity statement for 2026 showing remaining balance due."),
-				contentKnown: true
+				contentKnown: true,
+				suggestedFileName: "document.pdf"
 			)),
 			.document(row: DocumentRow(
 				document: receiptId,
@@ -144,7 +146,8 @@ enum RendererSampleCatalog {
 				arrivedAt: Date(timeIntervalSince1970: 1_789_800_000),
 				amount: Amount(decimalText: "48.75", currency: "EUR"),
 				passage: .summary(text: "Weekly grocery receipt."),
-				contentKnown: true
+				contentKnown: true,
+				suggestedFileName: "document.pdf"
 			)),
 		]
 	}
@@ -161,7 +164,8 @@ enum RendererSampleCatalog {
 				arrivedAt: Date(timeIntervalSince1970: 1_789_800_000),
 				amount: Amount(decimalText: "48.75", currency: "EUR"),
 				passage: .summary(text: "Weekly grocery receipt."),
-				contentKnown: true
+				contentKnown: true,
+				suggestedFileName: "document.pdf"
 			)),
 			.heading(heading: .textMatched),
 			.document(row: DocumentRow(
@@ -173,7 +177,8 @@ enum RendererSampleCatalog {
 				arrivedAt: Date(timeIntervalSince1970: 1_790_000_000),
 				amount: Amount(decimalText: "1234.5", currency: "EUR"),
 				passage: .excerpt(text: "…die Haftpflichtversicherung und Abschlagszahlung wurden verrechnet."),
-				contentKnown: true
+				contentKnown: true,
+				suggestedFileName: "document.pdf"
 			)),
 		]
 	}

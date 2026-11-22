@@ -174,9 +174,7 @@ public enum WindowContent: Equatable, Sendable {
 			}
 			return .documents
 		case .needsAttention:
-			let failedCount = statuses.library?.counts.documentsFailed ?? 0
-			let collectorAttention = statuses.collector?.attention.count ?? 0
-			let total = UInt64(collectorAttention) + failedCount
+			let total = statuses.attentionCount(failedDocuments: statuses.library?.counts.documentsFailed ?? 0)
 			let summary = total == 0
 				? "Nothing needs attention right now."
 				: "\(DocumentFormatting.countText(total, singular: "item")) need your attention."

@@ -193,9 +193,16 @@ pub struct DocumentRow {
     pub amount: Option<Amount>,
     pub passage: Option<RowPassage>,
     pub content_known: bool,
+    /// The name a copy of the original takes, such as
+    /// `2026-09-22 Stadtwerke Talbrück Electricity Annual Statement.pdf`.
+    pub suggested_file_name: String,
 }
 
 #[derive(uniffi::Enum, Clone, Debug, PartialEq, Eq)]
+#[expect(
+    clippy::large_enum_variant,
+    reason = "UniFFI lowers a variant's fields by value, and a listing crosses 64 rows at a time"
+)]
 pub enum ListingRow {
     Heading { heading: ListingHeading },
     Document { row: DocumentRow },
@@ -568,6 +575,7 @@ fn listing_row(row: archive_replica::ListingRow) -> ListingRow {
 }
 
 fn document_row(row: archive_replica::DocumentRow) -> DocumentRow {
+    let suggested_file_name = row.suggested_file_name();
     let archive_replica::DocumentRow {
         identifier,
         condition,
@@ -578,6 +586,8 @@ fn document_row(row: archive_replica::DocumentRow) -> DocumentRow {
         amount,
         passage,
         content_known,
+        listing_date: _,
+        original_kind: _,
     } = row;
     DocumentRow {
         document: DocumentIdentifier {
@@ -600,6 +610,7 @@ fn document_row(row: archive_replica::DocumentRow) -> DocumentRow {
             archive_replica::RowPassage::Excerpt(text) => RowPassage::Excerpt { text },
         }),
         content_known,
+        suggested_file_name,
     }
 }
 

@@ -8,6 +8,9 @@ final class LibraryDetailSplitViewController: NSSplitViewController {
 	private let persistsSplitPositions: Bool
 	private let inspectorItem: NSSplitViewItem
 	var onToggleSidebar: ((Any?) -> Void)?
+	/// Called when the window's width, not a person, collapsed or expanded the inspector.
+	var onInspectorVisibilityChanged: ((Bool) -> Void)?
+	private var requestedInspectorVisible = true
 
 	init(
 		listController: DocumentListViewController,
@@ -47,6 +50,8 @@ final class LibraryDetailSplitViewController: NSSplitViewController {
 		inspectorItem.minimumThickness = 220
 		inspectorItem.maximumThickness = 320
 		inspectorItem.canCollapse = true
+		// The inspector gives way first when the window narrows below what the four parts need.
+		inspectorItem.canCollapseFromWindowResize = true
 		inspectorItem.collapseBehavior = .useConstraints
 		inspectorItem.holdingPriority = NSLayoutConstraint.Priority(270)
 
@@ -58,7 +63,17 @@ final class LibraryDetailSplitViewController: NSSplitViewController {
 		splitView.setPosition(876, ofDividerAt: 1)
 	}
 
+	override func splitViewDidResizeSubviews(_ notification: Notification) {
+		super.splitViewDidResizeSubviews(notification)
+		let visible = !inspectorItem.isCollapsed
+		if visible != requestedInspectorVisible {
+			requestedInspectorVisible = visible
+			onInspectorVisibilityChanged?(visible)
+		}
+	}
+
 	func setInspectorVisible(_ visible: Bool, animated: Bool) {
+		requestedInspectorVisible = visible
 		let shouldCollapse = !visible
 		guard inspectorItem.isCollapsed != shouldCollapse else {
 			return

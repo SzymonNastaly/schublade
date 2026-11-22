@@ -40,7 +40,10 @@ final class DocumentInspectorViewController: NSViewController {
 		render(nil)
 	}
 
-	func render(_ presentation: DocumentDetailPresentation?) {
+	/// Shows a document's details. While a selected document's details are read, it shows nothing
+	/// rather than "No Document Selected", which a walk through the list would flash at every step.
+	func render(_ presentation: DocumentDetailPresentation?, hasSelection: Bool = false) {
+		emptyLabel.isHidden = presentation != nil || hasSelection
 		guard presentation != currentPresentation || (presentation == nil && stackView.arrangedSubviews.isEmpty) else {
 			return
 		}
@@ -53,11 +56,9 @@ final class DocumentInspectorViewController: NSViewController {
 		}
 
 		guard let presentation else {
-			emptyLabel.isHidden = false
 			scrollView.isHidden = true
 			return
 		}
-		emptyLabel.isHidden = true
 		scrollView.isHidden = false
 		populateSections(from: presentation)
 	}

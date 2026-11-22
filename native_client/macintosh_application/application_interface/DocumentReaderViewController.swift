@@ -32,11 +32,15 @@ final class DocumentReaderViewController: NSViewController {
 	private var activeDocument: DocumentIdentifier?
 	private var activeDetail: DocumentDetailPresentation?
 	private var activeSearchTerms: [String] = []
-	private var loadedOriginalURL: URL?
+	private var requestedOriginalKind: OriginalKind?
 	private var loadedPortableDocument: PDFDocument?
 	private var loadedImage: NSImage?
 	private var originalRefusal: RepresentationRefusal?
+	private var originalUnreadable = false
 	private var loadedTextDocument: DocumentIdentifier?
+	private var requestedTextDocument: DocumentIdentifier?
+	private var displayedTextDocument: DocumentIdentifier?
+	private var highlightedTerms: [String]?
 	private var loadedText: String?
 	private var textRefusal: RepresentationRefusal?
 	private var newestOriginalRequest: UInt64 = 0
@@ -88,8 +92,6 @@ final class DocumentReaderViewController: NSViewController {
 		searchTerms: [String]
 	) {
 		let documentChanged = document != activeDocument
-		let detailUpdated = detail != activeDetail
-		let termsChanged = searchTerms != activeSearchTerms
 
 		activeDocument = document
 		activeDetail = detail
@@ -101,16 +103,34 @@ final class DocumentReaderViewController: NSViewController {
 			resetLoadedMedia()
 		}
 		if let document {
-			if documentChanged || (detailUpdated && loadedOriginalURL == nil && originalRefusal == nil) {
+			// The kind arrives with the detail, after the selection, and changes once an email is printed.
+			let kind = detail?.originalKind
+			let kindChanged = kind != nil && requestedOriginalKind != nil && kind != requestedOriginalKind
+			if documentChanged || kindChanged {
 				loadOriginal(for: document, detail: detail)
-			} else if termsChanged, let portableDocument = loadedPortableDocument {
-				applySearchHighlights(to: portableDocument, terms: searchTerms)
 			}
-			if tab == .text, loadedTextDocument != document {
+			if tab == .text, loadedTextDocument != document, requestedTextDocument != document {
 				loadText(for: document)
 			}
 		}
 		updateDisplayedContent()
+	}
+
+	/// Asks again for what the copy may now hold: an original or a text that was refused before.
+	func contentRevisionChanged() {
+		guard let document = activeDocument else {
+			return
+		}
+		if originalRefusal != nil {
+			loadOriginal(for: document, detail: activeDetail)
+		}
+		if textRefusal != nil {
+			loadedTextDocument = nil
+			textRefusal = nil
+			if activeTab == .text {
+				loadText(for: document)
+			}
+		}
 	}
 
 	func reloadCurrentDocumentRepresentations() {
@@ -126,11 +146,15 @@ final class DocumentReaderViewController: NSViewController {
 	private func resetLoadedMedia() {
 		newestOriginalRequest &+= 1
 		newestTextRequest &+= 1
-		loadedOriginalURL = nil
+		requestedOriginalKind = nil
 		loadedPortableDocument = nil
 		loadedImage = nil
 		originalRefusal = nil
+		originalUnreadable = false
 		loadedTextDocument = nil
+		requestedTextDocument = nil
+		displayedTextDocument = nil
+		highlightedTerms = nil
 		loadedText = nil
 		textRefusal = nil
 		pdfView.document = nil
@@ -157,19 +181,36 @@ final class DocumentReaderViewController: NSViewController {
 			showPlaceholder(for: ApplicationFailureWording.originalRefusalPlaceholder(refusal))
 			return
 		}
+		if originalUnreadable {
+			showPlaceholder(for: ApplicationFailureWording.unreadableOriginalPlaceholder)
+			return
+		}
+		// A render follows every status, so each pane is given its content only when it changed:
+		// assigning it again would drop the selection, the zoom, and the scroll position.
 		if let portableDocument = loadedPortableDocument {
 			if renderMode == .offscreenSnapshot {
 				renderedPdfView.display(document: portableDocument)
 				showOnly(.renderedPdf)
 			} else {
-				pdfView.document = portableDocument
-				applySearchHighlights(to: portableDocument, terms: activeSearchTerms)
+				if pdfView.document !== portableDocument {
+					pdfView.document = portableDocument
+					highlightedTerms = nil
+				}
+				if highlightedTerms != activeSearchTerms {
+					highlightedTerms = activeSearchTerms
+					pdfView.highlightedSelections = SearchWordHighlighting.selections(
+						in: portableDocument,
+						terms: activeSearchTerms
+					)
+				}
 				showOnly(.pdf)
 			}
 			return
 		}
 		if let image = loadedImage {
-			imageReaderView.display(image: image)
+			if imageReaderView.image !== image {
+				imageReaderView.display(image: image)
+			}
 			showOnly(.image)
 			return
 		}
@@ -183,7 +224,10 @@ final class DocumentReaderViewController: NSViewController {
 			return
 		}
 		if let text = loadedText {
-			textView.string = text
+			if displayedTextDocument != loadedTextDocument {
+				displayedTextDocument = loadedTextDocument
+				textView.string = text
+			}
 			showOnly(.text)
 			return
 		}
@@ -253,6 +297,8 @@ private extension DocumentReaderViewController {
 	func loadOriginal(for document: DocumentIdentifier, detail: DocumentDetailPresentation?) {
 		newestOriginalRequest &+= 1
 		let requestNumber = newestOriginalRequest
+		originalUnreadable = false
+		requestedOriginalKind = detail?.originalKind
 		if detail?.originalKind == .unprintedEmail {
 			originalRefusal = .NotAvailableYet
 			updateDisplayedContent()
@@ -269,7 +315,6 @@ private extension DocumentReaderViewController {
 			guard requestNumber == newestOriginalRequest, document == activeDocument else {
 				return
 			}
-			loadedOriginalURL = URL(fileURLWithPath: localFile.path)
 			originalRefusal = nil
 			if let portableDocument = await PortableDocumentLoader.openPortableDocument(atPath: localFile.path) {
 				guard requestNumber == newestOriginalRequest, document == activeDocument else {
@@ -284,7 +329,10 @@ private extension DocumentReaderViewController {
 				loadedImage = NSImage(cgImage: cgImage, size: NSSize(width: cgImage.width, height: cgImage.height))
 				loadedPortableDocument = nil
 			} else {
-				originalRefusal = .ArchiveOutdated
+				guard requestNumber == newestOriginalRequest, document == activeDocument else {
+					return
+				}
+				originalUnreadable = true
 			}
 			updateDisplayedContent()
 		} catch {
@@ -299,6 +347,7 @@ private extension DocumentReaderViewController {
 	func loadText(for document: DocumentIdentifier) {
 		newestTextRequest &+= 1
 		let requestNumber = newestTextRequest
+		requestedTextDocument = document
 		Task {
 			await performLoadText(requestNumber: requestNumber, document: document)
 		}
@@ -344,27 +393,5 @@ private extension DocumentReaderViewController {
 			onAction: action
 		)
 		showOnly(.placeholder)
-	}
-
-	func applySearchHighlights(to document: PDFDocument, terms: [String]) {
-		guard renderMode == .interactive else {
-			return
-		}
-		let cleanTerms = terms.filter { $0.count >= 2 }
-		guard !cleanTerms.isEmpty else {
-			pdfView.highlightedSelections = nil
-			return
-		}
-		var matches: [PDFSelection] = []
-		for term in cleanTerms {
-			matches.append(contentsOf: document.findString(
-				term,
-				withOptions: [.caseInsensitive, .diacriticInsensitive]
-			))
-			if matches.count >= 120 {
-				break
-			}
-		}
-		pdfView.highlightedSelections = matches.isEmpty ? nil : matches
 	}
 }
