@@ -22,6 +22,12 @@ enum MainMenuBuilder {
 		)
 		menu.addItem(.separator())
 		menu.addItem(
+			withTitle: "Settings…",
+			action: #selector(ApplicationDelegate.showSettings(_:)),
+			keyEquivalent: ","
+		)
+		menu.addItem(.separator())
+		menu.addItem(
 			withTitle: "Hide Schublade",
 			action: #selector(NSApplication.hide(_:)),
 			keyEquivalent: "h"

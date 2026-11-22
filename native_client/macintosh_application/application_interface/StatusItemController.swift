@@ -22,10 +22,14 @@ public final class StatusItemController: NSObject, NSMenuDelegate {
 	var onOpenAction: ((AttentionAction) -> Void)?
 	var onOpenDocument: ((DocumentIdentifier) -> Void)?
 	var onAddFolder: (() -> Void)?
+	var onOpenSettings: (() -> Void)?
 
 	public init(queries: any LibraryQueries) {
 		self.queries = queries
 		super.init()
+		// AppKit keeps whether the item shows under this name, for Settings and for Command-dragging it away.
+		item.autosaveName = "org.schublade.statusItem"
+		item.behavior = .removalAllowed
 		menu.delegate = self
 		menu.autoenablesItems = false
 		item.menu = menu
@@ -135,6 +139,7 @@ public final class StatusItemController: NSObject, NSMenuDelegate {
 		if presentation.offersAddFolder {
 			menu.addItem(actionItem("Add Folder…", #selector(addFolder)))
 		}
+		menu.addItem(actionItem("Settings…", #selector(openSettings)))
 		menu.addItem(.separator())
 		menu.addItem(NSMenuItem(
 			title: "Quit Schublade",
@@ -179,6 +184,10 @@ public final class StatusItemController: NSObject, NSMenuDelegate {
 
 	@objc private func addFolder() {
 		onAddFolder?()
+	}
+
+	@objc private func openSettings() {
+		onOpenSettings?()
 	}
 
 	@objc private func attentionChosen(_ sender: NSMenuItem) {

@@ -22,6 +22,9 @@ xcodegen generate --quiet
 project=(-project Schublade.xcodeproj -scheme Schublade -derivedDataPath build
 	-destination "platform=macOS,arch=arm64")
 xcodebuild -quiet "${project[@]}" -configuration Release build
+# Launch Services starts one copy of an application, so a Debug copy left from a screen examination
+# would keep the test's copy from starting. The installed Release application is another bundle.
+pkill -f "Schublade Development.app/Contents/MacOS" || true
 # Not quiet, so that the test's own result lines show. The filter keeps every diagnostic.
 xcodebuild "${project[@]}" -configuration Debug test 2>&1 |
 	grep -E "^(/.*: (error|warning)|error|warning|ld: |Test Case|[[:space:]]+Executed|\*\* TEST|Test run|Suite |Test |✔|✘)"

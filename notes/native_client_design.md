@@ -877,6 +877,13 @@ Unit A4 (the menu bar item) landed with these points settled:
 - The menu reads the five newest documents from the library each time it opens. Settings… is not in it until A5 builds the Settings window.
 - `InterfaceRenderer` writes `status_item_glyphs_light.png`, `status_item_glyphs_dark.png`, and `status_item_menu.txt`.
 
+Unit A5's first part (the lifecycle and Settings) landed with these points settled:
+
+- `LifecyclePresentation` decides the window at launch (a person's launch opens it; a login launch keeps it closed while an archive is connected and the core runs), whether quitting asks first (while folders are collected, until "Do not ask again"), and the one registration of the login item at the first status of a connected archive. A logout, restart, or shutdown never asks.
+- The application synchronizes the library when it comes to the front and tells the core when the Mac wakes. The launch origin is logged under the subsystem `org.schublade.application`.
+- Settings has General (Open at Login through `SMAppService.mainApp`, Show in Menu Bar through the status item's autosave name) and Archive (the host, what the token permits, Replace Token…, Open Archive in Browser). Storage needs the representation cache to report and change its limit and to remove its originals, which the second part adds.
+- A screen session with Peekaboo on 2026-11-22 found and fixed: the reader's header under the toolbar, divider positions lost before the first layout, the inspector collapsed at launch, the connection form jumping, Quick Look ending the application, the menu's newest documents limited to 30 days, and dragged originals arriving read-only.
+
 ## Open questions and risks
 
 1. **Resolved in unit R4.** `ApplicationCore::connect_archive` compares `Collector::locked_archive_origin` before calling `GET /api/v1/authorization`, so an unreachable second archive answers `ArchiveDiffers` whenever the collector already holds folders or contents of another archive.

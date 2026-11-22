@@ -243,6 +243,17 @@ final class MainWindowController: NSWindowController, NSWindowDelegate {
 			navigation.selectedDocument = document
 		}
 	}
+
+	func beginTokenReplacement() {
+		guard case let .running(statuses) = latestSituation,
+		      case let .configured(origin, _, _, _, _)? = statuses.library?.archive,
+		      Self.allowsReplacingToken(statuses.library?.archive)
+		else {
+			return
+		}
+		navigation.replacingTokenOrigin = origin
+		render(latestSituation)
+	}
 }
 
 private extension MainWindowController {
@@ -344,17 +355,6 @@ private extension MainWindowController {
 			return nil
 		}
 		return Self.libraryReadable(library.archive) ? library : nil
-	}
-
-	func beginTokenReplacement() {
-		guard case let .running(statuses) = latestSituation,
-		      case let .configured(origin, _, _, _, _)? = statuses.library?.archive,
-		      Self.allowsReplacingToken(statuses.library?.archive)
-		else {
-			return
-		}
-		navigation.replacingTokenOrigin = origin
-		render(latestSituation)
 	}
 
 	func cancelTokenReplacement() {

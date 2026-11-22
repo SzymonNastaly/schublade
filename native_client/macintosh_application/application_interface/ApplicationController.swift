@@ -10,6 +10,11 @@ final class ApplicationController {
 	let environment: ApplicationEnvironment
 	private let gateway: ApplicationGateway
 	private let notifier: CollectorNotifier
+	let preferences: ApplicationPreferences
+	let loginItem: LoginItem
+	private var launchOrigin = LaunchOrigin.person
+	private var settingsWindowController: SettingsWindowController?
+	private var windowDecided = false
 	private var shownContentRevision: UInt64 = 0
 	private var isTerminating = false
 	private var startTask: Task<Bool, Never>?
@@ -44,6 +49,8 @@ final class ApplicationController {
 		self.statusItem = statusItem
 		self.mainWindowController = mainWindowController
 		notifier = CollectorNotifier(isEnabled: !environment.isIsolated)
+		preferences = ApplicationPreferences(isolated: environment.isIsolated)
+		loginItem = LoginItem(isInert: environment.isIsolated)
 		notifier.onOpen = { [weak mainWindowController] action in
 			mainWindowController?.open(action)
 		}
@@ -57,6 +64,9 @@ final class ApplicationController {
 		statusItem.onOpenDocument = { [weak mainWindowController] document in
 			mainWindowController?.show(.library(.allDocuments, title: nil), selecting: document)
 		}
+		statusItem.onOpenSettings = { [weak self] in
+			self?.showSettings()
+		}
 		statusItem.onAddFolder = { [weak mainWindowController] in
 			mainWindowController?.present()
 			mainWindowController?.workspaceController?.enrollFolderAction(nil)
@@ -66,8 +76,11 @@ final class ApplicationController {
 		mainWindowController.render(situation)
 	}
 
-	func launch() {
-		mainWindowController.present()
+	/// Starts the core. A person's launch opens the window at once; a launch at login opens it only
+	/// when the first statuses show that something needs a person.
+	func launch(origin: LaunchOrigin) {
+		launchOrigin = origin
+		decideWindowIfPending()
 		followTask = Task {
 			await followApplication()
 		}
@@ -75,6 +88,39 @@ final class ApplicationController {
 
 	func showMainWindow() {
 		mainWindowController.present()
+	}
+
+	func showSettings() {
+		let settings = settingsWindowController ?? SettingsWindowController(
+			loginItem: loginItem,
+			statusItem: statusItem.item
+		) { [weak mainWindowController] in
+			mainWindowController?.present()
+			mainWindowController?.beginTokenReplacement()
+		}
+		settingsWindowController = settings
+		renderSettings()
+		settings.present()
+	}
+
+	private func renderSettings() {
+		guard let settingsWindowController else {
+			return
+		}
+		if case let .running(statuses) = situation {
+			settingsWindowController.render(statuses.library?.archive)
+		} else {
+			settingsWindowController.render(nil)
+		}
+	}
+
+	/// The application came to the front, so the library asks the archive at once.
+	func applicationActivated() {
+		gateway.synchronize()
+	}
+
+	func systemResumed() {
+		gateway.systemResumed()
 	}
 
 	func terminate() async {
@@ -203,5 +249,29 @@ final class ApplicationController {
 		situation = nextSituation
 		statusItem.render(nextSituation)
 		mainWindowController.render(nextSituation)
+		renderSettings()
+		decideWindowIfPending()
+		if LifecyclePresentation.registersLoginItem(
+			situation: nextSituation,
+			alreadyEstablished: preferences.loginItemEstablished
+		) {
+			preferences.loginItemEstablished = true
+			loginItem.setEnabled(true)
+		}
+	}
+
+	private func decideWindowIfPending() {
+		guard !windowDecided else {
+			return
+		}
+		switch LifecyclePresentation.launchWindow(origin: launchOrigin, situation: situation) {
+		case .opens:
+			windowDecided = true
+			mainWindowController.present()
+		case .staysClosed:
+			windowDecided = true
+		case .undecided:
+			break
+		}
 	}
 }
