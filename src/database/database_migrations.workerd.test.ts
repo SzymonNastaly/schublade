@@ -71,6 +71,8 @@ test("the migrations turn an archive written under the first schema into the cur
 			"0005_remove_taxonomy_confirmation_and_verification_reason.sql",
 			"0006_record_content_identity.sql",
 			"0007_index_original_digests.sql",
+			"0008_record_change_journal.sql",
+			"0009_journal_record_changes.sql",
 		],
 		categories: [
 			{

@@ -16,6 +16,14 @@ export const authorizationScopeSchema = z.strictObject({
 
 export type AuthorizationScope = z.infer<typeof authorizationScopeSchema>
 
+/**
+ * Whether the scope holds a list. A key this function does not know counts as a list, so a list
+ * added to the schema restricts before anything else learns of it.
+ */
+export function isRestrictedScope(scope: AuthorizationScope): boolean {
+	return Object.entries<unknown>(scope).some(([key, list]) => key !== "level" && list !== undefined)
+}
+
 /** The party behind a request or a message, established once at the Worker entry. */
 export type Caller =
 	/** A household member signed in through Cloudflare Access. */

@@ -24,6 +24,7 @@ Add the table to `src/database/schema.ts`. Follow the conventions of the existin
 - Store JSON in a column whose name ends in `_json`, declared `text(..., { mode: "json" }).$type<T>()`.
 - Name every index `<table>_<columns>_index`.
 - D1 is SQLite. Use `text`, `integer`, `real`, and `blob` from `drizzle-orm/sqlite-core`, never PostgreSQL types.
+- List a new table in `journaledTables` or in `tablesNotReplicated`, both in `schema.ts`. A table whose rows a client of `/api/v1` copies is journaled, and it needs an insert, an update, and a delete trigger that move its record's entry in `change_journal`. drizzle-kit knows no triggers, so write them into a migration made with `pnpm exec drizzle-kit generate --custom --name <description_in_snake_case>`, after the pattern of `drizzle/0009_journal_record_changes.sql`. `change_journal.workerd.test.ts` fails until the table is in one list and a journaled table has its three triggers.
 
 ## 2. Add the insert schema
 
@@ -44,7 +45,7 @@ pnpm database:generate --name <description_in_snake_case>
 pnpm database:migrate:local
 ```
 
-Read the generated SQL in `drizzle/` before you commit it. A change that SQLite cannot make with `ALTER TABLE` makes drizzle-kit rebuild the table: `PRAGMA foreign_keys=OFF`, `CREATE TABLE __new_<table>`, a copy, `DROP TABLE`, and a rename. D1 runs a migration inside a transaction, where SQLite ignores `PRAGMA foreign_keys`, and `PRAGMA defer_foreign_keys = on` defers only the checks, so the `DROP TABLE` still fires every `ON DELETE` action of the child tables. Rebuilding `documents` this way deletes its tags and extracted fields and marks its contents deleted. Avoid such a rebuild of a table that other tables reference, or save and restore the child rows within the same migration and test it in `database_migrations.workerd.test.ts`. Check that the change landed in the local database:
+Read the generated SQL in `drizzle/` before you commit it. A change that SQLite cannot make with `ALTER TABLE` makes drizzle-kit rebuild the table: `PRAGMA foreign_keys=OFF`, `CREATE TABLE __new_<table>`, a copy, `DROP TABLE`, and a rename. D1 runs a migration inside a transaction, where SQLite ignores `PRAGMA foreign_keys`, and `PRAGMA defer_foreign_keys = on` defers only the checks, so the `DROP TABLE` still fires every `ON DELETE` action of the child tables. Rebuilding `documents` this way deletes its tags and extracted fields and marks its contents deleted. `DROP TABLE` also drops the triggers of a journaled table, so the migration must create them again. Avoid such a rebuild of a table that other tables reference, or save and restore the child rows within the same migration and test it in `database_migrations.workerd.test.ts`. Check that the change landed in the local database:
 
 ```bash
 cf d1 raw 00000000-0000-4000-8000-000000000000 --local --persist-to .cloudflare/state \

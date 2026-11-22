@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm"
-import { index, integer, primaryKey, real, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core"
+import { check, index, integer, primaryKey, real, sqliteTable, text, uniqueIndex } from "drizzle-orm/sqlite-core"
 import { createInsertSchema } from "drizzle-zod"
 import { z } from "zod"
 import { authorizationScopeSchema } from "../authorization/caller_authorization"
@@ -198,6 +198,70 @@ export const authorizationGrants = sqliteTable(
 	},
 	(table) => [index("authorization_grants_client_id_index").on(table.clientId)],
 )
+
+/** The kinds of record a client keeps a copy of, each spelled as the singular of its table. */
+const journaledRecordKinds = ["document", "household_member", "sender", "category", "tag"] as const
+
+export type JournaledRecordKind = (typeof journaledRecordKinds)[number]
+
+/**
+ * One entry per record that ever existed, numbered by its latest change. The triggers of
+ * migration 0009 move the entry to a new highest number inside the statement that writes the
+ * record, so no writer can leave a change out, and the entry of a deleted record stays as the
+ * record of its deletion. Nothing in the Worker writes this table.
+ *
+ * AUTOINCREMENT is required. Without it SQLite issues the number of a moved newest entry a second
+ * time, and a client whose cursor is that number never reads the change.
+ */
+export const changeJournal = sqliteTable(
+	"change_journal",
+	{
+		sequenceNumber: integer("sequence_number").primaryKey({ autoIncrement: true }),
+		recordKind: text("record_kind", { enum: journaledRecordKinds }).notNull(),
+		recordIdentifier: text("record_identifier").notNull(),
+	},
+	(table) => [uniqueIndex("change_journal_record_index").on(table.recordKind, table.recordIdentifier)],
+)
+
+/**
+ * The one row names this journal. A cursor that names another journal is refused, and its client
+ * reads the archive from the start. After a restore of the database, which takes the newest
+ * numbers back, `UPDATE change_journal_identity SET journal_identifier = lower(hex(randomblob(16)))`
+ * makes every client do so.
+ */
+export const changeJournalIdentity = sqliteTable(
+	"change_journal_identity",
+	{
+		singleRow: integer("single_row").primaryKey(),
+		journalIdentifier: text("journal_identifier").notNull(),
+	},
+	(table) => [check("change_journal_identity_single_row_check", sql`${table.singleRow} = 1`)],
+)
+
+/**
+ * The tables whose rows a client copies, each with the kind of record a row belongs to. A tag link
+ * and an extracted field belong to their document. `change_journal.workerd.test.ts` fails when a
+ * table of the database is in neither this list nor the next one, or when a journaled table lacks
+ * a trigger, which a migration that rebuilds a table drops without a word.
+ */
+export const journaledTables = {
+	documents: "document",
+	document_tags: "document",
+	extracted_fields: "document",
+	household_members: "household_member",
+	senders: "sender",
+	categories: "category",
+	tags: "tag",
+} as const satisfies Record<string, JournaledRecordKind>
+
+/** The tables no client copies: what the archive keeps about contents, credentials, and the journal itself. */
+export const tablesNotReplicated = [
+	"contents",
+	"api_tokens",
+	"authorization_grants",
+	"change_journal",
+	"change_journal_identity",
+] as const
 
 // Insert schemas parse input that crosses a boundary. Each omits the identifier and the
 // timestamps that the database or the Worker assigns.

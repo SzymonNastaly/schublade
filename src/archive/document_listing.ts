@@ -63,21 +63,21 @@ function everyTagExists(tagIds: Array<string>): SQL {
 }
 
 /**
- * The documents a scope admits. Only archived documents qualify, because a document in ingestion
- * holds its extracted text before classification assigns the category, sender, and tags that a
- * scope reads. A document must satisfy every list the scope holds.
+ * Whether a scope admits a row of documents, as a condition for any statement that reads that
+ * table under its own name. It is the one definition: the listing, the facets, the tools of /mcp,
+ * and the change journal all read through it. Only archived documents qualify, because a document
+ * in ingestion holds its extracted text before classification assigns the category, sender, and
+ * tags that a scope reads. A document must satisfy every list the scope holds. Without a scope
+ * every document is admitted.
  */
-function authorizationScopeConditions(
-	database: ArchiveDatabase,
-	scope: AuthorizationScope | undefined,
-): Array<SQL | undefined> {
-	if (scope === undefined) return []
+export function scopeAdmission(database: ArchiveDatabase, scope: AuthorizationScope | undefined): SQL | undefined {
+	if (scope === undefined) return undefined
 	const linksToTags = (tagIds: Array<string>) =>
 		database
 			.select({ documentId: documentTags.documentId })
 			.from(documentTags)
 			.where(and(eq(documentTags.documentId, documents.id), isListed(documentTags.tagId, tagIds)))
-	return [
+	return and(
 		eq(documents.status, "archived"),
 		scope.allowedCategories === undefined ? undefined : isListed(documents.categoryId, scope.allowedCategories),
 		scope.allowedSenders === undefined ? undefined : isListed(documents.senderId, scope.allowedSenders),
@@ -85,7 +85,7 @@ function authorizationScopeConditions(
 		scope.deniedTags === undefined
 			? undefined
 			: and(everyTagExists(scope.deniedTags), notExists(linksToTags(scope.deniedTags))),
-	]
+	)
 }
 
 function listingConditions(database: ArchiveDatabase, criteria: ListingCriteria): Array<SQL | undefined> {
@@ -94,7 +94,7 @@ function listingConditions(database: ArchiveDatabase, criteria: ListingCriteria)
 		criteria.maximumAmount === undefined ? undefined : lte(extractedFields.valueNumber, criteria.maximumAmount),
 	]
 	return [
-		...authorizationScopeConditions(database, criteria.authorizationScope),
+		scopeAdmission(database, criteria.authorizationScope),
 		criteria.documentIds === undefined ? undefined : inArray(documents.id, criteria.documentIds),
 		// Classification assigns the person as it archives a document. An unclassified document
 		// has none yet, so it belongs to no person, not even to the whole household.
@@ -248,10 +248,7 @@ export async function queryArchiveFacets(
 	database: ArchiveDatabase,
 	authorizationScope?: AuthorizationScope,
 ): Promise<ArchiveFacets> {
-	const isArchived = and(
-		eq(documents.status, "archived"),
-		...authorizationScopeConditions(database, authorizationScope),
-	)
+	const isArchived = and(eq(documents.status, "archived"), scopeAdmission(database, authorizationScope))
 	const documentCount = count(documents.id)
 	const [memberRows, householdDocumentCount, senderRows, categoryRows, tagRows] = await Promise.all([
 		database

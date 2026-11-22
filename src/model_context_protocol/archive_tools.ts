@@ -147,7 +147,7 @@ function createArchiveServer({ database, environment, authorizationScope, origin
 
 const grantPropertiesSchema = z.object({ authorizationGrantId: z.uuid() })
 
-/** The check in authorizationScopeConditions closes the same gap inside each query, without this message. */
+/** The check in scopeAdmission closes the same gap inside each query, without this message. */
 async function deniedTagsAllExist(database: ArchiveDatabase, deniedTags: Array<string> = []): Promise<boolean> {
 	if (deniedTags.length === 0) return true
 	return (await database.$count(tags, inArray(tags.id, deniedTags))) === new Set(deniedTags).size
