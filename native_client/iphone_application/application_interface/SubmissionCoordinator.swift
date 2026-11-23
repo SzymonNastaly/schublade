@@ -298,14 +298,21 @@ extension SubmissionCoordinator {
 		return identifier
 	}
 
-	/// Removes the row of a document that could not be written.
-	func abandon(_ identifier: UUID) {
-		preparing.removeAll { $0.identifier == identifier }
+	/// Removes the row of a document that could not be written, and answers whether it still showed,
+	/// which it no longer does once the person removed it.
+	@discardableResult
+	func abandon(_ identifier: UUID) -> Bool {
 		pictures[identifier] = nil
+		guard let index = preparing.firstIndex(where: { $0.identifier == identifier }) else {
+			return false
+		}
+		preparing.remove(at: index)
+		return true
 	}
 
 	/// Moves `document` into the queue and sends it. A document prepared under `identifier` keeps
-	/// its row and its place, and one whose row the person removed meanwhile is deleted.
+	/// its row and its place, and one whose row the person removed meanwhile is deleted. A document
+	/// the queue cannot take keeps its row for the caller to abandon.
 	func submit(
 		document: URL,
 		fileName: String,
@@ -320,9 +327,6 @@ extension SubmissionCoordinator {
 			try? FileManager.default.removeItem(at: document)
 			return
 		}
-		defer {
-			preparing.removeAll { $0.identifier == identifier }
-		}
 		let entry = try queue.enqueue(
 			document: document,
 			fileName: fileName,
@@ -333,6 +337,7 @@ extension SubmissionCoordinator {
 			identifier: prepared?.identifier ?? UUID(),
 			now: prepared?.startedAt ?? .now
 		)
+		preparing.removeAll { $0.identifier == identifier }
 		reload()
 		send(entry)
 	}

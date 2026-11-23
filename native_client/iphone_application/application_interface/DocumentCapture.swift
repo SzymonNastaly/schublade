@@ -126,14 +126,16 @@ extension DocumentCapture: VNDocumentCameraViewControllerDelegate {
 					preparedAs: identifier
 				)
 			} catch ScanDocumentWriter.WriteFailure.tooLarge {
-				submissions.abandon(identifier)
-				alert(
-					"This Scan Is Too Large",
-					"The archive accepts up to 25 MB. Scan the letter in two parts."
-				)
+				if submissions.abandon(identifier) {
+					alert(
+						"This Scan Is Too Large",
+						"The archive accepts up to 25 MB. Scan the letter in two parts."
+					)
+				}
 			} catch {
-				submissions.abandon(identifier)
-				alert("The Scan Could Not Be Saved", error.localizedDescription)
+				if submissions.abandon(identifier) {
+					alert("The Scan Could Not Be Saved", error.localizedDescription)
+				}
 			}
 		}
 	}
@@ -186,8 +188,9 @@ extension DocumentCapture: PHPickerViewControllerDelegate, UIDocumentPickerDeleg
 						preparedAs: identifier
 					)
 				} catch {
-					submissions.abandon(identifier)
-					alert("A Photo Could Not Be Added", error.localizedDescription)
+					if submissions.abandon(identifier) {
+						alert("A Photo Could Not Be Added", error.localizedDescription)
+					}
 				}
 			}
 		}
@@ -204,8 +207,9 @@ extension DocumentCapture: PHPickerViewControllerDelegate, UIDocumentPickerDeleg
 					}
 					try await submit(url, type: type, suggestedName: nil, origin: .importedFile, preparedAs: identifier)
 				} catch {
-					submissions.abandon(identifier)
-					alert("\(url.lastPathComponent) Could Not Be Added", error.localizedDescription)
+					if submissions.abandon(identifier) {
+						alert("\(url.lastPathComponent) Could Not Be Added", error.localizedDescription)
+					}
 				}
 			}
 		}
