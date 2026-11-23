@@ -19,6 +19,7 @@ work="/tmp/schublade_store_screenshots"
 output="$PWD/build/store_screenshots"
 nordkabel_invoice="document.60000000-0000-4000-8000-000000000000"
 software_invoice="document.60000000-0000-4000-8000-00000000000a"
+shared_letter="Electricity Bill 2026.pdf"
 
 scenes=(
 	"01_library_arriving scene_library_arriving"
@@ -33,6 +34,7 @@ simulator=""
 appearance=""
 
 stop_session() {
+	pkill -f "http.server 0 --bind 127.0.0.1 --directory $work/shared" || true
 	# The archive runs as `sleep | scripted-archive-server` under one shell, so its children end with it.
 	for shell in $(pgrep -f "exec ../target/debug/scripted-archive-server --token $token" || true); do
 		pkill -P "$shell" || true
@@ -165,9 +167,61 @@ scene_context_menu_preview() {
 	return_to_library
 }
 
+# Prints the position in points of Schublade's icon in a screenshot of the share sheet: the centre of
+# the largest patch of its drawer's orange, because the share sheet is a remote view whose items the
+# accessibility tree omits and whose order follows the applications used last.
+share_extension_position() {
+	python3 - "$1" "$work/share_sheet.bmp" <<'LOCATE'
+import struct
+import subprocess
+import sys
+
+screen, bitmap = sys.argv[1:]
+subprocess.run(["sips", "-s", "format", "bmp", screen, "--out", bitmap], check=True, capture_output=True)
+data = open(bitmap, "rb").read()
+offset = struct.unpack_from("<I", data, 10)[0]
+width, height, _, bits = struct.unpack_from("<iiHH", data, 18)
+step = bits // 8
+row = (width * step + 3) & ~3
+patches = {}
+for y in range(abs(height) // 3, abs(height), 2):
+    base = offset + (y if height < 0 else abs(height) - 1 - y) * row
+    for x in range(0, width, 2):
+        blue, green, red = data[base + x * step : base + x * step + 3]
+        if red > 235 and 165 < green < 200 and 30 < blue < 100:
+            patches.setdefault((x // 120, y // 120), []).append((x, y))
+drawer = max(patches.values(), key=len, default=[])
+if len(drawer) < 100:
+    sys.exit("Schublade's icon is not in the share sheet")
+print(sum(x for x, _ in drawer) // len(drawer) // 3, sum(y for _, y in drawer) // len(drawer) // 3)
+LOCATE
+}
+
+# Shares a PDF that Safari shows, from the Home Screen so Safari shows no way back to Schublade, and
+# captures the sheet once the picture of the page has settled.
 scene_share_sheet() {
-	echo "skipped $1: the share extension reads the connected archive from the App Group, which the" \
-		"isolated examination launch never writes, so its sheet offers no archive to send to"
+	axe button home --udid "$simulator" >/dev/null
+	sleep 1
+	xcrun simctl openurl "$simulator" "$shared_documents/${shared_letter// /%20}"
+	await_text '"AXLabel" : "1 of 1"' 20
+	# A tap on More while the page still settles opens no menu, so More is tapped until Share shows.
+	for _ in $(seq 5); do
+		sleep 2
+		axe tap --id MoreMenuButton --wait-timeout 10 --udid "$simulator" >/dev/null
+		sleep 1
+		[[ "$(axe describe-ui --udid "$simulator")" == *'"AXLabel" : "Share"'* ]] && break
+	done
+	axe tap --label Share --wait-timeout 10 --udid "$simulator" >/dev/null
+	sleep 3
+	xcrun simctl io "$simulator" screenshot "$work/share_sheet.png" >/dev/null 2>&1
+	local position
+	position="$(share_extension_position "$work/share_sheet.png")"
+	axe tap -x "${position% *}" -y "${position#* }" --udid "$simulator" >/dev/null
+	sleep 3
+	capture "$1"
+	xcrun simctl terminate "$simulator" com.apple.mobilesafari
+	xcrun simctl launch "$simulator" org.schublade.iphone.development >/dev/null
+	return_to_library
 }
 
 simulator="$(xcrun simctl list devices | grep -F "    $simulator_name (" | grep -oE '[A-F0-9-]{36}' | head -1 || true)"
@@ -184,6 +238,17 @@ examination="$(EXAMINATION_SIMULATOR="$simulator" EXAMINATION_TOKEN="$token" EXA
 	scripts/start_screen_examination.sh light arriving)"
 address="$(sed -n 's/^archive: //p' <<<"$examination")"
 digest="$(sed -n 's/^scan digest: //p' <<<"$examination")"
+# Safari opens the letter the share sheet sends from a server of its own.
+mkdir -p "$work/shared"
+cp ../../test_fixtures/documents/electricity_invoice_scanned.pdf "$work/shared/$shared_letter"
+# A subshell starts it, so the shell reports nothing when stop_session ends it.
+(nohup python3 -u -m http.server 0 --bind 127.0.0.1 --directory "$work/shared" >"$work/shared_documents.log" \
+	2>&1 </dev/null &)
+for _ in $(seq 50); do
+	grep -q ' port ' "$work/shared_documents.log" 2>/dev/null && break
+	sleep 0.1
+done
+shared_documents="http://127.0.0.1:$(sed -nE 's/.* port ([0-9]+) .*/\1/p' "$work/shared_documents.log")"
 xcrun simctl status_bar "$simulator" override --time 9:41 --dataNetwork wifi --wifiMode active --wifiBars 3 \
 	--cellularMode active --cellularBars 4 --batteryState discharging --batteryLevel 100
 
