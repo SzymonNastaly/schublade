@@ -18,9 +18,10 @@ if [ -z "$device" ]; then
 	trap 'rm -f "$listing"' EXIT
 	xcrun devicectl list devices --json-output "$listing" >/dev/null
 	device="$(plutil -extract result.devices json -o - "$listing" | ruby -rjson -e '
+		# A simulator states its reality as "simulated"; a paired iPhone states none.
 		phone = JSON.parse(STDIN.read).find do |entry|
 			entry.dig("hardwareProperties", "deviceType") == "iPhone" &&
-				entry.dig("hardwareProperties", "reality") == "physical"
+				entry.dig("hardwareProperties", "reality") != "simulated"
 		end
 		puts phone ? phone["identifier"] : ""')"
 fi
