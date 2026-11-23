@@ -1,4 +1,5 @@
 import ApplicationBindings
+import LibraryPresentation
 
 /// The sidebar sections and status line derived from the latest application statuses and facets.
 public struct SidebarPresentation: Equatable, Sendable {
@@ -13,7 +14,7 @@ public struct SidebarPresentation: Equatable, Sendable {
 	public static func resolve(
 		statuses: ApplicationStatuses,
 		facets: LibraryFacets?,
-		context: WordingContext
+		context: ApplicationWordingContext
 	) -> SidebarPresentation {
 		var sections = [librarySection(statuses: statuses, facets: facets)]
 		if let people = peopleSection(facets: facets) {
@@ -161,7 +162,7 @@ public struct SidebarPresentation: Equatable, Sendable {
 
 	private static func foldersSection(
 		collector: CollectorStatus?,
-		context: WordingContext
+		context: ApplicationWordingContext
 	) -> SidebarSectionPresentation? {
 		guard let collector else {
 			return nil

@@ -1,6 +1,7 @@
 import AppKit
 import ApplicationBindings
 import ApplicationPresentation
+import LibraryPresentation
 
 /// Settings > Storage: the most room for downloaded originals, the room they take, and Remove
 /// Downloaded Originals. An original is downloaded again when it is next opened.
@@ -24,7 +25,7 @@ final class StorageSettingsViewController: NSViewController {
 	}
 
 	override func loadView() {
-		limit.addItems(withTitles: StorageWording.limitChoices.map(StorageWording.limitTitle))
+		limit.addItems(withTitles: MacintoshDevice.wording.storageLimitChoices.map(StorageWording.limitTitle))
 		limit.target = self
 		limit.action = #selector(limitChosen)
 		remove.bezelStyle = .rounded
@@ -51,7 +52,7 @@ final class StorageSettingsViewController: NSViewController {
 
 	override func viewWillAppear() {
 		super.viewWillAppear()
-		let chosen = StorageWording.limitChoices.firstIndex(of: preferences.originalStorageLimit)
+		let chosen = MacintoshDevice.wording.storageLimitChoices.firstIndex(of: preferences.originalStorageLimit)
 		limit.selectItem(at: chosen ?? 1)
 		refresh()
 	}
@@ -63,13 +64,13 @@ final class StorageSettingsViewController: NSViewController {
 				remove.isEnabled = false
 				return
 			}
-			held.stringValue = StorageWording.heldSentence(storage.heldBytes)
+			held.stringValue = StorageWording.heldSentence(storage.heldBytes, device: MacintoshDevice.wording)
 			remove.isEnabled = storage.heldBytes > 0
 		}
 	}
 
 	@objc private func limitChosen() {
-		preferences.originalStorageLimit = StorageWording.limitChoices[limit.indexOfSelectedItem]
+		preferences.originalStorageLimit = MacintoshDevice.wording.storageLimitChoices[limit.indexOfSelectedItem]
 		Task {
 			// Each call applies the choice saved when it runs, so quick choices end on the last one.
 			try? await commands.setOriginalStorageLimit(preferences.originalStorageLimit)

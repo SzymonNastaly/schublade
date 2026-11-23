@@ -1,3 +1,5 @@
+import LibraryPresentation
+
 /// Trailing indicator shown on a sidebar row.
 public enum SidebarRowAccessory: Equatable, Sendable {
 	case none

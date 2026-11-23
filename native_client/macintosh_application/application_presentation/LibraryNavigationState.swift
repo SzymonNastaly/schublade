@@ -1,5 +1,6 @@
 import ApplicationBindings
 import Foundation
+import LibraryPresentation
 
 /// What a person currently views in the window: the selected destination, search, order, document,
 /// reader tab, inspector visibility, and any token replacement in progress.
@@ -54,15 +55,15 @@ public struct LibraryNavigationState: Equatable, Sendable {
 	}
 
 	public var activeListingRequest: ListingRequest? {
-		guard case let .library(scope, _) = destination else {
+		guard case let .library(scope, name) = destination else {
 			return nil
 		}
-		let query = trimmedSearchText
-		if !query.isEmpty {
-			return .search(scope: scope, text: query)
-		}
-		let effectiveOrder: ListingOrder = scope == .recentlyAdded ? .addition : browseOrder
-		return .browse(scope: scope, order: effectiveOrder)
+		return LibraryScopePresentation.resolve(
+			scope: scope,
+			name: name,
+			searchText: searchText,
+			browseOrder: browseOrder
+		).request
 	}
 
 	public var searchTerms: [String] {

@@ -1,5 +1,6 @@
 import AppKit
 import ApplicationPresentation
+import LibraryPresentation
 
 /// Sidebar navigation source list and bottom status line.
 final class LibrarySidebarViewController: NSViewController {

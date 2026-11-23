@@ -1,8 +1,9 @@
 import ApplicationBindings
 import Foundation
+import LibraryPresentation
 
 /// The collector's sentences: a folder's state, Needs Attention, what is in flight, the counts, the
-/// connection, and the recent uploads. Folder names and times come from the `WordingContext`.
+/// connection, and the recent uploads. Folder names and times come from the `ApplicationWordingContext`.
 public enum CollectorWording {
 	/// The kinds the archive accepts, as a folder's state names them.
 	private static let collectingDetail = "New PDF, JPEG, PNG, and WebP files upload automatically."
@@ -38,7 +39,10 @@ public enum CollectorWording {
 		}
 	}
 
-	public static func attentionSentence(_ item: AttentionItem, context: WordingContext) -> AttentionSentence {
+	public static func attentionSentence(
+		_ item: AttentionItem,
+		context: ApplicationWordingContext
+	) -> AttentionSentence {
 		switch item {
 		case .credentialSuspended(.credentialRefused):
 			AttentionSentence(
@@ -99,7 +103,7 @@ public enum CollectorWording {
 		)
 	}
 
-	public static func activitySentence(_ activity: Activity, context: WordingContext) -> String {
+	public static func activitySentence(_ activity: Activity, context: ApplicationWordingContext) -> String {
 		switch activity {
 		case let .listing(folder, directory):
 			let name = context.folderName(folder.root)
@@ -147,7 +151,10 @@ public enum CollectorWording {
 		return collected ? "Everything is collected. \(watching)" : watching
 	}
 
-	public static func connectionSentence(_ connection: ArchiveConnection, context: WordingContext) -> String {
+	public static func connectionSentence(
+		_ connection: ArchiveConnection,
+		context: ApplicationWordingContext
+	) -> String {
 		guard case let .configured(_, host, condition, _, _) = connection else {
 			return "Not connected to an archive yet."
 		}
@@ -157,10 +164,10 @@ public enum CollectorWording {
 		case .checking:
 			"Checking whether the archive answers again."
 		case let .unreachable(since, nextAttemptAt):
-			"The archive has not answered since \(DocumentFormatting.clockTime(since, context: context)). "
-				+ "The next attempt is at \(DocumentFormatting.clockTime(nextAttemptAt, context: context))."
+			"The archive has not answered since \(DocumentFormatting.clockTime(since, context: context.library)). "
+				+ "The next attempt is at \(DocumentFormatting.clockTime(nextAttemptAt, context: context.library))."
 		case let .deferred(until):
-			"The archive asked to wait until \(DocumentFormatting.clockTime(until, context: context)). "
+			"The archive asked to wait until \(DocumentFormatting.clockTime(until, context: context.library)). "
 				+ "Uploads continue then."
 		case .suspended(.credentialRefused):
 			"Paused, because Schublade refused the token."
@@ -183,15 +190,16 @@ public enum CollectorWording {
 	}
 
 	/// "Today, 14:02" or "12 Aug, 9:15", the time of day in the context's locale.
-	public static func receiptTime(_ date: Date, context: WordingContext) -> String {
-		if context.calendar.isDate(date, inSameDayAs: context.now) {
-			return "Today, \(DocumentFormatting.clockTime(date, context: context))"
+	public static func receiptTime(_ date: Date, context: ApplicationWordingContext) -> String {
+		let library = context.library
+		if library.calendar.isDate(date, inSameDayAs: library.now) {
+			return "Today, \(DocumentFormatting.clockTime(date, context: library))"
 		}
-		let day = context.calendar.component(.day, from: date)
+		let day = library.calendar.component(.day, from: date)
 		let month = date.formatted(
-			Date.FormatStyle(locale: context.locale, calendar: context.calendar, timeZone: context.calendar.timeZone)
+			Date.FormatStyle(locale: library.locale, calendar: library.calendar, timeZone: library.calendar.timeZone)
 				.month(.abbreviated)
 		)
-		return "\(day) \(month), \(DocumentFormatting.clockTime(date, context: context))"
+		return "\(day) \(month), \(DocumentFormatting.clockTime(date, context: library))"
 	}
 }

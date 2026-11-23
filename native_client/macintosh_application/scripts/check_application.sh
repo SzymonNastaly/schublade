@@ -9,7 +9,8 @@ cd "$(dirname "$0")/.."
 (cd .. && cargo fmt --check && cargo clippy --all-targets --locked -- -D warnings && cargo test --locked \
 	&& cargo build --locked -p scripted_archive --bin scripted-archive-server)
 
-swiftformat --lint --quiet .
+# The shared library sources sit beside this directory, so the configuration is named.
+swiftformat --lint --quiet --config .swiftformat . ../library_presentation ../library_presentation_tests
 swiftlint lint --strict --quiet
 interface_builder_files="$(find . -path ./build -prune -o \( -name "*.xib" -o -name "*.storyboard" \) -print)"
 if [ -n "$interface_builder_files" ]; then

@@ -7,7 +7,7 @@ public enum CollectorNotices {
 	public static func arising(
 		previous: CollectorStatus?,
 		next: CollectorStatus,
-		context: WordingContext
+		context: ApplicationWordingContext
 	) -> [CollectorNotice] {
 		guard let previous else {
 			return []

@@ -87,8 +87,8 @@ final class ScreenRenderer {
 		try await renderWorkspaceScene(
 			name: "library_offline_missing_original",
 			statuses: fixtures.makeStatuses(condition: .unreachable(
-				since: fixtures.context.now,
-				nextAttemptAt: fixtures.context.now.addingTimeInterval(60)
+				since: fixtures.context.library.now,
+				nextAttemptAt: fixtures.context.library.now.addingTimeInterval(60)
 			)),
 			navigation: LibraryNavigationState(
 				destination: .library(.allDocuments, title: nil),

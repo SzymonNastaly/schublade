@@ -56,7 +56,7 @@ final class WorkspacePageViewController: NSViewController {
 	}
 
 	/// Shows the page of a detail mode other than `documents`, which the document split shows.
-	func render(_ mode: WorkspaceDetailMode, statuses: ApplicationStatuses, context: WordingContext) {
+	func render(_ mode: WorkspaceDetailMode, statuses: ApplicationStatuses, context: ApplicationWordingContext) {
 		switch mode {
 		case .documents:
 			break

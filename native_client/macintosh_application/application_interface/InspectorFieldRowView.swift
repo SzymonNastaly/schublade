@@ -1,6 +1,7 @@
 import AppKit
 import ApplicationBindings
 import ApplicationPresentation
+import LibraryPresentation
 
 /// One inspector row pairing a small label, a selectable or linked value, and a hover copy control.
 final class InspectorFieldRowView: NSView {

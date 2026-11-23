@@ -1,4 +1,5 @@
 import ApplicationBindings
+import LibraryPresentation
 
 /// Presentation state of the four-part library workspace window.
 public struct LibraryWorkspacePresentation: Equatable, Sendable {

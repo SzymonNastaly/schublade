@@ -8,6 +8,7 @@ included:
   - scan_request
   - share_extension
   - submission_queue
+  - ../library_presentation
 excluded:
   - build
   - generated_bindings
@@ -73,6 +74,12 @@ custom_rules:
     # A control exists only as a SwiftUI widget.
     excluded: 'control_extension/'
     message: "The application is pure UIKit, so SwiftUI is imported only by the controls extension."
+    severity: error
+  uikit_forbidden_in_presentation:
+    name: "Foundation only in presentation"
+    regex: '^\s*(@preconcurrency\s+)?import\s+(AppKit|Cocoa|PDFKit|Quartz|QuickLookUI|UIKit)\b'
+    included: 'library_presentation/.*\.swift$'
+    message: "LibraryPresentation imports Foundation only and holds no view logic."
     severity: error
   application_start_outside_gateway:
     name: "Application start outside the gateway"

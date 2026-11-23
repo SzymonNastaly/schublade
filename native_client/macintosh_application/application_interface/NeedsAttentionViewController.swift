@@ -1,6 +1,7 @@
 import AppKit
 import ApplicationBindings
 import ApplicationPresentation
+import LibraryPresentation
 
 /// Needs Attention: what only a person can settle on this Mac, such as a folder awaiting its
 /// decision, a folder that cannot be read, a refused token, or refused files, each with the action
@@ -32,7 +33,7 @@ final class NeedsAttentionViewController: NSViewController {
 		view = page
 	}
 
-	func render(items: [AttentionItem], failedDocuments: UInt64, context: WordingContext) {
+	func render(items: [AttentionItem], failedDocuments: UInt64, context: ApplicationWordingContext) {
 		let sentences = items.map { CollectorWording.attentionSentence($0, context: context) }
 		let next = Shown(sentences: sentences, failedDocuments: failedDocuments)
 		guard next != shown else {

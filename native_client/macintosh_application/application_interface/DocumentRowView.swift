@@ -1,6 +1,7 @@
 import AppKit
 import ApplicationBindings
 import ApplicationPresentation
+import LibraryPresentation
 
 /// Three-line document row cell with async-decoded 40x52 first-page thumbnail.
 final class DocumentRowView: NSTableCellView {

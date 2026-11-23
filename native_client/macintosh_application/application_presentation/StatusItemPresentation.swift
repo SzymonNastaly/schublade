@@ -1,4 +1,5 @@
 import ApplicationBindings
+import LibraryPresentation
 
 /// What the menu bar item shows: its glyph and the rows of its menu that follow from the statuses.
 /// The five newest documents are read from the library when the menu opens, so they are not here.
@@ -26,7 +27,10 @@ public struct StatusItemPresentation: Equatable, Sendable {
 		self.offersAddFolder = offersAddFolder
 	}
 
-	public static func resolve(situation: ApplicationSituation, context: WordingContext) -> StatusItemPresentation {
+	public static func resolve(
+		situation: ApplicationSituation,
+		context: ApplicationWordingContext
+	) -> StatusItemPresentation {
 		switch situation {
 		case .starting, .stopped:
 			return StatusItemPresentation(

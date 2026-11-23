@@ -182,7 +182,7 @@ final class ApplicationController {
 			onStatus: { [weak self] status in
 				self?.notifier.observe(
 					status,
-					context: WordingContext.current(),
+					context: ApplicationWordingContext.current(),
 					windowAttended: self?.mainWindowController.isAttending ?? false
 				)
 				self?.updateRunning {

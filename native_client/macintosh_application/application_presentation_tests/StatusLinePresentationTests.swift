@@ -1,18 +1,21 @@
 import ApplicationBindings
 import ApplicationPresentation
 import Foundation
+import LibraryPresentation
 import Testing
 
 struct StatusLinePresentationTests {
-	private static func fixedContext() -> WordingContext {
+	private static func fixedContext() -> ApplicationWordingContext {
 		var calendar = Calendar(identifier: .gregorian)
 		if let universalTimeZone = TimeZone(secondsFromGMT: 0) {
 			calendar.timeZone = universalTimeZone
 		}
-		return WordingContext(
-			now: Date(timeIntervalSince1970: 1_790_000_000),
-			calendar: calendar,
-			locale: Locale(identifier: "en_GB"),
+		return ApplicationWordingContext(
+			library: WordingContext(
+				now: Date(timeIntervalSince1970: 1_790_000_000),
+				calendar: calendar,
+				locale: Locale(identifier: "en_GB")
+			),
 			folderName: { URL(fileURLWithPath: $0).lastPathComponent }
 		)
 	}

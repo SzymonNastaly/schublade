@@ -1,6 +1,6 @@
 import ApplicationBindings
-import ApplicationPresentation
 import Foundation
+import LibraryPresentation
 import Testing
 
 struct DocumentPresentationTests {
@@ -12,8 +12,7 @@ struct DocumentPresentationTests {
 		return WordingContext(
 			now: Date(timeIntervalSince1970: 1_790_000_000),
 			calendar: calendar,
-			locale: Locale(identifier: "en_GB"),
-			folderName: { URL(fileURLWithPath: $0).lastPathComponent }
+			locale: Locale(identifier: "en_GB")
 		)
 	}
 
@@ -105,7 +104,8 @@ struct DocumentPresentationTests {
 		#expect(dueRow?.displayValue == "6 Oct 2026")
 		#expect(dueRow?.copyValue == "2026-10-06")
 
-		let offline = ApplicationFailureWording.originalRefusalPlaceholder(.ArchiveUnreachable)
+		let macintosh = DeviceWording(phrase: "this Mac", storageLimitChoices: [])
+		let offline = LibraryFailureWording.originalRefusalPlaceholder(.ArchiveUnreachable, device: macintosh)
 		#expect(offline.title == "The Original Is Not on This Mac")
 		#expect(offline.canRetry)
 	}

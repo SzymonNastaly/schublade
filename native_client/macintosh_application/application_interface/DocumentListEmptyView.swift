@@ -1,5 +1,6 @@
 import AppKit
 import ApplicationPresentation
+import LibraryPresentation
 
 /// Centered empty-state view shown when a listing returns zero rows.
 final class DocumentListEmptyView: NSView {
@@ -30,7 +31,7 @@ final class DocumentListEmptyView: NSView {
 		self.onSearchAllDocuments = onSearchAllDocuments
 		titleLabel.stringValue = presentation.title
 		detailLabel.stringValue = presentation.detail
-		addFolderButton.isHidden = !presentation.showsAddFolderButton
+		addFolderButton.isHidden = !presentation.showsDocumentSourceButton
 		searchAllButton.isHidden = !presentation.showsSearchAllDocumentsButton
 	}
 

@@ -1,6 +1,7 @@
 import ApplicationBindings
 import ApplicationPresentation
 import Foundation
+import LibraryPresentation
 import Testing
 
 struct CollectorNoticesTests {
@@ -9,11 +10,13 @@ struct CollectorNoticesTests {
 		root: "/Users/owner/Downloads"
 	)
 
-	private static func context() -> WordingContext {
-		WordingContext(
-			now: Date(timeIntervalSince1970: 1_790_000_000),
-			calendar: Calendar(identifier: .gregorian),
-			locale: Locale(identifier: "en_GB"),
+	private static func context() -> ApplicationWordingContext {
+		ApplicationWordingContext(
+			library: WordingContext(
+				now: Date(timeIntervalSince1970: 1_790_000_000),
+				calendar: Calendar(identifier: .gregorian),
+				locale: Locale(identifier: "en_GB")
+			),
 			folderName: { URL(fileURLWithPath: $0).lastPathComponent }
 		)
 	}

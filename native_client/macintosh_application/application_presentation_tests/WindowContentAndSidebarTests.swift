@@ -1,18 +1,21 @@
 import ApplicationBindings
 import ApplicationPresentation
 import Foundation
+import LibraryPresentation
 import Testing
 
 struct WindowContentAndSidebarTests {
-	private static func fixedContext() -> WordingContext {
+	private static func fixedContext() -> ApplicationWordingContext {
 		var calendar = Calendar(identifier: .gregorian)
 		if let universalTimeZone = TimeZone(secondsFromGMT: 0) {
 			calendar.timeZone = universalTimeZone
 		}
-		return WordingContext(
-			now: Date(timeIntervalSince1970: 1_790_000_000),
-			calendar: calendar,
-			locale: Locale(identifier: "en_GB"),
+		return ApplicationWordingContext(
+			library: WordingContext(
+				now: Date(timeIntervalSince1970: 1_790_000_000),
+				calendar: calendar,
+				locale: Locale(identifier: "en_GB")
+			),
 			folderName: { root in
 				root.hasSuffix("/Documents") ? "Dokumente" : URL(fileURLWithPath: root).lastPathComponent
 			}
@@ -213,7 +216,7 @@ struct WindowContentAndSidebarTests {
 			hasCollector: true
 		)
 		#expect(emptyArchive.title == "No Documents Yet")
-		#expect(emptyArchive.showsAddFolderButton)
+		#expect(emptyArchive.showsDocumentSourceButton)
 
 		var arriving = LibraryNavigationState()
 		arriving.destination = .library(.inIngestion, title: nil)
@@ -225,6 +228,6 @@ struct WindowContentAndSidebarTests {
 			hasCollector: true
 		)
 		#expect(emptyScope.title == "Nothing Arriving")
-		#expect(!emptyScope.showsAddFolderButton)
+		#expect(!emptyScope.showsDocumentSourceButton)
 	}
 }

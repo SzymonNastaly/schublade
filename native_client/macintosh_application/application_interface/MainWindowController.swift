@@ -20,7 +20,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate {
 	private let libraryQueries: any LibraryQueries
 	private let collectorCommands: any CollectorCommands
 	private let persistsWindowState: Bool
-	private let wordingContextProvider: () -> WordingContext
+	private let wordingContextProvider: () -> ApplicationWordingContext
 	private let onAttendanceChanged: (Bool) -> Void
 
 	private let containerController = WindowContainerViewController()
@@ -41,7 +41,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate {
 		libraryQueries: any LibraryQueries,
 		collectorCommands: any CollectorCommands,
 		persistsWindowState: Bool,
-		wordingContextProvider: @escaping () -> WordingContext = { WordingContext.current() },
+		wordingContextProvider: @escaping () -> ApplicationWordingContext = { ApplicationWordingContext.current() },
 		onAttendanceChanged: @escaping (Bool) -> Void
 	) {
 		self.applicationCommands = applicationCommands

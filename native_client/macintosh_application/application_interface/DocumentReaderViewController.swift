@@ -1,6 +1,7 @@
 import AppKit
 import ApplicationBindings
 import ApplicationPresentation
+import LibraryPresentation
 import PDFKit
 
 /// Right-center reader pane showing the header and either the PDF, raster image, placeholder,
@@ -178,11 +179,12 @@ final class DocumentReaderViewController: NSViewController {
 
 	private func displayOriginalTab() {
 		if let refusal = originalRefusal {
-			showPlaceholder(for: ApplicationFailureWording.originalRefusalPlaceholder(refusal))
+			let device = MacintoshDevice.wording
+			showPlaceholder(for: LibraryFailureWording.originalRefusalPlaceholder(refusal, device: device))
 			return
 		}
 		if originalUnreadable {
-			showPlaceholder(for: ApplicationFailureWording.unreadableOriginalPlaceholder)
+			showPlaceholder(for: LibraryFailureWording.unreadableOriginalPlaceholder)
 			return
 		}
 		// A render follows every status, so each pane is given its content only when it changed:
@@ -220,7 +222,7 @@ final class DocumentReaderViewController: NSViewController {
 
 	private func displayTextTab() {
 		if let refusal = textRefusal {
-			showPlaceholder(for: ApplicationFailureWording.extractedTextRefusalPlaceholder(refusal))
+			showPlaceholder(for: LibraryFailureWording.extractedTextRefusalPlaceholder(refusal))
 			return
 		}
 		if let text = loadedText {

@@ -1,6 +1,7 @@
 import AppKit
 import ApplicationBindings
 import ApplicationPresentation
+import LibraryPresentation
 
 /// Trailing inspector pane showing resolved document details, clickable scope links and tag chips,
 /// summary, and file facts.

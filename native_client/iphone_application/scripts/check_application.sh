@@ -10,7 +10,8 @@ cd "$(dirname "$0")/.."
 (cd .. && cargo clippy --locked --target aarch64-apple-ios-sim -p archive_access -p application_bindings -- -D warnings \
 	&& cargo build --locked -p scripted_archive --bin scripted-archive-server)
 
-swiftformat --lint --quiet .
+# The shared library sources sit beside this directory, so the configuration is named.
+swiftformat --lint --quiet --config .swiftformat . ../library_presentation
 swiftlint lint --strict --quiet
 interface_builder_files="$(find . -path ./build -prune -o \( -name "*.xib" -o -name "*.storyboard" \) -print)"
 if [ -n "$interface_builder_files" ]; then

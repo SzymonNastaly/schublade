@@ -47,10 +47,10 @@ public struct DocumentRowPresentation: Equatable, Sendable {
 		let thirdLineTone: DocumentRowThirdLineTone
 		switch row.condition {
 		case let .inIngestion(stage):
-			thirdLineText = ApplicationFailureWording.stageText(stage)
+			thirdLineText = LibraryFailureWording.stageText(stage)
 			thirdLineTone = .accent
 		case let .failed(reason):
-			thirdLineText = ApplicationFailureWording.failureText(reason)
+			thirdLineText = LibraryFailureWording.failureText(reason)
 			thirdLineTone = .failure
 		case .archived:
 			thirdLineTone = .secondary

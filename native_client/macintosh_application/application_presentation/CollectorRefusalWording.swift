@@ -1,8 +1,12 @@
 import ApplicationBindings
+import LibraryPresentation
 
 /// Why the collector refused to add a folder, remove one, or take a folder's decision.
 public enum CollectorRefusalWording {
-	public static func enrollmentRefusalSentence(_ refusal: EnrollmentRefusal, context: WordingContext) -> String {
+	public static func enrollmentRefusalSentence(
+		_ refusal: EnrollmentRefusal,
+		context: ApplicationWordingContext
+	) -> String {
 		switch refusal {
 		case let .NotADirectory(root):
 			"\(root) is not a folder."
@@ -12,7 +16,7 @@ public enum CollectorRefusalWording {
 			"This folder is inside \(context.folderName(folder.root)) or contains it. "
 				+ "Each file can be collected from one folder only."
 		case let .Application(fault):
-			ApplicationFailureWording.faultSentence(fault)
+			LibraryFailureWording.faultSentence(fault)
 		}
 	}
 
@@ -21,11 +25,14 @@ public enum CollectorRefusalWording {
 		case .FolderUnknown:
 			"This folder is no longer collected."
 		case let .Application(fault):
-			ApplicationFailureWording.faultSentence(fault)
+			LibraryFailureWording.faultSentence(fault)
 		}
 	}
 
-	public static func decisionRefusalSentence(_ refusal: DecisionRefusal, context: WordingContext) -> String {
+	public static func decisionRefusalSentence(
+		_ refusal: DecisionRefusal,
+		context: ApplicationWordingContext
+	) -> String {
 		switch refusal {
 		case .FolderUnknown:
 			"This folder is no longer collected."
@@ -34,7 +41,7 @@ public enum CollectorRefusalWording {
 		case let .AlreadyDecided(folder):
 			"\(context.folderName(folder.root)) is collecting already."
 		case let .Application(fault):
-			ApplicationFailureWording.faultSentence(fault)
+			LibraryFailureWording.faultSentence(fault)
 		}
 	}
 }

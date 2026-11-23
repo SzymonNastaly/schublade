@@ -1,5 +1,6 @@
 import AppKit
 import ApplicationPresentation
+import LibraryPresentation
 
 /// Reader header bar showing title, subtitle, Original/Text switch, and bottom separator.
 final class ReaderHeaderView: NSView {

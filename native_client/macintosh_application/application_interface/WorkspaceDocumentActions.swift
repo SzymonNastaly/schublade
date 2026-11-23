@@ -1,6 +1,7 @@
 import AppKit
 import ApplicationBindings
 import ApplicationPresentation
+import LibraryPresentation
 
 /// Executes user-initiated document actions (Open, Quick Look, Export, Copy, Share, Open in
 /// Browser, and Add Folder) and presents refusal sheets in interactive mode.
@@ -139,7 +140,7 @@ final class WorkspaceDocumentActions {
 	}
 
 	func presentRepresentationAlert(_ refusal: RepresentationRefusal, in window: NSWindow?) {
-		let placeholder = ApplicationFailureWording.originalRefusalPlaceholder(refusal)
+		let placeholder = LibraryFailureWording.originalRefusalPlaceholder(refusal, device: MacintoshDevice.wording)
 		presentAlert(title: placeholder.title, message: placeholder.detail, in: window)
 	}
 

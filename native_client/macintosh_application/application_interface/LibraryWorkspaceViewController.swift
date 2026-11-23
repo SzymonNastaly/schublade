@@ -1,6 +1,7 @@
 import AppKit
 import ApplicationBindings
 import ApplicationPresentation
+import LibraryPresentation
 
 /// Coordinates the sidebar, document list, reader, inspector, and file actions inside the
 /// library workspace split view.
@@ -12,7 +13,7 @@ public final class LibraryWorkspaceViewController: NSSplitViewController {
 
 	private let queries: any LibraryQueries
 	private let renderMode: InterfaceRenderMode
-	let wordingContextProvider: () -> WordingContext
+	let wordingContextProvider: () -> ApplicationWordingContext
 	private let persistsSplitPositions: Bool
 	private let pictureStore: PictureStore
 	private let actions: WorkspaceDocumentActions
@@ -39,7 +40,7 @@ public final class LibraryWorkspaceViewController: NSSplitViewController {
 		collectorCommands: any CollectorCommands,
 		renderMode: InterfaceRenderMode = .interactive,
 		persistsState: Bool = true,
-		wordingContextProvider: @escaping () -> WordingContext,
+		wordingContextProvider: @escaping () -> ApplicationWordingContext,
 		onNavigationChange: @escaping NavigationChange,
 		onReplaceToken: @escaping () -> Void,
 		onFocusSearch: @escaping () -> Void
@@ -280,13 +281,13 @@ private extension LibraryWorkspaceViewController {
 	static func makeList(
 		queries: any LibraryQueries,
 		store: PictureStore,
-		wording: @escaping () -> WordingContext,
+		wording: @escaping () -> ApplicationWordingContext,
 		target: @escaping () -> LibraryWorkspaceViewController?
 	) -> DocumentListViewController {
 		DocumentListViewController(
 			queries: queries,
 			pictureStore: store,
-			wordingContextProvider: wording,
+			wordingContextProvider: { wording().library },
 			onSelectionChanged: { target()?.handleSelectionChanged($0) },
 			onOpenSelected: { target()?.openDocument($0) },
 			onQuickLookSelected: { target()?.previewDocument($0) },
@@ -368,11 +369,8 @@ private extension LibraryWorkspaceViewController {
 	}
 
 	func renderReaderAndInspector(navigation: LibraryNavigationState) {
-		let presented = if let detail = detailLoader.detail, detail.document == navigation.selectedDocument {
-			DocumentDetailPresentation.from(detail, context: wordingContextProvider())
-		} else {
-			DocumentDetailPresentation?.none
-		}
+		let detail = detailLoader.detail.flatMap { $0.document == navigation.selectedDocument ? $0 : nil }
+		let presented = detail.map { DocumentDetailPresentation.from($0, context: wordingContextProvider().library) }
 		readerController.render(
 			document: navigation.selectedDocument,
 			detail: presented,

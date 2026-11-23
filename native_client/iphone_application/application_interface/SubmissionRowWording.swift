@@ -1,4 +1,5 @@
 import Foundation
+import LibraryPresentation
 import SubmissionQueue
 
 /// What a row of the Sending list says about one submission.
@@ -24,7 +25,7 @@ nonisolated enum SubmissionRowWording {
 		case .importedFile, .share: "doc"
 		}
 		let (status, tone) = statusSentence(entry.answer, sentFraction: sentFraction)
-		let pages = manifest.pageCount.map { $0 == 1 ? "1 page" : "\($0) pages" }
+		let pages = manifest.pageCount.map { DocumentFormatting.countText(UInt64($0), singular: "page") }
 		let created = manifest.createdAt.formatted(date: .omitted, time: .shortened)
 		let detail = [pages, created].compactMap(\.self).joined(separator: " · ")
 		return RowContent(title: manifest.fileName, status: "\(status)\n\(detail)", symbol: symbol, tone: tone)

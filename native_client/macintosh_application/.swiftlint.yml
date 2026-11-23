@@ -6,6 +6,8 @@ included:
   - application_presentation
   - application_presentation_tests
   - interface_renderer
+  - ../library_presentation
+  - ../library_presentation_tests
 excluded:
   - build
   - generated_bindings
@@ -72,11 +74,13 @@ custom_rules:
     severity: error
   appkit_forbidden_in_presentation:
     name: "Foundation only in presentation"
-    regex: '^\s*(@preconcurrency\s+)?import\s+(AppKit|Cocoa|PDFKit|Quartz|QuickLookUI)\b'
+    regex: '^\s*(@preconcurrency\s+)?import\s+(AppKit|Cocoa|PDFKit|Quartz|QuickLookUI|UIKit)\b'
     included:
       - 'application_presentation/.*\.swift$'
       - 'application_presentation_tests/.*\.swift$'
-    message: "ApplicationPresentation imports Foundation only and holds no view logic."
+      - 'library_presentation/.*\.swift$'
+      - 'library_presentation_tests/.*\.swift$'
+    message: "ApplicationPresentation and LibraryPresentation import Foundation only and hold no view logic."
     severity: error
   application_start_outside_gateway:
     name: "Application start outside the gateway"

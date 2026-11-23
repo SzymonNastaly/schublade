@@ -29,7 +29,7 @@ final class FolderPageViewController: NSViewController {
 	private var stateDetail: NSTextField?
 	private var folder: FolderStatus?
 	private var receipts: [Receipt] = []
-	private var context: WordingContext?
+	private var context: ApplicationWordingContext?
 	private var failure: String?
 	private var pending: PendingCommand?
 
@@ -59,7 +59,7 @@ final class FolderPageViewController: NSViewController {
 		view = page
 	}
 
-	func render(folder: FolderStatus?, receipts: [Receipt], context: WordingContext) {
+	func render(folder: FolderStatus?, receipts: [Receipt], context: ApplicationWordingContext) {
 		let admission = folder.map { Self.kind(of: $0.admission) }
 		let changed = folder?.folder.identifier != self.folder?.folder.identifier
 			|| folder?.unavailability != self.folder?.unavailability
@@ -256,7 +256,7 @@ private extension FolderPageViewController {
 		return grid
 	}
 
-	func recentUploads(context: WordingContext) -> NSView {
+	func recentUploads(context: ApplicationWordingContext) -> NSView {
 		let section = PageSectionView(
 			title: "Recently Uploaded from This Mac",
 			symbolName: "arrow.up.doc",
@@ -268,7 +268,7 @@ private extension FolderPageViewController {
 		return section
 	}
 
-	func receiptRow(_ receipt: Receipt, context: WordingContext) -> NSView {
+	func receiptRow(_ receipt: Receipt, context: ApplicationWordingContext) -> NSView {
 		let name = NSButton(title: receipt.fileName, target: self, action: #selector(receiptPressed(_:)))
 		name.isBordered = false
 		name.contentTintColor = InterfacePalette.link

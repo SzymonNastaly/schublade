@@ -1,5 +1,6 @@
 import AppKit
 import ApplicationPresentation
+import LibraryPresentation
 
 /// Clickable status bar at the bottom of the sidebar showing connection state and sync progress.
 final class SidebarStatusBarView: NSView {

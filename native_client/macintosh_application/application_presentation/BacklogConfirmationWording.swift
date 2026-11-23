@@ -1,4 +1,5 @@
 import ApplicationBindings
+import LibraryPresentation
 
 /// The confirmation a folder awaits after its survey: what happens to the files already there, and
 /// that every later file uploads without asking.

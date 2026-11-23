@@ -1,6 +1,7 @@
 import AppKit
 import ApplicationBindings
 import ApplicationPresentation
+import LibraryPresentation
 import UniformTypeIdentifiers
 
 /// Middle library pane: displays fixed-height headings and document rows with thumbnails, empty
@@ -227,7 +228,7 @@ private extension DocumentListViewController {
 			if case .Stopped = error {
 				return
 			}
-			listingFaultText = ApplicationFailureWording.faultSentence(error)
+			listingFaultText = LibraryFailureWording.faultSentence(error)
 			updateEmptyAndFooterViews()
 		}
 	}

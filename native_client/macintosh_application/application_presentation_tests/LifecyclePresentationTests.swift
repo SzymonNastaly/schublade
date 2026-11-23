@@ -1,6 +1,7 @@
 import ApplicationBindings
 import ApplicationPresentation
 import Foundation
+import LibraryPresentation
 import Testing
 
 struct LifecyclePresentationTests {
@@ -93,9 +94,11 @@ struct LifecyclePresentationTests {
 
 struct StorageWordingTests {
 	@Test func limitsAndTheRoomTakenReadAsPeopleExpect() {
-		#expect(StorageWording.limitChoices.map(StorageWording.limitTitle).last == "No Limit")
-		#expect(StorageWording.limitChoices[1] == 2_000_000_000)
-		#expect(StorageWording.heldSentence(0) == "No originals are downloaded on this Mac.")
-		#expect(StorageWording.heldSentence(412_000_000).hasPrefix("Downloaded originals take 412"))
+		let device = MacintoshDevice.wording
+		#expect(device.storageLimitChoices.map(StorageWording.limitTitle).last == "No Limit")
+		#expect(device.storageLimitChoices[1] == 2_000_000_000)
+		#expect(StorageWording.heldSentence(0, device: device) == "No originals are downloaded on this Mac.")
+		#expect(StorageWording.heldSentence(412_000_000, device: device).hasPrefix("Downloaded originals take 412"))
+		#expect(StorageWording.heldSentence(412_000_000, device: device).hasSuffix(" on this Mac."))
 	}
 }

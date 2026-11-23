@@ -55,11 +55,23 @@ targets:
         OTHER_SWIFT_FLAGS: -parse-as-library
         ENABLE_USER_SCRIPT_SANDBOXING: NO
 
+  # The library's wording, shared with the iPhone application.
+  LibraryPresentation:
+    type: library.static
+    platform: macOS
+    sources: [../library_presentation]
+    dependencies:
+      - target: ApplicationBindings
+    settings:
+      base:
+        SWIFT_DEFAULT_ACTOR_ISOLATION: nonisolated
+
   ApplicationPresentation:
     type: library.static
     platform: macOS
     sources: [application_presentation]
     dependencies:
+      - target: LibraryPresentation
       - target: ApplicationBindings
     settings:
       base:
@@ -71,6 +83,7 @@ targets:
     sources: [application_interface]
     dependencies:
       - target: ApplicationPresentation
+      - target: LibraryPresentation
       - target: ApplicationBindings
     settings:
       base:
@@ -86,6 +99,7 @@ targets:
     dependencies:
       - target: ApplicationInterface
       - target: ApplicationPresentation
+      - target: LibraryPresentation
       - target: ApplicationBindings
     info:
       path: application/Info.plist
@@ -118,9 +132,10 @@ targets:
   ApplicationPresentationTests:
     type: bundle.unit-test
     platform: macOS
-    sources: [application_presentation_tests]
+    sources: [application_presentation_tests, ../library_presentation_tests]
     dependencies:
       - target: ApplicationPresentation
+      - target: LibraryPresentation
       - target: ApplicationBindings
     settings:
       base:
@@ -152,6 +167,7 @@ targets:
     dependencies:
       - target: ApplicationInterface
       - target: ApplicationPresentation
+      - target: LibraryPresentation
       - target: ApplicationBindings
     settings:
       base:

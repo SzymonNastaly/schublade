@@ -1,5 +1,6 @@
 import AppKit
 import ApplicationPresentation
+import LibraryPresentation
 
 /// One item cell in the sidebar with leading symbol, title, and trailing count or status icon.
 final class SidebarItemCellView: NSTableCellView {

@@ -1,10 +1,11 @@
 import ApplicationBindings
 import ApplicationPresentation
 import Foundation
+import LibraryPresentation
 
 /// Builds deterministic domain fixtures, cached PNG thumbnails, and scenarios for `InterfaceRenderer`.
 final class RendererFixtures {
-	let context: WordingContext
+	let context: ApplicationWordingContext
 	let queries: RendererLibraryQueries
 	let sampleListing: FixedDocumentListing
 	let searchListing: FixedDocumentListing
@@ -66,15 +67,17 @@ final class RendererFixtures {
 	}
 
 	/// A fixed clock, calendar, and locale, so every rendering shows the same words.
-	private static func fixedContext() -> WordingContext {
+	private static func fixedContext() -> ApplicationWordingContext {
 		var calendar = Calendar(identifier: .gregorian)
 		if let utc = TimeZone(secondsFromGMT: 0) {
 			calendar.timeZone = utc
 		}
-		return WordingContext(
-			now: Date(timeIntervalSince1970: 1_790_000_000),
-			calendar: calendar,
-			locale: Locale(identifier: "en_GB"),
+		return ApplicationWordingContext(
+			library: WordingContext(
+				now: Date(timeIntervalSince1970: 1_790_000_000),
+				calendar: calendar,
+				locale: Locale(identifier: "en_GB")
+			),
 			folderName: { URL(fileURLWithPath: $0).lastPathComponent }
 		)
 	}
@@ -106,7 +109,7 @@ final class RendererFixtures {
 				permission: collector == nil ? .readOnly : .readAndCollect,
 				restricted: false
 			),
-			copy: .complete(synchronizedAt: context.now),
+			copy: .complete(synchronizedAt: context.library.now),
 			contentRevision: 12,
 			counts: LibraryCounts(
 				documents: facets.documents,
