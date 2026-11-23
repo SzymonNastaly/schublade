@@ -154,7 +154,8 @@ public enum WindowContent: Equatable, Sendable {
 			allowsSortSelection: listing.allowsSortSelection,
 			effectiveOrder: listing.effectiveOrder,
 			searchAllDocumentsAvailable: listing.searchAllDocumentsAvailable,
-			textIndexingNotice: indexingNotice
+			textIndexingNotice: indexingNotice,
+			searchPlaceholder: "Search \(listing.title)"
 		)
 	}
 
@@ -178,6 +179,9 @@ public enum WindowContent: Equatable, Sendable {
 			}
 			if case .archiveOutdated = condition {
 				return .archiveOutdated(message: "Update your archive to use the library.")
+			}
+			if case .complete = library.copy, library.counts.documents == 0 {
+				return .emptyArchive(offersFolders: statuses.collector != nil)
 			}
 			return .documents
 		case .needsAttention:
@@ -206,7 +210,8 @@ public enum WindowContent: Equatable, Sendable {
 			allowsSortSelection: false,
 			effectiveOrder: navigation.browseOrder,
 			searchAllDocumentsAvailable: false,
-			textIndexingNotice: nil
+			textIndexingNotice: nil,
+			searchPlaceholder: "Search All Documents"
 		)
 	}
 

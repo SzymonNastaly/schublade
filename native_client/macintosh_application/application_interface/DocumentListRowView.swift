@@ -1,7 +1,7 @@
 import AppKit
 
 /// A document row's background: the website's light blue selection with a blue edge on the
-/// leading side, which keeps the row's text and its link-blue title legible, unlike AppKit's
+/// leading side, which keeps the row's text, its picture, and its amount legible, unlike AppKit's
 /// solid accent fill.
 final class DocumentListRowView: NSTableRowView {
 	static let identifier = NSUserInterfaceItemIdentifier("schublade.documentList.rowView")

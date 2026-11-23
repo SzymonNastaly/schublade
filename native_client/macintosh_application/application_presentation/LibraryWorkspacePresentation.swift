@@ -13,6 +13,9 @@ public struct LibraryWorkspacePresentation: Equatable, Sendable {
 	public let effectiveOrder: ListingOrder
 	public let searchAllDocumentsAvailable: Bool
 	public let textIndexingNotice: String?
+	/// Names what a search looks through, such as "Search Invoice". A page has no list, so a search
+	/// typed there looks through All Documents.
+	public let searchPlaceholder: String
 
 	public init(
 		windowTitle: String,
@@ -23,7 +26,8 @@ public struct LibraryWorkspacePresentation: Equatable, Sendable {
 		allowsSortSelection: Bool,
 		effectiveOrder: ListingOrder,
 		searchAllDocumentsAvailable: Bool,
-		textIndexingNotice: String?
+		textIndexingNotice: String?,
+		searchPlaceholder: String
 	) {
 		self.windowTitle = windowTitle
 		self.countsShownDocuments = countsShownDocuments
@@ -34,6 +38,7 @@ public struct LibraryWorkspacePresentation: Equatable, Sendable {
 		self.effectiveOrder = effectiveOrder
 		self.searchAllDocumentsAvailable = searchAllDocumentsAvailable
 		self.textIndexingNotice = textIndexingNotice
+		self.searchPlaceholder = searchPlaceholder
 	}
 
 	/// The window's subtitle, such as "412 documents", once the list holds a listing.

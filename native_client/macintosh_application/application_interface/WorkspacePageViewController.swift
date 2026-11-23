@@ -3,7 +3,7 @@ import ApplicationBindings
 import ApplicationPresentation
 
 /// The pages that take the place of the list, the reader, and the inspector together: a folder,
-/// Needs Attention, and the notices for an archive the library cannot read.
+/// Needs Attention, an empty archive, and the notices for an archive the library cannot read.
 final class WorkspacePageViewController: NSViewController {
 	private enum Page {
 		case notice
@@ -12,19 +12,27 @@ final class WorkspacePageViewController: NSViewController {
 	}
 
 	private let container = WindowContainerViewController()
-	private let notice = WorkspaceNoticeViewController()
+	private let notice = NSViewController()
+	private let noticeView: EmptyStateView
 	private let folderPage: FolderPageViewController
 	private let attentionPage: NeedsAttentionViewController
-	private let onReplaceToken: () -> Void
 	private var page: Page?
 
 	init(
 		commands: any CollectorCommands,
 		renderMode: InterfaceRenderMode,
 		onNavigate: @escaping (NavigationDestination, DocumentIdentifier?) -> Void,
+		onAddFolder: @escaping () -> Void,
 		onReplaceToken: @escaping () -> Void
 	) {
-		self.onReplaceToken = onReplaceToken
+		noticeView = EmptyStateView { action in
+			switch action {
+			case .addFolder: onAddFolder()
+			case .replaceToken: onReplaceToken()
+			case .searchAllDocuments: onNavigate(.library(.allDocuments, title: nil), nil)
+			}
+		}
+		notice.view = noticeView
 		folderPage = FolderPageViewController(
 			commands: commands,
 			renderMode: renderMode,
@@ -60,17 +68,11 @@ final class WorkspacePageViewController: NSViewController {
 		switch mode {
 		case .documents:
 			break
-		case let .archiveOutdated(message):
+		case .emptyArchive, .archiveOutdated, .tokenCannotRead:
 			show(.notice)
-			notice.render(title: "Update Required", detail: message, actionTitle: nil, onAction: nil)
-		case let .tokenCannotRead(message):
-			show(.notice)
-			notice.render(
-				title: "Token Cannot Read Archive",
-				detail: message,
-				actionTitle: "Replace Token…",
-				onAction: onReplaceToken
-			)
+			if let page = EmptyStatePresentation.page(mode) {
+				noticeView.render(page, defaultAction: true)
+			}
 		case .needsAttention:
 			show(.attention)
 			attentionPage.render(

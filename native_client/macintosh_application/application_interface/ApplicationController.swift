@@ -35,11 +35,13 @@ final class ApplicationController {
 	init(environment: ApplicationEnvironment) {
 		let gateway = ApplicationGateway()
 		let statusItem = StatusItemController(queries: gateway)
+		let preferences = ApplicationPreferences(isolated: environment.isIsolated)
 		let mainWindowController = MainWindowController(
 			applicationCommands: gateway,
 			libraryQueries: gateway,
 			collectorCommands: gateway,
-			persistsWindowState: !environment.isIsolated
+			persistsWindowState: !environment.isIsolated,
+			preferences: preferences
 		) { attended in
 			gateway.interfaceAttended(attended)
 		}
@@ -49,7 +51,7 @@ final class ApplicationController {
 		self.statusItem = statusItem
 		self.mainWindowController = mainWindowController
 		notifier = CollectorNotifier(isEnabled: !environment.isIsolated)
-		preferences = ApplicationPreferences(isolated: environment.isIsolated)
+		self.preferences = preferences
 		loginItem = LoginItem(isInert: environment.isIsolated)
 		notifier.onOpen = { [weak mainWindowController] action in
 			mainWindowController?.open(action)

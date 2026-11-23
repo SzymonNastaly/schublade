@@ -27,6 +27,7 @@ final class ScreenRenderer {
 
 	func renderAllScreens() async throws {
 		try await renderConnectionAndEmptyScreens()
+		try await renderListStateScreens()
 		try await renderLibraryDocumentScreens()
 		try await renderLibraryStatusScreens()
 		for scene in CollectorScenes.all(fixtures: fixtures) {
@@ -138,7 +139,8 @@ final class ScreenRenderer {
 		facets: LibraryFacets = RendererSampleCatalog.sampleFacets,
 		navigation: LibraryNavigationState,
 		queries: RendererLibraryQueries,
-		windowSize: NSSize = ScreenRenderer.windowSize
+		windowSize: NSSize = ScreenRenderer.windowSize,
+		writesRowMenus: Bool = false
 	) async throws {
 		let context = fixtures.context
 		let content = WindowContent.resolve(
@@ -150,6 +152,7 @@ final class ScreenRenderer {
 		guard case let .libraryWorkspace(workspace) = content else {
 			return
 		}
+		var shownWorkspace: LibraryWorkspaceViewController?
 		try await renderAppearances(name: name, size: windowSize, queries: queries) {
 			let workspaceController = LibraryWorkspaceViewController(
 				queries: queries,
@@ -165,16 +168,21 @@ final class ScreenRenderer {
 				title: workspace.windowTitle,
 				subtitle: workspace.windowSubtitle(shownDocuments: Int(queries.shownDocuments)),
 				searchText: navigation.searchText,
+				searchPlaceholder: workspace.searchPlaceholder,
 				showsBackButton: workspace.showsBackButton,
 				width: windowSize.width
 			)
 			let host = makeToolbarHost(toolbar: toolbar, contentController: workspaceController, size: windowSize)
 			workspaceController.render(workspace: workspace, statuses: statuses, navigation: navigation)
+			shownWorkspace = workspaceController
 			return Scene(
 				controller: host,
 				alignChrome: { toolbar.align(to: workspaceController) },
 				accommodate: { workspaceController.accommodate(windowWidth: $0) }
 			)
+		}
+		if writesRowMenus, let shownWorkspace {
+			try writeRowMenus(of: shownWorkspace, rowCount: Int(queries.shownRows), name: name)
 		}
 	}
 
@@ -264,6 +272,64 @@ final class ScreenRenderer {
 }
 
 private extension ScreenRenderer {
+	/// The list's states: rows on their way and failed, and the empty states of a scope, a search,
+	/// and a first copy.
+	func renderListStateScreens() async throws {
+		try await renderWorkspaceScene(
+			name: "library_arriving_and_failed",
+			statuses: fixtures.makeStatuses(),
+			navigation: LibraryNavigationState(),
+			queries: fixtures.queries.scene(listing: fixtures.arrivingAndFailedListing),
+			writesRowMenus: true
+		)
+
+		try await renderWorkspaceScene(
+			name: "library_empty_scope",
+			statuses: fixtures.makeStatuses(),
+			navigation: LibraryNavigationState(destination: .library(.failed, title: nil)),
+			queries: fixtures.queries.scene(listing: fixtures.emptyListing)
+		)
+
+		try await renderWorkspaceScene(
+			name: "library_search_no_result",
+			statuses: fixtures.makeStatuses(),
+			navigation: LibraryNavigationState(
+				destination: .library(.category(category: CategoryIdentifier(value: "c1")), title: "Invoice"),
+				searchText: "Nordbank"
+			),
+			queries: fixtures.queries.scene(listing: fixtures.emptyListing)
+		)
+
+		try await renderWorkspaceScene(
+			name: "library_first_fill",
+			statuses: fixtures.makeStatuses(
+				facets: RendererSampleCatalog.emptyFacets,
+				copy: .filling(received: 250, remaining: 1258)
+			),
+			facets: RendererSampleCatalog.emptyFacets,
+			navigation: LibraryNavigationState(),
+			queries: fixtures.queries.scene(listing: fixtures.emptyListing)
+		)
+	}
+
+	/// Each document row's context menu as text: its items in order, with a line for each
+	/// separator and a mark for an item that shows no symbol.
+	func writeRowMenus(of workspace: LibraryWorkspaceViewController, rowCount: Int, name: String) throws {
+		var text = ""
+		for row in 0 ..< rowCount {
+			let items = workspace.documentRowMenu(atRow: row).items
+			guard !items.isEmpty else {
+				continue
+			}
+			text += "Row \(row)\n"
+			for item in items {
+				text += item.isSeparatorItem ? "  ----\n" : "  \(item.title)\(item.image == nil ? " (no symbol)" : "")\n"
+			}
+			text += "\n"
+		}
+		try text.write(to: outputDirectory.appending(path: "\(name)_row_menus.txt"), atomically: true, encoding: .utf8)
+	}
+
 	func makeToolbarHost(
 		toolbar: PaintedToolbarView,
 		contentController: NSViewController,

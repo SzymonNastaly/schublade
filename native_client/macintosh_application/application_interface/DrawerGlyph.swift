@@ -28,6 +28,28 @@ public enum DrawerGlyph {
 		return image
 	}
 
+	/// The drawer pulled open with nothing in it, `width` points wide, for the page of an empty archive.
+	public static func emptyDrawer(width: CGFloat) -> NSImage {
+		let opening = sheet([(9, 39), (15, 24), (51, 24), (57, 39)])
+		opening.lineWidth = strokeWidth
+		opening.lineJoinStyle = .round
+		let bounds = drawer().bounds.union(opening.bounds.insetBy(dx: -strokeWidth / 2, dy: -strokeWidth / 2))
+		let scale = width / bounds.width
+		let image = NSImage(size: NSSize(width: width, height: bounds.height * scale), flipped: true) { _ in
+			guard let context = NSGraphicsContext.current else {
+				return false
+			}
+			context.cgContext.scaleBy(x: scale, y: scale)
+			context.cgContext.translateBy(x: -bounds.minX, y: -bounds.minY)
+			NSColor.black.set()
+			opening.stroke()
+			drawer().fill()
+			return true
+		}
+		image.isTemplate = true
+		return image
+	}
+
 	private static func draw(_ glyph: StatusItemGlyph, frame: Int?, in context: NSGraphicsContext) {
 		switch glyph {
 		case .resting:

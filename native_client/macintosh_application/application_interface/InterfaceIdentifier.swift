@@ -19,10 +19,6 @@ public enum InterfaceIdentifier {
 	public static let toolbarSearchField = "schublade.toolbar.searchField"
 
 	public static let documentListTable = "schublade.documentList.table"
-	public static let documentListEmptyTitle = "schublade.documentList.emptyTitle"
-	public static let documentListEmptyDetail = "schublade.documentList.emptyDetail"
-	public static let documentListEmptyAddFolder = "schublade.documentList.emptyAddFolder"
-	public static let documentListEmptySearchAll = "schublade.documentList.emptySearchAll"
 	public static let documentListFooterSearchAll = "schublade.documentList.footerSearchAll"
 	public static let documentListFooterIndexing = "schublade.documentList.footerIndexing"
 	public static let documentRowTitle = "schublade.documentList.row.title"
@@ -47,11 +43,13 @@ public enum InterfaceIdentifier {
 	public static let inspectorSummaryLabel = "schublade.inspector.summaryLabel"
 	public static let inspectorOpenInBrowserButton = "schublade.inspector.openInBrowserButton"
 
-	public static let workspaceNoticeMessage = "schublade.workspace.noticeMessage"
+	public static let emptyStateTitle = "schublade.emptyState.title"
+	public static let emptyStateDetail = "schublade.emptyState.detail"
+	public static let emptyStateAction = "schublade.emptyState.action"
+
 	public static let folderPageTitle = "schublade.folderPage.title"
 	public static let folderPageState = "schublade.folderPage.state"
 	public static let folderPageUploadButton = "schublade.folderPage.uploadButton"
 	public static let folderPageRemoveButton = "schublade.folderPage.removeButton"
 	public static let folderPageFailure = "schublade.folderPage.failure"
-	public static let workspaceNoticeActionButton = "schublade.workspace.noticeActionButton"
 }

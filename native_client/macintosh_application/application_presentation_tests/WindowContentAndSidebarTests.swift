@@ -5,7 +5,7 @@ import LibraryPresentation
 import Testing
 
 struct WindowContentAndSidebarTests {
-	private static func fixedContext() -> ApplicationWordingContext {
+	static func fixedContext() -> ApplicationWordingContext {
 		var calendar = Calendar(identifier: .gregorian)
 		if let universalTimeZone = TimeZone(secondsFromGMT: 0) {
 			calendar.timeZone = universalTimeZone
@@ -22,7 +22,7 @@ struct WindowContentAndSidebarTests {
 		)
 	}
 
-	private static func makeFacets(
+	static func makeFacets(
 		inIngestion: UInt64 = 0,
 		failed: UInt64 = 0
 	) -> LibraryFacets {
@@ -69,7 +69,7 @@ struct WindowContentAndSidebarTests {
 		)
 	}
 
-	private static func makeStatuses(
+	static func makeStatuses(
 		condition: ConnectionCondition = .connected,
 		permission: ArchivePermission = .readAndCollect,
 		awaitingText: UInt64 = 0,
@@ -208,26 +208,20 @@ struct WindowContentAndSidebarTests {
 		#expect(address == "https://archive.example.org")
 		#expect(cancellable)
 
-		let emptyArchive = EmptyListPresentation.resolve(
-			navigation: LibraryNavigationState(),
-			libraryStatus: Self.makeStatuses(documents: 0).library,
-			libraryFault: nil,
-			listingFault: nil,
-			hasCollector: true
-		)
-		#expect(emptyArchive.title == "No Documents Yet")
-		#expect(emptyArchive.showsDocumentSourceButton)
-
 		var arriving = LibraryNavigationState()
 		arriving.destination = .library(.inIngestion, title: nil)
-		let emptyScope = EmptyListPresentation.resolve(
+		let emptyScope = EmptyStatePresentation.list(
 			navigation: arriving,
 			libraryStatus: statuses.library,
 			libraryFault: nil,
 			listingFault: nil,
 			hasCollector: true
 		)
-		#expect(emptyScope.title == "Nothing Arriving")
-		#expect(!emptyScope.showsDocumentSourceButton)
+		#expect(emptyScope == EmptyStatePresentation(
+			picture: .symbol("tray"),
+			title: "Nothing Arriving",
+			detail: "Documents appear here while the archive reads them.",
+			action: nil
+		))
 	}
 }

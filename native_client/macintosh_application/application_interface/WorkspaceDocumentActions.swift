@@ -2,6 +2,7 @@ import AppKit
 import ApplicationBindings
 import ApplicationPresentation
 import LibraryPresentation
+import UniformTypeIdentifiers
 
 /// Executes user-initiated document actions (Open, Quick Look, Export, Copy, Share, Open in
 /// Browser, and Add Folder) and presents refusal sheets in interactive mode.
@@ -99,6 +100,35 @@ final class WorkspaceDocumentActions {
 		let copy = folder.appending(path: suggestedFileName)
 		try OriginalFileCopy.write(from: original, to: copy)
 		return copy
+	}
+
+	/// What a row's Share hands over: the original under its suggested name, read only once a
+	/// service asks for it, so building the menu downloads nothing.
+	func shareableItem(for document: DocumentIdentifier, suggestedFileName: String) -> NSItemProvider {
+		let provider = NSItemProvider()
+		provider.suggestedName = suggestedFileName
+		let type = UTType(filenameExtension: URL(fileURLWithPath: suggestedFileName).pathExtension) ?? .data
+		let identifier = document.value
+		provider.registerFileRepresentation(
+			forTypeIdentifier: type.identifier,
+			fileOptions: [],
+			visibility: .all
+		) { [self] deliver in
+			Task { @MainActor in
+				do {
+					let localFile = try await queries.original(DocumentIdentifier(value: identifier))
+					let copy = try namedCopy(
+						of: URL(fileURLWithPath: localFile.path),
+						suggestedFileName: suggestedFileName
+					)
+					deliver(copy, false, nil)
+				} catch {
+					deliver(nil, false, error)
+				}
+			}
+			return nil
+		}
+		return provider
 	}
 
 	func export(_ document: DocumentIdentifier, suggestedFileName: String?, window: NSWindow?) {

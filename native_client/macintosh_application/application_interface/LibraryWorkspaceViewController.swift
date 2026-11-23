@@ -86,10 +86,14 @@ public final class LibraryWorkspaceViewController: NSSplitViewController {
 			commands: collectorCommands,
 			renderMode: renderMode,
 			onNavigate: { target?.navigate(to: $0, selecting: $1) },
+			onAddFolder: { target?.enrollFolderAction(nil) },
 			onReplaceToken: { target?.onReplaceTokenRequested?() }
 		)
 		super.init(nibName: nil, bundle: nil)
 		target = self
+		if renderMode == .interactive {
+			QuickLookCoordinator.shared.transitionSource = { target?.listController.selectedPicture() }
+		}
 	}
 
 	@available(*, unavailable)
@@ -227,6 +231,13 @@ public final class LibraryWorkspaceViewController: NSSplitViewController {
 		renderReaderAndInspector(navigation: navigation)
 	}
 
+	/// The context menu of the list's row at a position, as a Control-click on it shows the menu.
+	public func documentRowMenu(atRow position: Int) -> NSMenu {
+		let menu = NSMenu()
+		listController.fill(menu, forRow: position)
+		return menu
+	}
+
 	public func contentRevisionChanged(to revision: UInt64) {
 		listController.contentRevisionChanged(to: revision)
 		detailLoader.reload(revision: revision)
@@ -265,7 +276,12 @@ private extension LibraryWorkspaceViewController {
 			onCopySelected: { target()?.copyDocument($0) },
 			onDragFailed: { target()?.reportDragFailure($0) },
 			onRequestAddFolder: { target()?.enrollFolderAction(nil) },
-			onRequestSearchAllDocuments: { target()?.searchAllDocuments() }
+			onRequestSearchAllDocuments: { target()?.searchAllDocuments() },
+			onRowCommand: { target()?.perform($0, on: $1) },
+			shareableItems: { row in
+				target().map { [$0.actions.shareableItem(for: row.document, suggestedFileName: row.suggestedFileName)] }
+					?? []
+			}
 		)
 	}
 
@@ -324,18 +340,6 @@ private extension LibraryWorkspaceViewController {
 		}
 	}
 
-	func navigateToScope(_ scope: NamedScope) {
-		onNavigationChange? { navigation in
-			navigation.previousDestination = if case .sender = scope.scope {
-				navigation.destination
-			} else {
-				nil
-			}
-			navigation.destination = .library(scope.scope, title: scope.name)
-			navigation.selectedDocument = nil
-		}
-	}
-
 	func searchAllDocuments() {
 		onNavigationChange? { navigation in
 			navigation.previousDestination = nil
@@ -373,7 +377,7 @@ private extension LibraryWorkspaceViewController {
 			tab: navigation.readerTab,
 			searchTerms: navigation.searchTerms
 		)
-		inspectorController.render(presented, hasSelection: navigation.selectedDocument != nil)
+		inspectorController.render(presented)
 	}
 
 	func copyDocument(_ document: DocumentIdentifier) {

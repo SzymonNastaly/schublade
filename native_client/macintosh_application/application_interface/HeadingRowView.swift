@@ -1,12 +1,20 @@
 import AppKit
 
-/// Plain group-heading row cell for `DocumentListViewController`.
+/// A month's heading, or Arriving and the two sections of a search, floating over the rows under it.
 final class HeadingRowView: NSTableCellView {
+	private static let titleFont = NSFont.systemFont(
+		ofSize: NSFont.preferredFont(forTextStyle: .subheadline).pointSize,
+		weight: .semibold
+	)
+
+	/// The heading's one height, from its font's line height.
+	static let rowHeight: CGFloat = ceil(NSLayoutManager().defaultLineHeight(for: titleFont) + 12)
+
 	private let titleField = NSTextField(labelWithString: "")
 
 	override init(frame frameRect: NSRect) {
 		super.init(frame: frameRect)
-		titleField.font = NSFont.systemFont(ofSize: NSFont.smallSystemFontSize, weight: .semibold)
+		titleField.font = Self.titleFont
 		titleField.textColor = .secondaryLabelColor
 		titleField.lineBreakMode = .byTruncatingTail
 		titleField.translatesAutoresizingMaskIntoConstraints = false

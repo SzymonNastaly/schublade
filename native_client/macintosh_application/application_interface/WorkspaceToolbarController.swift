@@ -98,6 +98,7 @@ final class WorkspaceToolbarController: NSObject {
 				item.state = order == workspace.effectiveOrder ? .on : .off
 			}
 		}
+		searchItem.searchField.placeholderString = workspace.searchPlaceholder
 		if searchItem.searchField.stringValue != navigation.searchText {
 			searchItem.searchField.stringValue = navigation.searchText
 		}
@@ -118,7 +119,6 @@ final class WorkspaceToolbarController: NSObject {
 
 		configureSortMenu()
 
-		searchItem.searchField.placeholderString = "Search"
 		searchItem.searchField.delegate = self
 		searchItem.searchField.target = self
 		searchItem.searchField.action = #selector(searchFieldSubmitted)

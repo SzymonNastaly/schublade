@@ -121,6 +121,51 @@ extension LibraryWorkspaceViewController {
 		onNavigationChange? { $0.browseOrder = selected }
 	}
 
+	func navigateToScope(_ scope: NamedScope) {
+		onNavigationChange? { navigation in
+			navigation.previousDestination = if case .sender = scope.scope {
+				navigation.destination
+			} else {
+				nil
+			}
+			navigation.destination = .library(scope.scope, title: scope.name)
+			navigation.selectedDocument = nil
+		}
+	}
+
+	/// A command of a row's context menu. The row need not be the selected one, so the commands that
+	/// need the document's detail read it first.
+	func perform(_ command: DocumentRowCommand, on row: DocumentRow) {
+		let document = row.document
+		switch command {
+		case .openOriginal:
+			openDocument(document)
+		case .quickLook:
+			// The panel follows the selection, and grows out of the selected row's picture.
+			onNavigationChange? { $0.selectedDocument = document }
+			actions.toggleQuickLook(for: document, title: row.title, window: view.window)
+		case .share:
+			// The menu holds the system's share submenu, which hands over the item itself.
+			break
+		case .copy:
+			actions.copyFile(document, suggestedFileName: row.suggestedFileName, window: view.window)
+		case .exportOriginal:
+			actions.export(document, suggestedFileName: row.suggestedFileName, window: view.window)
+		case .moreFromSender:
+			Task {
+				if let sender = try? await queries.document(document)?.sender {
+					navigateToScope(sender)
+				}
+			}
+		case .openInBrowser:
+			Task {
+				if let page = try? await queries.document(document)?.archivePage, let url = URL(string: page) {
+					NSWorkspace.shared.open(url)
+				}
+			}
+		}
+	}
+
 	func setReaderTab(_ tab: ReaderTab) {
 		onNavigationChange? { $0.readerTab = tab }
 	}

@@ -152,6 +152,42 @@ enum RendererSampleCatalog {
 		]
 	}
 
+	/// A scan whose picture the archive has while it classifies it, a failed upload, and the month.
+	static func makeArrivingAndFailedRows(
+		scanId: DocumentIdentifier,
+		invoiceId: DocumentIdentifier,
+		receiptId: DocumentIdentifier
+	) -> [ListingRow] {
+		let month = makeSampleRows(invoiceId: invoiceId, receiptId: receiptId).dropFirst(2)
+		return [
+			.heading(heading: .arriving),
+			.document(row: DocumentRow(
+				document: scanId,
+				condition: .inIngestion(stage: .recognizingText),
+				title: nil,
+				senderName: nil,
+				documentDate: nil,
+				arrivedAt: Date(timeIntervalSince1970: 1_790_000_200),
+				amount: nil,
+				passage: nil,
+				contentKnown: true,
+				suggestedFileName: "document.jpg"
+			)),
+			.document(row: DocumentRow(
+				document: DocumentIdentifier(value: "doc-failed-upload"),
+				condition: .failed(reason: .unreadableFile),
+				title: "Scan 2026-09-30.pdf",
+				senderName: nil,
+				documentDate: nil,
+				arrivedAt: Date(timeIntervalSince1970: 1_790_000_150),
+				amount: nil,
+				passage: nil,
+				contentKnown: true,
+				suggestedFileName: "document.pdf"
+			)),
+		] + month
+	}
+
 	static func makeSearchRows(invoiceId: DocumentIdentifier, receiptId: DocumentIdentifier) -> [ListingRow] {
 		[
 			.heading(heading: .detailsMatched),

@@ -9,9 +9,21 @@ final class RendererFixtures {
 	let queries: RendererLibraryQueries
 	let sampleListing: FixedDocumentListing
 	let searchListing: FixedDocumentListing
+	var arrivingAndFailedListing: FixedDocumentListing {
+		FixedDocumentListing(
+			rows: RendererSampleCatalog.makeArrivingAndFailedRows(
+				scanId: scanIdentifier,
+				invoiceId: invoiceIdentifier,
+				receiptId: receiptIdentifier
+			),
+			contentRevision: 12
+		)
+	}
+
 	let emptyListing = FixedDocumentListing(rows: [])
 	let invoiceIdentifier = DocumentIdentifier(value: "doc-electricity-invoice")
 	let receiptIdentifier = DocumentIdentifier(value: "doc-supermarket-receipt")
+	let scanIdentifier = DocumentIdentifier(value: "doc-arriving-scan")
 	let invoiceDetail: DocumentDetail
 	let electricityPdfPath: String
 	let receiptImagePath: String
@@ -41,7 +53,7 @@ final class RendererFixtures {
 				pdfPath: electricityPdfPath,
 				receiptIdentifier: receiptIdentifier,
 				imagePath: receiptImagePath
-			),
+			).merging([scanIdentifier: receiptImagePath]) { kept, _ in kept },
 			originalPaths: [
 				invoiceIdentifier: electricityPdfPath,
 				receiptIdentifier: receiptImagePath,
@@ -98,7 +110,8 @@ final class RendererFixtures {
 	func makeStatuses(
 		condition: ConnectionCondition = .connected,
 		collector: CollectorStatus? = RendererFixtures.makeCollectorStatus(),
-		facets: LibraryFacets = RendererSampleCatalog.sampleFacets
+		facets: LibraryFacets = RendererSampleCatalog.sampleFacets,
+		copy: LibraryCopy? = nil
 	) -> ApplicationStatuses {
 		let library = LibraryStatus(
 			revision: 12,
@@ -109,7 +122,7 @@ final class RendererFixtures {
 				permission: collector == nil ? .readOnly : .readAndCollect,
 				restricted: false
 			),
-			copy: .complete(synchronizedAt: context.library.now),
+			copy: copy ?? .complete(synchronizedAt: context.library.now),
 			contentRevision: 12,
 			counts: LibraryCounts(
 				documents: facets.documents,

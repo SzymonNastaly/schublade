@@ -1,22 +1,28 @@
+import ApplicationPresentation
 import Foundation
 
 /// What the application remembers about a person's choices: whether the login item was ever
-/// established, and the quit alert's "do not ask again". The isolated environment keeps them in a
-/// suite of its own, so a test never reads or writes an installed application's preferences.
+/// established, the quit alert's "do not ask again", and the scope and document the window showed
+/// last. The isolated environment keeps them in a suite of its own, emptied as it opens, so a test
+/// never reads an installed application's preferences or what an earlier test left.
 final class ApplicationPreferences {
 	private static let loginItemEstablishedKey = "loginItemEstablished"
 	private static let quitAlertSuppressedKey = "quitAlertSuppressed"
 	private static let originalStorageLimitKey = "originalStorageLimit"
+	private static let libraryPlaceKey = "libraryPlace"
 	/// Two gigabytes, the design's default room for downloaded originals.
 	static let defaultOriginalStorageLimit: UInt64 = 2_000_000_000
 
 	private let defaults: UserDefaults
 
 	init(isolated: Bool) {
-		defaults = isolated
-			? UserDefaults(suiteName: "org.schublade.isolated.\(ProcessInfo.processInfo.processIdentifier)") ??
-			.standard
-			: .standard
+		let isolatedSuite = "org.schublade.isolated.\(ProcessInfo.processInfo.processIdentifier)"
+		guard isolated, let suite = UserDefaults(suiteName: isolatedSuite) else {
+			defaults = .standard
+			return
+		}
+		suite.removePersistentDomain(forName: isolatedSuite)
+		defaults = suite
 	}
 
 	var loginItemEstablished: Bool {
@@ -34,6 +40,15 @@ final class ApplicationPreferences {
 			return stored <= 0 ? nil : UInt64(stored)
 		}
 		set { defaults.set(Int(clamping: newValue ?? 0), forKey: Self.originalStorageLimitKey) }
+	}
+
+	/// The scope and document the window showed last.
+	var libraryPlace: RememberedLibraryPlace? {
+		get {
+			(defaults.dictionary(forKey: Self.libraryPlaceKey) as? [String: String])
+				.flatMap(RememberedLibraryPlace.init(storedValues:))
+		}
+		set { defaults.set(newValue?.storedValues, forKey: Self.libraryPlaceKey) }
 	}
 
 	var quitAlertSuppressed: Bool {

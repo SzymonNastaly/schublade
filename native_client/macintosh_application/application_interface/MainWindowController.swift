@@ -20,6 +20,9 @@ final class MainWindowController: NSWindowController, NSWindowDelegate {
 	private let libraryQueries: any LibraryQueries
 	private let collectorCommands: any CollectorCommands
 	private let persistsWindowState: Bool
+	let preferences: ApplicationPreferences
+	/// The place restored at launch, until the first facets show whether the copy still holds it.
+	var restoredPlace: RememberedLibraryPlace?
 	private let wordingContextProvider: () -> ApplicationWordingContext
 	private let onAttendanceChanged: (Bool) -> Void
 
@@ -27,12 +30,12 @@ final class MainWindowController: NSWindowController, NSWindowDelegate {
 	private var toolbarController: WorkspaceToolbarController?
 	private(set) var workspaceController: LibraryWorkspaceViewController?
 
-	private var latestSituation = ApplicationSituation.starting
+	private(set) var latestSituation = ApplicationSituation.starting
 	private var shownWorkspace: LibraryWorkspacePresentation?
 	private var latestFacets: LibraryFacets?
 	private var fetchedFacetsRevision: UInt64 = 0
 	private var newestFacetsRequest: UInt64 = 0
-	private var navigation = LibraryNavigationState()
+	var navigation = LibraryNavigationState()
 	private var activeScreen: Screen?
 	private(set) var isAttending = false
 
@@ -41,6 +44,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate {
 		libraryQueries: any LibraryQueries,
 		collectorCommands: any CollectorCommands,
 		persistsWindowState: Bool,
+		preferences: ApplicationPreferences,
 		wordingContextProvider: @escaping () -> ApplicationWordingContext = { ApplicationWordingContext.current() },
 		onAttendanceChanged: @escaping (Bool) -> Void
 	) {
@@ -48,6 +52,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate {
 		self.libraryQueries = libraryQueries
 		self.collectorCommands = collectorCommands
 		self.persistsWindowState = persistsWindowState
+		self.preferences = preferences
 		self.wordingContextProvider = wordingContextProvider
 		self.onAttendanceChanged = onAttendanceChanged
 
@@ -75,6 +80,8 @@ final class MainWindowController: NSWindowController, NSWindowDelegate {
 		super.init(window: mainWindow)
 		mainWindow.delegate = self
 		navigation.inspectorVisible = mainWindow.frame.width >= 1280
+		restoredPlace = preferences.libraryPlace
+		restoredPlace?.restore(into: &navigation)
 		configureToolbar()
 	}
 
@@ -323,30 +330,6 @@ private extension MainWindowController {
 		workspaceController.render(workspace: workspace, statuses: statuses, navigation: navigation)
 	}
 
-	func updateNavigation(_ mutate: (inout LibraryNavigationState) -> Void) {
-		mutate(&navigation)
-		render(latestSituation)
-	}
-
-	func setBrowseOrder(_ order: ListingOrder) {
-		updateNavigation { $0.browseOrder = order }
-	}
-
-	func setSearchText(_ text: String) {
-		guard navigation.searchText != text else {
-			return
-		}
-		updateNavigation { $0.search(text) }
-	}
-
-	func navigateBack() {
-		updateNavigation { navigation in
-			navigation.destination = navigation.previousDestination ?? .library(.allDocuments, title: nil)
-			navigation.previousDestination = nil
-			navigation.selectedDocument = nil
-		}
-	}
-
 	private func readableArchiveStatus() -> LibraryStatus? {
 		guard case let .running(statuses) = latestSituation, let library = statuses.library else {
 			return nil
@@ -370,6 +353,7 @@ private extension MainWindowController {
 			}
 			fetchedFacetsRevision = max(expectedRevision, facets.contentRevision)
 			latestFacets = facets
+			checkRestoredPlace(against: facets)
 			render(latestSituation)
 		}
 	}

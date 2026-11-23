@@ -56,6 +56,16 @@ final class DocumentListModel {
 		headingPositions.contains(index)
 	}
 
+	/// The heading of the section a row stands in.
+	func heading(above index: Int) -> ListingHeading? {
+		guard let position = headingPositions.integerLessThan(index),
+		      case let .heading(heading)? = row(at: position)
+		else {
+			return nil
+		}
+		return heading
+	}
+
 	func position(of document: DocumentIdentifier) -> Int? {
 		listing?.positionOf(document: document).map(Int.init)
 	}

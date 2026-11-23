@@ -95,6 +95,11 @@ final class RendererLibraryQueries: LibraryQueries {
 		listing.documentCount()
 	}
 
+	/// The number of rows of the scene's listing, headings included.
+	var shownRows: UInt32 {
+		listing.rowCount()
+	}
+
 	/// Answers after one turn of the main actor, as a real query does, and counts the call.
 	private func answer() async {
 		callsStarted += 1

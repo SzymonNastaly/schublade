@@ -62,6 +62,51 @@ struct DocumentPresentationTests {
 		#expect(DocumentFormatting.dayAndMonth(CalendarDate(year: 2026, month: 9, day: 2), context: context) == "2 Sep")
 	}
 
+	private static func listedRow(_ condition: DocumentCondition) -> DocumentRow {
+		DocumentRow(
+			document: DocumentIdentifier(value: "d1"),
+			condition: condition,
+			title: "Electricity Annual Statement 2026",
+			senderName: "Stadtwerke Talbrück GmbH",
+			documentDate: CalendarDate(year: 2026, month: 9, day: 22),
+			arrivedAt: Date(timeIntervalSince1970: 1_790_000_000),
+			amount: nil,
+			passage: .summary(text: "Annual electricity statement for 2026."),
+			contentKnown: true,
+			suggestedFileName: "document.pdf"
+		)
+	}
+
+	@Test func browsingDropsTheThirdLineOnlyOfAnArchivedDocument() {
+		let context = Self.fixedContext()
+		let browsed = DocumentRowPresentation.from(
+			Self.listedRow(.archived),
+			placement: .browsing(underMonth: false),
+			context: context
+		)
+		#expect(!browsed.showsThirdLine)
+		#expect(browsed.dateText == "22 Sep 2026")
+
+		let arriving = DocumentRowPresentation.from(
+			Self.listedRow(.inIngestion(stage: .classifying)),
+			placement: .browsing(underMonth: false),
+			context: context
+		)
+		#expect(arriving.thirdLineText == "Classifying document")
+
+		let searched = DocumentRowPresentation.from(Self.listedRow(.archived), placement: .searching, context: context)
+		#expect(searched.thirdLineText == "Annual electricity statement for 2026.")
+	}
+
+	@Test func aRowUnderAMonthShowsItsDayAndMonth() {
+		let underMonth = DocumentRowPresentation.from(
+			Self.listedRow(.archived),
+			placement: .browsing(underMonth: true),
+			context: Self.fixedContext()
+		)
+		#expect(underMonth.dateText == "22 Sep")
+	}
+
 	@Test func detailPresentationFormatsDecimalAmountsIbanPeriodsAndOfflinePlaceholder() {
 		let context = Self.fixedContext()
 		let senderScope = NamedScope(scope: .sender(sender: SenderIdentifier(value: "s1")), name: "Nordbank AG")

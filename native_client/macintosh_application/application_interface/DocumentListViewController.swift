@@ -2,28 +2,26 @@ import AppKit
 import ApplicationBindings
 import ApplicationPresentation
 import LibraryPresentation
-import UniformTypeIdentifiers
 
 /// Middle library pane: displays fixed-height headings and document rows with thumbnails, empty
-/// states, search footer, drag-out file promises, and keyboard navigation.
+/// states, search footer, a context menu, drag-out file promises, and keyboard navigation.
 final class DocumentListViewController: NSViewController {
-	private static let headingCellIdentifier = NSUserInterfaceItemIdentifier("headingCell")
-	private static let documentCellIdentifier = NSUserInterfaceItemIdentifier("documentCell")
-
-	private let queries: any LibraryQueries
-	private let pictureStore: PictureStore
-	private let wordingContextProvider: () -> WordingContext
-	private let onSelectionChanged: (DocumentIdentifier?) -> Void
+	let queries: any LibraryQueries
+	let pictureStore: PictureStore
+	let wordingContextProvider: () -> WordingContext
+	let onSelectionChanged: (DocumentIdentifier?) -> Void
 	private let onOpenSelected: (DocumentIdentifier) -> Void
 	private let onQuickLookSelected: (DocumentIdentifier) -> Void
 	private let onCopySelected: (DocumentIdentifier) -> Void
-	private let onDragFailed: (RepresentationRefusal) -> Void
+	let onDragFailed: (RepresentationRefusal) -> Void
 	private let onRequestAddFolder: () -> Void
 	private let onRequestSearchAllDocuments: () -> Void
+	let onRowCommand: (DocumentRowCommand, DocumentRow) -> Void
+	let shareableItems: (DocumentRow) -> [Any]
 	var onShownDocumentsChanged: ((Int) -> Void)?
 
-	private let model = DocumentListModel()
-	private var activeRequest: ListingRequest?
+	let model = DocumentListModel()
+	private(set) var activeRequest: ListingRequest?
 	private var activeNavigation = LibraryNavigationState()
 	private var libraryStatus: LibraryStatus?
 	private var libraryFault: ApplicationFault?
@@ -32,12 +30,23 @@ final class DocumentListViewController: NSViewController {
 	private var searchAllDocumentsAvailable = false
 	private var textIndexingNotice: String?
 	private var newestRequestNumber: UInt64 = 0
-	private var isApplyingTableUpdates = false
+	private(set) var isApplyingTableUpdates = false
+	/// Set when the selection came from outside the list, such as a launch or the menu bar, so the
+	/// list scrolls to it once its listing holds it.
+	private var revealsSelection = true
 	private(set) var incrementalUpdateCount = 0
 
-	private let tableView = DocumentListTableView()
+	let tableView = DocumentListTableView()
 	private let scrollView = NSScrollView()
-	private let emptyView = DocumentListEmptyView()
+	private lazy var emptyView = EmptyStateView { [weak self] action in
+		switch action {
+		case .addFolder: self?.onRequestAddFolder()
+		case .searchAllDocuments: self?.onRequestSearchAllDocuments()
+		case .replaceToken: break
+		}
+	}
+
+	private let contextMenu = NSMenu()
 	private let footerView = DocumentListFooterView()
 
 	var focusTargetView: NSView {
@@ -54,7 +63,9 @@ final class DocumentListViewController: NSViewController {
 		onCopySelected: @escaping (DocumentIdentifier) -> Void,
 		onDragFailed: @escaping (RepresentationRefusal) -> Void,
 		onRequestAddFolder: @escaping () -> Void,
-		onRequestSearchAllDocuments: @escaping () -> Void
+		onRequestSearchAllDocuments: @escaping () -> Void,
+		onRowCommand: @escaping (DocumentRowCommand, DocumentRow) -> Void,
+		shareableItems: @escaping (DocumentRow) -> [Any]
 	) {
 		self.queries = queries
 		self.pictureStore = pictureStore
@@ -66,6 +77,8 @@ final class DocumentListViewController: NSViewController {
 		self.onDragFailed = onDragFailed
 		self.onRequestAddFolder = onRequestAddFolder
 		self.onRequestSearchAllDocuments = onRequestSearchAllDocuments
+		self.onRowCommand = onRowCommand
+		self.shareableItems = shareableItems
 		super.init(nibName: nil, bundle: nil)
 	}
 
@@ -101,12 +114,14 @@ final class DocumentListViewController: NSViewController {
 		textIndexingNotice = workspace.textIndexingNotice
 		if requestChanged {
 			activeRequest = nextRequest
+			revealsSelection = true
 			if nextRequest == nil {
 				newestRequestNumber &+= 1
 			} else {
 				refresh()
 			}
 		} else if previousSelection != navigation.selectedDocument {
+			revealsSelection = navigation.selectedDocument != selectedDocumentIdentifier()
 			restoreSelection(to: navigation.selectedDocument, notifyIfMissing: false)
 		}
 		updateEmptyAndFooterViews()
@@ -130,6 +145,18 @@ final class DocumentListViewController: NSViewController {
 	@objc func copy(_: Any?) {
 		selectedDocumentIdentifier().map(onCopySelected)
 	}
+
+	/// The selected document's picture and its frame on screen, which Quick Look grows out of.
+	func selectedPicture() -> (frame: NSRect, picture: NSImage?)? {
+		let row = tableView.selectedRow
+		guard row >= 0, tableView.rows(in: tableView.visibleRect).contains(row),
+		      let cell = tableView.view(atColumn: 0, row: row, makeIfNecessary: false) as? DocumentRowView,
+		      let window = view.window
+		else {
+			return nil
+		}
+		return (window.convertToScreen(cell.pictureFrameInWindow), cell.shownPicture)
+	}
 }
 
 private extension DocumentListViewController {
@@ -150,6 +177,8 @@ private extension DocumentListViewController {
 		tableView.dataSource = self
 		tableView.delegate = self
 		tableView.setAccessibilityIdentifier(InterfaceIdentifier.documentListTable)
+		contextMenu.delegate = self
+		tableView.menu = contextMenu
 		tableView.onQuickLook = { [weak self] in
 			self.map { $0.selectedDocumentIdentifier().map($0.onQuickLookSelected) }
 		}
@@ -260,6 +289,7 @@ private extension DocumentListViewController {
 		restoreSelection(to: preservedSelection, notifyIfMissing: true)
 	}
 
+	/// A revised row, such as a document that finished its ingestion, dissolves into its new state.
 	func applyIncrementalChanges(removed: IndexSet, inserted: IndexSet, revised: IndexSet) {
 		if !removed.isEmpty || !inserted.isEmpty {
 			tableView.beginUpdates()
@@ -272,6 +302,12 @@ private extension DocumentListViewController {
 			tableView.endUpdates()
 		}
 		if !revised.isEmpty {
+			let dissolve = CATransition()
+			dissolve.type = .fade
+			dissolve.duration = 0.25
+			for row in revised {
+				tableView.rowView(atRow: row, makeIfNecessary: false)?.layer?.add(dissolve, forKey: "revision")
+			}
 			tableView.reloadData(forRowIndexes: revised, columnIndexes: IndexSet(integer: 0))
 		}
 	}
@@ -282,6 +318,10 @@ private extension DocumentListViewController {
 		if let document, let position = model.position(of: document), position >= 0, position < model.rowCount {
 			if tableView.selectedRow != position {
 				tableView.selectRowIndexes(IndexSet(integer: position), byExtendingSelection: false)
+			}
+			if revealsSelection {
+				revealsSelection = false
+				tableView.scrollRowToVisible(position)
 			}
 			return
 		}
@@ -295,102 +335,20 @@ private extension DocumentListViewController {
 		if model.rowCount > 0 {
 			emptyView.isHidden = true
 		} else {
-			let presentation = EmptyListPresentation.resolve(
+			emptyView.render(EmptyStatePresentation.list(
 				navigation: activeNavigation,
 				libraryStatus: libraryStatus,
 				libraryFault: libraryFault,
 				listingFault: listingFaultText,
 				hasCollector: hasCollector
-			)
-			emptyView.render(
-				presentation,
-				onAddFolder: onRequestAddFolder,
-				onSearchAllDocuments: onRequestSearchAllDocuments
-			)
+			))
 			emptyView.isHidden = false
 		}
 		footerView.render(
-			showsSearchAllDocuments: searchAllDocumentsAvailable,
+			// An empty list offers the same button in its middle.
+			showsSearchAllDocuments: searchAllDocumentsAvailable && model.rowCount > 0,
 			indexingNotice: textIndexingNotice,
 			onSearchAllDocuments: onRequestSearchAllDocuments
 		)
-	}
-
-	func reusableCell<Cell: NSView>(
-		in tableView: NSTableView,
-		identifier: NSUserInterfaceItemIdentifier,
-		makeCell: () -> Cell
-	) -> Cell {
-		if let existing = tableView.makeView(withIdentifier: identifier, owner: nil) as? Cell {
-			return existing
-		}
-		let created = makeCell()
-		created.identifier = identifier
-		return created
-	}
-}
-
-extension DocumentListViewController: NSTableViewDataSource, NSTableViewDelegate {
-	func numberOfRows(in _: NSTableView) -> Int {
-		model.rowCount
-	}
-
-	func tableView(_: NSTableView, isGroupRow row: Int) -> Bool {
-		model.isHeading(at: row)
-	}
-
-	func tableView(_ tableView: NSTableView, rowViewForRow row: Int) -> NSTableRowView? {
-		model.isHeading(at: row) ? nil : reusableCell(in: tableView, identifier: DocumentListRowView.identifier) {
-			DocumentListRowView()
-		}
-	}
-
-	func tableView(_: NSTableView, shouldSelectRow row: Int) -> Bool {
-		row >= 0 && row < model.rowCount && !model.isHeading(at: row)
-	}
-
-	func tableView(_: NSTableView, heightOfRow row: Int) -> CGFloat {
-		model.isHeading(at: row) ? 26 : 68
-	}
-
-	func tableView(_ tableView: NSTableView, viewFor _: NSTableColumn?, row: Int) -> NSView? {
-		guard let entry = model.row(at: row) else {
-			return nil
-		}
-		let context = wordingContextProvider()
-		switch entry {
-		case let .heading(heading):
-			let cell = reusableCell(in: tableView, identifier: Self.headingCellIdentifier) { HeadingRowView() }
-			cell.configure(title: DocumentFormatting.headingText(heading, context: context))
-			return cell
-		case let .document(documentRow):
-			let cell = reusableCell(in: tableView, identifier: Self.documentCellIdentifier) { DocumentRowView() }
-			cell.configure(with: documentRow, context: context, pictureStore: pictureStore)
-			return cell
-		}
-	}
-
-	func tableView(_: NSTableView, pasteboardWriterForRow row: Int) -> (any NSPasteboardWriting)? {
-		guard case let .document(documentRow) = model.row(at: row) else {
-			return nil
-		}
-		let delegate = DocumentFilePromiseDelegate(
-			document: documentRow.document,
-			fileName: documentRow.suggestedFileName,
-			fetchOriginalPath: { [queries] identifier throws(RepresentationRefusal) in
-				try await queries.original(identifier).path
-			},
-			reportFailure: { [onDragFailed] refusal in onDragFailed(refusal) }
-		)
-		let provider = NSFilePromiseProvider(fileType: UTType.data.identifier, delegate: delegate)
-		// The provider holds its delegate weakly, so the delegate rides along as its user info.
-		provider.userInfo = delegate
-		return provider
-	}
-
-	func tableViewSelectionDidChange(_: Notification) {
-		if !isApplyingTableUpdates {
-			onSelectionChanged(selectedDocumentIdentifier())
-		}
 	}
 }

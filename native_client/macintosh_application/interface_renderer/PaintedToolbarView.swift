@@ -26,8 +26,15 @@ final class PaintedToolbarView: NSView {
 	private let searchPill: NSView
 	private var sections: Sections?
 
-	init(title: String, subtitle: String?, searchText: String, showsBackButton: Bool, width: CGFloat) {
-		searchPill = Self.makeSearchPill(text: searchText)
+	init(
+		title: String,
+		subtitle: String?,
+		searchText: String,
+		searchPlaceholder: String,
+		showsBackButton: Bool,
+		width: CGFloat
+	) {
+		searchPill = Self.makeSearchPill(text: searchText, placeholder: searchPlaceholder)
 		super.init(frame: NSRect(x: 0, y: 0, width: width, height: Self.height))
 		wantsLayer = true
 		backSymbol.isHidden = !showsBackButton
@@ -156,7 +163,7 @@ final class PaintedToolbarView: NSView {
 		return imageView
 	}
 
-	private static func makeSearchPill(text: String) -> NSView {
+	private static func makeSearchPill(text: String, placeholder: String) -> NSView {
 		// A box draws its colours in the appearance it draws in, where a layer keeps the one it was given.
 		let box = NSBox()
 		box.boxType = .custom
@@ -170,7 +177,7 @@ final class PaintedToolbarView: NSView {
 		let glyph = makeSymbolView("magnifyingglass")
 		glyph.translatesAutoresizingMaskIntoConstraints = false
 		glyph.setContentHuggingPriority(.required, for: .horizontal)
-		let searchField = NSTextField(labelWithString: text.isEmpty ? "Search" : text)
+		let searchField = NSTextField(labelWithString: text.isEmpty ? placeholder : text)
 		searchField.font = NSFont.systemFont(ofSize: NSFont.smallSystemFontSize)
 		searchField.textColor = text.isEmpty ? .placeholderTextColor : .labelColor
 		searchField.lineBreakMode = .byTruncatingTail

@@ -12,7 +12,6 @@ final class DocumentInspectorViewController: NSViewController {
 	private let scrollView = NSScrollView()
 	private let documentContentView = FlippedClipDocumentView()
 	private let stackView = NSStackView()
-	private let emptyLabel = NSTextField(labelWithString: "No Document Selected")
 
 	private var currentPresentation: DocumentDetailPresentation?
 	private var archivePageURL: URL?
@@ -41,10 +40,9 @@ final class DocumentInspectorViewController: NSViewController {
 		render(nil)
 	}
 
-	/// Shows a document's details. While a selected document's details are read, it shows nothing
-	/// rather than "No Document Selected", which a walk through the list would flash at every step.
-	func render(_ presentation: DocumentDetailPresentation?, hasSelection: Bool = false) {
-		emptyLabel.isHidden = presentation != nil || hasSelection
+	/// Shows a document's details, and nothing without a document: the reader already says that none
+	/// is selected, and a walk through the list would flash a second notice at every step.
+	func render(_ presentation: DocumentDetailPresentation?) {
 		guard presentation != currentPresentation || (presentation == nil && stackView.arrangedSubviews.isEmpty) else {
 			return
 		}
@@ -80,13 +78,7 @@ final class DocumentInspectorViewController: NSViewController {
 		scrollView.translatesAutoresizingMaskIntoConstraints = false
 		scrollView.setAccessibilityIdentifier(InterfaceIdentifier.inspectorScrollView)
 
-		emptyLabel.font = NSFont.systemFont(ofSize: NSFont.systemFontSize)
-		emptyLabel.textColor = .secondaryLabelColor
-		emptyLabel.alignment = .center
-		emptyLabel.translatesAutoresizingMaskIntoConstraints = false
-
 		view.addSubview(scrollView)
-		view.addSubview(emptyLabel)
 
 		NSLayoutConstraint.activate([
 			scrollView.topAnchor.constraint(equalTo: view.topAnchor),
@@ -98,8 +90,6 @@ final class DocumentInspectorViewController: NSViewController {
 			stackView.leadingAnchor.constraint(equalTo: documentContentView.leadingAnchor, constant: 14),
 			stackView.trailingAnchor.constraint(equalTo: documentContentView.trailingAnchor, constant: -14),
 			stackView.bottomAnchor.constraint(lessThanOrEqualTo: documentContentView.bottomAnchor, constant: -16),
-			emptyLabel.centerXAnchor.constraint(equalTo: view.centerXAnchor),
-			emptyLabel.centerYAnchor.constraint(equalTo: view.centerYAnchor),
 		])
 	}
 
