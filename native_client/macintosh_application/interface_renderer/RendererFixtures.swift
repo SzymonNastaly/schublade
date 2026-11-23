@@ -25,6 +25,14 @@ final class RendererFixtures {
 	let receiptIdentifier = DocumentIdentifier(value: "doc-supermarket-receipt")
 	let scanIdentifier = DocumentIdentifier(value: "doc-arriving-scan")
 	let invoiceDetail: DocumentDetail
+	/// The invoice under a title that takes four lines in the inspector.
+	var invoiceDetailWithLongTitle: DocumentDetail {
+		var detail = invoiceDetail
+		detail.title = "Haftpflichtversicherung Beitragsrechnung und Versicherungsschein "
+			+ "für das Versicherungsjahr 2026 bis 2027"
+		return detail
+	}
+
 	let electricityPdfPath: String
 	let receiptImagePath: String
 	let invoiceText: String

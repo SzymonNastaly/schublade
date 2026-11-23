@@ -231,13 +231,6 @@ public final class LibraryWorkspaceViewController: NSSplitViewController {
 		renderReaderAndInspector(navigation: navigation)
 	}
 
-	/// The context menu of the list's row at a position, as a Control-click on it shows the menu.
-	public func documentRowMenu(atRow position: Int) -> NSMenu {
-		let menu = NSMenu()
-		listController.fill(menu, forRow: position)
-		return menu
-	}
-
 	public func contentRevisionChanged(to revision: UInt64) {
 		listController.contentRevisionChanged(to: revision)
 		detailLoader.reload(revision: revision)
@@ -370,14 +363,14 @@ private extension LibraryWorkspaceViewController {
 
 	func renderReaderAndInspector(navigation: LibraryNavigationState) {
 		let detail = detailLoader.detail.flatMap { $0.document == navigation.selectedDocument ? $0 : nil }
-		let presented = detail.map { DocumentDetailPresentation.from($0, context: wordingContextProvider().library) }
+		let context = wordingContextProvider().library
 		readerController.render(
 			document: navigation.selectedDocument,
-			detail: presented,
+			detail: detail.map { DocumentDetailPresentation.from($0, context: context) },
 			tab: navigation.readerTab,
 			searchTerms: navigation.searchTerms
 		)
-		inspectorController.render(presented)
+		inspectorController.render(detail.map { InspectorPresentation.from($0, context: context) })
 	}
 
 	func copyDocument(_ document: DocumentIdentifier) {

@@ -3,9 +3,11 @@ import ApplicationBindings
 import ApplicationPresentation
 import LibraryPresentation
 
-/// Trailing inspector pane showing resolved document details, clickable scope links and tag chips,
-/// summary, and file facts.
+/// The inspector, the place of a document's facts: its title and summary at the head, the facts a
+/// person copies, the places it is filed under, its tags, and the file with the way to the browser.
 final class DocumentInspectorViewController: NSViewController {
+	private static let edgeInset: CGFloat = 16
+
 	private let onSelectScope: (NamedScope) -> Void
 	private let onOpenInBrowser: (URL) -> Void
 
@@ -13,8 +15,8 @@ final class DocumentInspectorViewController: NSViewController {
 	private let documentContentView = FlippedClipDocumentView()
 	private let stackView = NSStackView()
 
-	private var currentPresentation: DocumentDetailPresentation?
-	private var archivePageURL: URL?
+	private var currentPresentation: InspectorPresentation?
+	private var rows: [InspectorFieldRowView] = []
 
 	init(
 		onSelectScope: @escaping (NamedScope) -> Void,
@@ -42,30 +44,41 @@ final class DocumentInspectorViewController: NSViewController {
 
 	/// Shows a document's details, and nothing without a document: the reader already says that none
 	/// is selected, and a walk through the list would flash a second notice at every step.
-	func render(_ presentation: DocumentDetailPresentation?) {
+	func render(_ presentation: InspectorPresentation?) {
 		guard presentation != currentPresentation || (presentation == nil && stackView.arrangedSubviews.isEmpty) else {
 			return
 		}
 		currentPresentation = presentation
-		archivePageURL = presentation?.archivePageURL
-
+		rows = []
 		for arranged in stackView.arrangedSubviews {
 			stackView.removeArrangedSubview(arranged)
 			arranged.removeFromSuperview()
 		}
-
 		guard let presentation else {
 			scrollView.isHidden = true
 			return
 		}
 		scrollView.isHidden = false
-		populateSections(from: presentation)
+		populate(from: presentation)
+	}
+
+	/// Shows one row as it stands under the pointer and another as just copied, so the renderer can
+	/// draw both states without a pointer or the pasteboard.
+	func exhibitRows(underPointer hovered: String?, copied: String?) {
+		for row in rows {
+			if row.label == hovered {
+				row.showPointer(inside: true)
+			}
+			if row.label == copied {
+				row.showCopied()
+			}
+		}
 	}
 
 	private func configureViews() {
 		stackView.orientation = .vertical
 		stackView.alignment = .leading
-		stackView.spacing = 12
+		stackView.spacing = 2
 		stackView.translatesAutoresizingMaskIntoConstraints = false
 
 		documentContentView.translatesAutoresizingMaskIntoConstraints = false
@@ -86,93 +99,170 @@ final class DocumentInspectorViewController: NSViewController {
 			scrollView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
 			scrollView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
 			documentContentView.widthAnchor.constraint(equalTo: scrollView.contentView.widthAnchor),
-			stackView.topAnchor.constraint(equalTo: documentContentView.topAnchor, constant: 16),
-			stackView.leadingAnchor.constraint(equalTo: documentContentView.leadingAnchor, constant: 14),
-			stackView.trailingAnchor.constraint(equalTo: documentContentView.trailingAnchor, constant: -14),
-			stackView.bottomAnchor.constraint(lessThanOrEqualTo: documentContentView.bottomAnchor, constant: -16),
+			stackView.topAnchor.constraint(equalTo: documentContentView.topAnchor, constant: Self.edgeInset),
+			stackView.leadingAnchor.constraint(equalTo: documentContentView.leadingAnchor, constant: Self.edgeInset),
+			stackView.trailingAnchor.constraint(
+				equalTo: documentContentView.trailingAnchor,
+				constant: -Self.edgeInset
+			),
+			stackView.bottomAnchor.constraint(
+				lessThanOrEqualTo: documentContentView.bottomAnchor,
+				constant: -Self.edgeInset
+			),
 		])
 	}
 
-	private func populateSections(from presentation: DocumentDetailPresentation) {
-		if !presentation.detailRows.isEmpty {
-			stackView.addArrangedSubview(sectionHeading("Details"))
-			for row in presentation.detailRows {
-				let rowView = InspectorFieldRowView(row: row, onSelectScope: onSelectScope)
-				stackView.addArrangedSubview(rowView)
-				rowView.widthAnchor.constraint(equalTo: stackView.widthAnchor).isActive = true
+	private func populate(from presentation: InspectorPresentation) {
+		populateHead(from: presentation)
+
+		if !presentation.facts.isEmpty, let head = stackView.arrangedSubviews.last {
+			stackView.setCustomSpacing(14, after: head)
+			for fact in presentation.facts {
+				append(row: fact.copyValue.map { value in
+					InspectorFieldRowView(
+						label: fact.label,
+						displayValue: fact.displayValue,
+						behaviour: .copies(value),
+						onSelectScope: onSelectScope
+					)
+				}, plain: fact)
+			}
+		}
+
+		if !presentation.filedUnder.isEmpty {
+			appendHeading("Filed Under")
+			for place in presentation.filedUnder {
+				append(row: place.linkedScope.map { scope in
+					InspectorFieldRowView(
+						label: place.label,
+						displayValue: place.displayValue,
+						behaviour: .leadsTo(scope),
+						onSelectScope: onSelectScope
+					)
+				}, plain: place)
 			}
 		}
 
 		if !presentation.tags.isEmpty {
-			stackView.addArrangedSubview(sectionSeparator())
-			stackView.addArrangedSubview(sectionHeading("Tags"))
+			appendHeading("Tags")
 			let flowView = WrappingFlowView()
 			flowView.setViews(presentation.tags.map { tag in
 				TagChipButton(tagScope: tag, onSelectScope: onSelectScope)
 			})
-			stackView.addArrangedSubview(flowView)
-			flowView.widthAnchor.constraint(equalTo: stackView.widthAnchor).isActive = true
+			appendFullWidth(flowView)
 		}
+
+		appendHeading("File")
+		for fact in presentation.fileFacts {
+			append(row: nil, plain: InspectorDetailRow(
+				label: fact.label,
+				displayValue: fact.value,
+				copyValue: nil,
+				linkedScope: nil
+			))
+		}
+		if presentation.archivePageURL != nil {
+			appendBrowserButton()
+		}
+	}
+
+	private func populateHead(from presentation: InspectorPresentation) {
+		let title = NSTextField(wrappingLabelWithString: presentation.title)
+		title.font = NSFont.systemFont(ofSize: NSFont.preferredFont(forTextStyle: .title3).pointSize, weight: .semibold)
+		title.isSelectable = true
+		title.setAccessibilityIdentifier(InterfaceIdentifier.inspectorTitleLabel)
+		appendFullWidth(title)
+		stackView.setCustomSpacing(4, after: title)
 
 		if let summary = presentation.summary {
-			stackView.addArrangedSubview(sectionSeparator())
-			stackView.addArrangedSubview(sectionHeading("Summary"))
-			let summaryField = NSTextField(wrappingLabelWithString: summary)
-			summaryField.font = NSFont.systemFont(ofSize: NSFont.systemFontSize)
+			let summaryField = Self.secondaryText(summary, style: .body)
 			summaryField.isSelectable = true
 			summaryField.setAccessibilityIdentifier(InterfaceIdentifier.inspectorSummaryLabel)
-			stackView.addArrangedSubview(summaryField)
-			summaryField.widthAnchor.constraint(equalTo: stackView.widthAnchor).isActive = true
+			appendFullWidth(summaryField)
+			stackView.setCustomSpacing(4, after: summaryField)
 		}
-
-		populateFileSection(facts: presentation.fileFacts, hasBrowserURL: presentation.archivePageURL != nil)
+		appendFullWidth(Self.secondaryText(presentation.fileLine, style: .subheadline))
 	}
 
-	private func populateFileSection(facts: [InspectorFileFact], hasBrowserURL: Bool) {
-		stackView.addArrangedSubview(sectionSeparator())
-		stackView.addArrangedSubview(sectionHeading("File"))
-		for fact in facts {
-			let rowView = InspectorFieldRowView(
-				row: InspectorDetailRow(label: fact.label, displayValue: fact.value, copyValue: nil, linkedScope: nil),
-				onSelectScope: onSelectScope
+	/// A row that acts on a click, or a plain label over its value. A row reaches past the column by
+	/// its fill's inset, so its text stands in line with the head's.
+	private func append(row: InspectorFieldRowView?, plain detail: InspectorDetailRow) {
+		guard let row else {
+			let label = Self.secondaryText(detail.label, style: .subheadline)
+			let value = NSTextField(wrappingLabelWithString: detail.displayValue)
+			value.font = NSFont.monospacedDigitSystemFont(
+				ofSize: NSFont.preferredFont(forTextStyle: .body).pointSize,
+				weight: .regular
 			)
-			stackView.addArrangedSubview(rowView)
-			rowView.widthAnchor.constraint(equalTo: stackView.widthAnchor).isActive = true
+			value.isSelectable = true
+			let pair = NSStackView(views: [label, value])
+			pair.orientation = .vertical
+			pair.alignment = .leading
+			pair.spacing = 1
+			pair.edgeInsets = NSEdgeInsets(top: 4, left: 0, bottom: 4, right: 0)
+			appendFullWidth(pair)
+			return
 		}
-		if hasBrowserURL {
-			let browserButton = NSButton(
-				title: "Open in Browser",
-				target: self,
-				action: #selector(openInBrowserPressed)
-			)
-			browserButton.bezelStyle = .rounded
-			browserButton.controlSize = .small
-			browserButton.setAccessibilityIdentifier(InterfaceIdentifier.inspectorOpenInBrowserButton)
-			stackView.addArrangedSubview(browserButton)
-		}
+		rows.append(row)
+		let holder = NSView()
+		row.translatesAutoresizingMaskIntoConstraints = false
+		holder.addSubview(row)
+		NSLayoutConstraint.activate([
+			row.topAnchor.constraint(equalTo: holder.topAnchor),
+			row.bottomAnchor.constraint(equalTo: holder.bottomAnchor),
+			row.leadingAnchor.constraint(
+				equalTo: holder.leadingAnchor,
+				constant: -InspectorFieldRowView.horizontalInset
+			),
+			row.trailingAnchor.constraint(
+				equalTo: holder.trailingAnchor,
+				constant: InspectorFieldRowView.horizontalInset
+			),
+		])
+		appendFullWidth(holder)
 	}
 
-	private func sectionHeading(_ title: String) -> NSTextField {
-		let font = NSFont.systemFont(ofSize: NSFont.smallSystemFontSize - 1, weight: .bold)
-		let label = NSTextField(labelWithAttributedString: NSAttributedString(
-			string: title.uppercased(),
-			attributes: [.kern: 0.6, .font: font, .foregroundColor: InterfacePalette.selectionEdge]
-		))
-		label.setAccessibilityLabel(title)
-		return label
+	private func appendHeading(_ title: String) {
+		if let last = stackView.arrangedSubviews.last {
+			stackView.setCustomSpacing(20, after: last)
+		}
+		let heading = NSTextField(labelWithString: title)
+		heading.font = NSFont.systemFont(
+			ofSize: NSFont.preferredFont(forTextStyle: .subheadline).pointSize,
+			weight: .semibold
+		)
+		heading.textColor = .secondaryLabelColor
+		stackView.addArrangedSubview(heading)
+		stackView.setCustomSpacing(6, after: heading)
 	}
 
-	private func sectionSeparator() -> NSBox {
-		let separator = NSBox()
-		separator.boxType = .separator
-		separator.widthAnchor.constraint(equalToConstant: 220).isActive = true
-		return separator
+	private func appendBrowserButton() {
+		let button = NSButton(title: "Open in Browser", target: self, action: #selector(openInBrowserPressed))
+		button.image = NSImage(systemSymbolName: "safari", accessibilityDescription: nil)
+		button.imagePosition = .imageLeading
+		button.bezelStyle = .push
+		button.setAccessibilityIdentifier(InterfaceIdentifier.inspectorOpenInBrowserButton)
+		if let last = stackView.arrangedSubviews.last {
+			stackView.setCustomSpacing(14, after: last)
+		}
+		stackView.addArrangedSubview(button)
+		stackView.setCustomSpacing(6, after: button)
+		appendFullWidth(Self.secondaryText(InspectorPresentation.browserSentence, style: .footnote))
+	}
+
+	private func appendFullWidth(_ view: NSView) {
+		stackView.addArrangedSubview(view)
+		view.widthAnchor.constraint(equalTo: stackView.widthAnchor).isActive = true
 	}
 
 	@objc private func openInBrowserPressed() {
-		guard let archivePageURL else {
-			return
-		}
-		onOpenInBrowser(archivePageURL)
+		currentPresentation?.archivePageURL.map(onOpenInBrowser)
+	}
+
+	private static func secondaryText(_ text: String, style: NSFont.TextStyle) -> NSTextField {
+		let field = NSTextField(wrappingLabelWithString: text)
+		field.font = NSFont.preferredFont(forTextStyle: style)
+		field.textColor = .secondaryLabelColor
+		return field
 	}
 }

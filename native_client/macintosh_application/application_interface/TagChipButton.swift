@@ -1,7 +1,8 @@
 import AppKit
 import ApplicationBindings
 
-/// Clickable rounded pill button representing one document tag inside the inspector.
+/// One tag in the inspector: its name in the label colour on a fill without a border. A click
+/// lists the tag's documents.
 final class TagChipButton: NSButton {
 	private let tagScope: NamedScope
 	private let onSelectScope: (NamedScope) -> Void
@@ -11,16 +12,15 @@ final class TagChipButton: NSButton {
 		self.onSelectScope = onSelectScope
 		super.init(frame: .zero)
 
-		title = tagScope.name
 		isBordered = false
-		wantsLayer = true
-		font = NSFont.systemFont(ofSize: NSFont.smallSystemFontSize, weight: .medium)
-		contentTintColor = InterfacePalette.link
-		layer?.cornerRadius = 10
-		layer?.borderWidth = 0.5
-
+		attributedTitle = NSAttributedString(string: tagScope.name, attributes: [
+			.font: NSFont.preferredFont(forTextStyle: .subheadline),
+			.foregroundColor: NSColor.labelColor,
+		])
+		setButtonType(.momentaryChange)
 		target = self
 		action = #selector(tagPressed)
+		toolTip = "Show the documents tagged \(tagScope.name)"
 		setAccessibilityIdentifier("inspector.tag.\(tagScope.name)")
 	}
 
@@ -29,18 +29,24 @@ final class TagChipButton: NSButton {
 		fatalError("Interface Builder is not used")
 	}
 
-	/// A layer keeps the colour it was given, so the chip's fill follows the appearance here.
-	override func viewDidChangeEffectiveAppearance() {
-		super.viewDidChangeEffectiveAppearance()
-		effectiveAppearance.performAsCurrentDrawingAppearance {
-			layer?.backgroundColor = InterfacePalette.chipFill.cgColor
-			layer?.borderColor = InterfacePalette.chipBorder.cgColor
-		}
+	override func draw(_ dirtyRect: NSRect) {
+		let radius = bounds.height / 2
+		(isHighlighted ? NSColor.tertiarySystemFill : NSColor.quaternarySystemFill).setFill()
+		NSBezierPath(roundedRect: bounds, xRadius: radius, yRadius: radius).fill()
+		super.draw(dirtyRect)
+	}
+
+	override var focusRingMaskBounds: NSRect {
+		bounds
+	}
+
+	override func drawFocusRingMask() {
+		NSBezierPath(roundedRect: bounds, xRadius: bounds.height / 2, yRadius: bounds.height / 2).fill()
 	}
 
 	override var intrinsicContentSize: NSSize {
-		let base = super.intrinsicContentSize
-		return NSSize(width: base.width + 16, height: max(base.height + 4, 22))
+		let title = attributedTitle.size()
+		return NSSize(width: ceil(title.width) + 18, height: ceil(title.height) + 8)
 	}
 
 	@objc private func tagPressed() {

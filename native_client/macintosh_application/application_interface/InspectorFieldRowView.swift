@@ -1,26 +1,52 @@
 import AppKit
 import ApplicationBindings
-import ApplicationPresentation
 import LibraryPresentation
 
-/// One inspector row pairing a small label, a selectable or linked value, and a hover copy control.
-final class InspectorFieldRowView: NSView {
+/// One row of the inspector that a click acts on, a label over its value. A fact copies its value
+/// and says "Copied" for a second; a place the document is filed under lists that place's
+/// documents. The trailing symbol says which before the click: `doc.on.doc` under the pointer, or
+/// a chevron that always shows. As a button it takes the keyboard focus, and Space presses it.
+final class InspectorFieldRowView: NSButton {
+	enum Behaviour {
+		case copies(String)
+		case leadsTo(NamedScope)
+	}
+
+	/// How far the fill reaches past the text on each side.
+	static let horizontalInset: CGFloat = 6
+	private static let verticalInset: CGFloat = 4
+	private static let cornerRadius: CGFloat = 6
+	private static let copiedDuration: Duration = .seconds(1)
+
+	let label: String
+	let displayValue: String
+	private let behaviour: Behaviour
+	private let onSelectScope: (NamedScope) -> Void
+
 	private let labelField = NSTextField(labelWithString: "")
 	private let valueField = NSTextField(wrappingLabelWithString: "")
-	private let linkButton = NSButton()
-	private let copyButton = NSButton()
+	private let trailingSymbol = NSImageView()
+	private var hoverArea: NSTrackingArea?
+	private var pointerInside = false
+	private var copiedReset: Task<Void, Never>?
+	private(set) var showsCopied = false
 
-	private let row: InspectorDetailRow
-	private let onSelectScope: (NamedScope) -> Void
-	private var hoverTrackingArea: NSTrackingArea?
-	private var resetCopySymbolTask: Task<Void, Never>?
-
-	init(row: InspectorDetailRow, onSelectScope: @escaping (NamedScope) -> Void) {
-		self.row = row
+	init(label: String, displayValue: String, behaviour: Behaviour, onSelectScope: @escaping (NamedScope) -> Void) {
+		self.label = label
+		self.displayValue = displayValue
+		self.behaviour = behaviour
 		self.onSelectScope = onSelectScope
 		super.init(frame: .zero)
+		title = ""
+		isBordered = false
+		imagePosition = .noImage
+		setButtonType(.momentaryChange)
+		wantsLayer = true
+		target = self
+		action = #selector(pressed)
 		configureViews()
 		configureLayout()
+		configureAccessibility()
 	}
 
 	@available(*, unavailable)
@@ -28,119 +54,197 @@ final class InspectorFieldRowView: NSView {
 		fatalError("Interface Builder is not used")
 	}
 
+	override var intrinsicContentSize: NSSize {
+		NSSize(width: NSView.noIntrinsicMetric, height: NSView.noIntrinsicMetric)
+	}
+
+	/// The labels are drawings inside the button, so a click on them is a click on the row.
+	override func hitTest(_ point: NSPoint) -> NSView? {
+		super.hitTest(point) == nil ? nil : self
+	}
+
 	override func updateTrackingAreas() {
 		super.updateTrackingAreas()
-		if let existing = hoverTrackingArea {
-			removeTrackingArea(existing)
-		}
-		guard row.copyValue != nil else {
-			return
+		if let hoverArea {
+			removeTrackingArea(hoverArea)
 		}
 		let area = NSTrackingArea(
-			rect: bounds,
-			options: [.mouseEnteredAndExited, .activeInKeyWindow, .inVisibleRect],
+			rect: .zero,
+			options: [.mouseEnteredAndExited, .activeInActiveApp, .inVisibleRect],
 			owner: self,
 			userInfo: nil
 		)
 		addTrackingArea(area)
-		hoverTrackingArea = area
+		hoverArea = area
 	}
 
 	override func mouseEntered(with _: NSEvent) {
-		if row.copyValue != nil {
-			copyButton.isHidden = false
-		}
+		showPointer(inside: true)
 	}
 
 	override func mouseExited(with _: NSEvent) {
-		copyButton.isHidden = true
+		showPointer(inside: false)
+	}
+
+	override func draw(_: NSRect) {
+		guard pointerInside || isHighlighted else {
+			return
+		}
+		(isHighlighted ? NSColor.tertiarySystemFill : NSColor.quaternarySystemFill).setFill()
+		NSBezierPath(roundedRect: bounds, xRadius: Self.cornerRadius, yRadius: Self.cornerRadius).fill()
+	}
+
+	override var focusRingMaskBounds: NSRect {
+		bounds
+	}
+
+	override func drawFocusRingMask() {
+		NSBezierPath(roundedRect: bounds, xRadius: Self.cornerRadius, yRadius: Self.cornerRadius).fill()
+	}
+
+	/// Shows the row as it stands under the pointer, as the renderer does without one.
+	func showPointer(inside: Bool) {
+		pointerInside = inside
+		updateTrailingSymbol()
+		needsDisplay = true
+	}
+
+	/// Shows "Copied" in place of the value for a second, without touching the pasteboard.
+	func showCopied() {
+		copiedReset?.cancel()
+		setCopied(true)
+		copiedReset = Task { [weak self] in
+			try? await Task.sleep(for: Self.copiedDuration)
+			guard !Task.isCancelled else {
+				return
+			}
+			self?.setCopied(false)
+		}
+	}
+
+	@objc private func pressed() {
+		switch behaviour {
+		case let .copies(value):
+			copyValue(value)
+		case let .leadsTo(scope):
+			onSelectScope(scope)
+		}
+	}
+
+	@objc private func copyFromMenu() {
+		if case let .copies(value) = behaviour {
+			copyValue(value)
+		}
+	}
+
+	private func copyValue(_ value: String) {
+		NSPasteboard.general.clearContents()
+		NSPasteboard.general.setString(value, forType: .string)
+		showCopied()
+		NSAccessibility.post(
+			element: self,
+			notification: .announcementRequested,
+			userInfo: [
+				.announcement: "Copied",
+				.priority: NSAccessibilityPriorityLevel.high.rawValue,
+			]
+		)
+	}
+
+	private func setCopied(_ copied: Bool) {
+		guard copied != showsCopied else {
+			return
+		}
+		showsCopied = copied
+		let dissolve = CATransition()
+		dissolve.type = .fade
+		dissolve.duration = 0.15
+		layer?.add(dissolve, forKey: "copiedDissolve")
+		valueField.stringValue = copied ? "Copied" : displayValue
+		valueField.textColor = copied ? InterfacePalette.archive : .labelColor
+		updateTrailingSymbol()
+	}
+
+	private func updateTrailingSymbol() {
+		switch behaviour {
+		case .copies:
+			let symbol = showsCopied ? "checkmark" : "doc.on.doc"
+			trailingSymbol.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)
+			trailingSymbol.contentTintColor = showsCopied ? InterfacePalette.archive : .secondaryLabelColor
+			trailingSymbol.isHidden = !(showsCopied || pointerInside)
+		case .leadsTo:
+			trailingSymbol.image = NSImage(systemSymbolName: "chevron.right", accessibilityDescription: nil)
+			trailingSymbol.contentTintColor = .tertiaryLabelColor
+			trailingSymbol.isHidden = false
+		}
 	}
 
 	private func configureViews() {
-		labelField.stringValue = row.label
-		labelField.font = NSFont.systemFont(ofSize: NSFont.smallSystemFontSize, weight: .medium)
+		labelField.stringValue = label
+		labelField.font = NSFont.preferredFont(forTextStyle: .subheadline)
 		labelField.textColor = .secondaryLabelColor
 
-		let identifierSlug = row.label.lowercased().replacingOccurrences(of: " ", with: "_")
-		if row.linkedScope != nil {
-			linkButton.title = row.displayValue
-			linkButton.isBordered = false
-			linkButton.alignment = .left
-			linkButton.font = NSFont.systemFont(ofSize: NSFont.systemFontSize)
-			linkButton.contentTintColor = InterfacePalette.link
-			linkButton.lineBreakMode = .byTruncatingTail
-			linkButton.target = self
-			linkButton.action = #selector(linkPressed)
-			linkButton.setAccessibilityIdentifier("inspector.field.\(identifierSlug)")
-			valueField.isHidden = true
-		} else {
-			valueField.stringValue = row.displayValue
-			valueField.font = NSFont.systemFont(ofSize: NSFont.systemFontSize)
-			valueField.isSelectable = true
-			valueField.setAccessibilityIdentifier("inspector.field.\(identifierSlug)")
-			linkButton.isHidden = true
-		}
+		valueField.stringValue = displayValue
+		valueField.font = NSFont.monospacedDigitSystemFont(
+			ofSize: NSFont.preferredFont(forTextStyle: .body).pointSize,
+			weight: .regular
+		)
+		valueField.textColor = .labelColor
 
-		copyButton.image = NSImage(systemSymbolName: "doc.on.doc", accessibilityDescription: "Copy \(row.label)")
-		copyButton.isBordered = false
-		copyButton.bezelStyle = .accessoryBarAction
-		copyButton.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 11, weight: .regular)
-		copyButton.contentTintColor = .secondaryLabelColor
-		copyButton.toolTip = "Copy \(row.label)"
-		copyButton.target = self
-		copyButton.action = #selector(copyValuePressed)
-		copyButton.isHidden = true
-		copyButton.setContentHuggingPriority(.required, for: .horizontal)
-		copyButton.setAccessibilityIdentifier("inspector.copy.\(identifierSlug)")
+		trailingSymbol.symbolConfiguration = NSImage.SymbolConfiguration(textStyle: .subheadline)
+		trailingSymbol.setContentHuggingPriority(.required, for: .horizontal)
+		trailingSymbol.setContentCompressionResistancePriority(.required, for: .horizontal)
+		updateTrailingSymbol()
+
+		if case .copies = behaviour {
+			let contextMenu = NSMenu()
+			let copyItem = NSMenuItem(title: "Copy", action: #selector(copyFromMenu), keyEquivalent: "")
+			copyItem.target = self
+			copyItem.image = NSImage(systemSymbolName: "doc.on.doc", accessibilityDescription: nil)
+			contextMenu.addItem(copyItem)
+			menu = contextMenu
+		}
 	}
 
 	private func configureLayout() {
-		let valueView: NSView = row.linkedScope != nil ? linkButton : valueField
-		let valueRow = NSStackView(views: [valueView, copyButton])
-		valueRow.orientation = .horizontal
-		valueRow.alignment = .centerY
-		valueRow.spacing = 6
-
-		let stack = NSStackView(views: [labelField, valueRow])
-		stack.orientation = .vertical
-		stack.alignment = .leading
-		stack.spacing = 2
-		stack.translatesAutoresizingMaskIntoConstraints = false
-		addSubview(stack)
-
+		let texts = NSStackView(views: [labelField, valueField])
+		texts.orientation = .vertical
+		texts.alignment = .leading
+		texts.spacing = 1
+		for view in [texts, trailingSymbol] {
+			view.translatesAutoresizingMaskIntoConstraints = false
+			addSubview(view)
+		}
 		NSLayoutConstraint.activate([
-			stack.topAnchor.constraint(equalTo: topAnchor),
-			stack.leadingAnchor.constraint(equalTo: leadingAnchor),
-			stack.trailingAnchor.constraint(equalTo: trailingAnchor),
-			stack.bottomAnchor.constraint(equalTo: bottomAnchor),
-			valueRow.widthAnchor.constraint(equalTo: stack.widthAnchor),
+			texts.topAnchor.constraint(equalTo: topAnchor, constant: Self.verticalInset),
+			texts.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -Self.verticalInset),
+			texts.leadingAnchor.constraint(equalTo: leadingAnchor, constant: Self.horizontalInset),
+			texts.trailingAnchor.constraint(lessThanOrEqualTo: trailingSymbol.leadingAnchor, constant: -6),
+			trailingSymbol.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -Self.horizontalInset),
+			trailingSymbol.centerYAnchor.constraint(equalTo: centerYAnchor),
 		])
 	}
 
-	@objc private func linkPressed() {
-		guard let scope = row.linkedScope else {
-			return
+	private func configureAccessibility() {
+		let slug = label.lowercased().replacingOccurrences(of: " ", with: "_")
+		setAccessibilityIdentifier("inspector.field.\(slug)")
+		for view in [labelField, valueField, trailingSymbol] {
+			view.setAccessibilityElement(false)
 		}
-		onSelectScope(scope)
 	}
 
-	@objc private func copyValuePressed() {
-		guard let value = row.copyValue else {
-			return
-		}
-		NSPasteboard.general.clearContents()
-		NSPasteboard.general.setString(value, forType: .string)
+	override func accessibilityLabel() -> String? {
+		label
+	}
 
-		copyButton.image = NSImage(systemSymbolName: "checkmark", accessibilityDescription: "Copied")
-		copyButton.contentTintColor = .controlAccentColor
-		resetCopySymbolTask?.cancel()
-		resetCopySymbolTask = Task { [weak self] in
-			try? await Task.sleep(for: .milliseconds(1200))
-			guard let self, !Task.isCancelled else {
-				return
-			}
-			copyButton.image = NSImage(systemSymbolName: "doc.on.doc", accessibilityDescription: "Copy")
-			copyButton.contentTintColor = .secondaryLabelColor
+	override func accessibilityValue() -> Any? {
+		showsCopied ? "Copied" : displayValue
+	}
+
+	override func accessibilityHelp() -> String? {
+		switch behaviour {
+		case .copies: "Copies the value."
+		case let .leadsTo(scope): "Shows the documents of \(scope.name)."
 		}
 	}
 }

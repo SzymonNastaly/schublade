@@ -40,6 +40,7 @@ public enum InterfaceIdentifier {
 	public static let readerPlaceholderAction = "schublade.reader.placeholderAction"
 
 	public static let inspectorScrollView = "schublade.inspector.scrollView"
+	public static let inspectorTitleLabel = "schublade.inspector.titleLabel"
 	public static let inspectorSummaryLabel = "schublade.inspector.summaryLabel"
 	public static let inspectorOpenInBrowserButton = "schublade.inspector.openInBrowserButton"
 

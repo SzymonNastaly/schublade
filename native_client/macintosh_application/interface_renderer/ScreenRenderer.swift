@@ -11,14 +11,16 @@ final class ScreenRenderer {
 		var alignChrome: () -> Void = {}
 		/// What the window's delegate does before the window narrows.
 		var accommodate: (CGFloat) -> Void = { _ in }
+		/// What the scene shows once it has settled, such as a row under the pointer.
+		var afterSettling: () -> Void = {}
 	}
 
-	private static let windowSize = NSSize(width: 1340, height: 820)
+	static let windowSize = NSSize(width: 1340, height: 820)
 	/// The window's minimum width, at which the inspector gives way.
-	private static let windowSizeAtMinimumWidth = NSSize(width: 900, height: 820)
+	static let windowSizeAtMinimumWidth = NSSize(width: 900, height: 820)
 
 	private let outputDirectory: URL
-	private let fixtures: RendererFixtures
+	let fixtures: RendererFixtures
 
 	init(outputDirectory: URL, fixtures: RendererFixtures) {
 		self.outputDirectory = outputDirectory
@@ -29,6 +31,7 @@ final class ScreenRenderer {
 		try await renderConnectionAndEmptyScreens()
 		try await renderListStateScreens()
 		try await renderLibraryDocumentScreens()
+		try await renderReaderAndInspectorScreens()
 		try await renderLibraryStatusScreens()
 		for scene in CollectorScenes.all(fixtures: fixtures) {
 			try await renderWorkspaceScene(
@@ -52,58 +55,6 @@ final class ScreenRenderer {
 			facets: RendererSampleCatalog.emptyFacets,
 			navigation: LibraryNavigationState(),
 			queries: fixtures.queries.scene(listing: fixtures.emptyListing)
-		)
-	}
-
-	private func renderLibraryDocumentScreens() async throws {
-		try await renderWorkspaceScene(
-			name: "library_document_pdf",
-			statuses: fixtures.makeStatuses(),
-			navigation: LibraryNavigationState(
-				destination: .library(.allDocuments, title: nil),
-				selectedDocument: fixtures.invoiceIdentifier,
-				readerTab: .original,
-				inspectorVisible: true
-			),
-			queries: fixtures.queries.scene(listing: fixtures.sampleListing)
-		)
-
-		try await renderWorkspaceScene(
-			name: "library_minimum_width",
-			statuses: fixtures.makeStatuses(),
-			navigation: LibraryNavigationState(
-				destination: .library(.allDocuments, title: nil),
-				selectedDocument: fixtures.invoiceIdentifier,
-				readerTab: .original,
-				inspectorVisible: true
-			),
-			queries: fixtures.queries.scene(listing: fixtures.sampleListing),
-			windowSize: Self.windowSizeAtMinimumWidth
-		)
-
-		try await renderWorkspaceScene(
-			name: "library_document_image",
-			statuses: fixtures.makeStatuses(),
-			navigation: LibraryNavigationState(
-				destination: .library(.allDocuments, title: nil),
-				selectedDocument: fixtures.receiptIdentifier,
-				readerTab: .original,
-				inspectorVisible: true
-			),
-			queries: fixtures.queries.scene(listing: fixtures.sampleListing)
-		)
-
-		try await renderWorkspaceScene(
-			name: "library_search_text",
-			statuses: fixtures.makeStatuses(),
-			navigation: LibraryNavigationState(
-				destination: .library(.category(category: CategoryIdentifier(value: "c1")), title: "Invoice"),
-				searchText: "Haftpflichtversicherung",
-				selectedDocument: fixtures.invoiceIdentifier,
-				readerTab: .text,
-				inspectorVisible: true
-			),
-			queries: fixtures.queries.scene(listing: fixtures.searchListing)
 		)
 	}
 
@@ -133,14 +84,16 @@ final class ScreenRenderer {
 
 	/// Builds the real workspace over the scene's queries, lets it load as it does in the window,
 	/// and captures it once every load has settled.
-	private func renderWorkspaceScene(
+	func renderWorkspaceScene(
 		name: String,
 		statuses: ApplicationStatuses,
 		facets: LibraryFacets = RendererSampleCatalog.sampleFacets,
 		navigation: LibraryNavigationState,
 		queries: RendererLibraryQueries,
 		windowSize: NSSize = ScreenRenderer.windowSize,
-		writesRowMenus: Bool = false
+		writesRowMenus: Bool = false,
+		pointedRow: String? = nil,
+		copiedRow: String? = nil
 	) async throws {
 		let context = fixtures.context
 		let content = WindowContent.resolve(
@@ -178,7 +131,10 @@ final class ScreenRenderer {
 			return Scene(
 				controller: host,
 				alignChrome: { toolbar.align(to: workspaceController) },
-				accommodate: { workspaceController.accommodate(windowWidth: $0) }
+				accommodate: { workspaceController.accommodate(windowWidth: $0) },
+				afterSettling: {
+					workspaceController.exhibitInspectorRows(underPointer: pointedRow, copied: copiedRow)
+				}
 			)
 		}
 		if writesRowMenus, let shownWorkspace {
@@ -230,6 +186,7 @@ final class ScreenRenderer {
 		window.layoutIfNeeded()
 
 		try await settle(queries: queries, layingOut: controller.view)
+		scene.afterSettling()
 		scene.alignChrome()
 
 		var pngData: Data?

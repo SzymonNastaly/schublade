@@ -33,11 +33,16 @@ final class RendererLibraryQueries: LibraryQueries {
 		self.originalRefusal = originalRefusal
 	}
 
-	/// The same documents, answering the scene's listing and refusing originals as given.
-	func scene(listing: FixedDocumentListing, originalRefusal: RepresentationRefusal? = nil) -> RendererLibraryQueries {
+	/// The same documents, answering the scene's listing, refusing originals as given, and with any
+	/// detail the scene replaces.
+	func scene(
+		listing: FixedDocumentListing,
+		originalRefusal: RepresentationRefusal? = nil,
+		replacingDetails replacements: [DocumentIdentifier: DocumentDetail] = [:]
+	) -> RendererLibraryQueries {
 		RendererLibraryQueries(
 			facetsResult: facetsResult,
-			detailsByDocument: detailsByDocument,
+			detailsByDocument: detailsByDocument.merging(replacements) { _, replacement in replacement },
 			thumbnailPaths: thumbnailPaths,
 			originalPaths: originalPaths,
 			extractedTexts: extractedTexts,

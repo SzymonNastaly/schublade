@@ -122,13 +122,13 @@ private extension ApplicationEndToEndTests {
 	func verifySelectionReaderAndInspector(in window: NSWindow, tableView: NSTableView) async throws {
 		tableView.selectRowIndexes(IndexSet(integer: 1), byExtendingSelection: false)
 
-		let readerTitle = try await waitForView(
-			"reader title for selected invoice",
+		let inspectorTitle = try await waitForView(
+			"the inspector's title for the selected invoice",
 			in: window,
-			identifier: InterfaceIdentifier.readerTitleLabel,
+			identifier: InterfaceIdentifier.inspectorTitleLabel,
 			as: NSTextField.self
 		) { $0.stringValue == "Haftpflichtversicherung Rechnung 5" }
-		XCTAssertEqual(readerTitle.stringValue, "Haftpflichtversicherung Rechnung 5")
+		XCTAssertEqual(inspectorTitle.stringValue, "Haftpflichtversicherung Rechnung 5")
 
 		let pdfView = try await waitForView(
 			"the loaded PDF document",
@@ -139,40 +139,15 @@ private extension ApplicationEndToEndTests {
 		XCTAssertEqual(pdfView.document?.pageCount, 1)
 		try verifyShareHandsOverNamedCopy(in: window)
 
-		let senderButton = try await waitForView(
-			"inspector sender link",
+		let senderRow = try await waitForView(
+			"the inspector's sender under Filed Under",
 			in: window,
 			identifier: "inspector.field.sender",
-			as: NSButton.self
-		) { $0.title == "Stadtwerke Talbrück GmbH" }
-		XCTAssertEqual(senderButton.title, "Stadtwerke Talbrück GmbH")
-
-		let amountLabel = try await waitForView(
-			"inspector amount field",
-			in: window,
-			identifier: "inspector.field.amount",
-			as: NSTextField.self
-		) { $0.stringValue == "72.09 EUR" }
-		XCTAssertEqual(amountLabel.stringValue, "72.09 EUR")
-
-		let tabControl = try XCTUnwrap(findView(
-			in: window.contentView,
-			identifier: InterfaceIdentifier.readerTabControl,
-			as: NSSegmentedControl.self
-		))
-		tabControl.selectedSegment = 1
-		tabControl.sendAction(tabControl.action, to: tabControl.target)
-
-		let textView = try await waitForView(
-			"extracted text in reader Text tab",
-			in: window,
-			identifier: InterfaceIdentifier.readerTextView,
-			as: NSTextView.self
-		) { $0.enclosingScrollView?.isHidden == false && $0.string.contains("Rechnung Nummer 5") }
-		XCTAssertTrue(textView.string.contains("Rechnung Nummer 5 für Haftpflichtversicherung."))
-
-		tabControl.selectedSegment = 0
-		tabControl.sendAction(tabControl.action, to: tabControl.target)
+			as: InspectorFieldRowView.self
+		)
+		XCTAssertEqual(senderRow.displayValue, "Stadtwerke Talbrück GmbH")
+		try await verifyAmountCopies(in: window)
+		try await verifyReaderTabGroup(in: window)
 	}
 
 	/// The toolbar's Share hands the services a writable copy of the shown original under its
@@ -234,13 +209,13 @@ private extension ApplicationEndToEndTests {
 	/// The inspector's sender lists that sender's documents under its name, and Back returns.
 	func verifySenderListAndBack(in window: NSWindow, tableView: NSTableView) async throws {
 		tableView.selectRowIndexes(IndexSet(integer: 3), byExtendingSelection: false)
-		let senderLink = try await waitForView(
-			"inspector sender link after the search",
+		let senderRow = try await waitForView(
+			"the inspector's sender after the search",
 			in: window,
 			identifier: "inspector.field.sender",
-			as: NSButton.self
-		) { $0.title == "Stadtwerke Talbrück GmbH" }
-		senderLink.performClick(nil)
+			as: InspectorFieldRowView.self
+		) { $0.displayValue == "Stadtwerke Talbrück GmbH" }
+		senderRow.performClick(nil)
 		try await waitForCondition("the sender's documents are listed under its name") {
 			window.title == "Stadtwerke Talbrück GmbH" && tableView.numberOfRows == 6
 		}

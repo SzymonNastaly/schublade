@@ -278,7 +278,7 @@ private extension FolderPageViewController {
 	func receiptRow(_ receipt: Receipt, context: ApplicationWordingContext) -> NSView {
 		let name = NSButton(title: receipt.fileName, target: self, action: #selector(receiptPressed(_:)))
 		name.isBordered = false
-		name.contentTintColor = InterfacePalette.link
+		name.contentTintColor = .labelColor
 		name.lineBreakMode = .byTruncatingMiddle
 		name.identifier = NSUserInterfaceItemIdentifier(receipt.documentIdentifier)
 		name.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
