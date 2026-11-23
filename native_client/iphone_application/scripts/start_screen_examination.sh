@@ -76,6 +76,7 @@ if [ "$contents" != empty ]; then
 import hashlib
 import json
 import re
+import subprocess
 import sys
 import urllib.request
 import uuid
@@ -88,6 +89,14 @@ def typed(value):
     if isinstance(value, str) and re.fullmatch(r"\d{4}-\d{2}-\d{2}", value):
         return {"date": value}
     return value
+
+
+def text_layer(path):
+    """The text of a digital PDF, so a search finds words that only its text holds."""
+    if not path.endswith(".pdf"):
+        return ""
+    reading = subprocess.run(["pdftotext", "-layout", path, "-"], capture_output=True, text=True)
+    return reading.stdout.strip() if reading.returncode == 0 else ""
 
 
 catalog = json.load(open(f"{documents}/expected_extraction.json"))
@@ -124,7 +133,11 @@ for index, document in enumerate(catalog["documents"]):
         "sender_name": document["sender"],
         "category_name": document["category"],
         "summary": summary,
-        "text": f"# {title}\n\n{document['sender']}\n\n{summary}",
+        "text": "\n\n".join(
+            part
+            for part in (f"# {title}", document["sender"], summary, text_layer(f"{documents}/{document['file_name']}"))
+            if part
+        ),
         "original_file": f"{documents}/{document['file_name']}",
         "thumbnail_file": f"{pictures}/{document['file_name'].rsplit('.', 1)[0]}.png",
         "page_count": document.get("page_count"),

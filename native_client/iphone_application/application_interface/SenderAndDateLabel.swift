@@ -25,14 +25,15 @@ enum RowCaptionText {
 			]))
 		}
 		if let amount = row.amountText {
+			// Where the line wraps, it wraps after the separator, and never inside the amount.
 			if line.length > 0 {
-				line.append(NSAttributedString(string: " · ", attributes: [
+				line.append(NSAttributedString(string: "\u{00A0}· ", attributes: [
 					.font: UIFont.preferredFont(forTextStyle: .subheadline),
 					.foregroundColor: UIColor.secondaryLabel,
 				]))
 			}
 			line.append(NSAttributedString(
-				string: amount,
+				string: amount.replacingOccurrences(of: " ", with: "\u{00A0}"),
 				attributes: [.font: amountFont, .foregroundColor: UIColor.label]
 			))
 		}

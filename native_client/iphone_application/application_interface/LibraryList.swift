@@ -263,6 +263,10 @@ private extension LibraryList {
 			var content = UIListContentConfiguration.header()
 			content.text = self?.headerText(at: indexPath.section)
 			header.contentConfiguration = content
+			// A pinned heading covers the rows that scroll under it.
+			var background = UIBackgroundConfiguration.clear()
+			background.backgroundColor = .systemBackground
+			header.backgroundConfiguration = background
 		}
 		let source = UICollectionViewDiffableDataSource<LibrarySection, LibraryItem>(
 			collectionView: collectionView

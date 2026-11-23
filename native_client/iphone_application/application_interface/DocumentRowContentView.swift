@@ -165,6 +165,7 @@ final class DocumentRowContentView: UIView, UIContentView {
 		caption.spacing = large ? 3 : 8
 		titleLabel.numberOfLines = large ? 4 : 2
 		senderLabel.numberOfLines = large ? 2 : 1
+		amountLabel.numberOfLines = large ? 2 : 1
 	}
 
 	private func buildAccessory() {
