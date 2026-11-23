@@ -32,21 +32,25 @@ public enum DocumentImport {
 	}
 
 	/// Converts `file`, which the caller owns, into an importable document in its own directory.
-	public static func prepare(file: URL, suggestedName: String?) throws(ImportFailure) -> ImportedDocument {
-		let type = (try? file.resourceValues(forKeys: [.contentTypeKey]))?.contentType
-			?? UTType(filenameExtension: file.pathExtension)
-		let baseName = baseName(suggestedName ?? file.lastPathComponent)
-		if let type, let kind = acceptedKinds.first(where: { type.conforms(to: $0.0) })?.1 {
-			return ImportedDocument(file: file, fileName: "\(baseName).\(kind.fileExtension)", kind: kind)
+	/// `type` is the type the file was loaded as, because a shared copy may carry no extension.
+	public static func prepare(
+		file: URL,
+		type: UTType,
+		suggestedName: String?
+	) throws(ImportFailure) -> ImportedDocument {
+		let name = nameWithoutRecognizedExtension(suggestedName ?? file.lastPathComponent)
+		if let kind = acceptedKinds.first(where: { type.conforms(to: $0.0) })?.1 {
+			return ImportedDocument(file: file, fileName: "\(name).\(kind.fileExtension)", kind: kind)
 		}
-		guard let type, type.conforms(to: .image) else {
+		guard type.conforms(to: .image) else {
 			throw .unacceptedKind(file.lastPathComponent)
 		}
 		let converted = file.deletingLastPathComponent().appending(path: "\(UUID().uuidString).jpg")
 		// The decoded picture is released before the next file, because a share extension is ended
 		// above about 120 MB.
 		let written = autoreleasepool {
-			guard let source = CGImageSourceCreateWithURL(file as CFURL, nil),
+			let hint = [kCGImageSourceTypeIdentifierHint: type.identifier] as CFDictionary
+			guard let source = CGImageSourceCreateWithURL(file as CFURL, hint),
 			      let destination = CGImageDestinationCreateWithURL(
 			      	converted as CFURL,
 			      	UTType.jpeg.identifier as CFString,
@@ -64,12 +68,13 @@ public enum DocumentImport {
 			throw .unreadable(file.lastPathComponent)
 		}
 		try? FileManager.default.removeItem(at: file)
-		return ImportedDocument(file: converted, fileName: "\(baseName).jpg", kind: .jpeg)
+		return ImportedDocument(file: converted, fileName: "\(name).jpg", kind: .jpeg)
 	}
 
 	/// A name without the extension it may carry, as Safari's suggested names do, because the
-	/// extension of the kind sent follows it. "Invoice 10.2026" keeps its ".2026", which names no type.
-	private static func baseName(_ name: String) -> String {
+	/// extension of the kind sent follows it. Only an extension that names a type goes, so
+	/// "Invoice 10.2026" keeps its ".2026".
+	private static func nameWithoutRecognizedExtension(_ name: String) -> String {
 		let named = URL(filePath: name.replacingOccurrences(of: "/", with: "-"))
 		guard let namedType = UTType(filenameExtension: named.pathExtension), !namedType.isDynamic else {
 			return named.lastPathComponent

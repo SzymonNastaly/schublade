@@ -158,7 +158,7 @@ final class ShareViewController: UIViewController {
 				do {
 					let copy = try await Self.copy(item)
 					let entry = try await ShareIntake.receive(
-						ShareIntake.SharedFile(file: copy, suggestedName: item.provider.suggestedName),
+						ShareIntake.SharedFile(file: copy, type: item.type, suggestedName: item.provider.suggestedName),
 						into: queue
 					)
 					switch await queue.prepare(

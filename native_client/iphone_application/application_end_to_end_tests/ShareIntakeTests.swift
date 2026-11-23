@@ -6,11 +6,12 @@ import UniformTypeIdentifiers
 import XCTest
 
 final class ShareIntakeTests: XCTestCase {
-	/// The PDF's suggested name carries its extension, as Safari's does, and the name sent keeps one.
+	/// The PDF's copy carries no extension, as a provider's file may not, while its suggested name
+	/// carries one, as Safari's does, and the name sent keeps one.
 	func testSharedFilesBecomeClaimedSubmissionsAndATextFileIsRefused() async throws {
 		let directory = URL.temporaryDirectory.appending(path: UUID().uuidString, directoryHint: .isDirectory)
 		try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-		let letter = directory.appending(path: "Letter from the Stadtwerke.pdf")
+		let letter = directory.appending(path: "Letter from the Stadtwerke")
 		try Data("%PDF-1.4\nA letter shared from Mail\n%%EOF\n".utf8).write(to: letter)
 		let receipt = directory.appending(path: "IMG_0412.heic")
 		try Self.writePicture(to: receipt, type: .heic)
@@ -20,13 +21,13 @@ final class ShareIntakeTests: XCTestCase {
 		let sharedAt = Date(timeIntervalSince1970: 1_795_420_800)
 
 		let entries = try await [
-			ShareIntake.SharedFile(file: letter, suggestedName: "Letter from the Stadtwerke.pdf"),
-			ShareIntake.SharedFile(file: receipt, suggestedName: "Receipt"),
+			ShareIntake.SharedFile(file: letter, type: .pdf, suggestedName: "Letter from the Stadtwerke.pdf"),
+			ShareIntake.SharedFile(file: receipt, type: .heic, suggestedName: "Receipt"),
 		].asyncMap { try await ShareIntake.receive($0, into: queue, now: sharedAt) }
 		var refusal: (any Error)?
 		do {
 			_ = try await ShareIntake.receive(
-				ShareIntake.SharedFile(file: notes, suggestedName: "Notes"),
+				ShareIntake.SharedFile(file: notes, type: .plainText, suggestedName: "Notes"),
 				into: queue,
 				now: sharedAt
 			)

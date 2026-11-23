@@ -108,8 +108,9 @@ extension DocumentCapture: PHPickerViewControllerDelegate, UIDocumentPickerDeleg
 		Task {
 			for provider in providers {
 				do {
-					let copy = try await Self.copyPicture(from: provider)
-					try await submit(copy, suggestedName: provider.suggestedName, origin: .importedPhoto)
+					let type = DocumentImport.preferredType(among: provider.registeredContentTypes) ?? .image
+					let copy = try await Self.copyPicture(from: provider, as: type)
+					try await submit(copy, type: type, suggestedName: provider.suggestedName, origin: .importedPhoto)
 				} catch {
 					alert("A Photo Could Not Be Added", error.localizedDescription)
 				}
@@ -121,7 +122,10 @@ extension DocumentCapture: PHPickerViewControllerDelegate, UIDocumentPickerDeleg
 		Task {
 			for url in urls.prefix(Self.selectionLimit) {
 				do {
-					try await submit(url, suggestedName: nil, origin: .importedFile)
+					guard let type = try url.resourceValues(forKeys: [.contentTypeKey]).contentType else {
+						throw DocumentImport.ImportFailure.unacceptedKind(url.lastPathComponent)
+					}
+					try await submit(url, type: type, suggestedName: nil, origin: .importedFile)
 				} catch {
 					alert("\(url.lastPathComponent) Could Not Be Added", error.localizedDescription)
 				}
@@ -129,8 +133,8 @@ extension DocumentCapture: PHPickerViewControllerDelegate, UIDocumentPickerDeleg
 		}
 	}
 
-	private func submit(_ file: URL, suggestedName: String?, origin: SubmissionOrigin) async throws {
-		let imported = try await Self.convert(file, suggestedName: suggestedName)
+	private func submit(_ file: URL, type: UTType, suggestedName: String?, origin: SubmissionOrigin) async throws {
+		let imported = try await Self.convert(file, type: type, suggestedName: suggestedName)
 		try submissions.submit(
 			document: imported.file,
 			fileName: imported.fileName,
@@ -140,16 +144,20 @@ extension DocumentCapture: PHPickerViewControllerDelegate, UIDocumentPickerDeleg
 	}
 
 	@concurrent
-	private static func convert(_ file: URL, suggestedName: String?) async throws -> DocumentImport.ImportedDocument {
-		try DocumentImport.prepare(file: file, suggestedName: suggestedName)
+	private static func convert(
+		_ file: URL,
+		type: UTType,
+		suggestedName: String?
+	) async throws -> DocumentImport.ImportedDocument {
+		try DocumentImport.prepare(file: file, type: type, suggestedName: suggestedName)
 	}
 
-	/// Copies the picture a provider offers into a file the application owns, because the
+	/// Copies the picture a provider offers as `type` into a file the application owns, because the
 	/// provider's file exists only during its callback.
-	private static func copyPicture(from provider: NSItemProvider) async throws -> URL {
+	private static func copyPicture(from provider: NSItemProvider, as type: UTType) async throws -> URL {
 		let directory = try DocumentImport.workingDirectory()
 		return try await withCheckedThrowingContinuation { continuation in
-			_ = provider.loadFileRepresentation(for: .image, openInPlace: false) { url, _, error in
+			_ = provider.loadFileRepresentation(for: type, openInPlace: false) { url, _, error in
 				guard let url else {
 					continuation.resume(throwing: error ?? CocoaError(.fileReadUnknown))
 					return

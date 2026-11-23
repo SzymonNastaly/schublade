@@ -1,4 +1,5 @@
 import Foundation
+import UniformTypeIdentifiers
 
 /// What becomes of a file a person shares with Schublade: a submission of its own, a HEIC picture
 /// as a JPEG, or a refusal for a kind the archive does not take.
@@ -9,11 +10,14 @@ public enum ShareIntake {
 	public struct SharedFile: Sendable {
 		/// A copy the caller hands over; the intake moves or removes it.
 		public let file: URL
-		/// The name the sharing application suggested, without its extension.
+		/// The type the file was loaded as.
+		public let type: UTType
+		/// The name the sharing application suggested, with or without its extension.
 		public let suggestedName: String?
 
-		public init(file: URL, suggestedName: String?) {
+		public init(file: URL, type: UTType, suggestedName: String?) {
 			self.file = file
+			self.type = type
 			self.suggestedName = suggestedName
 		}
 	}
@@ -28,7 +32,11 @@ public enum ShareIntake {
 		now: Date = .now
 	) async throws -> SubmissionEntry {
 		do {
-			let imported = try DocumentImport.prepare(file: shared.file, suggestedName: shared.suggestedName)
+			let imported = try DocumentImport.prepare(
+				file: shared.file,
+				type: shared.type,
+				suggestedName: shared.suggestedName
+			)
 			return try queue.enqueue(
 				document: imported.file,
 				fileName: imported.fileName,
