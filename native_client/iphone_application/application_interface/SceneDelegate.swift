@@ -47,6 +47,8 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
 	}
 
 	func sceneDidEnterBackground(_: UIScene) {
-		(UIApplication.shared.delegate as? ApplicationDelegate)?.controller.enteredBackground()
+		let delegate = UIApplication.shared.delegate as? ApplicationDelegate
+		delegate?.controller.enteredBackground()
+		delegate?.libraryRefresh.schedule()
 	}
 }

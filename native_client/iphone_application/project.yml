@@ -137,6 +137,9 @@ targets:
         UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait]
         UIRequiresFullScreen: true
         NSCameraUsageDescription: $(APPLICATION_DISPLAY_NAME) scans letters and receipts with the camera and sends them to your archive.
+        # LibraryBackgroundRefresh reads the archive while the application is not open.
+        UIBackgroundModes: [fetch]
+        BGTaskSchedulerPermittedIdentifiers: [$(APPLICATION_BUNDLE_IDENTIFIER).library-refresh]
         # The type is ScanRequestCenter.quickActionType.
         UIApplicationShortcutItems:
           - UIApplicationShortcutItemType: scan-document

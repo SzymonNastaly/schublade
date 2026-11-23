@@ -3,12 +3,17 @@ import UIKit
 /// Starts the core once per process and hands each scene the one controller.
 public final class ApplicationDelegate: UIResponder, UIApplicationDelegate {
 	let controller = ApplicationController(environment: .current())
+	private(set) lazy var libraryRefresh = LibraryBackgroundRefresh(
+		controller: controller,
+		bundleIdentifier: Bundle.main.bundleIdentifier ?? "org.schublade.iphone"
+	)
 
 	public func application(
 		_: UIApplication,
 		didFinishLaunchingWithOptions _: [UIApplication.LaunchOptionsKey: Any]?
 	) -> Bool {
 		controller.launch()
+		libraryRefresh.register()
 		return true
 	}
 

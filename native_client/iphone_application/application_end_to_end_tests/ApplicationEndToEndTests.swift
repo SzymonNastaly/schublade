@@ -98,6 +98,60 @@ final class ApplicationEndToEndTests: XCTestCase {
 		await gateway.shutdown()
 	}
 
+	/// What the background refresh does in the time the system grants: a document added to the archive
+	/// while no screen attends the copy, which then reads the archive every 15 minutes, is in the copy
+	/// once the refresh answers.
+	@MainActor
+	func testARefreshReadsADocumentAddedMeanwhile() async throws {
+		let controller = ApplicationController(environment: .isolated())
+		controller.launch()
+		try await waitUntil("the core starts") { controller.situation != .starting }
+		let refusal = try await controller.connect(address: Self.archiveAddress(), token: Self.token)
+		XCTAssertNil(refusal)
+		let filledAnswer = await controller.refreshLibrary()
+		XCTAssertEqual(filledAnswer, .synchronized)
+		let filled = try await controller.gateway.libraryStatusAfter(nil)
+
+		try await Self.addDocument()
+		let answer = await controller.refreshLibrary()
+
+		XCTAssertEqual(answer, .synchronized)
+		let status = try await controller.gateway.libraryStatusAfter(nil)
+		XCTAssertEqual(status.counts.documents, filled.counts.documents + 1)
+		await controller.gateway.shutdown()
+	}
+
+	/// A token the archive no longer accepts leaves the copy waiting for the person, and the token
+	/// that replaces it, connected as the replace form does, lets the copy read the archive again.
+	@MainActor
+	func testAReplacedTokenLetsTheCopyReadAgain() async throws {
+		let controller = ApplicationController(environment: .isolated())
+		controller.launch()
+		try await waitUntil("the core starts") { controller.situation != .starting }
+		let refusal = try await controller.connect(address: Self.archiveAddress(), token: Self.token)
+		XCTAssertNil(refusal)
+		let filledAnswer = await controller.refreshLibrary()
+		XCTAssertEqual(filledAnswer, .synchronized)
+
+		let replacement = "replaced-end-to-end-token"
+		try await Self.acceptOnly(replacement)
+		addTeardownBlock {
+			try await Self.acceptOnly(Self.token)
+		}
+		let refusedAnswer = await controller.refreshLibrary()
+		XCTAssertEqual(refusedAnswer, .withheld)
+		let refused = try await controller.gateway.libraryStatusAfter(nil)
+		XCTAssertEqual(ConnectionAttention.resolve(refused.archive), .tokenRefused)
+
+		let replacementRefusal = try await controller.connect(address: Self.archiveAddress(), token: replacement)
+		XCTAssertNil(replacementRefusal)
+		let replacedAnswer = await controller.refreshLibrary()
+		XCTAssertEqual(replacedAnswer, .synchronized)
+		let status = try await controller.gateway.libraryStatusAfter(nil)
+		XCTAssertNil(ConnectionAttention.resolve(status.archive))
+		await controller.gateway.shutdown()
+	}
+
 	/// A seeded document opened from the list as a person taps its row: the page reads the detail into
 	/// its details sheet, the original as a PDF of one page, and the extracted text on the page that
 	/// the sheet's Extracted Text row pushes.
@@ -211,6 +265,19 @@ final class ApplicationEndToEndTests: XCTestCase {
 				expectation: "\(count) documents in the copy within 30 seconds",
 				detail: latest.map { "\($0)" } ?? "no status"
 			)
+		}
+	}
+
+	/// Makes the scripted archive accept only this token, as when its owner revokes another.
+	private static func acceptOnly(_ token: String) async throws {
+		let address = try XCTUnwrap(URL(string: archiveAddress()))
+		var request = URLRequest(url: address.appending(path: "scripted/token"))
+		request.httpMethod = "POST"
+		request.httpBody = Data(token.utf8)
+		let (_, response) = try await URLSession.shared.data(for: request)
+		let status = try XCTUnwrap(response as? HTTPURLResponse).statusCode
+		guard status == 204 else {
+			throw ConditionNotReached(expectation: "POST /scripted/token answers 204", detail: "status \(status)")
 		}
 	}
 

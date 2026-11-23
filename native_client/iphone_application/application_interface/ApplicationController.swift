@@ -22,6 +22,8 @@ final class ApplicationController {
 	@ObservationIgnored private var recordedArchive: ConnectedArchive?
 	/// Whether the application is on the screen, which the core learns once it started too.
 	@ObservationIgnored private var attended = false
+	/// Ends with whether the core started.
+	@ObservationIgnored private var coreStart: Task<Bool, Never>?
 
 	init(environment: ApplicationEnvironment) {
 		self.environment = environment
@@ -62,11 +64,18 @@ final class ApplicationController {
 
 	func launch() {
 		submissions.open(sessions: environment.transferSessions)
-		Task {
+		let start = Task {
 			do throws(ApplicationStartFailure) {
 				try await gateway.start(configuration: environment.applicationConfiguration)
+				return true
 			} catch {
 				situation = .failedToStart(String(describing: error))
+				return false
+			}
+		}
+		coreStart = start
+		Task {
+			guard await start.value else {
 				return
 			}
 			gateway.interfaceAttended(attended)
@@ -88,6 +97,31 @@ final class ApplicationController {
 			return nil
 		} catch {
 			return ConnectionWording.refusalSentence(error)
+		}
+	}
+
+	/// Asks the copy to read the archive and waits until it has, or until no read can follow without
+	/// the person, as for a refused token. An archive out of reach is waited for, because the network
+	/// may return meanwhile; the background refresh that calls this ends the wait when its time is up.
+	func refreshLibrary() async -> SynchronizationAnswer {
+		guard await coreStart?.value == true else {
+			return .withheld
+		}
+		let requestedAt = Date.now
+		gateway.synchronize()
+		var revision: UInt64?
+		while true {
+			guard let status = try? await gateway.libraryStatusAfter(revision) else {
+				return .withheld
+			}
+			switch SynchronizationAnswer.resolve(status, requestedAt: requestedAt) {
+			case .synchronized?:
+				return .synchronized
+			case .withheld?:
+				return .withheld
+			case .outOfReach?, nil:
+				revision = status.revision
+			}
 		}
 	}
 
