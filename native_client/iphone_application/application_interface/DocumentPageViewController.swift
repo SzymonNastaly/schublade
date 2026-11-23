@@ -60,7 +60,8 @@ final class DocumentPageViewController: UIViewController {
 			showText: { [weak self] in self?.showText() }
 		),
 		toolbarItems: actions.sheetItems,
-		page: self
+		page: self,
+		preferences: controller.environment.preferences
 	) { [weak self] covered in
 		self?.original?.additionalSafeAreaInsets.bottom = covered
 	}

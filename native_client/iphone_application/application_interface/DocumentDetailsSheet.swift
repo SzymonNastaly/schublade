@@ -4,11 +4,8 @@ import UIKit
 /// lifting the original above itself. The page's toolbar is repeated at the sheet's foot, because
 /// the sheet covers the page's own.
 final class DocumentDetailsSheet: NSObject, UISheetPresentationControllerDelegate {
-	/// Whether the sheet shows when a page opens. Opening the sheet sets it and closing it clears
-	/// it, as the Mac's inspector remembers whether it is shown.
-	private static let shownKey = "document.detailsShown"
-
 	let details: DocumentDetailsViewController
+	private let preferences: ApplicationPreferences
 	/// The details in a navigation controller of their own, only for its toolbar.
 	private let navigation: UINavigationController
 	private weak var page: UIViewController?
@@ -21,9 +18,11 @@ final class DocumentDetailsSheet: NSObject, UISheetPresentationControllerDelegat
 		details: DocumentDetailsViewController,
 		toolbarItems: [UIBarButtonItem],
 		page: UIViewController,
+		preferences: ApplicationPreferences,
 		covering: @escaping (CGFloat) -> Void
 	) {
 		self.details = details
+		self.preferences = preferences
 		self.page = page
 		self.covering = covering
 		navigation = UINavigationController(rootViewController: details)
@@ -33,9 +32,10 @@ final class DocumentDetailsSheet: NSObject, UISheetPresentationControllerDelegat
 		details.toolbarItems = toolbarItems
 	}
 
+	/// Whether the sheet shows when a page opens.
 	var remembered: Bool {
-		get { UserDefaults.standard.object(forKey: Self.shownKey) as? Bool ?? true }
-		set { UserDefaults.standard.set(newValue, forKey: Self.shownKey) }
+		get { preferences.detailsShown }
+		set { preferences.detailsShown = newValue }
 	}
 
 	var isPresented: Bool {
