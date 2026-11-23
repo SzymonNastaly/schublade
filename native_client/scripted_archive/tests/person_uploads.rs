@@ -18,9 +18,10 @@ struct ScriptedArchiveServer {
 }
 
 impl ScriptedArchiveServer {
-    fn start() -> ScriptedArchiveServer {
+    fn start(options: &[&str]) -> ScriptedArchiveServer {
         let mut process = Command::new(env!("CARGO_BIN_EXE_scripted-archive-server"))
             .args(["--token", TOKEN])
+            .args(options)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .spawn()
@@ -74,7 +75,7 @@ impl Drop for ScriptedArchiveServer {
 
 #[test]
 fn a_sent_scan_is_archived_once_and_the_archive_answers_each_refusal() {
-    let server = ScriptedArchiveServer::start();
+    let server = ScriptedArchiveServer::start(&[]);
     let scan = b"%PDF-1.4\nA letter from the Stadtwerke\n%%EOF\n";
 
     let SubmissionAnswer::Archived { document, already_held } = server.send(scan, "Scan.pdf", TOKEN) else {
@@ -98,4 +99,23 @@ fn a_sent_scan_is_archived_once_and_the_archive_answers_each_refusal() {
         server.send(scan, "Scan.pdf", "revoked-token"),
         SubmissionAnswer::TokenRefused
     );
+}
+
+#[test]
+fn a_posted_token_replaces_the_one_the_archive_accepts() {
+    let server = ScriptedArchiveServer::start(&[]);
+    let scan = b"%PDF-1.4\nA letter from the tax office\n%%EOF\n";
+    let replacement = ureq::post(format!("{}/scripted/token", server.address.origin()))
+        .send("another-token\n")
+        .unwrap();
+    assert_eq!(replacement.status().as_u16(), 204);
+
+    assert_eq!(server.send(scan, "Scan.pdf", TOKEN), SubmissionAnswer::TokenRefused);
+    assert!(matches!(
+        server.send(scan, "Scan.pdf", "another-token"),
+        SubmissionAnswer::Archived {
+            already_held: false,
+            ..
+        }
+    ));
 }
