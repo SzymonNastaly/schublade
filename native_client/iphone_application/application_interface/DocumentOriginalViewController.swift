@@ -228,11 +228,12 @@ final class DocumentOriginalViewController: UIViewController {
 		}
 	}
 
-	/// The longest side in pixels that a picture shows at its largest zoom on this screen, because a
-	/// photograph of 48 megapixels decoded whole takes about 195 MB.
+	/// The longest side in pixels that a picture shows at its largest zoom on this screen, at most
+	/// 4,096, because a photograph of 48 megapixels decoded whole takes about 195 MB. A picture this
+	/// iPhone converts is sent at 4,000 pixels at most, so that bound shows every pixel of it.
 	private func largestPictureNeeded() -> Int {
 		let screenSide = max(view.bounds.width, view.bounds.height) * traitCollection.displayScale
-		return Int(max(screenSide, 1024) * pictureView.maximumZoomScale)
+		return min(Int(max(screenSide, 1024) * pictureView.maximumZoomScale), 4096)
 	}
 
 	@concurrent
