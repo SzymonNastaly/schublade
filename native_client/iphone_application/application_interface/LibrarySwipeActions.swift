@@ -66,27 +66,12 @@ final class LibrarySwipeActions {
 		return configuration
 	}
 
-	/// Hands the file under the name the archive was sent, in a directory of its own that goes once
-	/// the sheet closes.
 	private func shareFile(of identifier: UUID, from view: UIView) {
 		guard let entry = submissions.entries.first(where: { $0.id == identifier }),
 		      let file = submissions.documentFile(of: entry)
 		else {
 			return
 		}
-		let directory = URL.temporaryDirectory.appending(path: UUID().uuidString, directoryHint: .isDirectory)
-		let copy = directory.appending(path: entry.manifest.fileName)
-		do {
-			try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-			try FileManager.default.copyItem(at: file, to: copy)
-		} catch {
-			return
-		}
-		let sheet = UIActivityViewController(activityItems: [copy], applicationActivities: nil)
-		sheet.popoverPresentationController?.sourceView = view
-		sheet.completionWithItemsHandler = { _, _, _, _ in
-			try? FileManager.default.removeItem(at: directory)
-		}
-		presenter?.present(sheet, animated: true)
+		OriginalCopies.share(file: file, fileName: entry.manifest.fileName, presenter: presenter, source: view)
 	}
 }
