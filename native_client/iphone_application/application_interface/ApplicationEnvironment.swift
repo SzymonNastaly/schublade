@@ -5,10 +5,10 @@ import SubmissionQueue
 /// Where this process keeps its state. Everything that differs between the installed application
 /// and the end-to-end test is here, so no other type reads the process environment.
 struct ApplicationEnvironment {
-	let applicationConfiguration: ApplicationConfiguration
+	var applicationConfiguration: ApplicationConfiguration
 	/// Where submissions wait to be sent and answered, and where the share extension reads the
 	/// connected archive.
-	let sharedContainer: SharedContainer
+	var sharedContainer: SharedContainer
 	let transferSessions: TransferSessions
 	/// In a Debug build, an archive to connect at launch and files to send, so a screen examination
 	/// on the simulator needs no typing.
@@ -54,15 +54,23 @@ struct ApplicationEnvironment {
 		let documents: URL?
 	}
 
+	/// The names the share extension shares, and the App Group's container.
+	private static func sharedInstallation() -> (SharedInstallation, SharedContainer) {
+		do throws(SharedInstallation.ResolutionFailure) {
+			let installation = try SharedInstallation.read()
+			return try (installation, installation.container())
+		} catch {
+			preconditionFailure("The application is not signed with its App Group: \(error)")
+		}
+	}
+
 	/// The installed environment, or in a Debug build started with
 	/// `SCHUBLADE_APPLICATION_ENVIRONMENT=isolated`, the isolated one.
 	static func current() -> ApplicationEnvironment {
 		#if DEBUG
 		let variables = ProcessInfo.processInfo.environment
 		if variables["SCHUBLADE_APPLICATION_ENVIRONMENT"] == "isolated" {
-			var environment = isolated()
-			environment.examination = examination(variables)
-			return environment
+			return examination(variables).map(examined) ?? isolated()
 		}
 		#endif
 		return installed()
@@ -72,14 +80,7 @@ struct ApplicationEnvironment {
 	/// submissions and the token where the share extension reads them, in the App Group and the
 	/// Keychain access group. The iPhone has no collector, and keeps at most 500 MB of originals.
 	private static func installed() -> ApplicationEnvironment {
-		let installation: SharedInstallation
-		let container: SharedContainer
-		do throws(SharedInstallation.ResolutionFailure) {
-			installation = try SharedInstallation.read()
-			container = try installation.container()
-		} catch {
-			preconditionFailure("The application is not signed with its App Group: \(error)")
-		}
+		let (installation, container) = sharedInstallation()
 		let bundleIdentifier = installation.applicationBundleIdentifier
 		return ApplicationEnvironment(
 			applicationConfiguration: ApplicationConfiguration(
@@ -113,6 +114,18 @@ struct ApplicationEnvironment {
 			token: token,
 			documents: variables["SCHUBLADE_EXAMINATION_DOCUMENTS"].map { URL(filePath: $0) }
 		)
+	}
+
+	/// The isolated environment, except that the submissions, the record of the connected archive,
+	/// and the token are where the share extension reads them, the installation's App Group and
+	/// Keychain item, so the share sheet of an examined simulator sends to the examined archive.
+	private static func examined(_ examination: Examination) -> ApplicationEnvironment {
+		let (installation, container) = sharedInstallation()
+		var environment = isolated()
+		environment.sharedContainer = container
+		environment.applicationConfiguration.credentialStorage = installation.credentialStorage
+		environment.examination = examination
+		return environment
 	}
 
 	/// A new temporary directory and a Keychain item under a service name of its own, in the shared

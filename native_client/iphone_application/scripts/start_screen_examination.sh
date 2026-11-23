@@ -164,6 +164,11 @@ xcrun simctl ui "$simulator" appearance "$appearance"
 xcrun simctl status_bar "$simulator" override --time 9:41 --batteryState charged --batteryLevel 100 --cellularBars 4
 xcrun simctl terminate "$simulator" org.schublade.iphone.development 2>/dev/null || true
 xcrun simctl install "$simulator" "$application"
+# The examined application keeps its submissions and its record of the archive in the App Group, where
+# the share extension reads them, so those of an earlier examination go first.
+group="$(xcrun simctl get_app_container "$simulator" org.schublade.iphone.development \
+	group.org.schublade.iphone.development)"
+rm -rf "$group/submission_queue" "$group/connected_archive.json"
 SIMCTL_CHILD_SCHUBLADE_APPLICATION_ENVIRONMENT=isolated \
 	SIMCTL_CHILD_SCHUBLADE_EXAMINATION_ARCHIVE="$address" \
 	SIMCTL_CHILD_SCHUBLADE_EXAMINATION_TOKEN="$token" \
