@@ -5,6 +5,7 @@
 //! Prints `listening http://127.0.0.1:<port>` and runs until standard input closes.
 
 use std::io::{Read, Write};
+use std::sync::{Mutex, PoisonError};
 
 use archive_access::{ArchiveCondition, ContentDigest, INGEST_PATH, PermissionLevel};
 use scripted_archive::ScriptedArchive;
@@ -243,7 +244,7 @@ fn parse_options() -> Options {
 
 fn main() {
     let options = parse_options();
-    let mut server = ScriptedServer {
+    let server = ScriptedServer {
         archive: ScriptedArchive::new(),
         accepted_authorization: format!("Bearer {}", options.token),
     };
@@ -266,14 +267,19 @@ fn main() {
         let _ = std::io::stdin().lock().read_to_end(&mut Vec::new());
         std::process::exit(0);
     });
-    for request in http_server.incoming_requests() {
-        answer_request(&mut server, options.ingest_pace, request);
-    }
+    // Each request is read on a thread of its own, so a paced upload holds back no other request,
+    // and the router takes one request at a time.
+    let server = Mutex::new(server);
+    std::thread::scope(|scope| {
+        for request in http_server.incoming_requests() {
+            scope.spawn(|| answer_request(&server, options.ingest_pace, request));
+        }
+    });
 }
 
 /// Reads the body of a request, at `ingest_pace` for an upload to the ingest route, routes it, and
 /// sends the answer.
-fn answer_request(server: &mut ScriptedServer, ingest_pace: Option<usize>, mut request: tiny_http::Request) {
+fn answer_request(server: &Mutex<ScriptedServer>, ingest_pace: Option<usize>, mut request: tiny_http::Request) {
     let header = |name: &'static str| {
         request
             .headers()
@@ -295,7 +301,11 @@ fn answer_request(server: &mut ScriptedServer, ingest_pace: Option<usize>, mut r
             if_none_match: if_none_match.as_deref(),
             content_type: content_type.as_deref(),
         };
-        route_request(server, &routed, body)
+        route_request(
+            &mut server.lock().unwrap_or_else(PoisonError::into_inner),
+            &routed,
+            body,
+        )
     };
     let mut response = match answer.body {
         Body::Text(text) => tiny_http::Response::from_data(text.into_bytes()),

@@ -3,6 +3,7 @@
 
 use std::io::{BufRead, BufReader};
 use std::process::{Child, ChildStdin, Command, Stdio};
+use std::time::{Duration, Instant};
 
 use archive_access::{
     ArchiveAddress, ArchiveToken, SubmissionAnswer, SubmissionMediaType, prepare_submission, read_submission_answer,
@@ -118,4 +119,31 @@ fn a_posted_token_replaces_the_one_the_archive_accepts() {
             ..
         }
     ));
+}
+
+#[test]
+fn the_archive_answers_other_requests_while_it_reads_a_paced_upload() {
+    let server = ScriptedArchiveServer::start(&["--ingest-pace", "10000"]);
+    let scan = [b"%PDF-1.4\n".as_slice(), &[b'x'; 10_000]].concat();
+    std::thread::scope(|scope| {
+        let upload = scope.spawn(|| server.send(&scan, "Scan.pdf", TOKEN));
+        std::thread::sleep(Duration::from_millis(300));
+        let asked = Instant::now();
+        let held = ureq::get(format!("{}/scripted/held", server.address.origin()))
+            .call()
+            .unwrap();
+        assert_eq!(held.status().as_u16(), 200);
+        let waited = asked.elapsed();
+        assert!(
+            waited < Duration::from_millis(500),
+            "the archive answered after {waited:?}, so it waited for the upload"
+        );
+        assert!(matches!(
+            upload.join().unwrap(),
+            SubmissionAnswer::Archived {
+                already_held: false,
+                ..
+            }
+        ));
+    });
 }

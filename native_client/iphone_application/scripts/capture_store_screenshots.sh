@@ -280,14 +280,6 @@ for attempt in $(seq 120); do
 	sleep 1
 done
 await_text '"AXValue" : "Recognizing text"' 150
-# The archive answers one request at a time, so pictures the list asked for during the slow upload
-# can go unanswered. A row asks again once 30 seconds have passed and it shows again, so the list
-# scrolls its rows away and back.
-sleep 32
-axe swipe --start-x 220 --start-y 750 --end-x 220 --end-y 250 --udid "$simulator" >/dev/null
-sleep 1
-axe swipe --start-x 220 --start-y 250 --end-x 220 --end-y 750 --udid "$simulator" >/dev/null
-sleep 2
 
 for appearance in light dark; do
 	mkdir -p "$output/$appearance"
