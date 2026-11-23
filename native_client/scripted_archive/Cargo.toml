@@ -9,7 +9,7 @@ publish.workspace = true
 
 [[bin]]
 name = "scripted-archive-server"
-path = "src/bin/scripted_archive_server.rs"
+path = "src/bin/scripted_archive_server/main.rs"
 
 # Every version is an exact pin, and Cargo.lock is committed, so each machine builds the same code.
 [dependencies]
