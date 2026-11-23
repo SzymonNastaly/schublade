@@ -168,6 +168,7 @@ impl RepresentationCache {
     /// download.
     pub fn kept_original(&self, content: ContentDigest, kind: OriginalKind) -> Option<PathBuf> {
         let path = self.original_path(content, kind);
+        let _downloads = self.downloads();
         handed_out(&path).then_some(path)
     }
 
