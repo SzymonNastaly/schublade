@@ -521,6 +521,23 @@ impl Library {
         .await
     }
 
+    /// The original when this device keeps it, or `None` without downloading it.
+    pub async fn kept_original(
+        self: Arc<Self>,
+        document: DocumentIdentifier,
+    ) -> Result<Option<LocalFile>, RepresentationRefusal> {
+        blocking::unblock(move || {
+            let replica = replica_handle(&self.core)?;
+            let identifier = archive_access::DocumentIdentifier::parse(&document.value)
+                .ok_or(RepresentationRefusal::DocumentUnknown)?;
+            let path = replica
+                .kept_original(&identifier)
+                .map_err(RepresentationRefusal::from)?;
+            Ok(path.map(|path| LocalFile { path: path_text(&path) }))
+        })
+        .await
+    }
+
     pub async fn thumbnail(
         self: Arc<Self>,
         document: DocumentIdentifier,

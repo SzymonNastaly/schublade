@@ -159,10 +159,21 @@ impl RepresentationCache {
         kind: OriginalKind,
         download: impl FnOnce(&mut dyn Write) -> Result<(), RepresentationRefusal>,
     ) -> Result<PathBuf, RepresentationRefusal> {
-        let name = format!("{}.{}", content.hexadecimal(), kind.file_extension());
-        let path = self.originals.join(name);
+        let path = self.original_path(content, kind);
         self.retrieve(&path, Some(content), |destination| download(destination).map(|()| true))?;
         Ok(path)
+    }
+
+    /// The file of an original when it is kept, which counts as handing it out, and never a
+    /// download.
+    pub fn kept_original(&self, content: ContentDigest, kind: OriginalKind) -> Option<PathBuf> {
+        let path = self.original_path(content, kind);
+        handed_out(&path).then_some(path)
+    }
+
+    fn original_path(&self, content: ContentDigest, kind: OriginalKind) -> PathBuf {
+        self.originals
+            .join(format!("{}.{}", content.hexadecimal(), kind.file_extension()))
     }
 
     /// The file of the picture of a document's first page, kept under the document's content.

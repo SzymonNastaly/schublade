@@ -62,6 +62,13 @@ final class ApplicationGateway {
 		}
 	}
 
+	/// The original when this iPhone keeps it, or nil, without downloading it.
+	func keptOriginal(_ document: DocumentIdentifier) async throws(RepresentationRefusal) -> LocalFile? {
+		try await representationQuery { library in
+			try await library.keptOriginal(document: document)
+		}
+	}
+
 	/// The first page as a picture, or nil for a document that has none.
 	func thumbnail(_ document: DocumentIdentifier) async throws(RepresentationRefusal) -> LocalFile? {
 		try await representationQuery { library in

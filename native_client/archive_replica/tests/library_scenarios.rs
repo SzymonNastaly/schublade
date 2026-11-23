@@ -552,10 +552,12 @@ fn an_original_is_downloaded_once_kept_only_when_its_bytes_are_its_content_and_e
     attach(&replica, &archive);
     settled(&replica, &events, 0);
 
+    assert_eq!(replica.kept_original(&document_identifier(1)), Ok(None));
     let first: PathBuf = replica.original(&document_identifier(1)).unwrap();
     assert_eq!(first, originals.join(name(1)));
     assert_eq!(std::fs::read(&first).unwrap(), scan(1));
     assert_eq!(replica.original(&document_identifier(1)), Ok(first.clone()));
+    assert_eq!(replica.kept_original(&document_identifier(1)), Ok(Some(first.clone())));
     assert_eq!(archive.original_downloads(), 1);
 
     assert_eq!(

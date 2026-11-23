@@ -349,6 +349,15 @@ impl Replica {
         })
     }
 
+    /// The file of a document's original when this device keeps it, or `None` without downloading
+    /// it, as for a preview that a download would make costly.
+    pub fn kept_original(&self, document: &DocumentIdentifier) -> Result<Option<PathBuf>, RepresentationRefusal> {
+        let source = self.representation_source(document)?;
+        Ok(source
+            .original
+            .and_then(|content| self.representations.kept_original(content, source.kind)))
+    }
+
     /// The file of the picture of a document's first page, or `None` when the archive has no
     /// picture of it or has not recorded its content yet.
     pub fn thumbnail(&self, document: &DocumentIdentifier) -> Result<Option<PathBuf>, RepresentationRefusal> {

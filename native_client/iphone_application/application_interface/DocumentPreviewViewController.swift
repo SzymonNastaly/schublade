@@ -3,8 +3,9 @@ import ImageIO
 import PDFKit
 import UIKit
 
-/// The picture a row's context menu lifts: the row's own picture scaled up at once, then the first
-/// page of the original once it is on this iPhone.
+/// The picture a row's context menu lifts: the row's own picture scaled up, and the first page of
+/// the original when this iPhone keeps it. A preview never downloads the original, which can take
+/// 25 MB and push other originals out of the storage limit.
 final class DocumentPreviewViewController: UIViewController {
 	private let gateway: ApplicationGateway
 	private let document: DocumentIdentifier
@@ -35,7 +36,7 @@ final class DocumentPreviewViewController: UIViewController {
 		let size = preferredContentSize
 		let scale = traitCollection.displayScale
 		Task { [weak self, gateway, document] in
-			guard let original = try? await gateway.original(document),
+			guard let original = try? await gateway.keptOriginal(document),
 			      let page = await Self.firstPage(atPath: original.path, pointSize: size, scale: scale)
 			else {
 				return
