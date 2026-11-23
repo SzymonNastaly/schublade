@@ -5,34 +5,13 @@ import Observation
 import SubmissionQueue
 import UIKit
 
-/// Sends the submissions of the queue and keeps what the Arriving section shows: the documents
-/// still being written, every submission with its answer, the fraction sent of those under way, and
-/// what the copy holds of each archived one. It prepares a body when it starts an upload, records
-/// each answer, sends an unavailable submission again on its schedule, asks the library to read the
-/// archive once a submission is archived, and lets a filed submission go when the person leaves.
+/// Sends the submissions of the queue through `SubmissionSessions` and keeps what the Arriving
+/// section shows: the documents still being written, every submission with its answer, the fraction
+/// sent of those under way, and what the copy holds of each archived one. It prepares a body when it
+/// starts an upload, sends an unavailable submission again on its schedule, asks the library to read
+/// the archive once a submission is archived, and lets a filed submission go when the person leaves.
 @Observable
 final class SubmissionCoordinator {
-	/// The share extension's session in this process. One process at a time may use a background
-	/// session, so the application creates it only when the system launches the application for its
-	/// events, and lets it go once they are delivered, so that a later share can upload in it.
-	private enum AttachedSession {
-		/// No session under the extension's identifier exists in this process.
-		case absent
-		/// The session delivers the events of the launches whose completion handlers it holds.
-		case delivering(SubmissionTransfer)
-		/// The session finishes the uploads still under way, delivers their answers, and ends. A
-		/// launch for its events meanwhile is handed to it, because a second session under the
-		/// identifier would receive nothing and would hold the identifier against the next share.
-		case invalidating(SubmissionTransfer)
-
-		var transfer: SubmissionTransfer? {
-			switch self {
-			case .absent: nil
-			case let .delivering(transfer), let .invalidating(transfer): transfer
-			}
-		}
-	}
-
 	private(set) var preparing: [PreparingSubmission] = []
 	private(set) var entries: [SubmissionEntry] = []
 	private(set) var progress: [UUID: Double] = [:]
@@ -46,10 +25,7 @@ final class SubmissionCoordinator {
 	private let queue: SubmissionQueue
 	private let credentials: CredentialStorage
 	private let gateway: ApplicationGateway
-	@ObservationIgnored private var sessions: ApplicationEnvironment.TransferSessions?
-	/// The application's own session, which sends.
-	@ObservationIgnored private var sending: SubmissionTransfer?
-	@ObservationIgnored private var attached = AttachedSession.absent
+	@ObservationIgnored private var sessions: SubmissionSessions?
 	@ObservationIgnored private var inFlight: Set<UUID> = []
 	@ObservationIgnored private var resumption: Task<Void, Never>?
 	/// The archive's origin while one is connected.
@@ -63,72 +39,24 @@ final class SubmissionCoordinator {
 
 	/// Opens the application's session, which delivers the answers that arrived while the
 	/// application was not running as soon as it is created.
-	func open(sessions: ApplicationEnvironment.TransferSessions) {
-		self.sessions = sessions
-		sending = transfer(configuration: sessions.sendingConfiguration)
+	func open(sessions configurations: ApplicationEnvironment.TransferSessions) {
+		sessions = SubmissionSessions(
+			configurations: configurations,
+			queue: queue
+		) { [weak self] recorded, identifier in
+			self?.received(recorded, for: identifier)
+		} progressed: { [weak self] identifier, fraction in
+			self?.progress[identifier] = fraction
+		}
 		reload()
 	}
 
-	/// Receives the events of the session the system launched the application for: its own, or the
-	/// share extension's, which it creates for the events alone.
 	func handleBackgroundEvents(session identifier: String, completion: @escaping @MainActor () -> Void) {
-		if let sending, sending.sessionIdentifier == identifier {
-			sending.handleBackgroundEvents(completion: completion)
-			return
-		}
-		guard let configuration = sessions?.shareExtensionConfiguration(identifier: identifier) else {
+		guard let sessions else {
 			completion()
 			return
 		}
-		// A session that ended before its report reached this actor holds nothing, and its
-		// identifier is free for a new one.
-		if let transfer = attached.transfer, transfer.handleBackgroundEvents(completion: completion) {
-			return
-		}
-		attached = .delivering(transfer(configuration: configuration, backgroundEventsCompletion: completion))
-	}
-
-	/// The answers are recorded on the session's queue, before it reports its events delivered, so
-	/// none is lost when the process is suspended after the system's completion handler.
-	private func transfer(
-		configuration: URLSessionConfiguration,
-		backgroundEventsCompletion: SubmissionTransfer.BackgroundEventsCompletion? = nil
-	) -> SubmissionTransfer {
-		SubmissionTransfer(
-			configuration: configuration,
-			backgroundEventsCompletion: backgroundEventsCompletion
-		) { [queue, weak self] attempt, answer in
-			let recorded = try? queue.receive(answer, for: attempt)
-			Task { @MainActor in
-				self?.received(recorded, for: attempt.submission)
-			}
-		} onProgress: { [weak self] identifier, fraction in
-			Task { @MainActor in
-				self?.progress[identifier] = fraction
-			}
-		} onSessionEvent: { [weak self] transfer, event in
-			Task { @MainActor in
-				self?.reported(event, by: transfer)
-			}
-		}
-	}
-
-	/// Lets the share extension's session go once it delivered its events, and only then calls the
-	/// system's completion handlers, because the application may be suspended right after.
-	private func reported(_ event: SubmissionTransfer.SessionEvent, by transfer: SubmissionTransfer) {
-		switch event {
-		case let .eventsDelivered(completions):
-			if case let .delivering(attachedTransfer) = attached, attachedTransfer === transfer {
-				transfer.invalidate()
-				attached = .invalidating(transfer)
-			}
-			completions.forEach { $0() }
-		case let .ended(completions):
-			if attached.transfer === transfer {
-				attached = .absent
-			}
-			completions.forEach { $0() }
-		}
+		sessions.handleBackgroundEvents(session: identifier, completion: completion)
 	}
 
 	/// Removes a submission from the list, and stops its upload if one is under way. A document still
@@ -136,9 +64,7 @@ final class SubmissionCoordinator {
 	func remove(_ identifier: UUID) {
 		abandon(identifier)
 		Task {
-			for transfer in [sending, attached.transfer].compactMap(\.self) {
-				await transfer.cancel(identifier)
-			}
+			await sessions?.cancel(identifier)
 		}
 		inFlight.remove(identifier)
 		queue.remove(identifier)
@@ -153,8 +79,8 @@ final class SubmissionCoordinator {
 		queue.removeExpired(now: now)
 		reload()
 		Task {
-			if let sending {
-				await inFlight.formUnion(sending.submissionsInFlight())
+			if let sessions {
+				await inFlight.formUnion(sessions.submissionsInFlight())
 			}
 			for entry in entries where !inFlight.contains(entry.id) && (entry.sendingDueAt ?? .distantFuture) <= now {
 				send(entry)
@@ -186,14 +112,14 @@ final class SubmissionCoordinator {
 	}
 
 	private func send(_ entry: SubmissionEntry) {
-		guard let sending, let archiveOrigin else {
+		guard let sessions, let archiveOrigin else {
 			return
 		}
 		inFlight.insert(entry.id)
 		Task {
 			switch await queue.prepare(entry, archiveOrigin: archiveOrigin, credentials: credentials) {
 			case let .prepared(request, attempt, body):
-				sending.send(attempt, request: request, body: body)
+				sessions.send(attempt, request: request, body: body)
 			case let .answered(answer):
 				inFlight.remove(entry.id)
 				record(answer, for: entry.id)
