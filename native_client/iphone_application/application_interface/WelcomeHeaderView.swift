@@ -11,8 +11,13 @@ final class WelcomeHeaderView: UICollectionReusableView {
 		icon.isAccessibilityElement = false
 		let title = UILabel()
 		title.text = "Connect Your Archive"
+		// At the largest text sizes a word of the title would break across lines, so it grows only
+		// until "Archive" still fits the width of a phone.
 		title.font = UIFontMetrics(forTextStyle: .title1).scaledFont(
-			for: .systemFont(ofSize: UIFont.preferredFont(forTextStyle: .title1).pointSize, weight: .bold)
+			for: .systemFont(ofSize: UIFont.preferredFont(forTextStyle: .title1, compatibleWith: .init(
+				preferredContentSizeCategory: .large
+			)).pointSize, weight: .bold),
+			maximumPointSize: 44
 		)
 		title.adjustsFontForContentSizeCategory = true
 		title.textAlignment = .center
