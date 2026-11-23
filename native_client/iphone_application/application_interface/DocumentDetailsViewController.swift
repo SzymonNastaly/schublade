@@ -22,7 +22,15 @@ final class DocumentDetailsViewController: UIViewController, UICollectionViewDat
 				configuration.headerMode = sections[index].header == nil ? .none : .supplementary
 				configuration.footerMode = sections[index].footer == nil ? .none : .supplementary
 			}
-			return NSCollectionLayoutSection.list(using: configuration, layoutEnvironment: environment)
+			let section = NSCollectionLayoutSection.list(using: configuration, layoutEnvironment: environment)
+			// The head and the facts under it read as one block at the medium detent, so the gap
+			// between two inset grouped sections stays out between them.
+			if index == 0 {
+				section.contentInsets.bottom = 0
+			} else if index == 1, let self, sections.count > 1, sections[1].header == nil {
+				section.contentInsets.top = 8
+			}
+			return section
 		}
 		return UICollectionView(frame: .zero, collectionViewLayout: layout)
 	}()
