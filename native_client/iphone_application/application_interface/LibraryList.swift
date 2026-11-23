@@ -14,10 +14,39 @@ nonisolated enum LibraryDestination: Equatable {
 
 final class LibraryList {
 	/// Everything a snapshot is made of, so an unchanged input applies nothing.
-	private struct Shown: Equatable {
+	private struct Comparison: Equatable {
 		let content: LibraryListContent
 		let notice: NoticeWording?
-		let now: Date
+		let day: Date
+	}
+
+	/// The input of the last `show`, with the lookups the cells read.
+	private struct Shown {
+		let comparison: Comparison
+		let notice: UIContentUnavailableConfiguration?
+		let context: WordingContext
+		let arrivals: [UUID: Arrival]
+		let rows: [DocumentIdentifier: DocumentRow]
+		let suggestions: [LibraryScope: ScopeSuggestion]
+
+		var content: LibraryListContent {
+			comparison.content
+		}
+
+		init(_ content: LibraryListContent, notice: UIContentUnavailableConfiguration?, context: WordingContext) {
+			comparison = Comparison(
+				content: content,
+				notice: notice.map(NoticeWording.init),
+				day: context.calendar.startOfDay(for: context.now)
+			)
+			self.notice = notice
+			self.context = context
+			arrivals = Dictionary(uniqueKeysWithValues: content.arrivals.map { ($0.id, $0) })
+			rows = Dictionary(content.state.listedSections.flatMap(\.rows).map { ($0.document, $0) }) { first, _ in
+				first
+			}
+			suggestions = Dictionary(content.suggestions.map { ($0.scope.scope, $0) }) { first, _ in first }
+		}
 	}
 
 	/// What a notice says. Its configuration holds actions, which never compare equal.
@@ -41,13 +70,6 @@ final class LibraryList {
 	private weak var presenter: UIViewController?
 	private var dataSource: UICollectionViewDiffableDataSource<LibrarySection, LibraryItem>?
 	private var shown: Shown?
-	private var arrivals: [UUID: Arrival] = [:]
-	private var rows: [DocumentIdentifier: DocumentRow] = [:]
-	private var searchText: String?
-	private var context = WordingContext.current()
-	private var notice: UIContentUnavailableConfiguration?
-	private var attention: ConnectionAttention?
-	private var suggestions: [LibraryScope: ScopeSuggestion] = [:]
 
 	init(
 		in view: UIView,
@@ -78,27 +100,16 @@ final class LibraryList {
 	/// listing's documents in ingestion together on top. The listing's own Arriving heading is not
 	/// drawn again.
 	func show(_ content: LibraryListContent, notice: UIContentUnavailableConfiguration?, context: WordingContext) {
-		let next = Shown(
-			content: content,
-			notice: notice.map(NoticeWording.init),
-			now: context.calendar.startOfDay(for: context.now)
-		)
-		guard let dataSource, next != shown else {
+		let next = Shown(content, notice: notice, context: context)
+		guard let dataSource, next.comparison != shown?.comparison else {
 			return
 		}
-		let searchChanged = shown?.content.searchText != content.searchText
+		let previous = shown
+		let searchChanged = previous?.content.searchText != content.searchText
 		shown = next
-		self.context = context
-		self.notice = notice
-		searchText = content.searchText
-		attention = content.attention
-		suggestions = Dictionary(content.suggestions.map { ($0.scope.scope, $0) }) { first, _ in first }
-		arrivals = Dictionary(uniqueKeysWithValues: content.arrivals.map { ($0.id, $0) })
-		let previousRows = rows
-		rows = Dictionary(content.state.listedSections.flatMap(\.rows).map { ($0.document, $0) }) { first, _ in first }
 		let shared = !content.arrivals.isEmpty || !content.suggestions.isEmpty
 		var snapshot = Self.snapshot(of: content, noticed: shared && notice != nil)
-		let previous = dataSource.snapshot()
+		let previousSnapshot = dataSource.snapshot()
 		// A row shows its date another way under another heading, and marks other words in another
 		// search. A snapshot refuses to reconfigure an item it lacks, such as a listed document that
 		// an arrival shows.
@@ -107,8 +118,8 @@ final class LibraryList {
 			case .arrival, .notice, .attention, .suggestion:
 				true
 			case let .document(identifier):
-				searchChanged || previousRows[identifier] != rows[identifier]
-					|| previous.sectionIdentifier(containingItem: item) != snapshot
+				searchChanged || previous?.rows[identifier] != next.rows[identifier]
+					|| previousSnapshot.sectionIdentifier(containingItem: item) != snapshot
 					.sectionIdentifier(containingItem: item)
 			}
 		}
@@ -133,18 +144,18 @@ final class LibraryList {
 		switch dataSource?.itemIdentifier(for: indexPath) {
 		case let .document(identifier)?:
 			let textMatched = dataSource?.sectionIdentifier(for: indexPath.section) == .listed(.textMatched)
-			let opening: DocumentOpening = if textMatched, let searchText {
+			let opening: DocumentOpening = if textMatched, let searchText = shown?.content.searchText {
 				.textMatch(searchText: searchText)
 			} else {
 				.listed
 			}
-			return .document(identifier, title: rows[identifier]?.title, opening: opening)
+			return .document(identifier, title: shown?.rows[identifier]?.title, opening: opening)
 		case let .arrival(identifier)?:
-			return arrivals[identifier].flatMap(ArrivalPresentation.destination)
+			return shown?.arrivals[identifier].flatMap(ArrivalPresentation.destination)
 		case .attention?:
-			return attention?.replacesToken == true ? .tokenReplacement : nil
+			return shown?.content.attention?.replacesToken == true ? .tokenReplacement : nil
 		case let .suggestion(scope)?:
-			return suggestions[scope].map { .scope($0.scope) }
+			return shown?.suggestions[scope].map { .scope($0.scope) }
 		case .notice?, nil:
 			return nil
 		}
@@ -156,7 +167,7 @@ final class LibraryList {
 
 	/// The listed row of a document, which a search or a scope may not show.
 	func row(of document: DocumentIdentifier) -> DocumentRow? {
-		rows[document]
+		shown?.rows[document]
 	}
 
 	func indexPath(of item: LibraryItem) -> IndexPath? {
@@ -235,9 +246,9 @@ private extension LibraryList {
 			configuration.trailingSwipeActionsConfigurationProvider = { [weak self] indexPath in
 				switch self?.dataSource?.itemIdentifier(for: indexPath) {
 				case let .document(document)?:
-					self?.rows[document].flatMap { self?.swipeActions.configuration(document: $0) }
+					self?.shown?.rows[document].flatMap { self?.swipeActions.configuration(document: $0) }
 				case let .arrival(identifier)?:
-					self?.arrivals[identifier].flatMap { self?.swipeActions.configuration(arrival: $0) }
+					self?.shown?.arrivals[identifier].flatMap { self?.swipeActions.configuration(arrival: $0) }
 				default:
 					nil
 				}
@@ -278,16 +289,20 @@ private extension LibraryList {
 		case .arriving?:
 			"Arriving"
 		case let .listed(heading?)?:
-			DocumentFormatting.headingText(heading, context: context)
+			DocumentFormatting.headingText(heading, context: shown?.context ?? .current())
 		case .listed(nil)?, .notice?, .attention?, .suggestions?, nil:
 			nil
 		}
 	}
 
 	func configure(_ cell: UICollectionViewListCell, _ item: LibraryItem, at indexPath: IndexPath) {
+		guard let shown else {
+			return
+		}
+		let context = shown.context
 		switch item {
 		case let .arrival(identifier):
-			guard let arrival = arrivals[identifier] else {
+			guard let arrival = shown.arrivals[identifier] else {
 				return
 			}
 			// The archive's picture once the copy holds one, else the page this iPhone sent.
@@ -303,13 +318,13 @@ private extension LibraryList {
 				context: context
 			)
 		case let .document(identifier):
-			guard let row = rows[identifier] else {
+			guard let row = shown.rows[identifier] else {
 				return
 			}
 			let picture = thumbnails.picture(for: identifier) { [weak self] loaded in
 				self?.pictureLoaded(loaded)
 			}
-			let setting: DocumentRowSetting = if let searchText {
+			let setting: DocumentRowSetting = if let searchText = shown.content.searchText {
 				.searching(searchText)
 			} else if case .listed(.period?)? = dataSource?.sectionIdentifier(for: indexPath.section) {
 				.browsing(underMonth: true)
@@ -318,13 +333,13 @@ private extension LibraryList {
 			}
 			LibraryRowConfiguration.configure(cell, document: row, picture: picture, setting: setting, context: context)
 		case .notice:
-			LibraryRowConfiguration.configure(cell, notice: notice)
+			LibraryRowConfiguration.configure(cell, notice: shown.notice)
 		case let .suggestion(scope):
-			if let suggestion = suggestions[scope] {
+			if let suggestion = shown.suggestions[scope] {
 				LibraryRowConfiguration.configure(cell, suggestion: suggestion)
 			}
 		case .attention:
-			if let attention {
+			if let attention = shown.content.attention {
 				LibraryRowConfiguration.configure(cell, attention: attention)
 			}
 		}
@@ -334,7 +349,8 @@ private extension LibraryList {
 		guard var snapshot = dataSource?.snapshot() else {
 			return
 		}
-		let showing = arrivals.values.filter { $0.document == document }.map { LibraryItem.arrival($0.id) }
+		let showing = (shown?.content.arrivals ?? []).filter { $0.document == document }
+			.map { LibraryItem.arrival($0.id) }
 			+ [LibraryItem.document(document)]
 		let present = showing.filter { snapshot.indexOfItem($0) != nil }
 		guard !present.isEmpty else {
