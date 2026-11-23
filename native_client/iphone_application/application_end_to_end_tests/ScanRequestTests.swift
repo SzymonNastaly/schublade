@@ -12,7 +12,7 @@ final class ScanRequestTests: XCTestCase {
 	/// while the camera shows, as a person may do, is taken at once, so closing the camera does not
 	/// open it again.
 	@MainActor
-	func testARequestOpensTheCameraOnlyFromTheSubmissionsAndOnlyOnce() async throws {
+	func testARequestOpensTheCameraOnlyFromTheLibraryAndOnlyOnce() async throws {
 		let controller = try XCTUnwrap((UIApplication.shared.delegate as? ApplicationDelegate)?.controller)
 		let root = try XCTUnwrap(
 			UIApplication.shared.connectedScenes

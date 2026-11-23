@@ -88,7 +88,7 @@ targets:
       base:
         SWIFT_DEFAULT_ACTOR_ISOLATION: nonisolated
 
-  # The pending scan request that the intent and the quick action raise and the submissions screen
+  # The pending scan request that the intent and the quick action raise and the library screen
   # answers, in a module of its own because the controls extension compiles the intent too.
   ScanRequest:
     type: library.static

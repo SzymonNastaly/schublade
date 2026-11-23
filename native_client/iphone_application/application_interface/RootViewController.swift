@@ -4,20 +4,20 @@ import ScanRequest
 import UIKit
 
 /// Shows the screen the application's situation calls for: a message while the core starts or
-/// when it failed, the connection form while no archive is connected, and the submissions after.
+/// when it failed, the connection form while no archive is connected, and the library after.
 /// It also decides what a scan request from outside the application comes to on that screen.
 final class RootViewController: UIViewController {
 	private enum Screen: Equatable {
 		case starting
 		case failure(String)
 		case connection
-		case submissions
+		case library
 	}
 
 	private let controller: ApplicationController
 	private var screen: Screen?
 	private var shown: UIViewController?
-	private var submissions: SubmissionsViewController?
+	private var library: LibraryViewController?
 
 	init(controller: ApplicationController) {
 		self.controller = controller
@@ -50,7 +50,7 @@ final class RootViewController: UIViewController {
 	}
 
 	/// A request waits while the core starts, so a request that started the application opens the
-	/// camera. The submissions screen answers it. Any other screen drops it, because a camera that
+	/// camera. The library screen answers it. Any other screen drops it, because a camera that
 	/// opened once a person had connected would answer a request made long before.
 	private func answerScanRequest() {
 		switch screen {
@@ -58,8 +58,8 @@ final class RootViewController: UIViewController {
 			break
 		case .failure?, .connection?:
 			_ = ScanRequestCenter.shared.take()
-		case .submissions?:
-			submissions?.answerScanRequest()
+		case .library?:
+			library?.answerScanRequest()
 		}
 	}
 
@@ -73,7 +73,7 @@ final class RootViewController: UIViewController {
 			if case .notConfigured = status.archive {
 				.connection
 			} else {
-				.submissions
+				.library
 			}
 		}
 	}
@@ -83,7 +83,7 @@ final class RootViewController: UIViewController {
 			return
 		}
 		screen = next
-		submissions = nil
+		library = nil
 		let child: UIViewController
 		switch next {
 		case .starting:
@@ -92,9 +92,9 @@ final class RootViewController: UIViewController {
 			child = MessageViewController(text: text)
 		case .connection:
 			child = UINavigationController(rootViewController: ConnectionViewController(controller: controller))
-		case .submissions:
-			let screen = SubmissionsViewController(controller: controller)
-			submissions = screen
+		case .library:
+			let screen = LibraryViewController(controller: controller)
+			library = screen
 			child = UINavigationController(rootViewController: screen)
 		}
 		shown?.willMove(toParent: nil)

@@ -3,7 +3,7 @@ import Observation
 /// A scan requested from outside the application: the Scan Document intent, which Shortcuts, Siri,
 /// the Action button, and the Control Center and Lock Screen controls run, or the Home Screen quick
 /// action. The request waits while the core starts, so a request that starts the application is not
-/// lost. The submissions screen takes it and presents the document camera, and any other screen drops it.
+/// lost. The library screen takes it and presents the document camera, and any other screen drops it.
 @Observable
 public final class ScanRequestCenter {
 	public static let shared = ScanRequestCenter()
