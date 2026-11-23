@@ -1,3 +1,4 @@
+import ApplicationBindings
 import LibraryPresentation
 import UIKit
 
@@ -7,6 +8,8 @@ struct DocumentRowContent: UIContentConfiguration, Equatable {
 	/// Which row this is, such as "document.<identifier>". A change animates only within one row,
 	/// because a reused cell may show another.
 	let identity: String
+	/// The listed document the row shows, whose picture it reads; nil for an arrival.
+	var document: DocumentIdentifier?
 	let row: DocumentRowPresentation
 	let picture: UIImage?
 	let trailing: RowTrailing

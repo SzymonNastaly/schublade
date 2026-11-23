@@ -37,8 +37,10 @@ final class LibraryInteraction: NSObject, UICollectionViewDelegate {
 		}
 	}
 
-	func collectionView(_: UICollectionView, didEndDisplaying _: UICollectionViewCell, forItemAt indexPath: IndexPath) {
-		if case let .document(document)? = list.item(at: indexPath) {
+	/// The index path is where the row was, which the list's newest rows may give to another, so the
+	/// document comes from the cell.
+	func collectionView(_: UICollectionView, didEndDisplaying cell: UICollectionViewCell, forItemAt _: IndexPath) {
+		if let document = (cell.contentConfiguration as? DocumentRowContent)?.document {
 			thumbnails.forget(document)
 		}
 	}

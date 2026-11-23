@@ -49,6 +49,7 @@ enum LibraryRowConfiguration {
 		let identity = "document.\(row.document.value)"
 		let content = DocumentRowContent(
 			identity: identity,
+			document: row.document,
 			row: shown,
 			picture: picture,
 			trailing: .absent,
