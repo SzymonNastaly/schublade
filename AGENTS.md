@@ -284,6 +284,7 @@ native_client/                           The native client's Cargo workspace apa
 		scripts/install_application_on_device.sh  Builds Release signed with those profiles and installs it on the paired iPhone
 		scripts/render_application_icon.sh   Renders the icon's drawings into AppIcon and ApplicationIconPicture with Quick Look, without an alpha channel
 		scripts/capture_store_screenshots.sh  The App Store screenshots: each scene a function in one table, in light and dark on a 6.9-inch simulator of its own named "Schublade Store Screenshots", written to build/store_screenshots
+		scripts/compose_store_images.swift   The App Store images: five of those screenshots, each in a device frame on the icon's blue under a headline and a sentence from one table, written to build/store_images
 		configuration/signing.xcconfig       Ad hoc signing for the simulator, and the local_signing.xcconfig that git ignores and provision_device_signing.rb writes, which names the team and the profile of each target for a device build
 test_fixtures/
 	documents/                             Synthetic test documents and expected_extraction.json
@@ -453,6 +454,7 @@ scripts/execute_on_macintosh.sh native_client/macintosh_application/scripts/chec
 scripts/execute_on_macintosh.sh native_client/iphone_application/scripts/check_application.sh      # the one check of the iPhone application, on a simulator
 scripts/execute_on_macintosh.sh native_client/iphone_application/scripts/install_application_on_device.sh # the signed Release build on the paired iPhone
 scripts/execute_on_macintosh.sh native_client/iphone_application/scripts/capture_store_screenshots.sh   # the App Store screenshots in build/store_screenshots on the Mac
+scripts/execute_on_macintosh.sh swift native_client/iphone_application/scripts/compose_store_images.swift   # the App Store images in build/store_images on the Mac, from those screenshots
 scripts/execute_on_macintosh.sh native_client/macintosh_application/scripts/build_application.sh   # the application bundle in Debug or Release; prints its path
 scripts/execute_on_macintosh.sh native_client/macintosh_application/scripts/render_interface.sh    # every library screen as PNG files in build/rendered_interface on the Mac
 scripts/execute_on_macintosh.sh native_client/macintosh_application/scripts/release_application.sh # the notarized, stapled build/Schublade.zip on the Mac; only when the user asks
