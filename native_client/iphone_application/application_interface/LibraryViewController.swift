@@ -236,13 +236,9 @@ extension LibraryViewController {
 		choose(scope)
 	}
 
-	/// The replace form with the archive's address, which closes once the archive accepts a token.
-	func replaceToken() {
-		let form = WelcomeViewController(
-			controller: controller,
-			purpose: .tokenReplacement(origin: controller.archiveOrigin ?? "")
-		) { [weak self] in self?.navigationController?.popToRootViewController(animated: true) }
-		navigationController?.pushViewController(form, animated: true)
+	/// Settings in a sheet, opened on the replace form when the token needs replacing.
+	func openSettings(replacingToken: Bool) {
+		present(SettingsViewController.sheet(controller: controller, replacingToken: replacingToken), animated: true)
 	}
 
 	/// Takes a pending scan request once this screen is in the window, and opens the camera unless it

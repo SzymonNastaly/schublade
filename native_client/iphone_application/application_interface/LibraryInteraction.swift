@@ -3,8 +3,8 @@ import LibraryPresentation
 import UIKit
 
 /// What a person does with the library's rows: a tap opens a document or the form for a new
-/// token, a touch and hold lifts a document's page with its actions, and a row scrolled away gives
-/// up the reading of its picture.
+/// token in Settings, a touch and hold lifts a document's page with its actions, and a row scrolled
+/// away gives up the reading of its picture.
 final class LibraryInteraction: NSObject, UICollectionViewDelegate {
 	private weak var screen: LibraryViewController?
 	private let list: LibraryList
@@ -29,7 +29,7 @@ final class LibraryInteraction: NSObject, UICollectionViewDelegate {
 		case let .document(document, title, opening)?:
 			screen?.open(document, title: title, opening: opening)
 		case .tokenReplacement?:
-			screen?.replaceToken()
+			screen?.openSettings(replacingToken: true)
 		case let .scope(scope)?:
 			screen?.chooseSuggested(scope)
 		case nil:

@@ -75,6 +75,28 @@ final class ApplicationGateway {
 		}
 	}
 
+	/// How much room the downloaded originals take on this iPhone, and the most they may take.
+	func originalStorage() async throws(ApplicationFault) -> OriginalStorage {
+		try await libraryQuery { library in
+			try await library.originalStorage()
+		}
+	}
+
+	/// The most room the downloaded originals may take, or nil for no limit. The originals read
+	/// longest ago go first.
+	func setOriginalStorageLimit(_ bytes: UInt64?) async throws(ApplicationFault) {
+		try await libraryQuery { library in
+			try await library.setOriginalStorageLimit(limitBytes: bytes)
+		}
+	}
+
+	/// Removes every downloaded original, which is downloaded again when it is next opened.
+	func removeDownloadedOriginals() async throws(ApplicationFault) {
+		try await libraryQuery { library in
+			try await library.removeDownloadedOriginals()
+		}
+	}
+
 	/// Whether a screen shows the library. While attended, the copy reads the archive every minute.
 	func interfaceAttended(_ attended: Bool) {
 		core?.interfaceAttended(attended: attended)

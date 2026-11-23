@@ -10,6 +10,8 @@ struct ApplicationEnvironment {
 	/// connected archive.
 	var sharedContainer: SharedContainer
 	let transferSessions: TransferSessions
+	/// A person's choices, which the isolated environment forgets at every launch.
+	let preferences: ApplicationPreferences
 	/// In a Debug build, an archive to connect at launch and files to send, so a screen examination
 	/// on the simulator needs no typing.
 	var examination: Examination?
@@ -78,10 +80,12 @@ struct ApplicationEnvironment {
 
 	/// The copy in Application Support and its caches in Caches, under the bundle identifier; the
 	/// submissions and the token where the share extension reads them, in the App Group and the
-	/// Keychain access group. The iPhone has no collector, and keeps at most 500 MB of originals.
+	/// Keychain access group. The iPhone has no collector, and keeps originals up to the limit a
+	/// person chose in Settings, 500 MB until then.
 	private static func installed() -> ApplicationEnvironment {
 		let (installation, container) = sharedInstallation()
 		let bundleIdentifier = installation.applicationBundleIdentifier
+		let preferences = ApplicationPreferences(defaults: .standard)
 		return ApplicationEnvironment(
 			applicationConfiguration: ApplicationConfiguration(
 				dataDirectory: URL.applicationSupportDirectory.appending(
@@ -92,12 +96,13 @@ struct ApplicationEnvironment {
 					path: bundleIdentifier,
 					directoryHint: .isDirectory
 				).path(percentEncoded: false),
-				originalStorageLimit: 500_000_000,
+				originalStorageLimit: preferences.originalStorageLimit,
 				credentialStorage: installation.credentialStorage,
 				collection: .absent
 			),
 			sharedContainer: container,
-			transferSessions: .background(installation)
+			transferSessions: .background(installation),
+			preferences: preferences
 		)
 	}
 
@@ -128,8 +133,9 @@ struct ApplicationEnvironment {
 		return environment
 	}
 
-	/// A new temporary directory and a Keychain item under a service name of its own, in the shared
-	/// access group, so a test never reads the state of an installed application. The token is not
+	/// A new temporary directory, preferences emptied at every launch, and a Keychain item under a
+	/// service name of its own, in the shared access group, so a test never reads the state of an
+	/// installed application. The token is not
 	/// kept in process memory, because sending reads it from the Keychain without the core, as the
 	/// share extension does.
 	static func isolated() -> ApplicationEnvironment {
@@ -137,13 +143,17 @@ struct ApplicationEnvironment {
 			path: "schublade_application_\(UUID().uuidString)",
 			directoryHint: .isDirectory
 		)
+		let suite = "org.schublade.iphone.isolated"
+		let defaults = UserDefaults(suiteName: suite) ?? .standard
+		defaults.removePersistentDomain(forName: suite)
+		let preferences = ApplicationPreferences(defaults: defaults)
 		return ApplicationEnvironment(
 			applicationConfiguration: ApplicationConfiguration(
 				dataDirectory: baseDirectory.appending(path: "data", directoryHint: .isDirectory)
 					.path(percentEncoded: false),
 				cacheDirectory: baseDirectory.appending(path: "cache", directoryHint: .isDirectory)
 					.path(percentEncoded: false),
-				originalStorageLimit: nil,
+				originalStorageLimit: preferences.originalStorageLimit,
 				credentialStorage: .sharedKeychain(
 					serviceName: "org.schublade.iphone.isolated.\(UUID().uuidString)",
 					accessGroup: try? SharedInstallation.read().keychainAccessGroup
@@ -154,7 +164,8 @@ struct ApplicationEnvironment {
 				path: "shared",
 				directoryHint: .isDirectory
 			)),
-			transferSessions: .ephemeral
+			transferSessions: .ephemeral,
+			preferences: preferences
 		)
 	}
 	#endif

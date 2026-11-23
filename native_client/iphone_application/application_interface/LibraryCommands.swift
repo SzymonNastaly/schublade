@@ -1,4 +1,3 @@
-import SubmissionQueue
 import UIKit
 
 /// The library's bar items: the scope filter, the search field, and Scan in the toolbar, and More
@@ -99,22 +98,12 @@ final class LibraryCommands: NSObject {
 		]
 	}
 
-	/// Photos and Files while the token may send. Otherwise the one sentence that says why it cannot,
-	/// until Settings says it.
+	/// Photos and Files while the token may send, then Settings, which says why a token cannot.
 	private func moreElements(sendingPermitted: Bool) -> [UIMenuElement] {
-		guard sendingPermitted else {
-			return [
-				UIAction(title: "Sending Unavailable", image: UIImage(systemName: "info.circle")) { [weak self] _ in
-					let alert = UIAlertController(
-						title: "This iPhone Cannot Send",
-						message: ConnectedArchive.restrictionSentence,
-						preferredStyle: .alert
-					)
-					alert.addAction(UIAlertAction(title: "OK", style: .default))
-					self?.screen?.present(alert, animated: true)
-				},
-			]
+		let settings = UIAction(title: "Settings", image: UIImage(systemName: "gearshape")) { [weak self] _ in
+			self?.screen?.openSettings(replacingToken: false)
 		}
-		return [UIMenu(options: .displayInline, children: importActions())]
+		return (sendingPermitted ? [UIMenu(options: .displayInline, children: importActions())] : [])
+			+ [UIMenu(options: .displayInline, children: [settings])]
 	}
 }
