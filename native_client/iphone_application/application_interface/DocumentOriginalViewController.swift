@@ -115,11 +115,24 @@ final class DocumentOriginalViewController: UIViewController {
 
 	/// PDFView leaves its safe area to its scroll view's top alone and ignores a raised bottom, so the
 	/// height the details sheet covers is given to that scroll view as an inset of its own. A page
-	/// then scrolls its last lines above the sheet.
+	/// then scrolls its last lines above the sheet. PDFView centres a page shorter than the space
+	/// it had, so its document is laid out again in the new space and a page left below the bars
+	/// moves up to them.
 	override func viewSafeAreaInsetsDidChange() {
 		super.viewSafeAreaInsetsDidChange()
-		let pages = portableDocumentView.subviews.lazy.compactMap { $0 as? UIScrollView }.first
-		pages?.contentInset.bottom = additionalSafeAreaInsets.bottom
+		guard let pages = portableDocumentView.subviews.lazy.compactMap({ $0 as? UIScrollView }).first,
+		      pages.contentInset.bottom != additionalSafeAreaInsets.bottom
+		else {
+			return
+		}
+		pages.contentInset.bottom = additionalSafeAreaInsets.bottom
+		portableDocumentView.layoutDocumentView()
+		if pages.contentOffset.y < -pages.adjustedContentInset.top {
+			pages.setContentOffset(
+				CGPoint(x: pages.contentOffset.x, y: -pages.adjustedContentInset.top),
+				animated: false
+			)
+		}
 	}
 
 	/// VoiceOver's way to the text from wherever it is on the original, because for a person who
