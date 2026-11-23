@@ -132,8 +132,10 @@ final class SubmissionCoordinator {
 		}
 	}
 
-	/// Removes a submission from the list, and stops its upload if one is under way.
+	/// Removes a submission from the list, and stops its upload if one is under way. A document still
+	/// being written loses its row, and its file is deleted once written instead of being sent.
 	func remove(_ identifier: UUID) {
+		abandon(identifier)
 		Task {
 			for transfer in [sending, attached.transfer].compactMap(\.self) {
 				await transfer.cancel(identifier)
@@ -310,7 +312,7 @@ extension SubmissionCoordinator {
 	}
 
 	/// Moves `document` into the queue and sends it. A document prepared under `identifier` keeps
-	/// its row and its place.
+	/// its row and its place, and one whose row the person removed meanwhile is deleted.
 	func submit(
 		document: URL,
 		fileName: String,
@@ -321,6 +323,10 @@ extension SubmissionCoordinator {
 		preparedAs identifier: UUID? = nil
 	) throws(SubmissionQueue.QueueFailure) {
 		let prepared = preparing.first { $0.identifier == identifier }
+		if identifier != nil, prepared == nil {
+			try? FileManager.default.removeItem(at: document)
+			return
+		}
 		defer {
 			preparing.removeAll { $0.identifier == identifier }
 		}

@@ -1,5 +1,6 @@
 import ApplicationBindings
 import Foundation
+import LibraryPresentation
 import PDFKit
 import SubmissionQueue
 import UIKit
@@ -124,6 +125,29 @@ final class SubmissionTests: XCTestCase {
 		try await waitUntil("the claimed submission is archived") { Self.isArchived(claimed, controller) }
 		try await waitUntil("both documents arrive in the library") { Self.documents(controller) == before + 2 }
 		await controller.gateway.shutdown()
+	}
+
+	/// A scan whose row the person removed while its PDF was written is deleted once written, and
+	/// never queued or sent.
+	@MainActor
+	func testARemovedScanIsNotSentOnceWritten() throws {
+		let controller = ApplicationController(environment: .isolated())
+		let identifier = controller.submissions.prepare(origin: .scan, pageCount: 1)
+		controller.submissions.remove(identifier)
+		XCTAssertEqual(controller.submissions.arrivals(context: .current()), [])
+
+		let scan = try Self.letter("A letter scanned and removed at once")
+		try controller.submissions.submit(
+			document: scan,
+			fileName: "Scan.pdf",
+			kind: .pdf,
+			origin: .scan,
+			pageCount: 1,
+			preparedAs: identifier
+		)
+
+		XCTAssertEqual(controller.submissions.entries, [])
+		XCTAssertFalse(FileManager.default.fileExists(atPath: scan.path(percentEncoded: false)))
 	}
 
 	private static func letter(_ text: String) throws -> URL {
