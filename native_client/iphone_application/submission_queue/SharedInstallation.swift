@@ -93,9 +93,8 @@ public struct ConnectedArchive: Codable, Equatable, Sendable {
 	public let restricted: Bool
 
 	/// Why a restricted token cannot send, for the application and the share extension alike.
-	public static let restrictionSentence = "This token reads only part of your archive, so it cannot send "
-		+ "documents. The archive's answer to an upload could name a document outside that part. To scan "
-		+ "and share, connect a token without a restriction."
+	public static let restrictionSentence = "This token reads only part of your archive, so this iPhone cannot "
+		+ "send documents. To scan and share, replace it with a token without a restriction."
 
 	public init(origin: String, restricted: Bool) {
 		self.origin = origin
