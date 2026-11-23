@@ -33,7 +33,18 @@ final class DocumentCapture: NSObject {
 		}
 		let camera = VNDocumentCameraViewController()
 		camera.delegate = self
-		presenter?.present(camera, animated: animated)
+		presentOnTop(camera, animated: animated)
+	}
+
+	/// Over whatever shows already, such as the search, which the library presents.
+	private func presentOnTop(_ controller: UIViewController, animated: Bool) {
+		guard var top = presenter else {
+			return
+		}
+		while let presented = top.presentedViewController, !presented.isBeingDismissed {
+			top = presented
+		}
+		top.present(controller, animated: animated)
 	}
 
 	func choosePhotos() {
@@ -42,14 +53,14 @@ final class DocumentCapture: NSObject {
 		configuration.selectionLimit = Self.selectionLimit
 		let picker = PHPickerViewController(configuration: configuration)
 		picker.delegate = self
-		presenter?.present(picker, animated: true)
+		presentOnTop(picker, animated: true)
 	}
 
 	func chooseFiles() {
 		let picker = UIDocumentPickerViewController(forOpeningContentTypes: [.pdf, .image], asCopy: true)
 		picker.allowsMultipleSelection = true
 		picker.delegate = self
-		presenter?.present(picker, animated: true)
+		presentOnTop(picker, animated: true)
 	}
 }
 
@@ -232,6 +243,6 @@ extension DocumentCapture: PHPickerViewControllerDelegate, UIDocumentPickerDeleg
 	private func alert(_ title: String, _ message: String) {
 		let alert = UIAlertController(title: title, message: message, preferredStyle: .alert)
 		alert.addAction(UIAlertAction(title: "OK", style: .default))
-		presenter?.present(alert, animated: true)
+		presentOnTop(alert, animated: true)
 	}
 }

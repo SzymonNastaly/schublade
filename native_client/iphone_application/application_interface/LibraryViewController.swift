@@ -11,6 +11,7 @@ final class LibraryViewController: UIViewController, UICollectionViewDelegate {
 		let outcome: LibraryListState.ListingOutcome
 		let scope: LibraryScope
 		let searchText: String
+		let documentCount: UInt32
 	}
 
 	/// A person types faster than a listing is worth reading.
@@ -26,7 +27,14 @@ final class LibraryViewController: UIViewController, UICollectionViewDelegate {
 		submissions: controller.submissions
 	)
 	private let searchController = UISearchController(searchResultsController: nil)
-	private lazy var commands = LibraryCommands(screen: self, capture: capture)
+	private lazy var commands = LibraryCommands(screen: self, capture: capture) { [weak self] in
+		guard let self else {
+			return []
+		}
+		return LibraryScopeMenu.elements(facets: facets, chosen: chosenScope.scope) { [weak self] scope in
+			self?.choose(scope)
+		}
+	}
 
 	private var chosenScope = NamedScope(scope: .allDocuments, name: "All Documents")
 	private var searchText = ""
@@ -38,6 +46,8 @@ final class LibraryViewController: UIViewController, UICollectionViewDelegate {
 	private var newestListingRequest: UInt64 = 0
 	private var searchDelay: Task<Void, Never>?
 	private var refreshStartedAt: Date?
+	/// Counts the pulls, so the fallback of an earlier pull leaves a later one alone.
+	private var refreshNumber: UInt64 = 0
 	private var arrivalMoments = ArrivalMoments()
 	private var hasAppeared = false
 
@@ -53,7 +63,6 @@ final class LibraryViewController: UIViewController, UICollectionViewDelegate {
 
 	override func viewDidLoad() {
 		super.viewDidLoad()
-		title = "Schublade"
 		navigationItem.largeTitleDisplayMode = .always
 		navigationItem.backButtonDisplayMode = .minimal
 		navigationController?.navigationBar.prefersLargeTitles = true
@@ -62,8 +71,16 @@ final class LibraryViewController: UIViewController, UICollectionViewDelegate {
 		searchController.obscuresBackgroundDuringPresentation = false
 		searchController.searchResultsUpdater = commands
 		searchController.delegate = commands
-		searchController.searchBar.placeholder = "Search Documents"
+		searchController.searchBar.placeholder = "Search"
 		navigationItem.searchController = searchController
+		searchController.searchBar.autocapitalizationType = .none
+		if #available(iOS 26, *) {
+			navigationItem.preferredSearchBarPlacement = .integrated
+			// The title keeps naming what the search looks through.
+			searchController.hidesNavigationBarDuringPresentation = false
+		}
+		// The bars blur the rows that scroll under them, at the bottom too.
+		setContentScrollView(list.collectionView)
 		list.refreshControl.addAction(UIAction { [weak self] _ in self?.refresh() }, for: .valueChanged)
 		showScope()
 		follow()
@@ -71,7 +88,11 @@ final class LibraryViewController: UIViewController, UICollectionViewDelegate {
 
 	override func viewWillAppear(_ animated: Bool) {
 		super.viewWillAppear(animated)
-		navigationController?.setToolbarHidden(searchController.isActive, animated: animated)
+		if #available(iOS 26, *) {
+			navigationController?.setToolbarHidden(false, animated: animated)
+		} else {
+			navigationController?.setToolbarHidden(searchController.isActive, animated: animated)
+		}
 		list.deselectAll(animated: animated)
 	}
 
@@ -81,41 +102,6 @@ final class LibraryViewController: UIViewController, UICollectionViewDelegate {
 		// viewfinder is the first thing the person sees.
 		answerScanRequest(animated: hasAppeared)
 		hasAppeared = true
-	}
-
-	/// Takes a pending scan request once this screen is in the window, and opens the camera unless it
-	/// shows already. A request made while it shows is taken too, so that Save does not open the
-	/// camera again. A restricted token cannot send, which an alert says. A document read at the
-	/// time is left, so the row of the scan is in view once the camera closes.
-	func answerScanRequest(animated: Bool = true) {
-		guard let navigation = navigationController, navigation.viewIfLoaded?.window != nil,
-		      ScanRequestCenter.shared.take(),
-		      !(navigation.presentedViewController is VNDocumentCameraViewController)
-		else {
-			return
-		}
-		navigation.popToRootViewController(animated: false)
-		let answer = { [weak self] in
-			guard let self else {
-				return
-			}
-			if controller.sendingPermitted {
-				capture.scan(animated: animated)
-			} else {
-				let alert = UIAlertController(
-					title: "This iPhone Cannot Send",
-					message: ConnectedArchive.restrictionSentence,
-					preferredStyle: .alert
-				)
-				alert.addAction(UIAlertAction(title: "OK", style: .default))
-				present(alert, animated: true)
-			}
-		}
-		guard let presented = presentedViewController ?? navigation.presentedViewController else {
-			answer()
-			return
-		}
-		presented.dismiss(animated: true, completion: answer)
 	}
 
 	func searchTextChanged(_ text: String) {
@@ -168,20 +154,10 @@ final class LibraryViewController: UIViewController, UICollectionViewDelegate {
 		)
 	}
 
-	/// Shows the chosen scope in the subtitle, or before iOS 26 in place of the title.
+	/// The title names what the list shows, and the filter is marked while that is not everything.
 	private func showScope() {
-		let scopeTitle = scopePresentation.title
-		if #available(iOS 26, *) {
-			navigationItem.subtitle = scopeTitle
-		} else {
-			title = chosenScope.scope == .allDocuments ? "Schublade" : scopeTitle
-		}
-		navigationItem.rightBarButtonItem = commands.filterItem(
-			menu: LibraryScopeMenu.menu(facets: facets, chosen: chosenScope.scope) { [weak self] scope in
-				self?.choose(scope)
-			},
-			filtering: chosenScope.scope != .allDocuments
-		)
+		title = scopePresentation.title
+		commands.showFiltering(chosenScope.scope != .allDocuments)
 	}
 
 	private func follow() {
@@ -197,7 +173,6 @@ final class LibraryViewController: UIViewController, UICollectionViewDelegate {
 	private func render() {
 		let sendingPermitted = controller.sendingPermitted
 		let context = WordingContext.current()
-		toolbarItems = commands.toolbarItems(sendingPermitted: sendingPermitted)
 		let searching = !(answer?.searchText ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
 		let arrivals = searching ? [] : controller.submissions.arrivals(context: context)
 		let landed = arrivalMoments.follow(
@@ -205,13 +180,7 @@ final class LibraryViewController: UIViewController, UICollectionViewDelegate {
 			sceneActive: view.window?.windowScene?.activationState == .foregroundActive
 		)
 		guard case let .running(status) = controller.situation else {
-			// The camera opened by a request that started the application shows over this screen
-			// while the core starts, and the row of its scan shows already.
-			list.show(
-				LibraryListContent(state: .awaitingListing, arrivals: arrivals, searchText: nil),
-				notice: nil,
-				context: context
-			)
+			renderStarting(arrivals: arrivals, sendingPermitted: sendingPermitted, context: context)
 			return
 		}
 		thumbnails.contentRevisionChanged(to: status.contentRevision)
@@ -231,7 +200,16 @@ final class LibraryViewController: UIViewController, UICollectionViewDelegate {
 				context: context
 			)
 		} ?? .awaitingListing
-		let unavailable = unavailableConfiguration(state, sendingPermitted: sendingPermitted, searching: searching)
+		commands.arrange(
+			LibraryCommands.Arrangement(sendingPermitted: sendingPermitted, showsFilter: state != .emptyArchive)
+		)
+		showSubtitle(status: status)
+		let unavailable = LibraryEmptyStates.configuration(
+			state,
+			sendingPermitted: sendingPermitted,
+			searching: searching,
+			actions: emptyStateActions
+		)
 		if landed {
 			list.scrollToTop()
 		}
@@ -240,11 +218,32 @@ final class LibraryViewController: UIViewController, UICollectionViewDelegate {
 			notice: unavailable,
 			context: context
 		)
-		contentUnavailableConfiguration = list.isEmpty ? unavailable : nil
+		list.showEmpty(list.isEmpty ? unavailable : nil)
+	}
+
+	/// The camera opened by a request that started the application shows over this screen while the
+	/// core starts, and the row of its scan shows already.
+	private func renderStarting(arrivals: [Arrival], sendingPermitted: Bool, context: WordingContext) {
+		commands.arrange(LibraryCommands.Arrangement(sendingPermitted: sendingPermitted, showsFilter: false))
+		list.show(
+			LibraryListContent(state: .awaitingListing, arrivals: arrivals, searchText: nil),
+			notice: nil,
+			context: context
+		)
 	}
 
 	private func rerender() {
 		render()
+	}
+
+	private var emptyStateActions: LibraryEmptyStates.Actions {
+		LibraryEmptyStates.Actions(
+			scan: { [weak self] in self?.capture.scan(animated: true) },
+			searchAllDocuments: { [weak self] in
+				self?.choose(NamedScope(scope: .allDocuments, name: "All Documents"))
+			},
+			readAgain: { [weak self] in self?.requestListing() }
+		)
 	}
 
 	private func requestListing() {
@@ -259,8 +258,10 @@ final class LibraryViewController: UIViewController, UICollectionViewDelegate {
 		let request = scopePresentation.request
 		Task {
 			let outcome: LibraryListState.ListingOutcome
+			var count: UInt32 = 0
 			do throws(ApplicationFault) {
 				let listing = try await controller.gateway.listDocuments(request: request)
+				count = listing.documentCount()
 				outcome = await .listed(Self.rows(of: listing))
 			} catch {
 				outcome = .failed(error)
@@ -271,9 +272,46 @@ final class LibraryViewController: UIViewController, UICollectionViewDelegate {
 			if case .failed(.Stopped) = outcome {
 				return
 			}
-			answer = ListedAnswer(outcome: outcome, scope: scope, searchText: text)
+			answer = ListedAnswer(outcome: outcome, scope: scope, searchText: text, documentCount: count)
 			rerender()
 		}
+	}
+}
+
+extension LibraryViewController {
+	/// Takes a pending scan request once this screen is in the window, and opens the camera unless it
+	/// shows already. A request made while it shows is taken too, so that Save does not open the
+	/// camera again. A restricted token cannot send, which an alert says. A document read at the
+	/// time is left, so the row of the scan is in view once the camera closes.
+	func answerScanRequest(animated: Bool = true) {
+		guard let navigation = navigationController, navigation.viewIfLoaded?.window != nil,
+		      ScanRequestCenter.shared.take(),
+		      !(navigation.presentedViewController is VNDocumentCameraViewController)
+		else {
+			return
+		}
+		navigation.popToRootViewController(animated: false)
+		let answer = { [weak self] in
+			guard let self else {
+				return
+			}
+			if controller.sendingPermitted {
+				capture.scan(animated: animated)
+			} else {
+				let alert = UIAlertController(
+					title: "This iPhone Cannot Send",
+					message: ConnectedArchive.restrictionSentence,
+					preferredStyle: .alert
+				)
+				alert.addAction(UIAlertAction(title: "OK", style: .default))
+				present(alert, animated: true)
+			}
+		}
+		guard let presented = presentedViewController ?? navigation.presentedViewController else {
+			answer()
+			return
+		}
+		presented.dismiss(animated: true, completion: answer)
 	}
 
 	func collectionView(_: UICollectionView, shouldSelectItemAt indexPath: IndexPath) -> Bool {
@@ -303,17 +341,39 @@ private extension LibraryViewController {
 				return
 			}
 			facets = answer
-			showScope()
 		}
 	}
 
+	/// The pull ends once the copy has read the archive or found it out of reach, and after ten
+	/// seconds at the latest.
 	func refresh() {
 		refreshStartedAt = .now
+		refreshNumber &+= 1
+		let number = refreshNumber
 		controller.gateway.synchronize()
 		Task { [weak self] in
 			try? await Task.sleep(for: .seconds(10))
-			self?.list.refreshControl.endRefreshing()
-			self?.refreshStartedAt = nil
+			guard let self, refreshNumber == number, refreshStartedAt != nil else {
+				return
+			}
+			list.refreshControl.endRefreshing()
+			refreshStartedAt = nil
+		}
+	}
+
+	/// From iOS 26 the subtitle under the title says what a person should know first.
+	func showSubtitle(status: LibraryStatus) {
+		guard #available(iOS 26, *) else {
+			return
+		}
+		let subtitle = LibrarySubtitle.resolve(
+			status: status,
+			searchText: answer?.searchText ?? "",
+			documentCount: answer?.documentCount ?? 0,
+			context: .current()
+		)
+		if navigationItem.subtitle != subtitle {
+			navigationItem.subtitle = subtitle
 		}
 	}
 
@@ -332,61 +392,6 @@ private extension LibraryViewController {
 		if answered {
 			refreshStartedAt = nil
 			list.refreshControl.endRefreshing()
-		}
-	}
-
-	func unavailableConfiguration(
-		_ state: LibraryListState,
-		sendingPermitted: Bool,
-		searching: Bool
-	) -> UIContentUnavailableConfiguration? {
-		switch state {
-		case .documents:
-			return nil
-		case .awaitingListing:
-			return .loading()
-		case let .fillingCopy(status):
-			var loading = UIContentUnavailableConfiguration.loading()
-			loading.text = "Loading Documents…"
-			loading.secondaryText = status.text
-			return loading
-		case let .empty(empty), let .failed(empty):
-			var configuration = UIContentUnavailableConfiguration.search()
-			if case .failed = state {
-				configuration = .empty()
-				configuration.image = UIImage(systemName: "exclamationmark.triangle")
-			} else if !searching {
-				configuration = .empty()
-				configuration.image = UIImage(systemName: "tray")
-			}
-			configuration.text = empty.title
-			configuration.secondaryText = empty.detail
-			if empty.showsSearchAllDocumentsButton {
-				configuration.button = .plain()
-				configuration.button.title = "Search All Documents"
-				configuration.buttonProperties.primaryAction = UIAction { [weak self] _ in
-					self?.choose(NamedScope(scope: .allDocuments, name: "All Documents"))
-				}
-			}
-			return configuration
-		case .emptyArchive:
-			var configuration = UIContentUnavailableConfiguration.empty()
-			configuration.image = UIImage(systemName: "tray")
-			configuration.text = "No Documents Yet"
-			configuration.secondaryText = sendingPermitted
-				? "Scan a letter, or add a PDF or photo. Schublade sends it to your archive, which reads and files it."
-				: "Documents added to your archive in the browser appear here."
-			if sendingPermitted {
-				configuration.button = .filled()
-				configuration.button.title = "Scan"
-				configuration.button.image = UIImage(systemName: "doc.viewfinder")
-				configuration.button.imagePadding = 8
-				configuration.button.cornerStyle = .capsule
-				configuration.buttonProperties.primaryAction = UIAction { [weak self] _ in
-					self?.capture.scan(animated: true)
-				}
-			}
-			return configuration
 		}
 	}
 }

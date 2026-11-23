@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="2 0 64 64">
+	<defs>
+		<mask id="behind_front_sheet">
+			<rect x="0" y="0" width="72" height="72" fill="white"/>
+			<path d="M13 40 L12 20 L34 17.5 L38 40 Z" fill="black" stroke="black" stroke-width="3.6" stroke-linejoin="round"/>
+		</mask>
+	</defs>
+	<g fill="none" stroke="black" stroke-width="3.6" stroke-linejoin="round">
+		<path d="M21 40 L24 12 L50 15 L47 40" mask="url(#behind_front_sheet)"/>
+		<path d="M13 40 L12 20 L34 17.5 L38 40"/>
+	</g>
+	<path fill="black" fill-rule="evenodd" d="M9 38 H57 A3 3 0 0 1 60 41 V59 A3 3 0 0 1 57 62 H9 A3 3 0 0 1 6 59 V41 A3 3 0 0 1 9 38 Z M26.5 47 A3.5 3.5 0 0 0 26.5 54 H39.5 A3.5 3.5 0 0 0 39.5 47 Z"/>
+</svg>

@@ -2,12 +2,14 @@ import ApplicationBindings
 import LibraryPresentation
 import UIKit
 
+/// The scopes a person can show, with their counts. "Arriving" is not among them, because the top
+/// of All Documents shows the same documents, and Failed Documents shows only while there are any.
 enum LibraryScopeMenu {
-	static func menu(
+	static func elements(
 		facets: LibraryFacets?,
 		chosen: LibraryScope,
 		choose: @escaping (NamedScope) -> Void
-	) -> UIMenu {
+	) -> [UIMenuElement] {
 		func action(_ scope: LibraryScope, name: String? = nil, count: UInt64?, symbol: String) -> UIAction {
 			let title = LibraryScopePresentation.resolve(
 				scope: scope,
@@ -36,12 +38,14 @@ enum LibraryScopeMenu {
 			return menu
 		}
 
+		let failed = (facets?.documentsFailed ?? 0) > 0 || chosen == .failed
+			? action(.failed, count: facets?.documentsFailed, symbol: "exclamationmark.triangle")
+			: nil
 		let library = UIMenu(options: .displayInline, children: [
 			action(.allDocuments, count: facets?.documents, symbol: "tray.full"),
 			action(.recentlyAdded, count: nil, symbol: "clock"),
-			action(.inIngestion, count: facets?.documentsInIngestion, symbol: "arrow.down.circle"),
-			action(.failed, count: facets?.documentsFailed, symbol: "exclamationmark.triangle"),
-		])
+			failed,
+		].compactMap(\.self))
 		let household: [UIMenuElement?] = [
 			action(.household, count: facets?.householdDocuments, symbol: "house"),
 			submenu("People", symbol: "person", facets?.members ?? []),
@@ -52,6 +56,6 @@ enum LibraryScopeMenu {
 		]
 		let people = UIMenu(options: .displayInline, children: household.compactMap(\.self))
 		let files = UIMenu(options: .displayInline, children: filing.compactMap(\.self))
-		return UIMenu(title: "Show", children: [library, people, files])
+		return [library, people, files]
 	}
 }

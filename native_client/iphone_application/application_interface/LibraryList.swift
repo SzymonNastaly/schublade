@@ -56,6 +56,7 @@ final class LibraryList {
 		collectionView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
 		collectionView.delegate = presenter
 		collectionView.refreshControl = refreshControl
+		collectionView.alwaysBounceVertical = true
 		collectionView.accessibilityIdentifier = "library.list"
 		view.addSubview(collectionView)
 		dataSource = makeDataSource()
@@ -102,6 +103,19 @@ final class LibraryList {
 		}
 		snapshot.reconfigureItems(revised)
 		dataSource.apply(snapshot, animatingDifferences: collectionView.window != nil)
+	}
+
+	/// The message of an empty list, behind it, so the list can still be pulled to refresh.
+	func showEmpty(_ configuration: UIContentUnavailableConfiguration?) {
+		guard let configuration else {
+			collectionView.backgroundView = nil
+			return
+		}
+		if let shown = collectionView.backgroundView as? UIContentUnavailableView {
+			shown.configuration = configuration
+		} else {
+			collectionView.backgroundView = UIContentUnavailableView(configuration: configuration)
+		}
 	}
 
 	func destination(at indexPath: IndexPath) -> Destination? {
