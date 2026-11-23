@@ -13,6 +13,7 @@ path = "src/bin/scripted_archive_server.rs"
 
 # Every version is an exact pin, and Cargo.lock is committed, so each machine builds the same code.
 [dependencies]
+libc = "=0.2.191"
 archive_access = { path = "../archive_access" }
 archive_replica = { path = "../archive_replica" }
 collection_core = { path = "../collection_core" }

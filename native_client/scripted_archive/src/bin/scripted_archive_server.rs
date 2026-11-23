@@ -933,6 +933,26 @@ struct Options {
     ingest_pace: Option<usize>,
 }
 
+/// Keeps the kernel from taking much more of a body than the server has read, so the client's count
+/// of bytes sent follows the paced read: on loopback the buffers otherwise grow to megabytes, and a
+/// whole scan counts as sent at once. Each accepted connection inherits the listener's buffer.
+fn limit_receive_buffer(listener: &std::net::TcpListener, bytes: usize) {
+    use std::os::fd::AsRawFd;
+    let size = libc::c_int::try_from(bytes.max(1024)).unwrap_or(libc::c_int::MAX);
+    // SAFETY: the descriptor is the listener's own, open for the whole call, and the option value is
+    // a c_int whose size is passed with it.
+    let result = unsafe {
+        libc::setsockopt(
+            listener.as_raw_fd(),
+            libc::SOL_SOCKET,
+            libc::SO_RCVBUF,
+            std::ptr::from_ref(&size).cast(),
+            libc::socklen_t::try_from(size_of::<libc::c_int>()).unwrap_or(4),
+        )
+    };
+    assert_eq!(result, 0, "the receive buffer of the listener can be set");
+}
+
 /// Reads a body whole, or at `pace` bytes per second, a tenth of a second at a time.
 fn read_body(reader: &mut dyn Read, pace: Option<usize>, body: &mut Vec<u8>) -> std::io::Result<()> {
     let Some(pace) = pace else {
@@ -989,7 +1009,11 @@ fn main() {
         seed_corpus(&archive, options.seed);
     }
 
-    let server = tiny_http::Server::http("127.0.0.1:0").expect("a local port is free");
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("a local port is free");
+    if let Some(pace) = options.ingest_pace {
+        limit_receive_buffer(&listener, pace / 10);
+    }
+    let server = tiny_http::Server::from_listener(listener, None).expect("the listener serves HTTP");
     println!("listening http://{}", server.server_addr());
     let _ = std::io::stdout().flush();
     std::thread::spawn(|| {

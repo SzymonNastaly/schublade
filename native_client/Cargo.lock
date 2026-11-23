@@ -1129,6 +1129,7 @@ dependencies = [
  "archive_access",
  "archive_replica",
  "collection_core",
+ "libc",
  "serde",
  "serde_json",
  "sha2",
