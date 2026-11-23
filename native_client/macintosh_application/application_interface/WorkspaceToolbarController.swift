@@ -1,17 +1,22 @@
 import AppKit
 import ApplicationBindings
 import ApplicationPresentation
+import LibraryPresentation
 
 /// Owns the unified window toolbar. Its items stand over the parts of the workspace's split view
 /// they act on, kept there by the system's tracking separators: the sidebar's toggle and Back over
-/// the sidebar, Sort over the list, Share and the search field over the reader, and the inspector's
-/// toggle over the inspector. A page that is not about documents shows only what still applies.
+/// the sidebar, Sort over the list, Original and Text, Share, and the search field over the reader,
+/// and the inspector's toggle over the inspector. A page that is not about documents shows only
+/// what still applies.
 final class WorkspaceToolbarController: NSObject {
 	private static let backIdentifier = NSToolbarItem.Identifier("schublade.back")
 	private static let sortIdentifier = NSToolbarItem.Identifier("schublade.sort")
 	private static let listSeparatorIdentifier = NSToolbarItem.Identifier("schublade.listSeparator")
 	private static let searchIdentifier = NSToolbarItem.Identifier("schublade.search")
 	private static let shareIdentifier = NSToolbarItem.Identifier("schublade.share")
+	private static let readerTabIdentifier = NSToolbarItem.Identifier("schublade.readerTab")
+	/// The tabs of Original and Text, in the order of the group's items.
+	private static let readerTabs: [ReaderTab] = [.original, .text]
 
 	/// When an item of the arrangement shows.
 	private enum Presence {
@@ -29,6 +34,7 @@ final class WorkspaceToolbarController: NSObject {
 		(.flexibleSpace, .whileDocumentsShow),
 		(sortIdentifier, .whileDocumentsShow),
 		(listSeparatorIdentifier, .whileDocumentsShow),
+		(readerTabIdentifier, .whileDocumentsShow),
 		(.flexibleSpace, .always),
 		(shareIdentifier, .whileDocumentsShow),
 		(searchIdentifier, .always),
@@ -42,6 +48,14 @@ final class WorkspaceToolbarController: NSObject {
 	private let sortItem = NSMenuToolbarItem(itemIdentifier: sortIdentifier)
 	private let searchItem = NSSearchToolbarItem(itemIdentifier: searchIdentifier)
 	private let shareItem = NSSharingServicePickerToolbarItem(itemIdentifier: shareIdentifier)
+	private lazy var readerTabGroup = NSToolbarItemGroup(
+		itemIdentifier: Self.readerTabIdentifier,
+		titles: ["Original", "Text"],
+		selectionMode: .selectOne,
+		labels: ["Original", "Text"],
+		target: self,
+		action: #selector(readerTabChosen(_:))
+	)
 	private let sortMenu = NSMenu()
 	/// The places in `arrangement` of the items the toolbar shows now.
 	private var shownPlaces: [Int]
@@ -49,17 +63,20 @@ final class WorkspaceToolbarController: NSObject {
 
 	private let onNavigateBack: () -> Void
 	private let onSelectOrder: (ListingOrder) -> Void
+	private let onSelectReaderTab: (ReaderTab) -> Void
 	private let onSearchTextChanged: (String) -> Void
 	private let shareableItems: () -> [Any]
 
 	init(
 		onNavigateBack: @escaping () -> Void,
 		onSelectOrder: @escaping (ListingOrder) -> Void,
+		onSelectReaderTab: @escaping (ReaderTab) -> Void,
 		onSearchTextChanged: @escaping (String) -> Void,
 		shareableItems: @escaping () -> [Any]
 	) {
 		self.onNavigateBack = onNavigateBack
 		self.onSelectOrder = onSelectOrder
+		self.onSelectReaderTab = onSelectReaderTab
 		self.onSearchTextChanged = onSearchTextChanged
 		self.shareableItems = shareableItems
 		shownPlaces = Self.places(showsBackButton: false, showsDocuments: true)
@@ -103,6 +120,8 @@ final class WorkspaceToolbarController: NSObject {
 			searchItem.searchField.stringValue = navigation.searchText
 		}
 		shareItem.isEnabled = hasSelectedDocument
+		readerTabGroup.isEnabled = hasSelectedDocument
+		readerTabGroup.selectedIndex = Self.readerTabs.firstIndex(of: navigation.readerTab) ?? 0
 	}
 
 	func focusSearchField() {
@@ -125,6 +144,9 @@ final class WorkspaceToolbarController: NSObject {
 		searchItem.preferredWidthForSearchField = 240
 		searchItem.resignsFirstResponderWithCancel = true
 		searchItem.searchField.setAccessibilityIdentifier(InterfaceIdentifier.toolbarSearchField)
+
+		readerTabGroup.label = "View"
+		readerTabGroup.toolTip = "Show the Original or the Extracted Text"
 
 		shareItem.label = "Share"
 		shareItem.toolTip = "Share Original"
@@ -204,6 +226,14 @@ final class WorkspaceToolbarController: NSObject {
 		onSelectOrder(order)
 	}
 
+	@objc private func readerTabChosen(_: Any?) {
+		let index = readerTabGroup.selectedIndex
+		guard Self.readerTabs.indices.contains(index) else {
+			return
+		}
+		onSelectReaderTab(Self.readerTabs[index])
+	}
+
 	@objc private func searchFieldSubmitted() {
 		onSearchTextChanged(searchItem.searchField.stringValue)
 	}
@@ -236,6 +266,8 @@ extension WorkspaceToolbarController: NSToolbarDelegate, NSSearchFieldDelegate {
 			searchItem
 		case Self.shareIdentifier:
 			shareItem
+		case Self.readerTabIdentifier:
+			readerTabGroup
 		default:
 			nil
 		}

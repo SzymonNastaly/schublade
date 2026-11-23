@@ -4,7 +4,7 @@ import Foundation
 import LibraryPresentation
 import Testing
 
-/// The inspector's sections.
+/// The inspector's sections and the reader's placeholders.
 struct ReaderAndInspectorPresentationTests {
 	private static func invoice(tags: [NamedScope]) -> DocumentDetail {
 		DocumentDetail(
@@ -46,5 +46,17 @@ struct ReaderAndInspectorPresentationTests {
 		#expect(inspector.filedUnder.map(\.displayValue) == ["Nordbank AG", "Invoice", "Household"])
 		#expect(inspector.tags == [tag])
 		#expect(inspector.fileFacts.map(\.label) == ["Size", "Added"])
+	}
+
+	@Test func anOriginalOffTheMacOffersToTryAgainAndARefusedTokenToReplaceIt() {
+		let offline = EmptyStatePresentation.originalRefusal(.ArchiveUnreachable, device: MacintoshDevice.wording)
+		#expect(offline.picture == .symbol("wifi.slash"))
+		#expect(offline.title == "The Original Is Not on This Mac")
+		#expect(offline.action == .tryAgain)
+
+		let refused = EmptyStatePresentation.originalRefusal(.CredentialRefused, device: MacintoshDevice.wording)
+		#expect(refused.action == .replaceToken)
+		#expect(EmptyStatePresentation.unprintedEmail(device: MacintoshDevice.wording).picture == .symbol("envelope"))
+		#expect(EmptyStatePresentation.unreadableOriginal.action == nil)
 	}
 }

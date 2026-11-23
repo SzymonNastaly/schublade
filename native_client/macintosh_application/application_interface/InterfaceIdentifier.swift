@@ -29,15 +29,9 @@ public enum InterfaceIdentifier {
 	public static let documentRowThumbnail = "schublade.documentList.row.thumbnail"
 	public static let headingRowTitle = "schublade.documentList.heading.title"
 
-	public static let readerTitleLabel = "schublade.reader.titleLabel"
-	public static let readerSubtitleLabel = "schublade.reader.subtitleLabel"
-	public static let readerTabControl = "schublade.reader.tabControl"
 	public static let readerPortableDocumentView = "schublade.reader.pdfView"
 	public static let readerImageView = "schublade.reader.imageView"
 	public static let readerTextView = "schublade.reader.textView"
-	public static let readerPlaceholderTitle = "schublade.reader.placeholderTitle"
-	public static let readerPlaceholderDetail = "schublade.reader.placeholderDetail"
-	public static let readerPlaceholderAction = "schublade.reader.placeholderAction"
 
 	public static let inspectorScrollView = "schublade.inspector.scrollView"
 	public static let inspectorTitleLabel = "schublade.inspector.titleLabel"

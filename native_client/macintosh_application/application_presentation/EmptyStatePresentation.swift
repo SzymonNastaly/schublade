@@ -15,12 +15,14 @@ public enum EmptyStateAction: Equatable, Sendable {
 	case addFolder
 	case searchAllDocuments
 	case replaceToken
+	case tryAgain
 
 	public var title: String {
 		switch self {
 		case .addFolder: "Add Folder…"
 		case .searchAllDocuments: "Search All Documents"
 		case .replaceToken: "Replace Token…"
+		case .tryAgain: "Try Again"
 		}
 	}
 }

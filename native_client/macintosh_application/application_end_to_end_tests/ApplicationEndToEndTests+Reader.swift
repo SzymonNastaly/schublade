@@ -1,4 +1,5 @@
 import AppKit
+import PDFKit
 import XCTest
 @testable import ApplicationInterface
 
@@ -20,15 +21,15 @@ extension ApplicationEndToEndTests {
 		try await waitForCondition("the amount reads its value again") { !amountRow.showsCopied }
 	}
 
-	/// The reader's Original and Text switch between the page and the extracted text.
+	/// The toolbar's Original and Text switch the reader, and View's items follow them.
 	func verifyReaderTabGroup(in window: NSWindow) async throws {
-		let tabControl = try XCTUnwrap(findView(
-			in: window.contentView,
-			identifier: InterfaceIdentifier.readerTabControl,
-			as: NSSegmentedControl.self
-		))
-		tabControl.selectedSegment = 1
-		tabControl.sendAction(tabControl.action, to: tabControl.target)
+		let group = try XCTUnwrap(window.toolbar?.items.first {
+			$0.itemIdentifier.rawValue == "schublade.readerTab"
+		} as? NSToolbarItemGroup)
+		XCTAssertTrue(group.isEnabled)
+		XCTAssertEqual(group.selectedIndex, 0)
+		group.selectedIndex = 1
+		try NSApp.sendAction(XCTUnwrap(group.action), to: group.target, from: group)
 
 		let textView = try await waitForView(
 			"extracted text in reader Text tab",
@@ -37,8 +38,50 @@ extension ApplicationEndToEndTests {
 			as: NSTextView.self
 		) { $0.enclosingScrollView?.isHidden == false && $0.string.contains("Rechnung Nummer 5") }
 		XCTAssertTrue(textView.string.contains("Rechnung Nummer 5 für Haftpflichtversicherung."))
+		XCTAssertEqual(group.selectedIndex, 1)
+		try await verifyFindNextSelectsTheMatch(in: textView)
 
-		tabControl.selectedSegment = 0
-		tabControl.sendAction(tabControl.action, to: tabControl.target)
+		let workspace = try XCTUnwrap(
+			(NSApp.delegate as? ApplicationDelegate)?.controller.mainWindowController.workspaceController
+		)
+		let textItem = NSMenuItem(
+			title: "Text",
+			action: #selector(LibraryWorkspaceViewController.showExtractedTextRepresentation(_:)),
+			keyEquivalent: "2"
+		)
+		XCTAssertTrue(workspace.validateMenuItem(textItem))
+		XCTAssertEqual(textItem.state, .on)
+
+		workspace.showOriginalRepresentation(nil)
+		try await waitForCondition("Command-1 shows the original and the group follows") {
+			pdfView(in: window)?.isHidden == false && group.selectedIndex == 0
+		}
+	}
+
+	/// A search marks its word in the text, and Find Next and Find Previous select it.
+	func verifyFindNextSelectsTheMatch(in textView: NSTextView) async throws {
+		let windowController = try XCTUnwrap((NSApp.delegate as? ApplicationDelegate)?.controller.mainWindowController)
+		let match = try NSRange(XCTUnwrap(textView.string.range(of: "Haftpflichtversicherung")), in: textView.string)
+		windowController.setSearchText("Haftpflichtversicherung")
+		try await waitForCondition("the text marks the searched word") {
+			textView.textStorage?.attribute(.backgroundColor, at: match.location, effectiveRange: nil) != nil
+		}
+		let findNext = NSMenuItem(
+			title: "Find Next",
+			action: #selector(MainWindowController.findNextMatch(_:)),
+			keyEquivalent: "g"
+		)
+		XCTAssertTrue(windowController.validateMenuItem(findNext))
+		windowController.findNextMatch(nil)
+		XCTAssertEqual(textView.selectedRange(), match)
+		textView.setSelectedRange(NSRange(location: 0, length: 0))
+		windowController.findPreviousMatch(nil)
+		XCTAssertEqual(textView.selectedRange(), match)
+		windowController.setSearchText("")
+		XCTAssertFalse(windowController.validateMenuItem(findNext))
+	}
+
+	func pdfView(in window: NSWindow) -> PDFView? {
+		findView(in: window.contentView, identifier: InterfaceIdentifier.readerPortableDocumentView, as: PDFView.self)
 	}
 }

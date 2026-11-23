@@ -42,7 +42,7 @@ final class DocumentListViewController: NSViewController {
 		switch action {
 		case .addFolder: self?.onRequestAddFolder()
 		case .searchAllDocuments: self?.onRequestSearchAllDocuments()
-		case .replaceToken: break
+		case .replaceToken, .tryAgain: break
 		}
 	}
 

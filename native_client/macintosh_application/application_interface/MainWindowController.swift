@@ -272,6 +272,7 @@ private extension MainWindowController {
 		toolbarController = WorkspaceToolbarController(
 			onNavigateBack: { [weak self] in self?.navigateBack() },
 			onSelectOrder: { [weak self] order in self?.setBrowseOrder(order) },
+			onSelectReaderTab: { [weak self] tab in self?.workspaceController?.setReaderTab(tab) },
 			onSearchTextChanged: { [weak self] query in self?.setSearchText(query) },
 			shareableItems: { [weak self] in self?.workspaceController?.shareableItems() ?? [] }
 		)

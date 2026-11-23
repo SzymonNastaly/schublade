@@ -4,8 +4,9 @@ import ApplicationPresentation
 import LibraryPresentation
 import PDFKit
 
-/// Right-center reader pane showing the header and either the PDF, raster image, placeholder,
-/// or selectable extracted Markdown text.
+/// The reader: the original or the extracted text from the window's top edge to its bottom, so the
+/// page passes under the toolbar's glass, or an empty state in their place. A search's words are
+/// marked in whichever the reader shows, and Find Next and Find Previous step through them.
 final class DocumentReaderViewController: NSViewController {
 	private enum ContentPane {
 		case pdf
@@ -17,18 +18,24 @@ final class DocumentReaderViewController: NSViewController {
 
 	private let queries: any LibraryQueries
 	private let renderMode: InterfaceRenderMode
-	private let onTabChanged: (ReaderTab) -> Void
+	private let onShowTextForMatch: (DocumentIdentifier) -> Void
+	let onOpenOriginal: () -> Void
 	private let onReplaceToken: () -> Void
 
-	private let headerView = ReaderHeaderView()
-	private let contentHost = NSView()
-	private let pdfView = PDFView()
-	private let renderedPdfView = RenderedPortableDocumentView()
-	private let imageReaderView = ImageReaderView()
-	private let textScrollView = NSScrollView()
-	private let textView = NSTextView()
-	private let placeholderView = ReaderPlaceholderView()
+	let pdfView = PDFView()
+	let renderedPdfView = RenderedPortableDocumentView()
+	let imageReaderView = ImageReaderView()
+	let textScrollView = NSScrollView()
+	let textView = NSTextView()
+	private(set) lazy var placeholderView = EmptyStateView { [weak self] action in
+		switch action {
+		case .replaceToken: self?.onReplaceToken()
+		case .tryAgain: self?.reloadCurrentDocumentRepresentations()
+		case .addFolder, .searchAllDocuments: break
+		}
+	}
 
+	private var shownPane: ContentPane?
 	private var activeTab: ReaderTab = .original
 	private var activeDocument: DocumentIdentifier?
 	private var activeDetail: DocumentDetailPresentation?
@@ -41,12 +48,18 @@ final class DocumentReaderViewController: NSViewController {
 	private var originalUnreadable = false
 	private var loadedTextDocument: DocumentIdentifier?
 	private var requestedTextDocument: DocumentIdentifier?
-	private var displayedTextDocument: DocumentIdentifier?
-	private var highlightedTerms: [String]?
 	private var loadedText: String?
 	private var textRefusal: RepresentationRefusal?
 	private var newestOriginalRequest: UInt64 = 0
 	private var newestTextRequest: UInt64 = 0
+
+	private lazy var marks = ReaderSearchMarks(
+		pdfView: pdfView,
+		textView: textView,
+		showsFindIndicator: renderMode == .interactive
+	)
+	/// The document and search for which the reader already chose the tab that shows the matches.
+	private var tabChosenForMatches: ReaderSearchMarks.Placement?
 
 	var focusTargetView: NSView {
 		switch activeTab {
@@ -60,12 +73,14 @@ final class DocumentReaderViewController: NSViewController {
 	init(
 		queries: any LibraryQueries,
 		renderMode: InterfaceRenderMode = .interactive,
-		onTabChanged: @escaping (ReaderTab) -> Void,
+		onShowTextForMatch: @escaping (DocumentIdentifier) -> Void,
+		onOpenOriginal: @escaping () -> Void,
 		onReplaceToken: @escaping () -> Void
 	) {
 		self.queries = queries
 		self.renderMode = renderMode
-		self.onTabChanged = onTabChanged
+		self.onShowTextForMatch = onShowTextForMatch
+		self.onOpenOriginal = onOpenOriginal
 		self.onReplaceToken = onReplaceToken
 		super.init(nibName: nil, bundle: nil)
 	}
@@ -77,13 +92,12 @@ final class DocumentReaderViewController: NSViewController {
 
 	override func loadView() {
 		view = NSView(frame: NSRect(x: 0, y: 0, width: 520, height: 600))
+		view.wantsLayer = true
 	}
 
 	override func viewDidLoad() {
 		super.viewDidLoad()
-		headerView.onTabChanged = onTabChanged
 		configureContentPanes()
-		configureLayout()
 		updateDisplayedContent()
 	}
 
@@ -94,12 +108,12 @@ final class DocumentReaderViewController: NSViewController {
 		searchTerms: [String]
 	) {
 		let documentChanged = document != activeDocument
+		let tabChanged = tab != activeTab
 
 		activeDocument = document
 		activeDetail = detail
 		activeTab = tab
 		activeSearchTerms = searchTerms
-		headerView.render(detail: detail, hasSelection: document != nil, tab: tab)
 
 		if documentChanged {
 			resetLoadedMedia()
@@ -114,6 +128,12 @@ final class DocumentReaderViewController: NSViewController {
 			if tab == .text, loadedTextDocument != document, requestedTextDocument != document {
 				loadText(for: document)
 			}
+		}
+		if tabChanged, !documentChanged, renderMode == .interactive {
+			let dissolve = CATransition()
+			dissolve.type = .fade
+			dissolve.duration = 0.2
+			view.layer?.add(dissolve, forKey: "tabDissolve")
 		}
 		updateDisplayedContent()
 	}
@@ -145,6 +165,28 @@ final class DocumentReaderViewController: NSViewController {
 		}
 	}
 
+	/// The surface whose marks Find Next and Find Previous step through: the shown page or text.
+	private var markedSurface: ReaderSearchMarks.Surface? {
+		switch shownPane {
+		case .pdf: .page
+		case .text: .text
+		default: nil
+		}
+	}
+
+	var hasMatches: Bool {
+		markedSurface.map { marks.count(on: $0) > 0 } ?? false
+	}
+
+	/// Shows the next match, or the previous one for a negative step.
+	func showMatch(advancingBy step: Int) {
+		markedSurface.map { marks.step(by: step, on: $0) }
+	}
+
+	private var searchPlacement: ReaderSearchMarks.Placement? {
+		activeDocument.map { ReaderSearchMarks.Placement(document: $0, terms: activeSearchTerms) }
+	}
+
 	private func resetLoadedMedia() {
 		newestOriginalRequest &+= 1
 		newestTextRequest &+= 1
@@ -155,20 +197,17 @@ final class DocumentReaderViewController: NSViewController {
 		originalUnreadable = false
 		loadedTextDocument = nil
 		requestedTextDocument = nil
-		displayedTextDocument = nil
-		highlightedTerms = nil
 		loadedText = nil
 		textRefusal = nil
+		marks.reset()
 		pdfView.document = nil
 		renderedPdfView.display(document: nil)
 		imageReaderView.display(image: nil)
-		textView.string = ""
 	}
 
 	private func updateDisplayedContent() {
 		guard activeDocument != nil else {
-			placeholderView.render(title: "No Document Selected", detail: "", buttonTitle: nil, onAction: nil)
-			showOnly(.placeholder)
+			showPlaceholder(.noDocumentSelected)
 			return
 		}
 		if activeTab == .text {
@@ -181,11 +220,13 @@ final class DocumentReaderViewController: NSViewController {
 	private func displayOriginalTab() {
 		if let refusal = originalRefusal {
 			let device = MacintoshDevice.wording
-			showPlaceholder(for: LibraryFailureWording.originalRefusalPlaceholder(refusal, device: device))
+			showPlaceholder(activeDetail?.originalKind == .unprintedEmail
+				? .unprintedEmail(device: device)
+				: .originalRefusal(refusal, device: device))
 			return
 		}
 		if originalUnreadable {
-			showPlaceholder(for: LibraryFailureWording.unreadableOriginalPlaceholder)
+			showPlaceholder(.unreadableOriginal)
 			return
 		}
 		// A render follows every status, so each pane is given its content only when it changed:
@@ -197,16 +238,9 @@ final class DocumentReaderViewController: NSViewController {
 			} else {
 				if pdfView.document !== portableDocument {
 					pdfView.document = portableDocument
-					highlightedTerms = nil
-				}
-				if highlightedTerms != activeSearchTerms {
-					highlightedTerms = activeSearchTerms
-					pdfView.highlightedSelections = SearchWordHighlighting.selections(
-						in: portableDocument,
-						terms: activeSearchTerms
-					)
 				}
 				showOnly(.pdf)
+				searchPlacement.map { marks.mark(portableDocument, as: $0) }
 			}
 			return
 		}
@@ -217,83 +251,66 @@ final class DocumentReaderViewController: NSViewController {
 			showOnly(.image)
 			return
 		}
-		placeholderView.render(title: "Loading Original…", detail: "", buttonTitle: nil, onAction: nil)
-		showOnly(.placeholder)
+		showPlaceholder(.loadingOriginal)
 	}
 
 	private func displayTextTab() {
 		if let refusal = textRefusal {
-			showPlaceholder(for: LibraryFailureWording.extractedTextRefusalPlaceholder(refusal))
+			showPlaceholder(.textRefusal(refusal))
 			return
 		}
-		if let text = loadedText {
-			if displayedTextDocument != loadedTextDocument {
-				displayedTextDocument = loadedTextDocument
-				textView.string = text
+		guard let text = loadedText, let placement = searchPlacement, loadedTextDocument == activeDocument else {
+			showPlaceholder(.loadingText)
+			return
+		}
+		showOnly(.text)
+		marks.mark(text, as: placement)
+	}
+}
+
+private extension DocumentReaderViewController {
+	/// Opens a search's match in the Text tab when the original shows nothing to mark, as a scan or
+	/// a picture, and the text holds the words. It decides once per document and search, and only
+	/// while the original shows, so a person who turns back to the original stays there.
+	func showTextForMatchIfNeeded() {
+		guard let placement = searchPlacement, !placement.terms.isEmpty, activeTab == .original,
+		      tabChosenForMatches != placement
+		else {
+			return
+		}
+		let document = placement.document
+		if let portableDocument = loadedPortableDocument {
+			if marks.pageHoldsMatches(of: placement, in: portableDocument) {
+				tabChosenForMatches = placement
+				return
 			}
-			showOnly(.text)
+		} else if loadedImage == nil, originalRefusal == nil, !originalUnreadable {
 			return
 		}
-		placeholderView.render(title: "Loading Text…", detail: "", buttonTitle: nil, onAction: nil)
-		showOnly(.placeholder)
+		guard loadedTextDocument == document else {
+			if requestedTextDocument != document {
+				loadText(for: document)
+			}
+			return
+		}
+		tabChosenForMatches = placement
+		if let text = loadedText, !SearchWordHighlighting.ranges(in: text, terms: activeSearchTerms).isEmpty {
+			onShowTextForMatch(document)
+		}
 	}
 
 	private func showOnly(_ pane: ContentPane) {
+		shownPane = pane
 		pdfView.isHidden = pane != .pdf
 		renderedPdfView.isHidden = pane != .renderedPdf
 		imageReaderView.isHidden = pane != .image
 		textScrollView.isHidden = pane != .text
 		placeholderView.isHidden = pane != .placeholder
 	}
-}
 
-private extension DocumentReaderViewController {
-	func configureContentPanes() {
-		pdfView.autoScales = true
-		pdfView.displayMode = .singlePageContinuous
-		pdfView.displaysPageBreaks = true
-		pdfView.backgroundColor = InterfacePalette.readerBackdrop
-		pdfView.setAccessibilityIdentifier(InterfaceIdentifier.readerPortableDocumentView)
-
-		textView.isEditable = false
-		textView.isRichText = false
-		textView.font = NSFont.systemFont(ofSize: NSFont.systemFontSize)
-		textView.textContainerInset = NSSize(width: 24, height: 20)
-		textView.autoresizingMask = [.width]
-		textView.setAccessibilityIdentifier(InterfaceIdentifier.readerTextView)
-
-		textScrollView.documentView = textView
-		textScrollView.hasVerticalScroller = true
-
-		for pane in [pdfView, renderedPdfView, imageReaderView, textScrollView, placeholderView] {
-			pane.translatesAutoresizingMaskIntoConstraints = false
-			pane.isHidden = true
-			contentHost.addSubview(pane)
-			NSLayoutConstraint.activate([
-				pane.topAnchor.constraint(equalTo: contentHost.topAnchor),
-				pane.leadingAnchor.constraint(equalTo: contentHost.leadingAnchor),
-				pane.trailingAnchor.constraint(equalTo: contentHost.trailingAnchor),
-				pane.bottomAnchor.constraint(equalTo: contentHost.bottomAnchor),
-			])
-		}
-	}
-
-	func configureLayout() {
-		headerView.translatesAutoresizingMaskIntoConstraints = false
-		contentHost.translatesAutoresizingMaskIntoConstraints = false
-		view.addSubview(headerView)
-		view.addSubview(contentHost)
-
-		NSLayoutConstraint.activate([
-			// Below the toolbar, which the window's full-size content would otherwise put over it.
-			headerView.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
-			headerView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-			headerView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-			contentHost.topAnchor.constraint(equalTo: headerView.bottomAnchor),
-			contentHost.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-			contentHost.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-			contentHost.bottomAnchor.constraint(equalTo: view.bottomAnchor),
-		])
+	func showPlaceholder(_ presentation: EmptyStatePresentation) {
+		placeholderView.render(presentation)
+		showOnly(.placeholder)
 	}
 
 	func loadOriginal(for document: DocumentIdentifier, detail: DocumentDetailPresentation?) {
@@ -337,14 +354,14 @@ private extension DocumentReaderViewController {
 				}
 				originalUnreadable = true
 			}
-			updateDisplayedContent()
 		} catch {
 			guard requestNumber == newestOriginalRequest, document == activeDocument else {
 				return
 			}
 			originalRefusal = error
-			updateDisplayedContent()
 		}
+		updateDisplayedContent()
+		showTextForMatchIfNeeded()
 	}
 
 	func loadText(for document: DocumentIdentifier) {
@@ -362,39 +379,16 @@ private extension DocumentReaderViewController {
 			guard requestNumber == newestTextRequest, document == activeDocument else {
 				return
 			}
-			loadedTextDocument = document
 			loadedText = markdown
 			textRefusal = nil
-			updateDisplayedContent()
 		} catch {
 			guard requestNumber == newestTextRequest, document == activeDocument else {
 				return
 			}
-			loadedTextDocument = document
 			textRefusal = error
-			updateDisplayedContent()
 		}
-	}
-
-	func showPlaceholder(for placeholder: RepresentationPlaceholder) {
-		let buttonTitle: String?
-		let action: (() -> Void)?
-		if placeholder.allowsTokenReplacement {
-			buttonTitle = "Replace Token…"
-			action = { [weak self] in self?.onReplaceToken() }
-		} else if placeholder.canRetry {
-			buttonTitle = "Try Again"
-			action = { [weak self] in self?.reloadCurrentDocumentRepresentations() }
-		} else {
-			buttonTitle = nil
-			action = nil
-		}
-		placeholderView.render(
-			title: placeholder.title,
-			detail: placeholder.detail,
-			buttonTitle: buttonTitle,
-			onAction: action
-		)
-		showOnly(.placeholder)
+		loadedTextDocument = document
+		updateDisplayedContent()
+		showTextForMatchIfNeeded()
 	}
 }

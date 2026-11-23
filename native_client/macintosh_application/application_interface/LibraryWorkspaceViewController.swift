@@ -39,6 +39,8 @@ public final class LibraryWorkspaceViewController: NSSplitViewController {
 	private var requestedInspectorVisible = true
 	private var dividersPlaced = false
 	private var hasAppeared = false
+	/// The document the reader turned to its text for a search's match, which a person did not choose.
+	var textTabChosenForMatch: DocumentIdentifier?
 
 	public init(
 		queries: any LibraryQueries,
@@ -72,7 +74,8 @@ public final class LibraryWorkspaceViewController: NSSplitViewController {
 		readerController = DocumentReaderViewController(
 			queries: queries,
 			renderMode: renderMode,
-			onTabChanged: { target?.setReaderTab($0) },
+			onShowTextForMatch: { target?.showTextForMatch(in: $0) },
+			onOpenOriginal: { target?.openSelectedDocumentDefaultApplication(nil) },
 			onReplaceToken: { target?.onReplaceTokenRequested?() }
 		)
 		inspectorController = DocumentInspectorViewController(
@@ -349,11 +352,21 @@ private extension LibraryWorkspaceViewController {
 		}
 	}
 
+	/// A text the reader chose for a match gives way to the original once the search is over.
 	func handleSelectionChanged(_ document: DocumentIdentifier?) {
 		guard document != latestNavigation.selectedDocument else {
 			return
 		}
-		onNavigationChange? { $0.selectedDocument = document }
+		let returnsToOriginal = textTabChosenForMatch != nil && latestNavigation.searchTerms.isEmpty
+		if returnsToOriginal {
+			textTabChosenForMatch = nil
+		}
+		onNavigationChange? { navigation in
+			navigation.selectedDocument = document
+			if returnsToOriginal {
+				navigation.readerTab = .original
+			}
+		}
 	}
 
 	func detailLoaded(_ detail: DocumentDetail, for document: DocumentIdentifier) {

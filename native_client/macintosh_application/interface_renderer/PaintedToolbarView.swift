@@ -1,11 +1,13 @@
 import AppKit
 import ApplicationInterface
+import LibraryPresentation
 
 /// Painted stand-in for macOS unified toolbar glass, which renders black or transparent offscreen.
 /// It sets the items where the window's toolbar sets them, over the parts of the workspace's split
-/// view: the sidebar's toggle and Back over the sidebar, the title and Sort over the list, Share
-/// and the search field over the reader, and the inspector's toggle at the trailing edge. A page
-/// that collapsed the list and the inspector shows only the search field after the title.
+/// view: the sidebar's toggle and Back over the sidebar, the title and Sort over the list, Original
+/// and Text, Share, and the search field over the reader, and the inspector's toggle at the
+/// trailing edge. A page that collapsed the list and the inspector shows only the search field
+/// after the title.
 final class PaintedToolbarView: NSView {
 	/// Where the parts of the split view end, read from it once the scene has laid out.
 	private struct Sections {
@@ -24,6 +26,14 @@ final class PaintedToolbarView: NSView {
 	private let shareSymbol = PaintedToolbarView.makeSymbolView("square.and.arrow.up")
 	private let inspectorSymbol = PaintedToolbarView.makeSymbolView("sidebar.trailing")
 	private let searchPill: NSView
+	private let readerTabControl = NSSegmentedControl(
+		labels: ["Original", "Text"],
+		trackingMode: .selectOne,
+		target: nil,
+		action: nil
+	)
+	/// The group as the toolbar shows it once the segments no longer fit: a pop-up of the two tabs.
+	private let collapsedReaderTabs = NSPopUpButton(frame: .zero, pullsDown: false)
 	private var sections: Sections?
 
 	init(
@@ -32,12 +42,20 @@ final class PaintedToolbarView: NSView {
 		searchText: String,
 		searchPlaceholder: String,
 		showsBackButton: Bool,
+		readerTab: ReaderTab,
+		hasSelectedDocument: Bool,
 		width: CGFloat
 	) {
 		searchPill = Self.makeSearchPill(text: searchText, placeholder: searchPlaceholder)
 		super.init(frame: NSRect(x: 0, y: 0, width: width, height: Self.height))
 		wantsLayer = true
 		backSymbol.isHidden = !showsBackButton
+		readerTabControl.selectedSegment = readerTab == .text ? 1 : 0
+		readerTabControl.isEnabled = hasSelectedDocument
+		collapsedReaderTabs.addItems(withTitles: ["Original", "Text"])
+		collapsedReaderTabs.selectItem(at: readerTabControl.selectedSegment)
+		collapsedReaderTabs.isEnabled = hasSelectedDocument
+		collapsedReaderTabs.isHidden = true
 
 		let titleLabel = NSTextField(labelWithString: title)
 		titleLabel.font = NSFont.systemFont(ofSize: NSFont.systemFontSize, weight: .semibold)
@@ -51,7 +69,11 @@ final class PaintedToolbarView: NSView {
 		titleStack.alignment = .leading
 		titleStack.spacing = 0
 
-		for view in [sidebarSymbol, backSymbol, titleStack, sortSymbol, shareSymbol, searchPill, inspectorSymbol] {
+		let views = [
+			sidebarSymbol, backSymbol, titleStack, sortSymbol, readerTabControl, collapsedReaderTabs, shareSymbol,
+			searchPill, inspectorSymbol,
+		]
+		for view in views {
 			view.translatesAutoresizingMaskIntoConstraints = true
 			addSubview(view)
 		}
@@ -110,6 +132,7 @@ final class PaintedToolbarView: NSView {
 		)
 		shareSymbol.isHidden = !showsDocuments
 		sortSymbol.isHidden = !showsDocuments
+		readerTabControl.isHidden = !showsDocuments
 		if showsDocuments {
 			place(shareSymbol, trailing: searchPill.frame.minX - 14)
 		}
@@ -117,6 +140,7 @@ final class PaintedToolbarView: NSView {
 		let titleLeading = sections.sidebarEnd + 14
 		var titleEnd = searchPill.frame.minX - 14
 		if let listEnd = sections.listEnd {
+			placeReaderTabs(leading: listEnd + 12)
 			place(sortSymbol, trailing: listEnd - 14)
 			titleEnd = sortSymbol.frame.minX - 8
 		}
@@ -127,6 +151,29 @@ final class PaintedToolbarView: NSView {
 			width: max(0, min(titleStack.fittingSize.width, titleEnd - titleLeading)),
 			height: titleHeight
 		)
+	}
+
+	/// Measured at the window's minimum width on macOS 26: once the segments no longer fit, the
+	/// toolbar shows the group as a pop-up and moves Share into its overflow menu.
+	private func placeReaderTabs(leading: CGFloat) {
+		place(readerTabControl, leading: leading)
+		let collapses = readerTabControl.frame.maxX > shareSymbol.frame.minX - 8
+		readerTabControl.isHidden = collapses
+		collapsedReaderTabs.isHidden = !collapses
+		if collapses {
+			place(collapsedReaderTabs, leading: leading)
+			collapsedReaderTabs.sizeToFit()
+			shareSymbol.image = NSImage(systemSymbolName: "chevron.forward.2", accessibilityDescription: nil)
+			place(shareSymbol, leading: collapsedReaderTabs.frame.maxX + 10)
+			// The search field gives up width before it covers the items beside it.
+			let searchLeading = max(searchPill.frame.minX, shareSymbol.frame.maxX + 10)
+			searchPill.frame = NSRect(
+				x: searchLeading,
+				y: searchPill.frame.minY,
+				width: searchPill.frame.maxX - searchLeading,
+				height: searchPill.frame.height
+			)
+		}
 	}
 
 	override func draw(_ dirtyRect: NSRect) {

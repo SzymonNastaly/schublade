@@ -123,6 +123,8 @@ final class ScreenRenderer {
 				searchText: navigation.searchText,
 				searchPlaceholder: workspace.searchPlaceholder,
 				showsBackButton: workspace.showsBackButton,
+				readerTab: navigation.readerTab,
+				hasSelectedDocument: navigation.selectedDocument != nil,
 				width: windowSize.width
 			)
 			let host = makeToolbarHost(toolbar: toolbar, contentController: workspaceController, size: windowSize)

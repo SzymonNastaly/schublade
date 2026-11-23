@@ -7,7 +7,6 @@ final class RenderedPortableDocumentView: NSView {
 	private final class PageCanvasView: NSView {
 		var document: PDFDocument? {
 			didSet {
-				updateFrame()
 				needsDisplay = true
 			}
 		}
@@ -16,21 +15,23 @@ final class RenderedPortableDocumentView: NSView {
 			true
 		}
 
-		func updateFrame() {
-			guard let document, document.pageCount > 0 else {
-				frame = NSRect(x: 0, y: 0, width: 480, height: 640)
-				return
-			}
-			let contentWidth: CGFloat = 520
+		/// Fits the pages to a width, as `PDFView` does with `autoScales`, and grows to hold them.
+		func fit(width: CGFloat, minimumHeight: CGFloat) {
 			var totalHeight: CGFloat = 20
-			for pageIndex in 0 ..< min(document.pageCount, 3) {
-				if let page = document.page(at: pageIndex) {
-					let mediaBox = page.bounds(for: .mediaBox)
-					let aspect = mediaBox.width > 0 ? mediaBox.height / mediaBox.width : 1.414
-					totalHeight += (contentWidth - 40) * aspect + 16
+			if let document {
+				for pageIndex in 0 ..< min(document.pageCount, 3) {
+					if let page = document.page(at: pageIndex) {
+						let mediaBox = page.bounds(for: .mediaBox)
+						let aspect = mediaBox.width > 0 ? mediaBox.height / mediaBox.width : 1.414
+						totalHeight += Self.pageWidth(in: width) * aspect + 16
+					}
 				}
 			}
-			frame = NSRect(x: 0, y: 0, width: contentWidth, height: max(totalHeight, 640))
+			frame = NSRect(x: 0, y: 0, width: width, height: max(totalHeight, minimumHeight))
+		}
+
+		static func pageWidth(in width: CGFloat) -> CGFloat {
+			max(width - 40, 200)
 		}
 
 		override func draw(_ dirtyRect: NSRect) {
@@ -43,7 +44,7 @@ final class RenderedPortableDocumentView: NSView {
 			guard let document else {
 				return
 			}
-			let pageWidth = max(bounds.width - 40, 200)
+			let pageWidth = Self.pageWidth(in: bounds.width)
 			var verticalOffset: CGFloat = 20
 
 			for pageIndex in 0 ..< min(document.pageCount, 3) {
@@ -100,11 +101,11 @@ final class RenderedPortableDocumentView: NSView {
 
 	override func layout() {
 		super.layout()
-		canvasView.frame.size.width = max(scrollView.contentSize.width, 400)
-		canvasView.updateFrame()
+		canvasView.fit(width: scrollView.contentSize.width, minimumHeight: scrollView.contentSize.height)
 	}
 
 	func display(document: PDFDocument?) {
 		canvasView.document = document
+		needsLayout = true
 	}
 }

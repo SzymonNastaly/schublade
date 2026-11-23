@@ -131,20 +131,17 @@ enum MainMenuBuilder {
 			action: #selector(LibraryWorkspaceViewController.focusSearchFieldAction(_:)),
 			keyEquivalent: "f"
 		)
-		let findNext = findMenu.addItem(
+		findMenu.addItem(
 			withTitle: "Find Next",
-			action: #selector(NSResponder.performTextFinderAction(_:)),
+			action: #selector(MainWindowController.findNextMatch(_:)),
 			keyEquivalent: "g"
 		)
-		findNext.tag = NSTextFinder.Action.nextMatch.rawValue
-		let findPrevious = item(
+		findMenu.addItem(item(
 			"Find Previous",
-			#selector(NSResponder.performTextFinderAction(_:)),
+			#selector(MainWindowController.findPreviousMatch(_:)),
 			key: "G",
 			modifiers: [.command, .shift]
-		)
-		findPrevious.tag = NSTextFinder.Action.previousMatch.rawValue
-		findMenu.addItem(findPrevious)
+		))
 		find.submenu = findMenu
 		menu.addItem(find)
 		root.submenu = menu

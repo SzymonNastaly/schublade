@@ -30,6 +30,7 @@ final class WorkspacePageViewController: NSViewController {
 			case .addFolder: onAddFolder()
 			case .replaceToken: onReplaceToken()
 			case .searchAllDocuments: onNavigate(.library(.allDocuments, title: nil), nil)
+			case .tryAgain: break
 			}
 		}
 		notice.view = noticeView
