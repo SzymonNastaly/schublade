@@ -31,7 +31,10 @@ final class ShareViewController: UIViewController {
 			)
 		) { attempt, answer in
 			_ = try? queue.receive(answer, for: attempt)
-		} onProgress: { _, _ in }
+		} onProgress: { _, _ in
+		} onSessionEvent: { _, _ in
+			// The system launches the application, never the extension, for the session's events.
+		}
 	}()
 
 	private let messageLabel = UILabel()

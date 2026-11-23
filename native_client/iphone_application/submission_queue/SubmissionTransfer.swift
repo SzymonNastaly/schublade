@@ -12,29 +12,50 @@ public final class SubmissionTransfer: NSObject, URLSessionDataDelegate, Sendabl
 	public typealias AnswerHandler = @Sendable (SubmissionAttempt, DocumentSubmissionAnswer?) -> Void
 	/// The fraction of a submission's body sent so far.
 	public typealias ProgressHandler = @Sendable (UUID, Double) -> Void
+	/// The system's completion handler of one launch of the process for this session's events.
+	public typealias BackgroundEventsCompletion = @MainActor @Sendable () -> Void
+	/// What the session reports about the launches for its events, from its own queue.
+	public typealias SessionEventHandler = @Sendable (SubmissionTransfer, SessionEvent) -> Void
 
-	private struct State {
-		var session: URLSession?
-		var answerBodies: [Int: Data] = [:]
-		var backgroundEventsCompletions: [@MainActor @Sendable () -> Void] = []
+	/// Each event hands its owner the completion handlers this transfer held, because the owner may
+	/// have to let the session go before it calls them: the process can be suspended right after.
+	public enum SessionEvent: Sendable {
+		/// The session delivered the events of the launches whose handlers it held.
+		case eventsDelivered([BackgroundEventsCompletion])
+		/// The session ended after `invalidate()` and holds nothing any more.
+		case ended([BackgroundEventsCompletion])
 	}
 
-	private let state = Mutex(State())
+	private struct State {
+		/// Nil once the session ended.
+		var session: URLSession?
+		var answerBodies: [Int: Data] = [:]
+		var backgroundEventsCompletions: [BackgroundEventsCompletion]
+	}
+
+	private let state: Mutex<State>
 	/// The background session's identifier, nil for a session that ends with the process.
 	public let sessionIdentifier: String?
 	private let onAnswer: AnswerHandler
 	private let onProgress: ProgressHandler
+	private let onSessionEvent: SessionEventHandler
 
 	/// `configuration` is a background configuration in the application, and the default one in a
-	/// test, where a background session cannot deliver its events to the test process.
+	/// test, where a background session cannot deliver its events to the test process. A session
+	/// created for a launch for its events receives that launch's completion handler here, before
+	/// the session exists, because the session may deliver every event before this returns.
 	public init(
 		configuration: URLSessionConfiguration,
+		backgroundEventsCompletion: BackgroundEventsCompletion? = nil,
 		onAnswer: @escaping AnswerHandler,
-		onProgress: @escaping ProgressHandler
+		onProgress: @escaping ProgressHandler,
+		onSessionEvent: @escaping SessionEventHandler
 	) {
 		sessionIdentifier = configuration.identifier
+		state = Mutex(State(backgroundEventsCompletions: backgroundEventsCompletion.map { [$0] } ?? []))
 		self.onAnswer = onAnswer
 		self.onProgress = onProgress
+		self.onSessionEvent = onSessionEvent
 		super.init()
 		let session = URLSession(configuration: configuration, delegate: self, delegateQueue: nil)
 		state.withLock { $0.session = session }
@@ -90,19 +111,24 @@ public final class SubmissionTransfer: NSObject, URLSessionDataDelegate, Sendabl
 		}
 	}
 
-	/// Holds the system's completion handler of a launch for this session's events, which the
-	/// session calls once it delivered them.
-	public func handleBackgroundEvents(completion: @escaping @MainActor @Sendable () -> Void) {
-		state.withLock { $0.backgroundEventsCompletions.append(completion) }
+	/// Holds the system's completion handler of another launch for this session's events until the
+	/// session reports them delivered or ends. Answers false when the session ended already, which
+	/// then holds nothing.
+	@discardableResult
+	public func handleBackgroundEvents(completion: @escaping BackgroundEventsCompletion) -> Bool {
+		state.withLock { state in
+			guard state.session != nil else {
+				return false
+			}
+			state.backgroundEventsCompletions.append(completion)
+			return true
+		}
 	}
 
-	/// Lets the session go once its tasks end, so that another process may create it.
+	/// Lets the session go once its tasks end, so that another process may create it. Until then it
+	/// delivers the answers of those tasks, and then it reports `ended`.
 	public func invalidate() {
-		let session = state.withLock { state in
-			defer { state.session = nil }
-			return state.session
-		}
-		session?.finishTasksAndInvalidate()
+		state.withLock { $0.session }?.finishTasksAndInvalidate()
 	}
 
 	public func urlSession(_: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
@@ -144,10 +170,17 @@ public final class SubmissionTransfer: NSObject, URLSessionDataDelegate, Sendabl
 			defer { state.backgroundEventsCompletions = [] }
 			return state.backgroundEventsCompletions
 		}
-		Task { @MainActor in
-			for completion in completions {
-				completion()
+		onSessionEvent(self, .eventsDelivered(completions))
+	}
+
+	public func urlSession(_: URLSession, didBecomeInvalidWithError _: (any Error)?) {
+		let completions = state.withLock { state in
+			defer {
+				state.session = nil
+				state.backgroundEventsCompletions = []
 			}
+			return state.backgroundEventsCompletions
 		}
+		onSessionEvent(self, .ended(completions))
 	}
 }

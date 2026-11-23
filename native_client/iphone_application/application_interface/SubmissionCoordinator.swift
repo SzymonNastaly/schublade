@@ -9,6 +9,27 @@ import SubmissionQueue
 /// the library to read the archive once a submission is archived.
 @Observable
 final class SubmissionCoordinator {
+	/// The share extension's session in this process. One process at a time may use a background
+	/// session, so the application creates it only when the system launches the application for its
+	/// events, and lets it go once they are delivered, so that a later share can upload in it.
+	private enum AttachedSession {
+		/// No session under the extension's identifier exists in this process.
+		case absent
+		/// The session delivers the events of the launches whose completion handlers it holds.
+		case delivering(SubmissionTransfer)
+		/// The session finishes the uploads still under way, delivers their answers, and ends. A
+		/// launch for its events meanwhile is handed to it, because a second session under the
+		/// identifier would receive nothing and would hold the identifier against the next share.
+		case invalidating(SubmissionTransfer)
+
+		var transfer: SubmissionTransfer? {
+			switch self {
+			case .absent: nil
+			case let .delivering(transfer), let .invalidating(transfer): transfer
+			}
+		}
+	}
+
 	private(set) var entries: [SubmissionEntry] = []
 	private(set) var progress: [UUID: Double] = [:]
 
@@ -18,10 +39,7 @@ final class SubmissionCoordinator {
 	@ObservationIgnored private var sessions: ApplicationEnvironment.TransferSessions?
 	/// The application's own session, which sends.
 	@ObservationIgnored private var sending: SubmissionTransfer?
-	/// The share extension's session while the system delivers its answers to the application.
-	/// One process at a time may use a background session, so the application lets it go once they
-	/// are delivered, and a later share can upload in it.
-	@ObservationIgnored private var attached: SubmissionTransfer?
+	@ObservationIgnored private var attached = AttachedSession.absent
 	@ObservationIgnored private var inFlight: Set<UUID> = []
 	@ObservationIgnored private var resumption: Task<Void, Never>?
 	/// The archive's origin while one is connected.
@@ -52,26 +70,54 @@ final class SubmissionCoordinator {
 			completion()
 			return
 		}
-		let attached = attached ?? transfer(configuration: configuration)
-		self.attached = attached
-		attached.handleBackgroundEvents { @MainActor [weak self] in
-			completion()
-			attached.invalidate()
-			if self?.attached === attached {
-				self?.attached = nil
-			}
+		// A session that ended before its report reached this actor holds nothing, and its
+		// identifier is free for a new one.
+		if let transfer = attached.transfer, transfer.handleBackgroundEvents(completion: completion) {
+			return
 		}
+		attached = .delivering(transfer(configuration: configuration, backgroundEventsCompletion: completion))
 	}
 
-	private func transfer(configuration: URLSessionConfiguration) -> SubmissionTransfer {
-		SubmissionTransfer(configuration: configuration) { [weak self] attempt, answer in
+	/// The answers are recorded on the session's queue, before it reports its events delivered, so
+	/// none is lost when the process is suspended after the system's completion handler.
+	private func transfer(
+		configuration: URLSessionConfiguration,
+		backgroundEventsCompletion: SubmissionTransfer.BackgroundEventsCompletion? = nil
+	) -> SubmissionTransfer {
+		SubmissionTransfer(
+			configuration: configuration,
+			backgroundEventsCompletion: backgroundEventsCompletion
+		) { [queue, weak self] attempt, answer in
+			let recorded = try? queue.receive(answer, for: attempt)
 			Task { @MainActor in
-				self?.received(answer, for: attempt)
+				self?.received(recorded, for: attempt.submission)
 			}
 		} onProgress: { [weak self] identifier, fraction in
 			Task { @MainActor in
 				self?.progress[identifier] = fraction
 			}
+		} onSessionEvent: { [weak self] transfer, event in
+			Task { @MainActor in
+				self?.reported(event, by: transfer)
+			}
+		}
+	}
+
+	/// Lets the share extension's session go once it delivered its events, and only then calls the
+	/// system's completion handlers, because the application may be suspended right after.
+	private func reported(_ event: SubmissionTransfer.SessionEvent, by transfer: SubmissionTransfer) {
+		switch event {
+		case let .eventsDelivered(completions):
+			if case let .delivering(attachedTransfer) = attached, attachedTransfer === transfer {
+				transfer.invalidate()
+				attached = .invalidating(transfer)
+			}
+			completions.forEach { $0() }
+		case let .ended(completions):
+			if attached.transfer === transfer {
+				attached = .absent
+			}
+			completions.forEach { $0() }
 		}
 	}
 
@@ -97,7 +143,7 @@ final class SubmissionCoordinator {
 	/// Removes a submission from the list, and stops its upload if one is under way.
 	func remove(_ identifier: UUID) {
 		Task {
-			for transfer in [sending, attached].compactMap(\.self) {
+			for transfer in [sending, attached.transfer].compactMap(\.self) {
 				await transfer.cancel(identifier)
 			}
 		}
@@ -148,10 +194,9 @@ final class SubmissionCoordinator {
 		}
 	}
 
-	private func received(_ answer: DocumentSubmissionAnswer?, for attempt: SubmissionAttempt) {
-		inFlight.remove(attempt.submission)
-		progress[attempt.submission] = nil
-		let recorded = try? queue.receive(answer, for: attempt)
+	private func received(_ recorded: SubmissionAnswerRecord?, for identifier: UUID) {
+		inFlight.remove(identifier)
+		progress[identifier] = nil
 		reload()
 		switch recorded {
 		case .archived?:
