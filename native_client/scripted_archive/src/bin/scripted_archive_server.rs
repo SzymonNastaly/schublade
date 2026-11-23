@@ -31,6 +31,7 @@ const CONTENT_PATH_PREFIX: &str = "/api/v1/contents/";
 const DOCUMENT_PATH_PREFIX: &str = "/api/v1/documents/";
 const HELD_DIGESTS_PATH: &str = "/scripted/held";
 const SEED_DOCUMENT_PATH: &str = "/scripted/documents";
+const TOKEN_PATH: &str = "/scripted/token";
 
 enum Body {
     Text(String),
@@ -969,6 +970,16 @@ fn read_body(reader: &mut dyn Read, pace: Option<usize>, body: &mut Vec<u8>) -> 
     }
 }
 
+/// `POST /scripted/token` with a new token as its body: from then on the archive accepts only that
+/// token, as an archive does once its owner revokes the one a client holds.
+fn replaced_token(method: &tiny_http::Method, url: &str, body: &[u8]) -> Option<String> {
+    if *method != tiny_http::Method::Post || url != TOKEN_PATH {
+        return None;
+    }
+    let token = std::str::from_utf8(body).ok()?.trim();
+    (!token.is_empty()).then(|| token.to_owned())
+}
+
 fn parse_options() -> Options {
     let mut args = std::env::args().skip(1);
     let mut options = Options {
@@ -1002,7 +1013,7 @@ fn parse_options() -> Options {
 
 fn main() {
     let options = parse_options();
-    let expected_auth = format!("Bearer {}", options.token);
+    let mut expected_auth = format!("Bearer {}", options.token);
     let archive = ScriptedArchive::new();
     archive.set_permission_level(options.permission);
     if options.seed > 0 {
@@ -1038,6 +1049,14 @@ fn main() {
         let pace = options.ingest_pace.filter(|_| request.url() == INGEST_PATH);
         let answer = if read_body(request.as_reader(), pace, &mut body).is_err() {
             Answer::problem(400, "The body could not be read")
+        } else if let Some(token) = replaced_token(request.method(), request.url(), &body) {
+            expected_auth = format!("Bearer {token}");
+            Answer {
+                status: 204,
+                content_type: None,
+                headers: Vec::new(),
+                body: Body::Empty,
+            }
         } else {
             let (method, url) = (request.method().clone(), request.url().to_owned());
             let headers = RequestHeaders {
@@ -1101,6 +1120,21 @@ mod tests {
             panic!("new bytes become a document");
         };
         (document, content_digest_of(bytes).hexadecimal())
+    }
+
+    #[test]
+    fn only_a_post_of_a_token_to_its_path_replaces_the_token() {
+        use tiny_http::Method;
+        assert_eq!(
+            replaced_token(&Method::Post, TOKEN_PATH, b"another-token\n"),
+            Some("another-token".to_owned())
+        );
+        assert_eq!(replaced_token(&Method::Post, TOKEN_PATH, b"  "), None);
+        assert_eq!(replaced_token(&Method::Get, TOKEN_PATH, b"another-token"), None);
+        assert_eq!(
+            replaced_token(&Method::Post, SEED_DOCUMENT_PATH, b"another-token"),
+            None
+        );
     }
 
     #[test]

@@ -4,9 +4,10 @@ import SubmissionQueue
 import UIKit
 
 final class LibraryList {
-	struct Destination {
-		let document: DocumentIdentifier
-		let title: String?
+	enum Destination {
+		case document(DocumentIdentifier, title: String?)
+		/// The form that replaces a token the archive refused.
+		case tokenReplacement
 	}
 
 	/// Everything a snapshot is made of, so an unchanged input applies nothing.
@@ -41,6 +42,7 @@ final class LibraryList {
 	private var searchText: String?
 	private var context = WordingContext.current()
 	private var notice: UIContentUnavailableConfiguration?
+	private var attention: ConnectionAttention?
 
 	init(
 		in view: UIView,
@@ -83,6 +85,7 @@ final class LibraryList {
 		self.context = context
 		self.notice = notice
 		searchText = content.searchText
+		attention = content.attention
 		arrivals = Dictionary(uniqueKeysWithValues: content.arrivals.map { ($0.id, $0) })
 		let previousRows = rows
 		rows = Dictionary(content.state.listedSections.flatMap(\.rows).map { ($0.document, $0) }) { first, _ in first }
@@ -93,7 +96,7 @@ final class LibraryList {
 		// an arrival shows.
 		let revised = snapshot.itemIdentifiers.filter { item in
 			switch item {
-			case .arrival, .notice:
+			case .arrival, .notice, .attention:
 				true
 			case let .document(identifier):
 				searchChanged || previousRows[identifier] != rows[identifier]
@@ -121,16 +124,24 @@ final class LibraryList {
 	func destination(at indexPath: IndexPath) -> Destination? {
 		switch dataSource?.itemIdentifier(for: indexPath) {
 		case let .document(identifier)?:
-			return Destination(document: identifier, title: rows[identifier]?.title)
+			return .document(identifier, title: rows[identifier]?.title)
 		case let .arrival(identifier)?:
-			guard let arrival = arrivals[identifier], let document = arrival.document else {
+			guard let arrival = arrivals[identifier] else {
+				return nil
+			}
+			if arrival.stage == .tokenRefused {
+				return .tokenReplacement
+			}
+			guard let document = arrival.document else {
 				return nil
 			}
 			let title: String? = switch arrival.stage {
 			case let .filed(row), let .alreadyHeld(row?): row.title
 			default: nil
 			}
-			return Destination(document: document, title: title)
+			return .document(document, title: title)
+		case .attention?:
+			return attention?.replacesToken == true ? .tokenReplacement : nil
 		case .notice?, nil:
 			return nil
 		}
@@ -165,6 +176,10 @@ private extension LibraryList {
 			.flatMap { $0.rows.map(\.document) }
 			.filter { !shownByArrival.contains($0) }
 		var snapshot = NSDiffableDataSourceSnapshot<LibrarySection, LibraryItem>()
+		if content.attention != nil {
+			snapshot.appendSections([.attention])
+			snapshot.appendItems([.attention])
+		}
 		if !content.arrivals.isEmpty || !arrivingDocuments.isEmpty {
 			snapshot.appendSections([.arriving])
 			snapshot.appendItems(content.arrivals.map { .arrival($0.id) } + arrivingDocuments.map { .document($0) })
@@ -186,11 +201,12 @@ private extension LibraryList {
 		UICollectionViewCompositionalLayout { [weak self] index, environment in
 			var configuration = UICollectionLayoutListConfiguration(appearance: .plain)
 			let section = self?.dataSource?.sectionIdentifier(for: index)
-			configuration.headerMode = section == .listed(nil) || section == .notice ? .none : .supplementary
+			configuration.headerMode = [.listed(nil), .notice, .attention].contains(section) ? .none : .supplementary
 			configuration.itemSeparatorHandler = { [weak self] indexPath, separator in
 				var aligned = separator
 				aligned.bottomSeparatorInsets.leading = DocumentRowContent.textLeading
-				if self?.dataSource?.itemIdentifier(for: indexPath) == .notice {
+				if [.notice, .attention].contains(self?.dataSource?.itemIdentifier(for: indexPath)) {
+					aligned.topSeparatorVisibility = .hidden
 					aligned.bottomSeparatorVisibility = .hidden
 				}
 				return aligned
@@ -231,7 +247,7 @@ private extension LibraryList {
 			"Arriving"
 		case let .listed(heading?)?:
 			DocumentFormatting.headingText(heading, context: context)
-		case .listed(nil)?, .notice?, nil:
+		case .listed(nil)?, .notice?, .attention?, nil:
 			nil
 		}
 	}
@@ -271,6 +287,10 @@ private extension LibraryList {
 			LibraryRowConfiguration.configure(cell, document: row, picture: picture, setting: setting, context: context)
 		case .notice:
 			LibraryRowConfiguration.configure(cell, notice: notice)
+		case .attention:
+			if let attention {
+				LibraryRowConfiguration.configure(cell, attention: attention)
+			}
 		}
 	}
 

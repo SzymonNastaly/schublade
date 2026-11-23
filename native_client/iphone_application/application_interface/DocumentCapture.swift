@@ -1,4 +1,5 @@
 import PhotosUI
+import ScanRequest
 import SubmissionQueue
 import UIKit
 import UniformTypeIdentifiers
@@ -45,6 +46,35 @@ final class DocumentCapture: NSObject {
 			top = presented
 		}
 		top.present(controller, animated: animated)
+	}
+
+	/// Answers a pending scan request from outside the application: the camera, unless it shows
+	/// already, or for a restricted token an alert that says why this iPhone cannot send.
+	func answerScanRequest(in navigation: UINavigationController, sendingPermitted: Bool, animated: Bool) {
+		guard navigation.viewIfLoaded?.window != nil, ScanRequestCenter.shared.take(),
+		      !(navigation.presentedViewController is VNDocumentCameraViewController)
+		else {
+			return
+		}
+		navigation.popToRootViewController(animated: false)
+		let answer = { [weak self] in
+			if sendingPermitted {
+				self?.scan(animated: animated)
+			} else {
+				let alert = UIAlertController(
+					title: "This iPhone Cannot Send",
+					message: ConnectedArchive.restrictionSentence,
+					preferredStyle: .alert
+				)
+				alert.addAction(UIAlertAction(title: "OK", style: .default))
+				self?.presentOnTop(alert, animated: true)
+			}
+		}
+		guard let presented = presenter?.presentedViewController ?? navigation.presentedViewController else {
+			answer()
+			return
+		}
+		presented.dismiss(animated: true, completion: answer)
 	}
 
 	func choosePhotos() {

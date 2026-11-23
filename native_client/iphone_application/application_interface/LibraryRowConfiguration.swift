@@ -76,6 +76,26 @@ enum LibraryRowConfiguration {
 		cell.accessibilityIdentifier = identity
 	}
 
+	/// A connection that needs the person, with a disclosure indicator where a new token is the way out.
+	static func configure(_ cell: UICollectionViewListCell, attention: ConnectionAttention) {
+		var content = UIListContentConfiguration.subtitleCell()
+		content.image = UIImage(systemName: "exclamationmark.triangle.fill")
+		content.imageProperties.tintColor = InterfacePalette.attentionText
+		content.text = attention.title
+		content.textProperties.font = .preferredFont(forTextStyle: .headline)
+		content.secondaryText = attention.detail
+		content.secondaryTextProperties.color = .secondaryLabel
+		content.secondaryTextProperties.font = .preferredFont(forTextStyle: .subheadline)
+		content.textToSecondaryTextVerticalPadding = 3
+		cell.contentConfiguration = content
+		cell.accessories = attention.replacesToken ? [.disclosureIndicator()] : []
+		cell.isAccessibilityElement = true
+		cell.accessibilityLabel = attention.title
+		cell.accessibilityValue = attention.detail
+		cell.accessibilityTraits = attention.replacesToken ? [.button] : [.staticText]
+		cell.accessibilityIdentifier = "library.attention"
+	}
+
 	static func configure(_ cell: UICollectionViewListCell, notice: UIContentUnavailableConfiguration?) {
 		cell.contentConfiguration = notice
 		cell.accessories = []

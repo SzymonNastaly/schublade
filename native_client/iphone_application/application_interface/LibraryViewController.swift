@@ -17,8 +17,8 @@ final class LibraryViewController: UIViewController, UICollectionViewDelegate {
 	/// A person types faster than a listing is worth reading.
 	private static let searchPause = Duration.milliseconds(250)
 
-	private let controller: ApplicationController
-	private lazy var capture = DocumentCapture(presenter: self, submissions: controller.submissions)
+	let controller: ApplicationController
+	private(set) lazy var capture = DocumentCapture(presenter: self, submissions: controller.submissions)
 	private lazy var thumbnails = ThumbnailStore(gateway: controller.gateway)
 	private(set) lazy var list = LibraryList(
 		in: view,
@@ -27,6 +27,7 @@ final class LibraryViewController: UIViewController, UICollectionViewDelegate {
 		submissions: controller.submissions
 	)
 	private let searchController = UISearchController(searchResultsController: nil)
+	private var refresh: LibraryRefresh?
 	private lazy var commands = LibraryCommands(screen: self, capture: capture) { [weak self] in
 		guard let self else {
 			return []
@@ -45,11 +46,9 @@ final class LibraryViewController: UIViewController, UICollectionViewDelegate {
 	private var facetsRevision: UInt64?
 	private var newestListingRequest: UInt64 = 0
 	private var searchDelay: Task<Void, Never>?
-	private var refreshStartedAt: Date?
-	/// Counts the pulls, so the fallback of an earlier pull leaves a later one alone.
-	private var refreshNumber: UInt64 = 0
 	private var arrivalMoments = ArrivalMoments()
 	private var hasAppeared = false
+	private var shownAttention: ConnectionAttention?
 
 	init(controller: ApplicationController) {
 		self.controller = controller
@@ -81,7 +80,13 @@ final class LibraryViewController: UIViewController, UICollectionViewDelegate {
 		}
 		// The bars blur the rows that scroll under them, at the bottom too.
 		setContentScrollView(list.collectionView)
-		list.refreshControl.addAction(UIAction { [weak self] _ in self?.refresh() }, for: .valueChanged)
+		refresh = LibraryRefresh(control: list.refreshControl, gateway: controller.gateway) { [weak self] in
+			if case let .running(status)? = self?.controller.situation {
+				status
+			} else {
+				nil
+			}
+		}
 		showScope()
 		follow()
 	}
@@ -133,18 +138,6 @@ final class LibraryViewController: UIViewController, UICollectionViewDelegate {
 		requestListing()
 	}
 
-	func open(_ document: DocumentIdentifier, title: String?) {
-		let page = DocumentPageViewController(
-			controller: controller,
-			document: document,
-			provisionalTitle: title
-		) { [weak self] scope in
-			self?.navigationController?.popToRootViewController(animated: true)
-			self?.choose(scope)
-		}
-		navigationController?.pushViewController(page, animated: true)
-	}
-
 	private var scopePresentation: LibraryScopePresentation {
 		LibraryScopePresentation.resolve(
 			scope: chosenScope.scope,
@@ -190,20 +183,13 @@ final class LibraryViewController: UIViewController, UICollectionViewDelegate {
 		if status.contentRevision != facetsRevision {
 			requestFacets(revision: status.contentRevision)
 		}
-		endRefreshing(after: status)
-		state = answer.map { answer in
-			LibraryListState.resolve(
-				outcome: answer.outcome,
-				status: status,
-				scope: answer.scope,
-				searchText: answer.searchText,
-				context: context
-			)
-		} ?? .awaitingListing
+		refresh?.follow(status)
+		state = resolvedState(status: status, context: context)
 		commands.arrange(
 			LibraryCommands.Arrangement(sendingPermitted: sendingPermitted, showsFilter: state != .emptyArchive)
 		)
 		showSubtitle(status: status)
+		let attention = announced(ConnectionAttention.resolve(status.archive))
 		let unavailable = LibraryEmptyStates.configuration(
 			state,
 			sendingPermitted: sendingPermitted,
@@ -214,7 +200,12 @@ final class LibraryViewController: UIViewController, UICollectionViewDelegate {
 			list.scrollToTop()
 		}
 		list.show(
-			LibraryListContent(state: state, arrivals: arrivals, searchText: searching ? answer?.searchText : nil),
+			LibraryListContent(
+				attention: attention,
+				state: state,
+				arrivals: arrivals,
+				searchText: searching ? answer?.searchText : nil
+			),
 			notice: unavailable,
 			context: context
 		)
@@ -226,7 +217,7 @@ final class LibraryViewController: UIViewController, UICollectionViewDelegate {
 	private func renderStarting(arrivals: [Arrival], sendingPermitted: Bool, context: WordingContext) {
 		commands.arrange(LibraryCommands.Arrangement(sendingPermitted: sendingPermitted, showsFilter: false))
 		list.show(
-			LibraryListContent(state: .awaitingListing, arrivals: arrivals, searchText: nil),
+			LibraryListContent(attention: nil, state: .awaitingListing, arrivals: arrivals, searchText: nil),
 			notice: nil,
 			context: context
 		)
@@ -279,39 +270,16 @@ final class LibraryViewController: UIViewController, UICollectionViewDelegate {
 }
 
 extension LibraryViewController {
-	/// Takes a pending scan request once this screen is in the window, and opens the camera unless it
-	/// shows already. A request made while it shows is taken too, so that Save does not open the
-	/// camera again. A restricted token cannot send, which an alert says. A document read at the
-	/// time is left, so the row of the scan is in view once the camera closes.
-	func answerScanRequest(animated: Bool = true) {
-		guard let navigation = navigationController, navigation.viewIfLoaded?.window != nil,
-		      ScanRequestCenter.shared.take(),
-		      !(navigation.presentedViewController is VNDocumentCameraViewController)
-		else {
-			return
+	func open(_ document: DocumentIdentifier, title: String?) {
+		let page = DocumentPageViewController(
+			controller: controller,
+			document: document,
+			provisionalTitle: title
+		) { [weak self] scope in
+			self?.navigationController?.popToRootViewController(animated: true)
+			self?.choose(scope)
 		}
-		navigation.popToRootViewController(animated: false)
-		let answer = { [weak self] in
-			guard let self else {
-				return
-			}
-			if controller.sendingPermitted {
-				capture.scan(animated: animated)
-			} else {
-				let alert = UIAlertController(
-					title: "This iPhone Cannot Send",
-					message: ConnectedArchive.restrictionSentence,
-					preferredStyle: .alert
-				)
-				alert.addAction(UIAlertAction(title: "OK", style: .default))
-				present(alert, animated: true)
-			}
-		}
-		guard let presented = presentedViewController ?? navigation.presentedViewController else {
-			answer()
-			return
-		}
-		presented.dismiss(animated: true, completion: answer)
+		navigationController?.pushViewController(page, animated: true)
 	}
 
 	func collectionView(_: UICollectionView, shouldSelectItemAt indexPath: IndexPath) -> Bool {
@@ -319,10 +287,41 @@ extension LibraryViewController {
 	}
 
 	func collectionView(_: UICollectionView, didSelectItemAt indexPath: IndexPath) {
-		guard let destination = list.destination(at: indexPath) else {
+		switch list.destination(at: indexPath) {
+		case let .document(document, title)?:
+			open(document, title: title)
+		case .tokenReplacement?:
+			replaceToken()
+		case nil:
+			break
+		}
+	}
+
+	/// The form with the archive's address filled in, until Settings holds it. A token the archive
+	/// accepts takes the place of the refused one, and the form closes.
+	func replaceToken() {
+		let form = ConnectionViewController(
+			controller: controller,
+			replacingAt: controller.archiveOrigin
+		) { [weak self] in
+			self?.navigationController?.popToRootViewController(animated: true)
+		}
+		navigationController?.pushViewController(form, animated: true)
+	}
+
+	/// Takes a pending scan request once this screen is in the window, and opens the camera unless it
+	/// shows already. A request made while it shows is taken too, so that Save does not open the
+	/// camera again. A document read at the time is left, so the row of the scan is in view once the
+	/// camera closes.
+	func answerScanRequest(animated: Bool = true) {
+		guard let navigationController else {
 			return
 		}
-		open(destination.document, title: destination.title)
+		capture.answerScanRequest(
+			in: navigationController,
+			sendingPermitted: controller.sendingPermitted,
+			animated: animated
+		)
 	}
 }
 
@@ -344,21 +343,26 @@ private extension LibraryViewController {
 		}
 	}
 
-	/// The pull ends once the copy has read the archive or found it out of reach, and after ten
-	/// seconds at the latest.
-	func refresh() {
-		refreshStartedAt = .now
-		refreshNumber &+= 1
-		let number = refreshNumber
-		controller.gateway.synchronize()
-		Task { [weak self] in
-			try? await Task.sleep(for: .seconds(10))
-			guard let self, refreshNumber == number, refreshStartedAt != nil else {
-				return
-			}
-			list.refreshControl.endRefreshing()
-			refreshStartedAt = nil
+	func resolvedState(status: LibraryStatus, context: WordingContext) -> LibraryListState {
+		guard let answer else {
+			return .awaitingListing
 		}
+		return LibraryListState.resolve(
+			outcome: answer.outcome,
+			status: status,
+			scope: answer.scope,
+			searchText: answer.searchText,
+			context: context
+		)
+	}
+
+	/// VoiceOver says a connection that newly needs the person.
+	func announced(_ attention: ConnectionAttention?) -> ConnectionAttention? {
+		if attention != shownAttention, let attention {
+			UIAccessibility.post(notification: .announcement, argument: "\(attention.title). \(attention.detail)")
+		}
+		shownAttention = attention
+		return attention
 	}
 
 	/// From iOS 26 the subtitle under the title says what a person should know first.
@@ -374,24 +378,6 @@ private extension LibraryViewController {
 		)
 		if navigationItem.subtitle != subtitle {
 			navigationItem.subtitle = subtitle
-		}
-	}
-
-	func endRefreshing(after status: LibraryStatus) {
-		guard let started = refreshStartedAt else {
-			return
-		}
-		let answered = switch (status.copy, status.archive) {
-		case let (.complete(synchronizedAt), _):
-			synchronizedAt >= started
-		case (_, .configured(_, _, .unreachable, _, _)), (_, .configured(_, _, .suspended, _, _)):
-			true
-		default:
-			false
-		}
-		if answered {
-			refreshStartedAt = nil
-			list.refreshControl.endRefreshing()
 		}
 	}
 }

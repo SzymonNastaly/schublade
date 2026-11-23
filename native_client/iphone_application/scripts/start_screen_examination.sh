@@ -5,11 +5,12 @@
 # With `empty`, the archive holds nothing and nothing is sent. With `arriving`, the scan is a
 # three-page letter the archive does not hold, which stays in ingestion until a request names its
 # stage, and with `refused` a text file named as a PDF is sent beside it, which the archive does not
-# accept. Prints the simulator, the archive's address, and in those two the requests that move the
+# accept. With `token-refused`, the archive is seeded and accepts another token once the application
+# has connected and read it, as when its owner revokes this iPhone's token. Prints the simulator, the archive's address, and in those two the requests that move the
 # scan's document on:
 #   curl -X POST <archive>/scripted/documents -d '{"content_sha256": "<digest>", "status": "recognizing_text"}'
 #   curl -X POST <archive>/scripted/documents -d @/tmp/schublade_iphone_screen_examination/filed.json
-#   scripts/execute_on_macintosh.sh native_client/iphone_application/scripts/start_screen_examination.sh [light|dark] [seeded|empty|arriving|refused]
+#   scripts/execute_on_macintosh.sh native_client/iphone_application/scripts/start_screen_examination.sh [light|dark] [seeded|empty|arriving|refused|token-refused]
 set -euo pipefail
 export PATH="/opt/homebrew/bin:$HOME/.cargo/bin:$PATH"
 cd "$(dirname "$0")/.."
@@ -54,7 +55,7 @@ if [ "$contents" != empty ]; then
 		stem="$(basename "${file%.*}")"
 		sips -s format png -Z 360 "$file" --out "$work/pictures/$stem.png" >/dev/null
 	done
-	if [ "$contents" = seeded ]; then
+	if [ "$contents" = seeded ] || [ "$contents" = token-refused ]; then
 		cp "$documents/dental_invoice_scanned.pdf" "$scan"
 		arriving_letter=""
 	else
@@ -151,3 +152,8 @@ SIMCTL_CHILD_SCHUBLADE_APPLICATION_ENVIRONMENT=isolated \
 	xcrun simctl launch "$simulator" org.schublade.iphone.development >/dev/null
 echo "simulator: $simulator"
 echo "archive: $address"
+if [ "$contents" = token-refused ]; then
+	sleep 15
+	curl -sf -X POST "$address/scripted/token" -d "another-token"
+	echo "the archive now refuses $token; pull the list to have the copy read it"
+fi

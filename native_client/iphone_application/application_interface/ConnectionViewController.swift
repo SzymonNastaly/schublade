@@ -1,15 +1,20 @@
 import UIKit
 
-/// The archive's address and a token, as the website's Settings issues one.
+/// The archive's address and a token, as the website's Settings issues one. Opened from the library
+/// with the connected archive's address, it replaces a token the archive refused.
 final class ConnectionViewController: UIViewController, UITextFieldDelegate {
 	private let controller: ApplicationController
+	private let replacedAddress: String?
+	private let connected: () -> Void
 	private let addressField = UITextField()
 	private let tokenField = UITextField()
 	private let connectButton = UIButton(configuration: .filled())
 	private let refusalLabel = UILabel()
 
-	init(controller: ApplicationController) {
+	init(controller: ApplicationController, replacingAt address: String? = nil, connected: @escaping () -> Void = {}) {
 		self.controller = controller
+		replacedAddress = address
+		self.connected = connected
 		super.init(nibName: nil, bundle: nil)
 	}
 
@@ -20,7 +25,8 @@ final class ConnectionViewController: UIViewController, UITextFieldDelegate {
 
 	override func viewDidLoad() {
 		super.viewDidLoad()
-		title = "Connect"
+		title = replacedAddress == nil ? "Connect" : "Replace Token"
+		navigationItem.largeTitleDisplayMode = .always
 		navigationController?.navigationBar.prefersLargeTitles = true
 		view.backgroundColor = .systemGroupedBackground
 
@@ -35,9 +41,11 @@ final class ConnectionViewController: UIViewController, UITextFieldDelegate {
 		addressField.keyboardType = .URL
 		addressField.textContentType = .URL
 		addressField.returnKeyType = .next
+		addressField.text = replacedAddress
 		configure(tokenField, placeholder: "Token")
 		tokenField.isSecureTextEntry = true
-		tokenField.textContentType = .password
+		// No content type, so the system does not offer to keep the token as a password.
+		tokenField.textContentType = nil
 		tokenField.returnKeyType = .go
 
 		connectButton.configuration?.title = "Connect"
@@ -60,6 +68,13 @@ final class ConnectionViewController: UIViewController, UITextFieldDelegate {
 			stack.leadingAnchor.constraint(equalTo: view.layoutMarginsGuide.leadingAnchor),
 			stack.trailingAnchor.constraint(equalTo: view.layoutMarginsGuide.trailingAnchor),
 		])
+	}
+
+	override func viewDidAppear(_ animated: Bool) {
+		super.viewDidAppear(animated)
+		if replacedAddress != nil {
+			tokenField.becomeFirstResponder()
+		}
 	}
 
 	private func configure(_ field: UITextField, placeholder: String) {
@@ -98,6 +113,9 @@ final class ConnectionViewController: UIViewController, UITextFieldDelegate {
 			connectButton.configuration?.showsActivityIndicator = false
 			connectButton.isEnabled = true
 			refusalLabel.text = refusal
+			if refusal == nil {
+				connected()
+			}
 		}
 	}
 }

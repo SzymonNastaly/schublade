@@ -101,8 +101,49 @@ enum LibraryListState: Equatable {
 	}
 }
 
+/// A connection that needs the person, above everything else in the list.
+enum ConnectionAttention: Equatable {
+	case tokenRefused
+	case tokenLacksPermission
+	case archiveOutdated
+
+	static func resolve(_ archive: ArchiveConnection) -> ConnectionAttention? {
+		switch archive {
+		case .configured(_, _, .suspended(.credentialRefused), _, _): .tokenRefused
+		case .configured(_, _, .suspended(.credentialInsufficient), _, _): .tokenLacksPermission
+		case .configured(_, _, .archiveOutdated, _, _): .archiveOutdated
+		default: nil
+		}
+	}
+
+	var title: String {
+		switch self {
+		case .tokenRefused: "Token Refused"
+		case .tokenLacksPermission: "Token Lacks Permission"
+		case .archiveOutdated: "Archive Update Required"
+		}
+	}
+
+	var detail: String {
+		switch self {
+		case .tokenRefused:
+			"The archive no longer accepts this iPhone's token. Replace it to send and to read new documents."
+		case .tokenLacksPermission:
+			"This token can no longer read your archive. Replace it."
+		case .archiveOutdated:
+			"Update your archive, then open Schublade again."
+		}
+	}
+
+	/// Whether a new token is the way out, which the row offers.
+	var replacesToken: Bool {
+		self != .archiveOutdated
+	}
+}
+
 /// What the library's list shows.
 struct LibraryListContent: Equatable {
+	let attention: ConnectionAttention?
 	let state: LibraryListState
 	let arrivals: [Arrival]
 	/// The text of a search, nil while a person browses.
@@ -110,6 +151,7 @@ struct LibraryListContent: Equatable {
 }
 
 nonisolated enum LibrarySection: Hashable {
+	case attention
 	/// This iPhone's arrivals, then the listing's documents in ingestion that no arrival shows.
 	case arriving
 	case listed(ListingHeading?)
@@ -117,6 +159,7 @@ nonisolated enum LibrarySection: Hashable {
 }
 
 nonisolated enum LibraryItem: Hashable {
+	case attention
 	case arrival(UUID)
 	case document(DocumentIdentifier)
 	case notice
