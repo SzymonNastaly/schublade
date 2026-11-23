@@ -170,6 +170,10 @@ final class DocumentTextViewController: UIViewController {
 		return text
 	}
 
+	/// The links a tap follows. The text was extracted from a document anyone could have sent, so a
+	/// link that opens another application's scheme stays plain text.
+	private static let linkSchemes: Set<String> = ["http", "https", "mailto", "tel"]
+
 	/// A line with its emphasis, code, and links read as Markdown, or as it stands when it is none.
 	private static func inlineText(_ line: String) -> NSAttributedString {
 		let options = AttributedString.MarkdownParsingOptions(interpretedSyntax: .inlineOnlyPreservingWhitespace)
@@ -194,7 +198,7 @@ final class DocumentTextViewController: UIViewController {
 					attributes[.font] = UIFont(descriptor: descriptor, size: 0)
 				}
 			}
-			if let link = run.link {
+			if let link = run.link, let scheme = link.scheme?.lowercased(), Self.linkSchemes.contains(scheme) {
 				attributes[.link] = link
 			}
 			text.append(NSAttributedString(string: String(parsed[run.range].characters), attributes: attributes))
