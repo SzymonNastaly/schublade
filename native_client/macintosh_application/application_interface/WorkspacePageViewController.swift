@@ -88,6 +88,14 @@ final class WorkspacePageViewController: NSViewController {
 		}
 	}
 
+	/// Asks to remove the folder whose page shows, as its Remove Folder… button does.
+	func requestFolderRemoval() {
+		guard page == .folder else {
+			return
+		}
+		folderPage.requestRemoval()
+	}
+
 	private func show(_ next: Page) {
 		guard next != page else {
 			return

@@ -1,14 +1,54 @@
 import AppKit
+import ApplicationInterface
 
 /// Painted stand-in for macOS unified toolbar glass, which renders black or transparent offscreen.
+/// It sets the items where the window's toolbar sets them, over the parts of the workspace's split
+/// view: the sidebar's toggle and Back over the sidebar, the title and Sort over the list, Share
+/// and the search field over the reader, and the inspector's toggle at the trailing edge. A page
+/// that collapsed the list and the inspector shows only the search field after the title.
 final class PaintedToolbarView: NSView {
-	private let titleLabel = NSTextField(labelWithString: "")
-	private let subtitleLabel = NSTextField(labelWithString: "")
-	private let searchField = NSTextField(labelWithString: "")
+	/// Where the parts of the split view end, read from it once the scene has laid out.
+	private struct Sections {
+		var sidebarEnd: CGFloat
+		var listEnd: CGFloat?
+		var readerEnd: CGFloat
+	}
 
-	override init(frame frameRect: NSRect) {
-		super.init(frame: frameRect)
+	private static let height: CGFloat = 46
+	private static let searchWidth: CGFloat = 240
+
+	private let titleStack = NSStackView()
+	private let sidebarSymbol = PaintedToolbarView.makeSymbolView("sidebar.leading")
+	private let backSymbol = PaintedToolbarView.makeSymbolView("chevron.backward")
+	private let sortSymbol = PaintedToolbarView.makeSymbolView("arrow.up.arrow.down")
+	private let shareSymbol = PaintedToolbarView.makeSymbolView("square.and.arrow.up")
+	private let inspectorSymbol = PaintedToolbarView.makeSymbolView("sidebar.trailing")
+	private let searchPill: NSView
+	private var sections: Sections?
+
+	init(title: String, subtitle: String?, searchText: String, showsBackButton: Bool, width: CGFloat) {
+		searchPill = Self.makeSearchPill(text: searchText)
+		super.init(frame: NSRect(x: 0, y: 0, width: width, height: Self.height))
 		wantsLayer = true
+		backSymbol.isHidden = !showsBackButton
+
+		let titleLabel = NSTextField(labelWithString: title)
+		titleLabel.font = NSFont.systemFont(ofSize: NSFont.systemFontSize, weight: .semibold)
+		titleLabel.lineBreakMode = .byTruncatingTail
+		let subtitleLabel = NSTextField(labelWithString: subtitle ?? "")
+		subtitleLabel.font = NSFont.systemFont(ofSize: NSFont.smallSystemFontSize)
+		subtitleLabel.textColor = .secondaryLabelColor
+		subtitleLabel.isHidden = subtitle == nil
+		titleStack.setViews([titleLabel, subtitleLabel], in: .leading)
+		titleStack.orientation = .vertical
+		titleStack.alignment = .leading
+		titleStack.spacing = 0
+
+		for view in [sidebarSymbol, backSymbol, titleStack, sortSymbol, shareSymbol, searchPill, inspectorSymbol] {
+			view.translatesAutoresizingMaskIntoConstraints = true
+			addSubview(view)
+		}
+		heightAnchor.constraint(equalToConstant: Self.height).isActive = true
 	}
 
 	@available(*, unavailable)
@@ -16,19 +56,69 @@ final class PaintedToolbarView: NSView {
 		fatalError("Interface Builder is not used")
 	}
 
-	convenience init(
-		title: String,
-		subtitle: String?,
-		searchText: String,
-		showsBackButton: Bool,
-		width: CGFloat
-	) {
-		self.init(frame: NSRect(x: 0, y: 0, width: width, height: 46))
-		configureViews(
-			title: title,
-			subtitle: subtitle,
-			searchText: searchText,
-			showsBackButton: showsBackButton
+	/// Reads the parts' edges from the workspace's split view, whose four items are the sidebar,
+	/// the list, the reader, and the inspector.
+	func align(to workspace: LibraryWorkspaceViewController) {
+		let items = workspace.splitViewItems
+		guard items.count == 4 else {
+			return
+		}
+		let edges = items.map { item in
+			item.viewController.view.convert(item.viewController.view.bounds, to: self).maxX
+		}
+		sections = Sections(
+			sidebarEnd: edges[0],
+			listEnd: items[1].isCollapsed ? nil : edges[1],
+			readerEnd: items[3].isCollapsed ? bounds.width : edges[2]
+		)
+		needsLayout = true
+		layoutSubtreeIfNeeded()
+	}
+
+	override func layout() {
+		super.layout()
+		guard let sections else {
+			return
+		}
+		let showsDocuments = sections.listEnd != nil
+		var leading: CGFloat = 92
+		place(sidebarSymbol, leading: leading)
+		leading = sidebarSymbol.frame.maxX + 16
+		if !backSymbol.isHidden {
+			place(backSymbol, leading: leading)
+		}
+
+		var trailing = bounds.width - 16
+		inspectorSymbol.isHidden = !showsDocuments
+		if showsDocuments {
+			place(inspectorSymbol, trailing: trailing)
+			trailing = inspectorSymbol.frame.minX - 16
+		}
+		let searchTrailing = min(trailing, sections.readerEnd - 12)
+		searchPill.frame = NSRect(
+			x: searchTrailing - Self.searchWidth,
+			y: (bounds.height - 26) / 2,
+			width: Self.searchWidth,
+			height: 26
+		)
+		shareSymbol.isHidden = !showsDocuments
+		sortSymbol.isHidden = !showsDocuments
+		if showsDocuments {
+			place(shareSymbol, trailing: searchPill.frame.minX - 14)
+		}
+
+		let titleLeading = sections.sidebarEnd + 14
+		var titleEnd = searchPill.frame.minX - 14
+		if let listEnd = sections.listEnd {
+			place(sortSymbol, trailing: listEnd - 14)
+			titleEnd = sortSymbol.frame.minX - 8
+		}
+		let titleHeight = titleStack.fittingSize.height
+		titleStack.frame = NSRect(
+			x: titleLeading,
+			y: (bounds.height - titleHeight) / 2,
+			width: max(0, min(titleStack.fittingSize.width, titleEnd - titleLeading)),
+			height: titleHeight
 		)
 	}
 
@@ -49,62 +139,16 @@ final class PaintedToolbarView: NSView {
 		}
 	}
 
-	private func configureViews(
-		title: String,
-		subtitle: String?,
-		searchText: String,
-		showsBackButton: Bool
-	) {
-		let sidebarSymbol = makeSymbolView("sidebar.leading")
-		var leftItems: [NSView] = [sidebarSymbol]
-		if showsBackButton {
-			leftItems.append(makeSymbolView("chevron.left"))
-		}
-
-		titleLabel.stringValue = title
-		titleLabel.font = NSFont.systemFont(ofSize: NSFont.systemFontSize, weight: .semibold)
-		subtitleLabel.stringValue = subtitle ?? ""
-		subtitleLabel.font = NSFont.systemFont(ofSize: NSFont.smallSystemFontSize)
-		subtitleLabel.textColor = .secondaryLabelColor
-		subtitleLabel.isHidden = subtitle == nil
-
-		let titleStack = NSStackView(views: [titleLabel, subtitleLabel])
-		titleStack.orientation = .vertical
-		titleStack.alignment = .leading
-		titleStack.spacing = 0
-
-		let searchPill = makeSearchPill(text: searchText)
-		let sortSymbol = makeSymbolView("arrow.up.arrow.down")
-		let shareSymbol = makeSymbolView("square.and.arrow.up")
-		let inspectorSymbol = makeSymbolView("sidebar.trailing")
-
-		let rightStack = NSStackView(views: [sortSymbol, searchPill, shareSymbol, inspectorSymbol])
-		rightStack.orientation = .horizontal
-		rightStack.alignment = .centerY
-		rightStack.spacing = 12
-		rightStack.translatesAutoresizingMaskIntoConstraints = false
-
-		let leftStack = NSStackView(views: leftItems + [titleStack])
-		leftStack.orientation = .horizontal
-		leftStack.alignment = .centerY
-		leftStack.spacing = 12
-		leftStack.translatesAutoresizingMaskIntoConstraints = false
-
-		addSubview(leftStack)
-		addSubview(rightStack)
-
-		NSLayoutConstraint.activate([
-			heightAnchor.constraint(equalToConstant: 46),
-			leftStack.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 92),
-			leftStack.centerYAnchor.constraint(equalTo: centerYAnchor),
-			rightStack.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -16),
-			rightStack.centerYAnchor.constraint(equalTo: centerYAnchor),
-			searchPill.widthAnchor.constraint(equalToConstant: 210),
-			searchPill.heightAnchor.constraint(equalToConstant: 26),
-		])
+	private func place(_ view: NSView, leading: CGFloat) {
+		let size = view.fittingSize
+		view.frame = NSRect(x: leading, y: (bounds.height - size.height) / 2, width: size.width, height: size.height)
 	}
 
-	private func makeSymbolView(_ name: String) -> NSImageView {
+	private func place(_ view: NSView, trailing: CGFloat) {
+		place(view, leading: trailing - view.fittingSize.width)
+	}
+
+	private static func makeSymbolView(_ name: String) -> NSImageView {
 		let imageView = NSImageView()
 		imageView.image = NSImage(systemSymbolName: name, accessibilityDescription: nil)
 		imageView.contentTintColor = .secondaryLabelColor
@@ -112,7 +156,7 @@ final class PaintedToolbarView: NSView {
 		return imageView
 	}
 
-	private func makeSearchPill(text: String) -> NSView {
+	private static func makeSearchPill(text: String) -> NSView {
 		// A box draws its colours in the appearance it draws in, where a layer keeps the one it was given.
 		let box = NSBox()
 		box.boxType = .custom
@@ -126,7 +170,7 @@ final class PaintedToolbarView: NSView {
 		let glyph = makeSymbolView("magnifyingglass")
 		glyph.translatesAutoresizingMaskIntoConstraints = false
 		glyph.setContentHuggingPriority(.required, for: .horizontal)
-		searchField.stringValue = text.isEmpty ? "Search" : text
+		let searchField = NSTextField(labelWithString: text.isEmpty ? "Search" : text)
 		searchField.font = NSFont.systemFont(ofSize: NSFont.smallSystemFontSize)
 		searchField.textColor = text.isEmpty ? .placeholderTextColor : .labelColor
 		searchField.lineBreakMode = .byTruncatingTail

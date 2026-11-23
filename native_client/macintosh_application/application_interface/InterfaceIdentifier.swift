@@ -17,10 +17,6 @@ public enum InterfaceIdentifier {
 	public static let sidebarStatusProgress = "schublade.sidebar.statusProgress"
 
 	public static let toolbarSearchField = "schublade.toolbar.searchField"
-	public static let toolbarBackButton = "schublade.toolbar.backButton"
-	public static let toolbarSortButton = "schublade.toolbar.sortButton"
-	public static let toolbarShareButton = "schublade.toolbar.shareButton"
-	public static let toolbarInspectorButton = "schublade.toolbar.inspectorButton"
 
 	public static let documentListTable = "schublade.documentList.table"
 	public static let documentListEmptyTitle = "schublade.documentList.emptyTitle"

@@ -2,42 +2,67 @@ import AppKit
 import ApplicationBindings
 import ApplicationPresentation
 
-/// Owns the unified window toolbar items (back navigation, sort menu, search field, share, and
-/// inspector toggle) and forwards actions to `MainWindowController`.
+/// Owns the unified window toolbar. Its items stand over the parts of the workspace's split view
+/// they act on, kept there by the system's tracking separators: the sidebar's toggle and Back over
+/// the sidebar, Sort over the list, Share and the search field over the reader, and the inspector's
+/// toggle over the inspector. A page that is not about documents shows only what still applies.
 final class WorkspaceToolbarController: NSObject {
 	private static let backIdentifier = NSToolbarItem.Identifier("schublade.back")
 	private static let sortIdentifier = NSToolbarItem.Identifier("schublade.sort")
+	private static let listSeparatorIdentifier = NSToolbarItem.Identifier("schublade.listSeparator")
 	private static let searchIdentifier = NSToolbarItem.Identifier("schublade.search")
 	private static let shareIdentifier = NSToolbarItem.Identifier("schublade.share")
-	private static let inspectorIdentifier = NSToolbarItem.Identifier("schublade.inspector")
+
+	/// When an item of the arrangement shows.
+	private enum Presence {
+		case always
+		case whileBackLeads
+		case whileDocumentsShow
+	}
+
+	/// Every item the toolbar can show, in the order it shows them. The flexible spaces share an
+	/// identifier, so the toolbar's items are tracked by their place in this list.
+	private static let arrangement: [(identifier: NSToolbarItem.Identifier, presence: Presence)] = [
+		(.toggleSidebar, .always),
+		(backIdentifier, .whileBackLeads),
+		(.sidebarTrackingSeparator, .always),
+		(.flexibleSpace, .whileDocumentsShow),
+		(sortIdentifier, .whileDocumentsShow),
+		(listSeparatorIdentifier, .whileDocumentsShow),
+		(.flexibleSpace, .always),
+		(shareIdentifier, .whileDocumentsShow),
+		(searchIdentifier, .always),
+		(.inspectorTrackingSeparator, .whileDocumentsShow),
+		(.flexibleSpace, .whileDocumentsShow),
+		(.toggleInspector, .whileDocumentsShow),
+	]
 
 	let toolbar = NSToolbar(identifier: NSToolbar.Identifier("org.schublade.libraryToolbar"))
 	private let backItem = NSToolbarItem(itemIdentifier: backIdentifier)
 	private let sortItem = NSMenuToolbarItem(itemIdentifier: sortIdentifier)
 	private let searchItem = NSSearchToolbarItem(itemIdentifier: searchIdentifier)
-	private let shareItem = NSToolbarItem(itemIdentifier: shareIdentifier)
-	private let inspectorItem = NSToolbarItem(itemIdentifier: inspectorIdentifier)
+	private let shareItem = NSSharingServicePickerToolbarItem(itemIdentifier: shareIdentifier)
 	private let sortMenu = NSMenu()
-	private var showsBackButton = false
+	/// The places in `arrangement` of the items the toolbar shows now.
+	private var shownPlaces: [Int]
+	private weak var listSplitView: NSSplitView?
 
 	private let onNavigateBack: () -> Void
 	private let onSelectOrder: (ListingOrder) -> Void
 	private let onSearchTextChanged: (String) -> Void
-	private let onShareDocument: (NSView) -> Void
-	private let onToggleInspector: () -> Void
+	private let shareableItems: () -> [Any]
 
 	init(
 		onNavigateBack: @escaping () -> Void,
 		onSelectOrder: @escaping (ListingOrder) -> Void,
 		onSearchTextChanged: @escaping (String) -> Void,
-		onShareDocument: @escaping (NSView) -> Void,
-		onToggleInspector: @escaping () -> Void
+		shareableItems: @escaping () -> [Any]
 	) {
 		self.onNavigateBack = onNavigateBack
 		self.onSelectOrder = onSelectOrder
 		self.onSearchTextChanged = onSearchTextChanged
-		self.onShareDocument = onShareDocument
-		self.onToggleInspector = onToggleInspector
+		self.shareableItems = shareableItems
+		shownPlaces = Self.places(showsBackButton: false, showsDocuments: true)
 		super.init()
 		configureToolbarItems()
 		toolbar.delegate = self
@@ -45,12 +70,28 @@ final class WorkspaceToolbarController: NSObject {
 		toolbar.allowsUserCustomization = false
 	}
 
+	/// The split view whose second divider, between the list and the reader, Sort's section ends at.
+	func track(_ splitView: NSSplitView) {
+		guard splitView !== listSplitView else {
+			return
+		}
+		listSplitView = splitView
+		// The separator takes its split view when the toolbar asks for it, so it is asked again.
+		if let index = toolbar.items.firstIndex(where: { $0.itemIdentifier == Self.listSeparatorIdentifier }) {
+			toolbar.removeItem(at: index)
+			toolbar.insertItem(withItemIdentifier: Self.listSeparatorIdentifier, at: index)
+		}
+	}
+
 	func apply(
 		workspace: LibraryWorkspacePresentation,
 		navigation: LibraryNavigationState,
 		hasSelectedDocument: Bool
 	) {
-		updateBackButtonVisibility(workspace.showsBackButton)
+		arrangeItems(Self.places(
+			showsBackButton: workspace.showsBackButton,
+			showsDocuments: workspace.detailMode == .documents
+		))
 		sortItem.isEnabled = workspace.allowsSortSelection
 		for item in sortMenu.items {
 			if let order = Self.order(forTag: item.tag) {
@@ -61,7 +102,6 @@ final class WorkspaceToolbarController: NSObject {
 			searchItem.searchField.stringValue = navigation.searchText
 		}
 		shareItem.isEnabled = hasSelectedDocument
-		inspectorItem.isEnabled = workspace.detailMode == .documents
 	}
 
 	func focusSearchField() {
@@ -69,16 +109,12 @@ final class WorkspaceToolbarController: NSObject {
 	}
 
 	private func configureToolbarItems() {
-		let backButton = NSButton(
-			image: NSImage(systemSymbolName: "chevron.left", accessibilityDescription: "Back") ?? NSImage(),
-			target: self,
-			action: #selector(backButtonPressed)
-		)
-		backButton.bezelStyle = .texturedRounded
-		backButton.setAccessibilityIdentifier(InterfaceIdentifier.toolbarBackButton)
+		backItem.image = NSImage(systemSymbolName: "chevron.backward", accessibilityDescription: "Back")
 		backItem.label = "Back"
 		backItem.toolTip = "Back"
-		backItem.view = backButton
+		backItem.isNavigational = true
+		backItem.target = self
+		backItem.action = #selector(backPressed)
 
 		configureSortMenu()
 
@@ -86,30 +122,14 @@ final class WorkspaceToolbarController: NSObject {
 		searchItem.searchField.delegate = self
 		searchItem.searchField.target = self
 		searchItem.searchField.action = #selector(searchFieldSubmitted)
+		searchItem.preferredWidthForSearchField = 240
 		searchItem.resignsFirstResponderWithCancel = true
 		searchItem.searchField.setAccessibilityIdentifier(InterfaceIdentifier.toolbarSearchField)
 
-		let shareButton = NSButton(
-			image: NSImage(systemSymbolName: "square.and.arrow.up", accessibilityDescription: "Share") ?? NSImage(),
-			target: self,
-			action: #selector(sharePressed)
-		)
-		shareButton.bezelStyle = .texturedRounded
-		shareButton.setAccessibilityIdentifier(InterfaceIdentifier.toolbarShareButton)
 		shareItem.label = "Share"
 		shareItem.toolTip = "Share Original"
-		shareItem.view = shareButton
-
-		let inspectorButton = NSButton(
-			image: NSImage(systemSymbolName: "sidebar.trailing", accessibilityDescription: "Inspector") ?? NSImage(),
-			target: self,
-			action: #selector(inspectorPressed)
-		)
-		inspectorButton.bezelStyle = .texturedRounded
-		inspectorButton.setAccessibilityIdentifier(InterfaceIdentifier.toolbarInspectorButton)
-		inspectorItem.label = "Inspector"
-		inspectorItem.toolTip = "Show or Hide Inspector"
-		inspectorItem.view = inspectorButton
+		shareItem.autovalidates = false
+		shareItem.delegate = self
 	}
 
 	private func configureSortMenu() {
@@ -136,15 +156,30 @@ final class WorkspaceToolbarController: NSObject {
 		sortItem.showsIndicator = true
 	}
 
-	private func updateBackButtonVisibility(_ visible: Bool) {
-		guard visible != showsBackButton else {
+	/// Removes the items a state does not show and inserts the ones it adds, each at its place in
+	/// `arrangement`, so the toolbar never rebuilds the items that stay.
+	private func arrangeItems(_ places: [Int]) {
+		guard places != shownPlaces else {
 			return
 		}
-		showsBackButton = visible
-		if visible {
-			toolbar.insertItem(withItemIdentifier: Self.backIdentifier, at: 1)
-		} else if let existingIndex = toolbar.items.firstIndex(where: { $0.itemIdentifier == Self.backIdentifier }) {
-			toolbar.removeItem(at: existingIndex)
+		for (index, place) in shownPlaces.enumerated().reversed() where !places.contains(place) {
+			toolbar.removeItem(at: index)
+		}
+		var remaining = shownPlaces.filter { places.contains($0) }
+		for (index, place) in places.enumerated() where !remaining.contains(place) {
+			toolbar.insertItem(withItemIdentifier: Self.arrangement[place].identifier, at: index)
+			remaining.insert(place, at: index)
+		}
+		shownPlaces = places
+	}
+
+	private static func places(showsBackButton: Bool, showsDocuments: Bool) -> [Int] {
+		arrangement.indices.filter { place in
+			switch arrangement[place].presence {
+			case .always: true
+			case .whileBackLeads: showsBackButton
+			case .whileDocumentsShow: showsDocuments
+			}
 		}
 	}
 
@@ -158,7 +193,7 @@ final class WorkspaceToolbarController: NSObject {
 		}
 	}
 
-	@objc private func backButtonPressed() {
+	@objc private func backPressed() {
 		onNavigateBack()
 	}
 
@@ -172,47 +207,15 @@ final class WorkspaceToolbarController: NSObject {
 	@objc private func searchFieldSubmitted() {
 		onSearchTextChanged(searchItem.searchField.stringValue)
 	}
-
-	@objc private func sharePressed() {
-		guard let anchor = shareItem.view else {
-			return
-		}
-		onShareDocument(anchor)
-	}
-
-	@objc private func inspectorPressed() {
-		onToggleInspector()
-	}
 }
 
 extension WorkspaceToolbarController: NSToolbarDelegate, NSSearchFieldDelegate {
 	func toolbarDefaultItemIdentifiers(_: NSToolbar) -> [NSToolbarItem.Identifier] {
-		var items: [NSToolbarItem.Identifier] = [.toggleSidebar]
-		if showsBackButton {
-			items.append(Self.backIdentifier)
-		}
-		items.append(contentsOf: [
-			.sidebarTrackingSeparator,
-			Self.sortIdentifier,
-			.flexibleSpace,
-			Self.searchIdentifier,
-			Self.shareIdentifier,
-			Self.inspectorIdentifier,
-		])
-		return items
+		shownPlaces.map { Self.arrangement[$0].identifier }
 	}
 
 	func toolbarAllowedItemIdentifiers(_: NSToolbar) -> [NSToolbarItem.Identifier] {
-		[
-			.toggleSidebar,
-			Self.backIdentifier,
-			.sidebarTrackingSeparator,
-			Self.sortIdentifier,
-			.flexibleSpace,
-			Self.searchIdentifier,
-			Self.shareIdentifier,
-			Self.inspectorIdentifier,
-		]
+		Array(Set(Self.arrangement.map(\.identifier)))
 	}
 
 	func toolbar(
@@ -225,12 +228,14 @@ extension WorkspaceToolbarController: NSToolbarDelegate, NSSearchFieldDelegate {
 			backItem
 		case Self.sortIdentifier:
 			sortItem
+		case Self.listSeparatorIdentifier:
+			listSplitView.map { splitView in
+				NSTrackingSeparatorToolbarItem(identifier: itemIdentifier, splitView: splitView, dividerIndex: 1)
+			}
 		case Self.searchIdentifier:
 			searchItem
 		case Self.shareIdentifier:
 			shareItem
-		case Self.inspectorIdentifier:
-			inspectorItem
 		default:
 			nil
 		}
@@ -241,5 +246,11 @@ extension WorkspaceToolbarController: NSToolbarDelegate, NSSearchFieldDelegate {
 			return
 		}
 		onSearchTextChanged(field.stringValue)
+	}
+}
+
+extension WorkspaceToolbarController: NSSharingServicePickerToolbarItemDelegate {
+	func items(for _: NSSharingServicePickerToolbarItem) -> [Any] {
+		shareableItems()
 	}
 }

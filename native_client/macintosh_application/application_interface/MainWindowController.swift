@@ -57,9 +57,12 @@ final class MainWindowController: NSWindowController, NSWindowDelegate {
 			backing: .buffered,
 			defer: false
 		)
-		mainWindow.minSize = NSSize(width: 900, height: 560)
+		// The content fills the frame under the toolbar, so its minimum is the frame's; a frame minimum
+		// of 560 points became a content minimum of 580.
+		mainWindow.contentMinSize = NSSize(width: 900, height: 560)
 		mainWindow.title = "Schublade"
 		mainWindow.toolbarStyle = .unified
+		mainWindow.tabbingMode = .disallowed
 		mainWindow.isReleasedWhenClosed = false
 		mainWindow.identifier = InterfaceIdentifier.mainWindow
 		mainWindow.contentViewController = containerController
@@ -202,6 +205,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate {
 				window?.subtitle = presentation.windowSubtitle(shownDocuments: shown)
 			}
 			containerController.display(workspace)
+			toolbarController?.track(workspace.splitView)
 			window?.toolbar = toolbarController?.toolbar
 			workspace.wireKeyViewLoop()
 			window?.makeFirstResponder(workspace.listController.focusTargetView)
@@ -262,10 +266,7 @@ private extension MainWindowController {
 			onNavigateBack: { [weak self] in self?.navigateBack() },
 			onSelectOrder: { [weak self] order in self?.setBrowseOrder(order) },
 			onSearchTextChanged: { [weak self] query in self?.setSearchText(query) },
-			onShareDocument: { [weak self] anchor in
-				self?.workspaceController?.shareSelectedDocument(anchoredTo: anchor)
-			},
-			onToggleInspector: { [weak self] in self?.toggleInspector() }
+			shareableItems: { [weak self] in self?.workspaceController?.shareableItems() ?? [] }
 		)
 	}
 
@@ -336,10 +337,6 @@ private extension MainWindowController {
 			return
 		}
 		updateNavigation { $0.search(text) }
-	}
-
-	func toggleInspector() {
-		updateNavigation { $0.inspectorVisible.toggle() }
 	}
 
 	func navigateBack() {

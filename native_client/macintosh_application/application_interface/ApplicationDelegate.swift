@@ -28,7 +28,9 @@ public final class ApplicationDelegate: NSObject, NSApplicationDelegate {
 	}
 
 	public func applicationDidFinishLaunching(_: Notification) {
-		MainMenuBuilder.installMainMenu()
+		MainMenuBuilder.installMainMenu { [weak self] in
+			self?.controller.mainWindowController.workspaceController?.shareableItems() ?? []
+		}
 		let origin = Self.launchOrigin()
 		Self.log.info("Launched by \(origin == .loginItem ? "the login item" : "a person", privacy: .public)")
 		NSWorkspace.shared.notificationCenter.addObserver(
@@ -69,6 +71,10 @@ public final class ApplicationDelegate: NSObject, NSApplicationDelegate {
 
 	@objc func showSettings(_: Any?) {
 		controller.showSettings()
+	}
+
+	@objc func showLibraryWindow(_: Any?) {
+		controller.showMainWindow()
 	}
 
 	@objc private func systemDidWake(_: Notification) {

@@ -55,6 +55,13 @@ final class FolderPageViewController: NSViewController {
 		fatalError("Interface Builder is not used")
 	}
 
+	func requestRemoval() {
+		guard !commandPending else {
+			return
+		}
+		removePressed()
+	}
+
 	override func loadView() {
 		view = page
 	}

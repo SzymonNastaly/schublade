@@ -137,6 +137,7 @@ private extension ApplicationEndToEndTests {
 			as: PDFView.self
 		) { ($0.document?.pageCount ?? 0) == 1 }
 		XCTAssertEqual(pdfView.document?.pageCount, 1)
+		try verifyShareHandsOverNamedCopy(in: window)
 
 		let senderButton = try await waitForView(
 			"inspector sender link",
@@ -172,6 +173,17 @@ private extension ApplicationEndToEndTests {
 
 		tabControl.selectedSegment = 0
 		tabControl.sendAction(tabControl.action, to: tabControl.target)
+	}
+
+	/// The toolbar's Share hands the services a writable copy of the shown original under its
+	/// suggested name.
+	func verifyShareHandsOverNamedCopy(in window: NSWindow) throws {
+		let shareItem = try XCTUnwrap(window.toolbar?.items.first {
+			$0.itemIdentifier.rawValue == "schublade.share"
+		} as? NSSharingServicePickerToolbarItem)
+		let shared = try XCTUnwrap(shareItem.delegate?.items(for: shareItem).first as? URL)
+		XCTAssertTrue(shared.lastPathComponent.hasSuffix("Haftpflichtversicherung Rechnung 5.pdf"))
+		XCTAssertTrue(FileManager.default.isWritableFile(atPath: shared.path(percentEncoded: false)))
 	}
 
 	func verifyIncrementalSearchAndSenderFilter(
@@ -232,9 +244,8 @@ private extension ApplicationEndToEndTests {
 		try await waitForCondition("the sender's documents are listed under its name") {
 			window.title == "Stadtwerke Talbrück GmbH" && tableView.numberOfRows == 6
 		}
-		let backItem = window.toolbar?.items.first { $0.itemIdentifier.rawValue == "schublade.back" }
-		let backButton = try XCTUnwrap(backItem?.view as? NSButton)
-		backButton.performClick(nil)
+		let backItem = try XCTUnwrap(window.toolbar?.items.first { $0.itemIdentifier.rawValue == "schublade.back" })
+		try NSApp.sendAction(XCTUnwrap(backItem.action), to: backItem.target, from: backItem)
 		try await waitForCondition("Back returns to All Documents") {
 			window.title == "All Documents" && tableView.numberOfRows == 8
 		}
@@ -272,6 +283,51 @@ private extension ApplicationEndToEndTests {
 			try rowText(in: tableView, row: 1, identifier: InterfaceIdentifier.documentRowTitle),
 			"Processing Document"
 		)
+		try verifyDividersSurvivePages(enrolled, in: window, controller: controller)
+		try await verifyInspectorMenuItem(controller: controller)
+	}
+
+	/// View > Hide Inspector hides the inspector and then reads Show Inspector.
+	func verifyInspectorMenuItem(controller: ApplicationController) async throws {
+		let workspace = try XCTUnwrap(controller.mainWindowController.workspaceController)
+		let inspector = try XCTUnwrap(workspace.splitViewItems.last)
+		let menuItem = NSMenuItem(
+			title: "Hide Inspector",
+			action: #selector(NSSplitViewController.toggleInspector(_:)),
+			keyEquivalent: "i"
+		)
+		XCTAssertTrue(workspace.validateMenuItem(menuItem))
+		XCTAssertEqual(menuItem.title, "Hide Inspector")
+		workspace.toggleInspector(menuItem)
+		try await waitForCondition("the inspector hides") { inspector.isCollapsed }
+		XCTAssertTrue(workspace.validateMenuItem(menuItem))
+		XCTAssertEqual(menuItem.title, "Show Inspector")
+		workspace.toggleInspector(menuItem)
+		try await waitForCondition("the inspector shows again") { !inspector.isCollapsed }
+	}
+
+	/// Twenty switches between All Documents and a folder's page collapse the list and the
+	/// inspector for the page and leave every divider where it was.
+	func verifyDividersSurvivePages(
+		_ folder: FolderReference,
+		in window: NSWindow,
+		controller: ApplicationController
+	) throws {
+		let workspace = try XCTUnwrap(controller.mainWindowController.workspaceController)
+		let widths = {
+			window.contentView?.layoutSubtreeIfNeeded()
+			return workspace.splitViewItems.map { $0.isCollapsed ? 0 : $0.viewController.view.frame.width }
+		}
+		let documentWidths = widths()
+		XCTAssertFalse(documentWidths.contains(0))
+		for _ in 1 ... 20 {
+			controller.mainWindowController.show(.folder(folder.identifier), selecting: nil)
+			let pageWidths = widths()
+			XCTAssertEqual(pageWidths[0], documentWidths[0])
+			XCTAssertEqual([pageWidths[1], pageWidths[3]], [0, 0])
+			controller.mainWindowController.show(.library(.allDocuments, title: nil), selecting: nil)
+			XCTAssertEqual(widths(), documentWidths)
+		}
 	}
 
 	/// Opens the folder's page as a notification does, and presses the confirmation's upload.

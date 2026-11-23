@@ -183,6 +183,7 @@ Decision 3 reverses one part of what the owner chose on 2026-11-22, the link-blu
 - The window's minimum becomes true: 900 by 560 points, with the inspector collapsed below about 1,070, the sum of the four minimums.
 - A page that is not about documents, a folder, Needs Attention, or the empty archive, collapses the list and the inspector and shows in the reader's place. The sidebar stays.
 - **This is the one part to try before keeping.** Build the flat split view first and switch between All Documents and a folder page twenty times. If the dividers lose their place or the list flashes, keep the container that swaps the page for the three panes, and build only the inspector with `inspectorWithViewController:` in the inner split view. The toolbar then tracks the inner split view's dividers through `NSTrackingSeparatorToolbarItem`.
+- **What unit M1 found.** The flat split view stayed: twenty switches in the end-to-end test left every divider where it was. `canCollapseFromWindowResize` alone kept the window at about 1,073 points, the sum of the four minimums, so the window's delegate collapses the inspector in `windowWillResize(_:to:)`, and in `windowDidResize(_:)` for a frame set by tiling or Accessibility, which then takes a second request to reach 900 points. A frame minimum of 560 points became a content minimum of 580, so the window sets `contentMinSize`. `NSSplitViewController` raises an exception for a split view of its own subclass in a titled window, so the window's controller holds the Quick Look panel's control.
 
 ### The toolbar
 
@@ -206,6 +207,7 @@ Decision 3 reverses one part of what the owner chose on 2026-11-22, the link-blu
 - Every item is a plain `NSToolbarItem` with an image, a label, a target, and an action. No item holds an `NSButton`.
 - No item is `.prominent`. The library has no main action, and a tinted button would claim one.
 - On a page, Sort, the group, Share, and the inspector item leave the toolbar the way Back does today, by `removeItem(at:)` and `insertItem(withItemIdentifier:at:)`. `NSToolbarItem.isHidden` needs macOS 15.
+- Measured by unit M1 on macOS 26: the search field takes about 327 points while the toolbar has room and 238 at the window's minimum, whatever `preferredWidthForSearchField` says. The tracking separator between the list and the reader draws its line through the toolbar, and the inspector's item takes the full height, so no line divides the reader's toolbar from the inspector's. Share hands over the named copy once the reader holds the original, and nothing before.
 - The window's title is the scope, "All Documents" or "Invoice", and its subtitle is the count, as today.
 
 ### Where things live

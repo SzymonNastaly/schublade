@@ -3,37 +3,42 @@ import ApplicationBindings
 import ApplicationPresentation
 import LibraryPresentation
 
-/// Coordinates the sidebar, document list, reader, inspector, and file actions inside the
-/// library workspace split view.
+/// Coordinates the sidebar, document list, reader, inspector, and file actions as the four items of
+/// one split view, so the toolbar knows every divider. A page, such as a folder or Needs Attention,
+/// takes the reader's place while the list and the inspector collapse.
 public final class LibraryWorkspaceViewController: NSSplitViewController {
 	/// The orders of View > Sort By, in the order of their menu items' tags.
 	static let sortOrders: [ListingOrder] = [.documentDate, .addition, .title, .sender]
 	/// Applies a change of the navigation, which the window controller owns.
 	public typealias NavigationChange = (_ mutate: (inout LibraryNavigationState) -> Void) -> Void
 
-	private let queries: any LibraryQueries
+	let queries: any LibraryQueries
 	private let renderMode: InterfaceRenderMode
 	let wordingContextProvider: () -> ApplicationWordingContext
 	private let persistsSplitPositions: Bool
 	private let pictureStore: PictureStore
-	private let actions: WorkspaceDocumentActions
-	private let rightContainerController = WindowContainerViewController()
-	private let pageController: WorkspacePageViewController
+	let actions: WorkspaceDocumentActions
+	private let readerContainerController = WindowContainerViewController()
+	let pageController: WorkspacePageViewController
+	private var listItem: NSSplitViewItem?
+	private var inspectorItem: NSSplitViewItem?
 
 	let sidebarController: LibrarySidebarViewController
 	let listController: DocumentListViewController
 	let readerController: DocumentReaderViewController
 	let inspectorController: DocumentInspectorViewController
-	let detailSplitController: LibraryDetailSplitViewController
 
-	private var onNavigationChange: NavigationChange?
+	private(set) var onNavigationChange: NavigationChange?
 	private var onReplaceTokenRequested: (() -> Void)?
-	private var onFocusSearchRequested: (() -> Void)?
-	private var latestNavigation = LibraryNavigationState()
-	private var latestStatuses = ApplicationStatuses()
-	private var latestWorkspace: LibraryWorkspacePresentation?
-	private let detailLoader: SelectedDocumentDetailLoader
+	private(set) var onFocusSearchRequested: (() -> Void)?
+	private(set) var latestNavigation = LibraryNavigationState()
+	private(set) var latestStatuses = ApplicationStatuses()
+	private(set) var latestWorkspace: LibraryWorkspacePresentation?
+	let detailLoader: SelectedDocumentDetailLoader
 	private var showingPage = false
+	private var requestedInspectorVisible = true
+	private var dividersPlaced = false
+	private var hasAppeared = false
 
 	public init(
 		queries: any LibraryQueries,
@@ -74,12 +79,6 @@ public final class LibraryWorkspaceViewController: NSSplitViewController {
 			onSelectScope: { target?.navigateToScope($0) },
 			onOpenInBrowser: { NSWorkspace.shared.open($0) }
 		)
-		detailSplitController = LibraryDetailSplitViewController(
-			listController: listController,
-			readerController: readerController,
-			inspectorController: inspectorController,
-			persistsSplitPositions: persistsState
-		)
 		detailLoader = SelectedDocumentDetailLoader(queries: queries) { document, detail in
 			target?.detailLoaded(detail, for: document)
 		}
@@ -91,10 +90,6 @@ public final class LibraryWorkspaceViewController: NSSplitViewController {
 		)
 		super.init(nibName: nil, bundle: nil)
 		target = self
-		detailSplitController.onToggleSidebar = { [weak self] in self?.toggleWorkspaceSidebar($0) }
-		detailSplitController.onInspectorVisibilityChanged = { [weak self] visible in
-			self?.onNavigationChange? { $0.inspectorVisible = visible }
-		}
 	}
 
 	@available(*, unavailable)
@@ -106,23 +101,105 @@ public final class LibraryWorkspaceViewController: NSSplitViewController {
 		super.viewDidLoad()
 		splitView.dividerStyle = .thin
 		if persistsSplitPositions {
-			splitView.autosaveName = "org.schublade.workspaceSplit"
+			splitView.autosaveName = "org.schublade.libraryWorkspaceSplit"
 		}
-		let sidebarItem = if renderMode == .interactive {
-			NSSplitViewItem(sidebarWithViewController: sidebarController)
-		} else {
-			NSSplitViewItem(viewController: sidebarController)
-		}
+		// The system's constructors give the toolbar its sections and the glass; offscreen, where the
+		// glass draws black, the renderer takes plain items of the same thicknesses.
+		let interactive = renderMode == .interactive
+		let sidebarItem = interactive
+			? NSSplitViewItem(sidebarWithViewController: sidebarController)
+			: NSSplitViewItem(viewController: sidebarController)
 		// The design's width, which a sidebar must not lose to the window's first, narrower layouts.
 		sidebarItem.minimumThickness = 214
 		sidebarItem.maximumThickness = 280
 		sidebarItem.canCollapse = true
-		let detailItem = NSSplitViewItem(viewController: rightContainerController)
-		detailItem.minimumThickness = 620
-		addSplitViewItem(sidebarItem)
-		addSplitViewItem(detailItem)
+		// The sidebar keeps its width while the list collapses for a page and the window resizes.
+		sidebarItem.holdingPriority = NSLayoutConstraint.Priority(280)
+
+		let listItem = interactive
+			? NSSplitViewItem(contentListWithViewController: listController)
+			: NSSplitViewItem(viewController: listController)
+		listItem.minimumThickness = 270
+		listItem.maximumThickness = 440
+		listItem.holdingPriority = NSLayoutConstraint.Priority(260)
+
+		let readerItem = NSSplitViewItem(viewController: readerContainerController)
+		readerItem.minimumThickness = 360
+		readerItem.holdingPriority = NSLayoutConstraint.Priority(240)
+
+		let inspectorItem = interactive
+			? NSSplitViewItem(inspectorWithViewController: inspectorController)
+			: NSSplitViewItem(viewController: inspectorController)
+		inspectorItem.minimumThickness = 220
+		inspectorItem.maximumThickness = 320
+		inspectorItem.canCollapse = true
+		// The inspector gives way first when the window narrows below what the four parts need.
+		inspectorItem.canCollapseFromWindowResize = true
+		inspectorItem.collapseBehavior = .useConstraints
+		inspectorItem.holdingPriority = NSLayoutConstraint.Priority(270)
+
+		for item in [sidebarItem, listItem, readerItem, inspectorItem] {
+			addSplitViewItem(item)
+		}
+		self.listItem = listItem
+		self.inspectorItem = inspectorItem
 		showingPage = false
-		rightContainerController.display(detailSplitController)
+		readerContainerController.display(readerController)
+	}
+
+	override public func viewDidAppear() {
+		super.viewDidAppear()
+		hasAppeared = true
+		view.needsLayout = true
+	}
+
+	/// The layouts before the window appears are narrower than the window and collapse the
+	/// inspector, so the dividers are placed, and the inspector restored, at the first layout after.
+	override public func viewDidLayout() {
+		super.viewDidLayout()
+		guard hasAppeared, !dividersPlaced, splitView.bounds.width > 0, let inspectorItem else {
+			return
+		}
+		dividersPlaced = true
+		if requestedInspectorVisible, !showingPage, inspectorItem.isCollapsed {
+			inspectorItem.isCollapsed = false
+		}
+		let sidebarWidth: CGFloat = 214
+		let divider = splitView.dividerThickness
+		InitialDividerPlacement.place(
+			in: splitView,
+			at: [sidebarWidth, sidebarWidth + divider + 330, splitView.bounds.width - 250]
+		)
+	}
+
+	/// Collapses the inspector when the window is about to narrow below what the four parts need.
+	/// `canCollapseFromWindowResize` alone left the window at the sum of their minimums, so the
+	/// window's minimum of 900 points never held. A frame set from outside arrives already held at
+	/// that floor, which the system's sidebar raises a few points above the sum, 1,073 against
+	/// 1,067, so a width within 8 points of the sum counts as too narrow.
+	public func accommodate(windowWidth width: CGFloat) {
+		let shown = splitViewItems.filter { !$0.isCollapsed }
+		let needed = shown.reduce(splitView.dividerThickness * CGFloat(shown.count - 1)) { $0 + $1.minimumThickness }
+		guard !showingPage, let inspectorItem, !inspectorItem.isCollapsed, width < needed + 8 else {
+			return
+		}
+		requestedInspectorVisible = false
+		inspectorItem.isCollapsed = true
+		onNavigationChange? { $0.inspectorVisible = false }
+	}
+
+	/// Reports a collapse or an expansion of the inspector that the window's width or the system's
+	/// toggle made, so the navigation, which the toolbar and the menu read, follows it.
+	override public func splitViewDidResizeSubviews(_ notification: Notification) {
+		super.splitViewDidResizeSubviews(notification)
+		guard dividersPlaced, !showingPage, let inspectorItem else {
+			return
+		}
+		let visible = !inspectorItem.isCollapsed
+		if visible != requestedInspectorVisible {
+			requestedInspectorVisible = visible
+			onNavigationChange? { $0.inspectorVisible = visible }
+		}
 	}
 
 	public func render(
@@ -136,18 +213,12 @@ public final class LibraryWorkspaceViewController: NSSplitViewController {
 		sidebarController.render(workspace.sidebar, selectedDestination: navigation.destination)
 
 		guard workspace.detailMode == .documents else {
-			if !showingPage {
-				showingPage = true
-				rightContainerController.display(pageController)
-			}
+			showPage()
 			pageController.render(workspace.detailMode, statuses: statuses, context: wordingContextProvider())
 			return
 		}
-		showDetailSplit()
-		detailSplitController.setInspectorVisible(
-			navigation.inspectorVisible,
-			animated: renderMode == .interactive
-		)
+		showDocuments()
+		setInspectorVisible(navigation.inspectorVisible, animated: renderMode == .interactive)
 		listController.render(navigation: navigation, workspace: workspace, statuses: statuses)
 		detailLoader.select(navigation.selectedDocument, revision: statuses.library?.contentRevision ?? 0)
 		if navigation.selectedDocument == nil {
@@ -160,106 +231,6 @@ public final class LibraryWorkspaceViewController: NSSplitViewController {
 		listController.contentRevisionChanged(to: revision)
 		detailLoader.reload(revision: revision)
 		readerController.contentRevisionChanged()
-	}
-}
-
-extension LibraryWorkspaceViewController: NSMenuItemValidation {
-	public func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
-		let hasSelection = latestNavigation.selectedDocument != nil
-		let allowsDocuments = latestWorkspace?.detailMode == .documents
-		switch menuItem.action {
-		case #selector(openSelectedDocumentDefaultApplication(_:)),
-		     #selector(toggleQuickLookAction(_:)),
-		     #selector(exportSelectedDocument(_:)):
-			return allowsDocuments && hasSelection
-		case #selector(openSelectedDocumentInBrowser(_:)):
-			return allowsDocuments && detailLoader.detail.flatMap { URL(string: $0.archivePage) } != nil
-		case #selector(toggleDocumentInspector(_:)):
-			return allowsDocuments
-		case #selector(selectSortOrder(_:)):
-			if let effective = latestWorkspace?.effectiveOrder {
-				menuItem.state = Self.sortOrders.firstIndex(of: effective) == menuItem.tag ? .on : .off
-			}
-			return latestWorkspace?.allowsSortSelection ?? false
-		case #selector(enrollFolderAction(_:)):
-			return latestStatuses.collector != nil
-		default:
-			return true
-		}
-	}
-}
-
-extension LibraryWorkspaceViewController {
-	func wireKeyViewLoop() {
-		sidebarController.focusTargetView.nextKeyView = listController.focusTargetView
-		listController.focusTargetView.nextKeyView = readerController.focusTargetView
-	}
-
-	func shareSelectedDocument(anchoredTo anchorView: NSView) {
-		guard let document = latestNavigation.selectedDocument else {
-			return
-		}
-		actions.share(document, anchoredTo: anchorView, window: view.window)
-	}
-
-	@objc func toggleWorkspaceSidebar(_ sender: Any?) {
-		super.toggleSidebar(sender)
-	}
-
-	@objc func focusSearchFieldAction(_: Any?) {
-		onFocusSearchRequested?()
-	}
-
-	@objc func showOriginalRepresentation(_: Any?) {
-		setReaderTab(.original)
-	}
-
-	@objc func showExtractedTextRepresentation(_: Any?) {
-		setReaderTab(.text)
-	}
-
-	@objc func toggleDocumentInspector(_: Any?) {
-		onNavigationChange? { $0.inspectorVisible.toggle() }
-	}
-
-	@objc func synchronizeLibrary(_: Any?) {
-		queries.synchronize()
-	}
-
-	@objc func openSelectedDocumentInBrowser(_: Any?) {
-		guard let urlText = detailLoader.detail?.archivePage, let url = URL(string: urlText) else {
-			return
-		}
-		NSWorkspace.shared.open(url)
-	}
-
-	@objc func exportSelectedDocument(_: Any?) {
-		guard let document = latestNavigation.selectedDocument else {
-			return
-		}
-		actions.export(document, suggestedFileName: detailLoader.detail?.suggestedFileName, window: view.window)
-	}
-
-	@objc func enrollFolderAction(_: Any?) {
-		actions.presentAddFolderPanel(in: view.window) { [weak self] folder in
-			self?.onNavigationChange? { $0.destination = .folder(folder.identifier) }
-		}
-	}
-
-	@objc func openSelectedDocumentDefaultApplication(_: Any?) {
-		latestNavigation.selectedDocument.map(openDocument)
-	}
-
-	@objc func toggleQuickLookAction(_: Any?) {
-		latestNavigation.selectedDocument.map(previewDocument)
-	}
-
-	@objc func selectSortOrder(_ sender: NSMenuItem) {
-		guard Self.sortOrders.indices.contains(sender.tag) else {
-			return
-		}
-		let selected = Self.sortOrders[sender.tag]
-		onNavigationChange? { $0.browseOrder = selected }
 	}
 }
 
@@ -298,12 +269,41 @@ private extension LibraryWorkspaceViewController {
 		)
 	}
 
-	func showDetailSplit() {
-		guard showingPage else {
+	/// A page takes the reader's place, and the list and the inspector collapse without animation,
+	/// so the dividers keep their places for the return.
+	func showPage() {
+		guard !showingPage, let listItem else {
 			return
 		}
+		showingPage = true
+		readerContainerController.display(pageController)
+		listItem.canCollapse = true
+		listItem.isCollapsed = true
+		inspectorItem?.isCollapsed = true
+	}
+
+	func showDocuments() {
+		guard showingPage, let listItem else {
+			return
+		}
+		readerContainerController.display(readerController)
+		listItem.isCollapsed = false
+		listItem.canCollapse = false
+		setInspectorVisible(requestedInspectorVisible, animated: false)
+		// Only now, so the expansions above do not report the inspector as a person's choice.
 		showingPage = false
-		rightContainerController.display(detailSplitController)
+	}
+
+	func setInspectorVisible(_ visible: Bool, animated: Bool) {
+		requestedInspectorVisible = visible
+		guard let inspectorItem, inspectorItem.isCollapsed == visible else {
+			return
+		}
+		if animated {
+			inspectorItem.animator().isCollapsed = !visible
+		} else {
+			inspectorItem.isCollapsed = !visible
+		}
 	}
 
 	/// Moves to a destination from a page, such as a folder's upload or Show Failed Documents.
@@ -344,10 +344,6 @@ private extension LibraryWorkspaceViewController {
 		}
 	}
 
-	func setReaderTab(_ tab: ReaderTab) {
-		onNavigationChange? { $0.readerTab = tab }
-	}
-
 	func handleStatusLinePress(_ line: StatusLinePresentation) {
 		if line.allowsTokenReplacement {
 			onReplaceTokenRequested?()
@@ -378,14 +374,6 @@ private extension LibraryWorkspaceViewController {
 			searchTerms: navigation.searchTerms
 		)
 		inspectorController.render(presented, hasSelection: navigation.selectedDocument != nil)
-	}
-
-	func openDocument(_ document: DocumentIdentifier) {
-		actions.openInDefaultApplication(document, window: view.window)
-	}
-
-	func previewDocument(_ document: DocumentIdentifier) {
-		actions.toggleQuickLook(for: document, title: detailLoader.detail?.title, window: view.window)
 	}
 
 	func copyDocument(_ document: DocumentIdentifier) {

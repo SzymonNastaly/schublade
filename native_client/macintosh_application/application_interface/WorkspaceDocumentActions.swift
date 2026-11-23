@@ -76,11 +76,10 @@ final class WorkspaceDocumentActions {
 		Task {
 			do {
 				let localFile = try await queries.original(document)
-				let folder = FileManager.default.temporaryDirectory
-					.appending(path: "Schublade Copies/\(UUID().uuidString)", directoryHint: .isDirectory)
-				try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-				let copy = folder.appending(path: suggestedFileName ?? "\(document.value).pdf")
-				try OriginalFileCopy.write(from: URL(fileURLWithPath: localFile.path), to: copy)
+				let copy = try namedCopy(
+					of: URL(fileURLWithPath: localFile.path),
+					suggestedFileName: suggestedFileName ?? "\(document.value).pdf"
+				)
 				NSPasteboard.general.clearContents()
 				NSPasteboard.general.setData(copy.dataRepresentation, forType: .fileURL)
 			} catch let refusal as RepresentationRefusal {
@@ -91,16 +90,15 @@ final class WorkspaceDocumentActions {
 		}
 	}
 
-	func share(_ document: DocumentIdentifier, anchoredTo anchorView: NSView, window: NSWindow?) {
-		Task {
-			do throws(RepresentationRefusal) {
-				let localFile = try await queries.original(document)
-				let picker = NSSharingServicePicker(items: [URL(fileURLWithPath: localFile.path)])
-				picker.show(relativeTo: anchorView.bounds, of: anchorView, preferredEdge: .minY)
-			} catch {
-				presentRepresentationAlert(error, in: window)
-			}
-		}
+	/// A copy of a cached original under its suggested name, in a folder of its own, for a paste or
+	/// a share that may outlive the cache's file.
+	func namedCopy(of original: URL, suggestedFileName: String) throws -> URL {
+		let folder = FileManager.default.temporaryDirectory
+			.appending(path: "Schublade Copies/\(UUID().uuidString)", directoryHint: .isDirectory)
+		try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+		let copy = folder.appending(path: suggestedFileName)
+		try OriginalFileCopy.write(from: original, to: copy)
+		return copy
 	}
 
 	func export(_ document: DocumentIdentifier, suggestedFileName: String?, window: NSWindow?) {

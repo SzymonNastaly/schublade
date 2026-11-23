@@ -34,6 +34,7 @@ final class DocumentReaderViewController: NSViewController {
 	private var activeDetail: DocumentDetailPresentation?
 	private var activeSearchTerms: [String] = []
 	private var requestedOriginalKind: OriginalKind?
+	private(set) var loadedOriginal: (document: DocumentIdentifier, file: URL)?
 	private var loadedPortableDocument: PDFDocument?
 	private var loadedImage: NSImage?
 	private var originalRefusal: RepresentationRefusal?
@@ -255,7 +256,6 @@ private extension DocumentReaderViewController {
 		pdfView.setAccessibilityIdentifier(InterfaceIdentifier.readerPortableDocumentView)
 
 		textView.isEditable = false
-		textView.isSelectable = true
 		textView.isRichText = false
 		textView.font = NSFont.systemFont(ofSize: NSFont.systemFontSize)
 		textView.textContainerInset = NSSize(width: 24, height: 20)
@@ -264,7 +264,6 @@ private extension DocumentReaderViewController {
 
 		textScrollView.documentView = textView
 		textScrollView.hasVerticalScroller = true
-		textScrollView.drawsBackground = true
 
 		for pane in [pdfView, renderedPdfView, imageReaderView, textScrollView, placeholderView] {
 			pane.translatesAutoresizingMaskIntoConstraints = false
@@ -319,6 +318,7 @@ private extension DocumentReaderViewController {
 				return
 			}
 			originalRefusal = nil
+			loadedOriginal = (document, URL(fileURLWithPath: localFile.path))
 			if let portableDocument = await PortableDocumentLoader.openPortableDocument(atPath: localFile.path) {
 				guard requestNumber == newestOriginalRequest, document == activeDocument else {
 					return
