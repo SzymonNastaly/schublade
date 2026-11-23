@@ -1,47 +1,75 @@
 import ApplicationBindings
 import LibraryPresentation
-import SubmissionQueue
 import UIKit
 
+/// The cell of each kind of library row. Every kind sets the accessibility identifier, because a
+/// reused cell would otherwise keep the one of the row it showed before.
 enum LibraryRowConfiguration {
+	/// While a person browses, an archived document's summary repeats its title, so its row has no
+	/// third line. A search shows the passage that matched.
 	static func configure(
 		_ cell: UICollectionViewListCell,
 		document row: DocumentRow,
 		picture: UIImage?,
+		searching: Bool,
 		context: WordingContext
 	) {
-		cell.contentConfiguration = DocumentRowContent(
-			row: DocumentRowPresentation.from(row, context: context),
-			picture: picture
+		let presented = DocumentRowPresentation.from(row, context: context)
+		let shown = if !searching, case .archived = row.condition {
+			DocumentRowPresentation(
+				title: presented.title,
+				sender: presented.sender,
+				dateText: presented.dateText,
+				amountText: presented.amountText,
+				thirdLineText: "",
+				thirdLineTone: presented.thirdLineTone,
+				contentKnown: presented.contentKnown
+			)
+		} else {
+			presented
+		}
+		let identity = "document.\(row.document.value)"
+		let content = DocumentRowContent(
+			identity: identity,
+			row: shown,
+			picture: picture,
+			trailing: .absent,
+			spokenValue: nil,
+			updatesFrequently: false
 		)
+		cell.contentConfiguration = content
+		content.describe(cell)
 		cell.accessories = []
-		cell.accessibilityIdentifier = "document.\(row.document.value)"
+		cell.accessibilityIdentifier = identity
 	}
 
-	static func configure(_ cell: UICollectionViewListCell, submission entry: SubmissionEntry, sentFraction: Double?) {
-		let row = SubmissionRowWording.row(entry, sentFraction: sentFraction)
-		var content = UIListContentConfiguration.subtitleCell()
-		content.text = row.title
-		content.textProperties.font = .preferredFont(forTextStyle: .headline)
-		content.secondaryText = row.status
-		content.secondaryTextProperties.font = .preferredFont(forTextStyle: .subheadline)
-		content.secondaryTextProperties.color = .secondaryLabel
-		content.textToSecondaryTextVerticalPadding = 4
-		content.image = UIImage(systemName: row.symbol)
-		content.imageProperties.reservedLayoutSize = DocumentRowContent.pictureSize
-		content.imageProperties.tintColor = switch row.tone {
-		case .waiting: .secondaryLabel
-		case .archived: InterfacePalette.archive
-		case .attention: InterfacePalette.attention
-		}
-		content.imageToTextPadding = 14
-		content.directionalLayoutMargins.top = 12
-		content.directionalLayoutMargins.bottom = 12
+	static func configure(
+		_ cell: UICollectionViewListCell,
+		arrival: Arrival,
+		picture: UIImage?,
+		context: WordingContext
+	) {
+		let identity = "arrival.\(arrival.id.uuidString)"
+		let content = DocumentRowContent(
+			identity: identity,
+			row: ArrivalPresentation.row(arrival, context: context),
+			picture: picture,
+			trailing: ArrivalPresentation.trailing(arrival.stage),
+			spokenValue: ArrivalPresentation.spokenStage(arrival, context: context),
+			updatesFrequently: true
+		)
 		cell.contentConfiguration = content
-		if case .archived = entry.answer {
-			cell.accessories = [.disclosureIndicator()]
-		} else {
-			cell.accessories = []
-		}
+		content.describe(cell)
+		cell.accessories = []
+		cell.accessibilityIdentifier = identity
+	}
+
+	static func configure(_ cell: UICollectionViewListCell, notice: UIContentUnavailableConfiguration?) {
+		cell.contentConfiguration = notice
+		cell.accessories = []
+		cell.isAccessibilityElement = false
+		cell.accessibilityLabel = nil
+		cell.accessibilityValue = nil
+		cell.accessibilityIdentifier = nil
 	}
 }

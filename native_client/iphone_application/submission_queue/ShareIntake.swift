@@ -37,11 +37,12 @@ public enum ShareIntake {
 				type: shared.type,
 				suggestedName: shared.suggestedName
 			)
-			return try queue.enqueue(
+			return try await queue.enqueue(
 				document: imported.file,
 				fileName: imported.fileName,
 				kind: imported.kind,
 				origin: .share,
+				picture: SubmissionPicture.make(from: imported.file, kind: imported.kind),
 				claimingUpload: true,
 				now: now
 			)

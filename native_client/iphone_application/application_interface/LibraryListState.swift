@@ -93,13 +93,14 @@ enum LibraryListState: Equatable {
 }
 
 nonisolated enum LibrarySection: Hashable {
-	case sending
+	/// This iPhone's arrivals, then the listing's documents in ingestion that no arrival shows.
+	case arriving
 	case listed(ListingHeading?)
 	case notice
 }
 
 nonisolated enum LibraryItem: Hashable {
-	case submission(UUID)
+	case arrival(UUID)
 	case document(DocumentIdentifier)
 	case notice
 }

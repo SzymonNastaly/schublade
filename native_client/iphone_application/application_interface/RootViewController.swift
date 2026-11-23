@@ -35,7 +35,7 @@ final class RootViewController: UIViewController {
 	/// Shows the screen for the situation and answers a scan request, and again on the next change.
 	private func follow() {
 		withObservationTracking {
-			show(Self.screen(for: controller.situation))
+			show(screen(for: controller.situation))
 			if ScanRequestCenter.shared.isPending {
 				answerScanRequest()
 			}
@@ -60,10 +60,14 @@ final class RootViewController: UIViewController {
 		}
 	}
 
-	private static func screen(for situation: ApplicationController.Situation) -> Screen {
+	/// While the core starts, a scan requested from outside the application installs the library at
+	/// once when the last connected archive permits sending, so the camera opens without waiting for
+	/// the core: a submission needs only the queue, and is sent once the core knows the archive.
+	private func screen(for situation: ApplicationController.Situation) -> Screen {
 		switch situation {
 		case .starting:
-			.starting
+			screen == .library || ScanRequestCenter.shared.isPending && controller.sendingPermitted
+				? .library : .starting
 		case let .failedToStart(detail):
 			.failure("Schublade could not start: \(detail)")
 		case let .running(status):
@@ -80,6 +84,7 @@ final class RootViewController: UIViewController {
 			return
 		}
 		screen = next
+		shown?.presentedViewController?.dismiss(animated: false)
 		library = nil
 		let child: UIViewController
 		switch next {

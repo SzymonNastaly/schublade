@@ -9,7 +9,7 @@ final class LibraryCommands: NSObject {
 		let item = UIBarButtonItem(
 			title: "Scan",
 			image: UIImage(systemName: "doc.viewfinder"),
-			primaryAction: UIAction(title: "Scan") { [weak self] _ in self?.capture.scan() }
+			primaryAction: UIAction(title: "Scan") { [weak self] _ in self?.capture.scan(animated: true) }
 		)
 		if #available(iOS 26, *) {
 			item.style = .prominent

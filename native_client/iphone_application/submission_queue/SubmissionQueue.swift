@@ -1,4 +1,5 @@
 import ApplicationBindings
+import CoreGraphics
 import Foundation
 
 /// The submissions on this device, one directory each, under a root that the application and its
@@ -16,6 +17,9 @@ public struct SubmissionQueue: Sendable {
 	/// The archived answer, apart from every other, because no later answer may replace it.
 	private static let archivedAnswerName = "archived_answer.json"
 	private static let bodyName = "request_body"
+	/// The first page as a small JPEG, which stays when the archive takes the bytes, so the row keeps
+	/// its picture until the archive's own replaces it.
+	private static let pictureName = "thumbnail.jpg"
 	/// How long an archived submission stays listed.
 	public static let archivedRetention: TimeInterval = 7 * 24 * 3600
 
@@ -37,18 +41,21 @@ public struct SubmissionQueue: Sendable {
 		submissions.appending(path: identifier.uuidString, directoryHint: .isDirectory)
 	}
 
-	/// Moves `document` into a new submission, which then owns the file. The share extension claims
-	/// the upload at `now`, before the rename, so the application never sees its submission unclaimed.
+	/// Moves `document` into a new submission, which then owns the file, with `picture` as its first
+	/// page. The share extension claims the upload at `now`, before the rename, so the application
+	/// never sees its submission unclaimed. `identifier` lets a row shown while the document was
+	/// prepared stay the same row.
 	public func enqueue(
 		document: URL,
 		fileName: String,
 		kind: SubmissionFileKind,
 		origin: SubmissionOrigin,
 		pageCount: Int? = nil,
+		picture: CGImage? = nil,
+		identifier: UUID = UUID(),
 		claimingUpload: Bool = false,
 		now: Date = .now
 	) throws(QueueFailure) -> SubmissionEntry {
-		let identifier = UUID()
 		let building = incoming.appending(path: identifier.uuidString, directoryHint: .isDirectory)
 		let manifest: SubmissionManifest
 		do {
@@ -67,6 +74,9 @@ public struct SubmissionQueue: Sendable {
 				uploadClaimedAt: claimingUpload ? now : nil
 			)
 			try JSONEncoder().encode(manifest).write(to: building.appending(path: Self.manifestName))
+			if let reduced = picture.flatMap(SubmissionPicture.reduced) {
+				_ = SubmissionPicture.write(reduced, to: building.appending(path: Self.pictureName))
+			}
 		} catch {
 			try? FileManager.default.removeItem(at: building)
 			throw .documentUnreadable(error.localizedDescription)
@@ -114,6 +124,12 @@ public struct SubmissionQueue: Sendable {
 	/// The file whose bytes are sent, while the submission still holds them.
 	public func documentFile(of entry: SubmissionEntry) -> URL? {
 		let file = directory(of: entry.id).appending(path: "document.\(entry.manifest.kind.fileExtension)")
+		return FileManager.default.fileExists(atPath: file.path(percentEncoded: false)) ? file : nil
+	}
+
+	/// The picture of the first page, for a submission enqueued with one.
+	public func pictureFile(of identifier: UUID) -> URL? {
+		let file = directory(of: identifier).appending(path: Self.pictureName)
 		return FileManager.default.fileExists(atPath: file.path(percentEncoded: false)) ? file : nil
 	}
 

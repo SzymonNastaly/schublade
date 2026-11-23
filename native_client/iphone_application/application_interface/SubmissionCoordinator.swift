@@ -1,12 +1,16 @@
 import ApplicationBindings
 import Foundation
+import ImageIO
+import LibraryPresentation
 import Observation
 import SubmissionQueue
+import UIKit
 
-/// Sends the submissions of the queue and keeps what the Sending list shows: every submission with
-/// its answer, and the fraction sent of those under way. It prepares a body when it starts an
-/// upload, records each answer, sends an unavailable submission again on its schedule, and asks
-/// the library to read the archive once a submission is archived.
+/// Sends the submissions of the queue and keeps what the Arriving section shows: the documents
+/// still being written, every submission with its answer, the fraction sent of those under way, and
+/// what the copy holds of each archived one. It prepares a body when it starts an upload, records
+/// each answer, sends an unavailable submission again on its schedule, asks the library to read the
+/// archive once a submission is archived, and lets a filed submission go when the person leaves.
 @Observable
 final class SubmissionCoordinator {
 	/// The share extension's session in this process. One process at a time may use a background
@@ -30,8 +34,15 @@ final class SubmissionCoordinator {
 		}
 	}
 
+	private(set) var preparing: [PreparingSubmission] = []
 	private(set) var entries: [SubmissionEntry] = []
 	private(set) var progress: [UUID: Double] = [:]
+	/// What the copy holds of each archived submission's document.
+	private(set) var documents: [UUID: DocumentDetail] = [:]
+	/// The first page of each arrival, drawn for its row.
+	@ObservationIgnored private var pictures: [UUID: UIImage] = [:]
+	@ObservationIgnored private var documentReading: Task<Void, Never>?
+	@ObservationIgnored private var documentsStale = false
 
 	private let queue: SubmissionQueue
 	private let credentials: CredentialStorage
@@ -121,25 +132,6 @@ final class SubmissionCoordinator {
 		}
 	}
 
-	/// Moves `document` into the queue and sends it.
-	func submit(
-		document: URL,
-		fileName: String,
-		kind: SubmissionFileKind,
-		origin: SubmissionOrigin,
-		pageCount: Int? = nil
-	) throws(SubmissionQueue.QueueFailure) {
-		let entry = try queue.enqueue(
-			document: document,
-			fileName: fileName,
-			kind: kind,
-			origin: origin,
-			pageCount: pageCount
-		)
-		reload()
-		send(entry)
-	}
-
 	/// Removes a submission from the list, and stops its upload if one is under way.
 	func remove(_ identifier: UUID) {
 		Task {
@@ -176,6 +168,11 @@ final class SubmissionCoordinator {
 
 	private func reload() {
 		entries = queue.entries()
+		let shown = Set(entries.map(\.id) + preparing.map(\.identifier))
+		pictures = pictures.filter { shown.contains($0.key) }
+		if documents.keys.contains(where: { !shown.contains($0) }) {
+			documents = documents.filter { shown.contains($0.key) }
+		}
 	}
 
 	private func send(_ entry: SubmissionEntry) {
@@ -201,6 +198,7 @@ final class SubmissionCoordinator {
 		switch recorded {
 		case .archived?:
 			gateway.synchronize()
+			contentChanged()
 		case .unavailable?:
 			scheduleResumption()
 		case .rejected?, .refusedToken?, nil:
@@ -228,5 +226,147 @@ final class SubmissionCoordinator {
 			}
 			self?.resume()
 		}
+	}
+}
+
+/// The Arriving section: the rows of documents still being written, the pictures, and what the
+/// copy holds of each archived submission.
+extension SubmissionCoordinator {
+	/// Every arrival, newest first.
+	func arrivals(context: WordingContext) -> [Arrival] {
+		let queued = Set(entries.map(\.id))
+		let written = preparing.filter { !queued.contains($0.identifier) }
+			.map { (time: $0.startedAt, arrival: ArrivalPresentation.arrival($0, context: context)) }
+		let sent = entries.map { entry in
+			(
+				time: entry.manifest.createdAt,
+				arrival: ArrivalPresentation.arrival(
+					entry,
+					sentFraction: progress[entry.id],
+					document: documents[entry.id],
+					context: context
+				)
+			)
+		}
+		return (written + sent).sorted { $0.time > $1.time }.map(\.arrival)
+	}
+
+	/// The first page of an arrival, drawn for its row, or nil for one without a picture.
+	func picture(of identifier: UUID) -> UIImage? {
+		if let picture = pictures[identifier] {
+			return picture
+		}
+		guard let file = queue.pictureFile(of: identifier),
+		      let source = CGImageSourceCreateWithURL(file as CFURL, nil),
+		      let decoded = CGImageSourceCreateImageAtIndex(source, 0, nil)
+		else {
+			return nil
+		}
+		let picture = RowPicture.framed(decoded)
+		pictures[identifier] = picture
+		return picture
+	}
+
+	/// Shows a row for a document whose file is still being written, as a scan's PDF after Save,
+	/// and answers its identifier, which the submission takes once written.
+	func prepare(
+		origin: SubmissionOrigin,
+		fileName: String? = nil,
+		pageCount: Int? = nil,
+		firstPage: CGImage? = nil,
+		startedAt: Date = .now
+	) -> UUID {
+		let identifier = UUID()
+		if let firstPage {
+			pictures[identifier] = RowPicture.framed(firstPage)
+		}
+		preparing.append(PreparingSubmission(
+			identifier: identifier,
+			origin: origin,
+			fileName: fileName,
+			pageCount: pageCount,
+			startedAt: startedAt
+		))
+		return identifier
+	}
+
+	/// Removes the row of a document that could not be written.
+	func abandon(_ identifier: UUID) {
+		preparing.removeAll { $0.identifier == identifier }
+		pictures[identifier] = nil
+	}
+
+	/// Moves `document` into the queue and sends it. A document prepared under `identifier` keeps
+	/// its row and its place.
+	func submit(
+		document: URL,
+		fileName: String,
+		kind: SubmissionFileKind,
+		origin: SubmissionOrigin,
+		pageCount: Int? = nil,
+		picture: CGImage? = nil,
+		preparedAs identifier: UUID? = nil
+	) throws(SubmissionQueue.QueueFailure) {
+		let prepared = preparing.first { $0.identifier == identifier }
+		defer {
+			preparing.removeAll { $0.identifier == identifier }
+		}
+		let entry = try queue.enqueue(
+			document: document,
+			fileName: fileName,
+			kind: kind,
+			origin: origin,
+			pageCount: pageCount,
+			picture: picture,
+			identifier: prepared?.identifier ?? UUID(),
+			now: prepared?.startedAt ?? .now
+		)
+		reload()
+		send(entry)
+	}
+
+	/// Reads what the copy holds of each archived submission's document, after the copy changed.
+	/// A day's submissions are a handful, so these are a few local reads.
+	func contentChanged() {
+		guard documentReading == nil else {
+			documentsStale = true
+			return
+		}
+		documentsStale = false
+		let archived = entries.compactMap { entry -> (UUID, DocumentIdentifier)? in
+			guard case let .archived(document, _, _)? = entry.answer else {
+				return nil
+			}
+			return (entry.id, DocumentIdentifier(value: document))
+		}
+		documentReading = Task {
+			var read: [UUID: DocumentDetail] = [:]
+			for (identifier, document) in archived {
+				if let detail = try? await gateway.document(document) {
+					read[identifier] = detail
+				}
+			}
+			if read != documents {
+				documents = read
+			}
+			documentReading = nil
+			if documentsStale {
+				contentChanged()
+			}
+		}
+	}
+
+	/// Lets every submission go whose document the copy holds filed or failed, once the person left
+	/// the application, so a finished letter is shown once on top and then only in its month.
+	func removeSettled() {
+		for entry in entries {
+			switch documents[entry.id]?.condition {
+			case .archived?, .failed?:
+				queue.remove(entry.id)
+			case .inIngestion?, nil:
+				continue
+			}
+		}
+		reload()
 	}
 }

@@ -26,14 +26,14 @@ final class DocumentCapture: NSObject {
 		self.submissions = submissions
 	}
 
-	func scan() {
+	func scan(animated: Bool) {
 		guard VNDocumentCameraViewController.isSupported else {
 			alert("Scanning Is Not Available", "This device has no camera that can scan documents.")
 			return
 		}
 		let camera = VNDocumentCameraViewController()
 		camera.delegate = self
-		presenter?.present(camera, animated: true)
+		presenter?.present(camera, animated: animated)
 	}
 
 	func choosePhotos() {
@@ -61,8 +61,18 @@ extension DocumentCapture: VNDocumentCameraViewControllerDelegate {
 	) {
 		let pages = (0 ..< scan.pageCount).map { scan.imageOfPage(at: $0) }
 		camera.dismiss(animated: true)
-		let name = "Scan \(Self.scanNameFormatter.string(from: .now))"
+		let savedAt = Date.now
+		let name = "Scan \(Self.scanNameFormatter.string(from: savedAt))"
 		Task {
+			// The row lands during the dismissal with the first page as its picture, before the PDF
+			// is written.
+			let firstPage = await Self.reducedFirstPage(of: pages)
+			let identifier = submissions.prepare(
+				origin: .scan,
+				pageCount: pages.count,
+				firstPage: firstPage,
+				startedAt: savedAt
+			)
 			do {
 				let file = try await Self.writeScan(pages)
 				try submissions.submit(
@@ -70,17 +80,31 @@ extension DocumentCapture: VNDocumentCameraViewControllerDelegate {
 					fileName: "\(name).pdf",
 					kind: .pdf,
 					origin: .scan,
-					pageCount: pages.count
+					pageCount: pages.count,
+					picture: firstPage,
+					preparedAs: identifier
 				)
 			} catch ScanDocumentWriter.WriteFailure.tooLarge {
+				submissions.abandon(identifier)
 				alert(
 					"This Scan Is Too Large",
 					"The archive accepts up to 25 MB. Scan the letter in two parts."
 				)
 			} catch {
+				submissions.abandon(identifier)
 				alert("The Scan Could Not Be Saved", error.localizedDescription)
 			}
 		}
+	}
+
+	@concurrent
+	private static func reducedFirstPage(of pages: [UIImage]) async -> CGImage? {
+		guard let first = pages.first else {
+			return nil
+		}
+		let scale = CGFloat(SubmissionPicture.pixelLimit) / max(first.size.width, first.size.height, 1)
+		let fitted = CGSize(width: first.size.width * scale, height: first.size.height * scale)
+		return await first.byPreparingThumbnail(ofSize: fitted)?.cgImage
 	}
 
 	func documentCameraViewControllerDidCancel(_ camera: VNDocumentCameraViewController) {
@@ -102,16 +126,26 @@ extension DocumentCapture: VNDocumentCameraViewControllerDelegate {
 
 /// Photos and Files.
 extension DocumentCapture: PHPickerViewControllerDelegate, UIDocumentPickerDelegate {
+	/// Every chosen photo lands as a row at once, newest first in the order chosen, and each is
+	/// copied and sent in turn.
 	func picker(_ picker: PHPickerViewController, didFinishPicking results: [PHPickerResult]) {
 		picker.dismiss(animated: true)
 		let providers = results.map(\.itemProvider)
+		let identifiers = prepare(providers.map { _ in nil }, origin: .importedPhoto)
 		Task {
-			for provider in providers {
+			for (provider, identifier) in zip(providers, identifiers) {
 				do {
 					let type = DocumentImport.preferredType(among: provider.registeredContentTypes) ?? .image
 					let copy = try await Self.copyPicture(from: provider, as: type)
-					try await submit(copy, type: type, suggestedName: provider.suggestedName, origin: .importedPhoto)
+					try await submit(
+						copy,
+						type: type,
+						suggestedName: provider.suggestedName,
+						origin: .importedPhoto,
+						preparedAs: identifier
+					)
 				} catch {
+					submissions.abandon(identifier)
 					alert("A Photo Could Not Be Added", error.localizedDescription)
 				}
 			}
@@ -119,27 +153,49 @@ extension DocumentCapture: PHPickerViewControllerDelegate, UIDocumentPickerDeleg
 	}
 
 	func documentPicker(_: UIDocumentPickerViewController, didPickDocumentsAt urls: [URL]) {
+		let chosen = Array(urls.prefix(Self.selectionLimit))
+		let identifiers = prepare(chosen.map(\.lastPathComponent), origin: .importedFile)
 		Task {
-			for url in urls.prefix(Self.selectionLimit) {
+			for (url, identifier) in zip(chosen, identifiers) {
 				do {
 					guard let type = try url.resourceValues(forKeys: [.contentTypeKey]).contentType else {
 						throw DocumentImport.ImportFailure.unacceptedKind(url.lastPathComponent)
 					}
-					try await submit(url, type: type, suggestedName: nil, origin: .importedFile)
+					try await submit(url, type: type, suggestedName: nil, origin: .importedFile, preparedAs: identifier)
 				} catch {
+					submissions.abandon(identifier)
 					alert("\(url.lastPathComponent) Could Not Be Added", error.localizedDescription)
 				}
 			}
 		}
 	}
 
-	private func submit(_ file: URL, type: UTType, suggestedName: String?, origin: SubmissionOrigin) async throws {
+	private func prepare(_ fileNames: [String?], origin: SubmissionOrigin) -> [UUID] {
+		let chosenAt = Date.now
+		return fileNames.enumerated().map { index, fileName in
+			submissions.prepare(
+				origin: origin,
+				fileName: fileName,
+				startedAt: chosenAt.addingTimeInterval(-Double(index) / 1000)
+			)
+		}
+	}
+
+	private func submit(
+		_ file: URL,
+		type: UTType,
+		suggestedName: String?,
+		origin: SubmissionOrigin,
+		preparedAs identifier: UUID
+	) async throws {
 		let imported = try await Self.convert(file, type: type, suggestedName: suggestedName)
-		try submissions.submit(
+		try await submissions.submit(
 			document: imported.file,
 			fileName: imported.fileName,
 			kind: imported.kind,
-			origin: origin
+			origin: origin,
+			picture: SubmissionPicture.make(from: imported.file, kind: imported.kind),
+			preparedAs: identifier
 		)
 	}
 

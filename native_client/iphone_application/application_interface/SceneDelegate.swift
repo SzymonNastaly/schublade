@@ -11,13 +11,15 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
 		else {
 			return
 		}
+		// A quick action that started the application is a request before the first screen shows, so
+		// that screen can be the library under the camera.
+		if let shortcutItem = options.shortcutItem {
+			_ = Self.perform(shortcutItem)
+		}
 		let window = UIWindow(windowScene: windowScene)
 		window.rootViewController = RootViewController(controller: delegate.controller)
 		window.makeKeyAndVisible()
 		self.window = window
-		if let shortcutItem = options.shortcutItem {
-			_ = Self.perform(shortcutItem)
-		}
 	}
 
 	func windowScene(
@@ -42,5 +44,9 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
 
 	func sceneWillResignActive(_: UIScene) {
 		(UIApplication.shared.delegate as? ApplicationDelegate)?.controller.resignedActive()
+	}
+
+	func sceneDidEnterBackground(_: UIScene) {
+		(UIApplication.shared.delegate as? ApplicationDelegate)?.controller.enteredBackground()
 	}
 }

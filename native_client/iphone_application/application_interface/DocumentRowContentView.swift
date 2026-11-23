@@ -1,14 +1,19 @@
 import LibraryPresentation
 import UIKit
 
+/// One row of the library: a document, or an arrival on its way to becoming one. Both draw from
+/// this value, so the picture and the text stay in place when an arrival becomes its document.
 struct DocumentRowContent: UIContentConfiguration, Equatable {
-	/// A page of A4 in the row's height.
-	static let pictureSize = CGSize(width: 40, height: 52)
-	/// Where the text begins, for the separator below the row.
-	static let textLeading: CGFloat = 16 + pictureSize.width + 14
-
+	/// Which row this is, such as "document.<identifier>". A change animates only within one row,
+	/// because a reused cell may show another.
+	let identity: String
 	let row: DocumentRowPresentation
 	let picture: UIImage?
+	let trailing: RowTrailing
+	/// What VoiceOver reads after the row's label, nil for the third line.
+	let spokenValue: String?
+	/// An arrival changes as it is sent and read.
+	let updatesFrequently: Bool
 
 	func makeContentView() -> any UIView & UIContentView {
 		DocumentRowContentView(configuration: self)
@@ -17,15 +22,75 @@ struct DocumentRowContent: UIContentConfiguration, Equatable {
 	func updated(for _: any UIConfigurationState) -> DocumentRowContent {
 		self
 	}
+
+	/// Makes the cell one element for VoiceOver: the title, the sender, the date, and the amount,
+	/// then the stage or the third line. A picture is not an element.
+	func describe(_ cell: UICollectionViewListCell) {
+		cell.isAccessibilityElement = true
+		cell.accessibilityLabel = [row.title, row.sender, row.dateText, row.amountText]
+			.compactMap { $0?.isEmpty == false ? $0 : nil }
+			.joined(separator: ", ")
+		cell.accessibilityValue = spokenValue ?? (row.thirdLineText.isEmpty ? nil : row.thirdLineText)
+		cell.accessibilityTraits = updatesFrequently ? [.button, .updatesFrequently] : [.button]
+	}
+
+	/// Where the text begins, for the separator below the row.
+	static var textLeading: CGFloat {
+		16 + RowPicture.size.width + 12
+	}
+}
+
+/// The first page of a row, an A4 page cut to the row's proportions from its top edge, so the
+/// letterhead stays in view and no picture is letterboxed.
+enum RowPicture {
+	/// 44 by 58 points at the default text size, growing with the text up to 66 points wide.
+	static var size: CGSize {
+		let width = min(UIFontMetrics(forTextStyle: .body).scaledValue(for: 44), 66)
+		return CGSize(width: width.rounded(), height: (width * 58 / 44).rounded())
+	}
+
+	/// Cut from the top and drawn on white, because a page is paper and a transparent picture would
+	/// show the dark row through it.
+	nonisolated static func framed(_ picture: CGImage) -> UIImage {
+		let proportion = 44.0 / 58.0
+		let width = Double(picture.width)
+		let height = Double(picture.height)
+		let cut = if width / height > proportion {
+			CGRect(x: ((width - height * proportion) / 2).rounded(), y: 0, width: height * proportion, height: height)
+		} else {
+			CGRect(x: 0, y: 0, width: width, height: (width / proportion).rounded())
+		}
+		let cropped = picture.cropping(to: cut.integral) ?? picture
+		let format = UIGraphicsImageRendererFormat()
+		format.scale = 3
+		format.opaque = true
+		let pointSize = CGSize(width: Double(cropped.width) / 3, height: Double(cropped.height) / 3)
+		return UIGraphicsImageRenderer(size: pointSize, format: format).image { context in
+			let bounds = CGRect(origin: .zero, size: pointSize)
+			InterfacePalette.paper.setFill()
+			context.fill(bounds)
+			UIImage(cgImage: cropped, scale: 3, orientation: .up).draw(in: bounds)
+		}
+	}
 }
 
 final class DocumentRowContentView: UIView, UIContentView {
 	private let pictureView = UIImageView()
 	private let titleLabel = UILabel()
-	private let amountLabel = UILabel()
 	private let senderLabel = UILabel()
 	private let dateLabel = UILabel()
-	private let passageLabel = UILabel()
+	private let amountLabel = UILabel()
+	private let thirdLabel = UILabel()
+	private let textStack = UIStackView()
+	private let accessory = UIView()
+	private let activityView = UIActivityIndicatorView(style: .medium)
+	private let progressView = CircularProgressView()
+	private let symbolView = UIImageView()
+	private var pictureWidth: NSLayoutConstraint?
+	private var pictureHeight: NSLayoutConstraint?
+	private var accessorySize: NSLayoutConstraint?
+	private var accessoryHeight: NSLayoutConstraint?
+	private var textBeforeAccessory: NSLayoutConstraint?
 	private var shown: DocumentRowContent
 
 	var configuration: any UIContentConfiguration {
@@ -34,16 +99,22 @@ final class DocumentRowContentView: UIView, UIContentView {
 			guard let next = newValue as? DocumentRowContent, next != shown else {
 				return
 			}
+			let previous = shown
 			shown = next
-			apply(next)
+			apply(next, after: previous.identity == next.identity ? previous : nil)
 		}
 	}
 
 	init(configuration: DocumentRowContent) {
 		shown = configuration
 		super.init(frame: .zero)
-		build()
-		apply(configuration)
+		buildText()
+		buildAccessory()
+		buildLayout()
+		apply(configuration, after: nil)
+		registerForTraitChanges([UITraitPreferredContentSizeCategory.self]) { (view: Self, _) in
+			view.sizePicture()
+		}
 	}
 
 	@available(*, unavailable)
@@ -51,52 +122,101 @@ final class DocumentRowContentView: UIView, UIContentView {
 		fatalError("The interface is built in code")
 	}
 
-	private func build() {
-		pictureView.contentMode = .scaleAspectFit
-		pictureView.layer.cornerRadius = 4
+	private func buildText() {
+		pictureView.layer.cornerRadius = 6
+		pictureView.layer.cornerCurve = .continuous
 		pictureView.clipsToBounds = true
-		pictureView.tintColor = InterfacePalette.archive
+		pictureView.preferredSymbolConfiguration = UIImage.SymbolConfiguration(textStyle: .title3)
+		pictureView.tintColor = .tertiaryLabel
 		style(titleLabel, .headline, color: .label, lines: 2)
-		style(amountLabel, .subheadline, color: .label, lines: 1)
-		amountLabel.font = Self.amountFont
-		amountLabel.setContentCompressionResistancePriority(.required, for: .horizontal)
-		amountLabel.setContentHuggingPriority(.required, for: .horizontal)
 		style(senderLabel, .subheadline, color: .secondaryLabel, lines: 1)
 		style(dateLabel, .subheadline, color: .secondaryLabel, lines: 1)
-		// A long sender gives way, and the date stays whole.
-		dateLabel.setContentCompressionResistancePriority(.required, for: .horizontal)
-		dateLabel.setContentHuggingPriority(.required, for: .horizontal)
+		style(amountLabel, .subheadline, color: .label, lines: 1)
+		// The subheadline's 15 points at the default text size, with digits of one width, so the
+		// amounts of the rows form a column.
+		amountLabel.font = UIFontMetrics(forTextStyle: .subheadline)
+			.scaledFont(for: .monospacedDigitSystemFont(ofSize: 15, weight: .medium))
+		style(thirdLabel, .footnote, color: .secondaryLabel, lines: 2)
+		// A long sender gives way, and the date and the amount stay whole.
+		for whole in [dateLabel, amountLabel] {
+			whole.setContentCompressionResistancePriority(.required, for: .horizontal)
+			whole.setContentHuggingPriority(.required, for: .horizontal)
+		}
 		senderLabel.setContentHuggingPriority(.required, for: .horizontal)
-		let caption = UIStackView(arrangedSubviews: [senderLabel, dateLabel, UIView()])
+		let caption = UIStackView(arrangedSubviews: [senderLabel, dateLabel, UIView(), amountLabel])
 		caption.alignment = .firstBaseline
-		style(passageLabel, .footnote, color: .secondaryLabel, lines: 2)
-		let titleLine = UIStackView(arrangedSubviews: [titleLabel, amountLabel])
-		titleLine.alignment = .firstBaseline
-		titleLine.spacing = 12
-		let text = UIStackView(arrangedSubviews: [titleLine, caption, passageLabel])
-		text.axis = .vertical
-		text.spacing = 3
-		text.setCustomSpacing(4, after: titleLine)
-		for subview in [pictureView, text] as [UIView] {
+		caption.setCustomSpacing(8, after: caption.arrangedSubviews[2])
+		textStack.addArrangedSubview(titleLabel)
+		textStack.addArrangedSubview(caption)
+		textStack.addArrangedSubview(thirdLabel)
+		textStack.axis = .vertical
+		textStack.spacing = 3
+	}
+
+	private func buildAccessory() {
+		activityView.hidesWhenStopped = true
+		symbolView.preferredSymbolConfiguration = UIImage.SymbolConfiguration(textStyle: .title3)
+		symbolView.contentMode = .center
+		for part in [activityView, progressView, symbolView] as [UIView] {
+			part.translatesAutoresizingMaskIntoConstraints = false
+			accessory.addSubview(part)
+			NSLayoutConstraint.activate([
+				part.leadingAnchor.constraint(equalTo: accessory.leadingAnchor),
+				part.trailingAnchor.constraint(equalTo: accessory.trailingAnchor),
+				part.topAnchor.constraint(equalTo: accessory.topAnchor),
+				part.bottomAnchor.constraint(equalTo: accessory.bottomAnchor),
+			])
+		}
+	}
+
+	private func buildLayout() {
+		for subview in [pictureView, textStack, accessory] as [UIView] {
 			subview.translatesAutoresizingMaskIntoConstraints = false
 			addSubview(subview)
 		}
+		directionalLayoutMargins = NSDirectionalEdgeInsets(top: 10, leading: 16, bottom: 10, trailing: 16)
 		// The row is as tall as the taller of the picture and the text, which both stay above its bottom.
 		let shortest = heightAnchor.constraint(equalToConstant: 0)
 		shortest.priority = .defaultLow
-		directionalLayoutMargins = NSDirectionalEdgeInsets(top: 12, leading: 16, bottom: 12, trailing: 16)
+		let pictureWidth = pictureView.widthAnchor.constraint(equalToConstant: RowPicture.size.width)
+		let pictureHeight = pictureView.heightAnchor.constraint(equalToConstant: RowPicture.size.height)
+		let accessorySize = accessory.widthAnchor.constraint(equalToConstant: Self.accessorySide)
+		let accessoryHeight = accessory.heightAnchor.constraint(equalToConstant: Self.accessorySide)
+		// Without an accessory, its width and the space before it are zero, so one constraint holds the
+		// text's trailing edge in every state.
+		let textBeforeAccessory = textStack.trailingAnchor.constraint(equalTo: accessory.leadingAnchor, constant: -12)
 		NSLayoutConstraint.activate([
 			pictureView.leadingAnchor.constraint(equalTo: layoutMarginsGuide.leadingAnchor),
 			pictureView.topAnchor.constraint(equalTo: layoutMarginsGuide.topAnchor),
-			pictureView.widthAnchor.constraint(equalToConstant: DocumentRowContent.pictureSize.width),
-			pictureView.heightAnchor.constraint(equalToConstant: DocumentRowContent.pictureSize.height),
+			pictureWidth,
+			pictureHeight,
 			pictureView.bottomAnchor.constraint(lessThanOrEqualTo: layoutMarginsGuide.bottomAnchor),
-			text.leadingAnchor.constraint(equalTo: leadingAnchor, constant: DocumentRowContent.textLeading),
-			text.trailingAnchor.constraint(equalTo: layoutMarginsGuide.trailingAnchor),
-			text.topAnchor.constraint(equalTo: layoutMarginsGuide.topAnchor),
-			text.bottomAnchor.constraint(lessThanOrEqualTo: layoutMarginsGuide.bottomAnchor),
+			textStack.leadingAnchor.constraint(equalTo: pictureView.trailingAnchor, constant: 12),
+			textStack.topAnchor.constraint(equalTo: layoutMarginsGuide.topAnchor),
+			textStack.bottomAnchor.constraint(lessThanOrEqualTo: layoutMarginsGuide.bottomAnchor),
+			accessory.trailingAnchor.constraint(equalTo: layoutMarginsGuide.trailingAnchor),
+			accessory.centerYAnchor.constraint(equalTo: pictureView.centerYAnchor),
+			accessorySize,
+			accessoryHeight,
+			textBeforeAccessory,
 			shortest,
 		])
+		self.pictureWidth = pictureWidth
+		self.pictureHeight = pictureHeight
+		self.accessorySize = accessorySize
+		self.accessoryHeight = accessoryHeight
+		self.textBeforeAccessory = textBeforeAccessory
+	}
+
+	private static var accessorySide: CGFloat {
+		UIFontMetrics(forTextStyle: .title3).scaledValue(for: 22).rounded()
+	}
+
+	private func sizePicture() {
+		pictureWidth?.constant = RowPicture.size.width
+		pictureHeight?.constant = RowPicture.size.height
+		accessorySize?.constant = shown.trailing == .absent ? 0 : Self.accessorySide
+		accessoryHeight?.constant = Self.accessorySide
 	}
 
 	private func style(_ label: UILabel, _ style: UIFont.TextStyle, color: UIColor, lines: Int) {
@@ -106,33 +226,116 @@ final class DocumentRowContentView: UIView, UIContentView {
 		label.numberOfLines = lines
 	}
 
-	private func apply(_ content: DocumentRowContent) {
-		let row = content.row
-		pictureView.image = content.picture ?? UIImage(systemName: "doc.text")
-		pictureView.contentMode = content.picture == nil ? .center : .scaleAspectFit
-		pictureView.preferredSymbolConfiguration = UIImage.SymbolConfiguration(textStyle: .title2)
-		titleLabel.text = row.title
-		amountLabel.text = row.amountText
-		amountLabel.isHidden = row.amountText == nil
-		senderLabel.text = row.sender
-		senderLabel.isHidden = row.sender.isEmpty
-		dateLabel.text = row.dateText.map { row.sender.isEmpty ? $0 : " · \($0)" }
-		dateLabel.isHidden = row.dateText == nil
-		passageLabel.text = row.thirdLineText
-		passageLabel.isHidden = row.thirdLineText.isEmpty
-		passageLabel.textColor = switch row.thirdLineTone {
-		case .secondary: .secondaryLabel
-		case .accent: InterfacePalette.archive
-		case .failure: InterfacePalette.attention
+	/// `previous` is this row's configuration before, nil for a row this view did not show.
+	private func apply(_ content: DocumentRowContent, after previous: DocumentRowContent?) {
+		let animated = previous != nil && window != nil
+		let filedNow = previous?.trailing == .done(filed: false) && content.trailing == .done(filed: true)
+		// The row cross-dissolves by fading a picture of its former self, because a stack view whose
+		// labels are shown or hidden inside an animation can keep its former arrangement.
+		if filedNow, animated, let former = snapshotView(afterScreenUpdates: false) {
+			former.frame = bounds
+			addSubview(former)
+			applyText(content)
+			UIView.animate(withDuration: 0.25) {
+				former.alpha = 0
+			} completion: { _ in
+				former.removeFromSuperview()
+			}
+		} else {
+			applyText(content)
+		}
+		applyTrailing(content.trailing, after: previous?.trailing, animated: animated)
+		if filedNow, animated, !UIAccessibility.isReduceMotionEnabled {
+			symbolView.addSymbolEffect(.bounce, options: .nonRepeating)
 		}
 	}
 
-	/// The subheadline, 15 points at the default text size, with digits of one width, so the amounts
-	/// of the rows align.
-	private static var amountFont: UIFont {
-		UIFontMetrics(forTextStyle: .subheadline).scaledFont(for: .monospacedDigitSystemFont(
-			ofSize: 15,
-			weight: .medium
-		))
+	private func applyText(_ content: DocumentRowContent) {
+		let row = content.row
+		if let picture = content.picture {
+			pictureView.image = picture
+			pictureView.contentMode = .scaleAspectFill
+			pictureView.backgroundColor = InterfacePalette.paper
+			pictureView.layer.borderWidth = 0.5
+			pictureView.layer.borderColor = InterfacePalette.pictureEdge.cgColor
+		} else {
+			pictureView.image = UIImage(systemName: "doc.text")
+			pictureView.contentMode = .center
+			pictureView.backgroundColor = .secondarySystemFill
+			pictureView.layer.borderWidth = 0
+		}
+		titleLabel.text = row.title
+		senderLabel.text = row.sender
+		dateLabel.text = row.dateText.map { row.sender.isEmpty ? $0 : " · \($0)" }
+		amountLabel.text = row.amountText
+		thirdLabel.text = row.thirdLineText
+		// UIKit sets a configuration inside the list's own animations, and a stack view counts each
+		// hiding made inside an animation, so a label hidden twice stays hidden in its arrangement
+		// after it shows again. Each label is therefore hidden or shown only when that changes, and
+		// without an animation.
+		UIView.performWithoutAnimation {
+			Self.show(senderLabel, !row.sender.isEmpty)
+			Self.show(dateLabel, row.dateText != nil)
+			Self.show(amountLabel, row.amountText != nil)
+			Self.show(thirdLabel, !row.thirdLineText.isEmpty)
+		}
+		thirdLabel.textColor = switch row.thirdLineTone {
+		case .secondary: .secondaryLabel
+		case .accent: .tintColor
+		case .failure: InterfacePalette.attentionText
+		}
+	}
+
+	private static func show(_ label: UILabel, _ shown: Bool) {
+		if label.isHidden == shown {
+			label.isHidden = !shown
+		}
+	}
+
+	private func applyTrailing(_ trailing: RowTrailing, after previous: RowTrailing?, animated: Bool) {
+		let showsAccessory = trailing != .absent
+		accessory.isHidden = !showsAccessory
+		accessorySize?.constant = showsAccessory ? Self.accessorySide : 0
+		textBeforeAccessory?.constant = showsAccessory ? -12 : 0
+		if case .activity = trailing {
+			activityView.startAnimating()
+		} else {
+			activityView.stopAnimating()
+		}
+		if case let .progress(fraction) = trailing {
+			progressView.isHidden = false
+			let continuing = if case .progress? = previous {
+				true
+			} else {
+				false
+			}
+			progressView.show(fraction: fraction, animated: animated && continuing)
+		} else {
+			progressView.isHidden = true
+		}
+		let symbol: (name: String, color: UIColor)? = switch trailing {
+		case .done: ("checkmark.circle.fill", .tintColor)
+		case .attention: ("exclamationmark.circle.fill", InterfacePalette.attentionText)
+		case .absent, .activity, .progress: nil
+		}
+		guard let symbol else {
+			symbolView.image = nil
+			return
+		}
+		symbolView.tintColor = symbol.color
+		guard let image = UIImage(systemName: symbol.name), animated, previous != trailing else {
+			symbolView.image = UIImage(systemName: symbol.name)
+			return
+		}
+		switch previous {
+		case .progress?:
+			// The ring ends as a full circle, which the checkmark replaces.
+			symbolView.image = UIImage(systemName: "circle")
+			symbolView.setSymbolImage(image, contentTransition: .replace)
+		case .done?, .attention?:
+			symbolView.setSymbolImage(image, contentTransition: .replace)
+		case .absent?, .activity?, nil:
+			symbolView.image = image
+		}
 	}
 }

@@ -1,4 +1,5 @@
 import ApplicationBindings
+import CoreGraphics
 import Foundation
 import Observation
 import SubmissionQueue
@@ -42,14 +43,21 @@ final class ApplicationController {
 	}
 
 	/// Whether the connected token may send. A restricted token reads only part of the archive, and
-	/// the ingest route refuses it.
+	/// the ingest route refuses it. While the core starts, the record of the last connected archive
+	/// answers, so a scan requested from outside the application opens the camera at once.
 	var sendingPermitted: Bool {
-		guard case let .running(status) = situation,
-		      case let .configured(_, _, _, _, restricted) = status.archive
-		else {
-			return false
+		switch situation {
+		case .starting:
+			recordedArchive.map { !$0.restricted } ?? false
+		case .failedToStart:
+			false
+		case let .running(status):
+			if case let .configured(_, _, _, _, restricted) = status.archive {
+				!restricted
+			} else {
+				false
+			}
 		}
-		return !restricted
 	}
 
 	func launch() {
@@ -94,6 +102,11 @@ final class ApplicationController {
 		gateway.interfaceAttended(false)
 	}
 
+	/// The person left the application, so what was filed leaves the top of the library.
+	func enteredBackground() {
+		submissions.removeSettled()
+	}
+
 	/// Follows the library's status until the core stops. A newly connected archive sends the
 	/// submissions that waited for it, and the share extension learns of every change of the archive
 	/// or of its restriction.
@@ -103,7 +116,15 @@ final class ApplicationController {
 			do throws(ApplicationFault) {
 				let status = try await gateway.libraryStatusAfter(revision)
 				revision = status.revision
+				let contentChanged: Bool = if case let .running(previous) = situation {
+					previous.contentRevision != status.contentRevision
+				} else {
+					true
+				}
 				situation = .running(status)
+				if contentChanged {
+					submissions.contentChanged()
+				}
 				record(Self.connectedArchive(status.archive))
 			} catch {
 				return
@@ -149,6 +170,8 @@ final class ApplicationController {
 
 	#if DEBUG
 	/// Connects the examination's archive and sends a copy of each of its files, as an import would.
+	/// A PDF named as the scanner names its scans, "Scan 2026-11-23 09.12.pdf", is sent as a scan
+	/// with its pages, because the simulator's document camera captures nothing.
 	private func examine(_ examination: ApplicationEnvironment.Examination) async {
 		_ = await connect(address: examination.address, token: examination.token)
 		guard let directory = examination.documents else {
@@ -161,7 +184,16 @@ final class ApplicationController {
 				continue
 			}
 			let kind: SubmissionFileKind = file.pathExtension == "jpg" ? .jpeg : .pdf
-			try? submissions.submit(document: copy, fileName: file.lastPathComponent, kind: kind, origin: .importedFile)
+			let scanned = kind == .pdf && file.lastPathComponent.hasPrefix("Scan ")
+			let pages = scanned ? CGPDFDocument(file as CFURL)?.numberOfPages : nil
+			try? await submissions.submit(
+				document: copy,
+				fileName: file.lastPathComponent,
+				kind: kind,
+				origin: scanned ? .scan : .importedFile,
+				pageCount: pages,
+				picture: SubmissionPicture.make(from: file, kind: kind)
+			)
 		}
 	}
 	#endif

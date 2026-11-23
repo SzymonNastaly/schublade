@@ -21,7 +21,7 @@ final class LibraryViewController: UIViewController, UICollectionViewDelegate {
 	private lazy var thumbnails = ThumbnailStore(gateway: controller.gateway)
 	private(set) lazy var list = LibraryList(
 		in: view,
-		delegate: self,
+		presenter: self,
 		thumbnails: thumbnails,
 		submissions: controller.submissions
 	)
@@ -38,6 +38,8 @@ final class LibraryViewController: UIViewController, UICollectionViewDelegate {
 	private var newestListingRequest: UInt64 = 0
 	private var searchDelay: Task<Void, Never>?
 	private var refreshStartedAt: Date?
+	private var arrivalMoments = ArrivalMoments()
+	private var hasAppeared = false
 
 	init(controller: ApplicationController) {
 		self.controller = controller
@@ -75,28 +77,45 @@ final class LibraryViewController: UIViewController, UICollectionViewDelegate {
 
 	override func viewDidAppear(_ animated: Bool) {
 		super.viewDidAppear(animated)
-		answerScanRequest()
+		// A request that started the application opens the camera without an animation, so the
+		// viewfinder is the first thing the person sees.
+		answerScanRequest(animated: hasAppeared)
+		hasAppeared = true
 	}
 
 	/// Takes a pending scan request once this screen is in the window, and opens the camera unless it
 	/// shows already. A request made while it shows is taken too, so that Save does not open the
-	/// camera again. A restricted token cannot send, so its request is dropped. A document read at
-	/// the time is left, so the Sending row of the scan is in view once the camera closes.
-	func answerScanRequest() {
+	/// camera again. A restricted token cannot send, which an alert says. A document read at the
+	/// time is left, so the row of the scan is in view once the camera closes.
+	func answerScanRequest(animated: Bool = true) {
 		guard let navigation = navigationController, navigation.viewIfLoaded?.window != nil,
-		      ScanRequestCenter.shared.take(), controller.sendingPermitted,
+		      ScanRequestCenter.shared.take(),
 		      !(navigation.presentedViewController is VNDocumentCameraViewController)
 		else {
 			return
 		}
 		navigation.popToRootViewController(animated: false)
+		let answer = { [weak self] in
+			guard let self else {
+				return
+			}
+			if controller.sendingPermitted {
+				capture.scan(animated: animated)
+			} else {
+				let alert = UIAlertController(
+					title: "This iPhone Cannot Send",
+					message: ConnectedArchive.restrictionSentence,
+					preferredStyle: .alert
+				)
+				alert.addAction(UIAlertAction(title: "OK", style: .default))
+				present(alert, animated: true)
+			}
+		}
 		guard let presented = presentedViewController ?? navigation.presentedViewController else {
-			capture.scan()
+			answer()
 			return
 		}
-		presented.dismiss(animated: true) { [weak self] in
-			self?.capture.scan()
-		}
+		presented.dismiss(animated: true, completion: answer)
 	}
 
 	func searchTextChanged(_ text: String) {
@@ -167,12 +186,7 @@ final class LibraryViewController: UIViewController, UICollectionViewDelegate {
 
 	private func follow() {
 		withObservationTracking {
-			render(
-				situation: controller.situation,
-				entries: controller.submissions.entries,
-				progress: controller.submissions.progress,
-				sendingPermitted: controller.sendingPermitted
-			)
+			render()
 		} onChange: { [weak self] in
 			Task { @MainActor in
 				self?.follow()
@@ -180,14 +194,20 @@ final class LibraryViewController: UIViewController, UICollectionViewDelegate {
 		}
 	}
 
-	private func render(
-		situation: ApplicationController.Situation,
-		entries: [SubmissionEntry],
-		progress: [UUID: Double],
-		sendingPermitted: Bool
-	) {
+	private func render() {
+		let sendingPermitted = controller.sendingPermitted
+		let context = WordingContext.current()
 		toolbarItems = commands.toolbarItems(sendingPermitted: sendingPermitted)
-		guard case let .running(status) = situation else {
+		let searching = !(answer?.searchText ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+		let arrivals = searching ? [] : controller.submissions.arrivals(context: context)
+		let landed = arrivalMoments.follow(
+			arrivals,
+			sceneActive: view.window?.windowScene?.activationState == .foregroundActive
+		)
+		guard case let .running(status) = controller.situation else {
+			// The camera opened by a request that started the application shows over this screen
+			// while the core starts, and the row of its scan shows already.
+			list.show(.awaitingListing, arrivals: arrivals, searching: false, notice: nil, context: context)
 			return
 		}
 		thumbnails.contentRevisionChanged(to: status.contentRevision)
@@ -204,28 +224,19 @@ final class LibraryViewController: UIViewController, UICollectionViewDelegate {
 				status: status,
 				scope: answer.scope,
 				searchText: answer.searchText,
-				context: .current()
+				context: context
 			)
 		} ?? .awaitingListing
-		let searching = !(answer?.searchText ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
 		let unavailable = unavailableConfiguration(state, sendingPermitted: sendingPermitted, searching: searching)
-		list.show(
-			state,
-			entries: searching ? [] : entries,
-			progress: progress,
-			notice: unavailable,
-			context: .current()
-		)
+		if landed {
+			list.scrollToTop()
+		}
+		list.show(state, arrivals: arrivals, searching: searching, notice: unavailable, context: context)
 		contentUnavailableConfiguration = list.isEmpty ? unavailable : nil
 	}
 
 	private func rerender() {
-		render(
-			situation: controller.situation,
-			entries: controller.submissions.entries,
-			progress: controller.submissions.progress,
-			sendingPermitted: controller.sendingPermitted
-		)
+		render()
 	}
 
 	private func requestListing() {
@@ -363,7 +374,9 @@ private extension LibraryViewController {
 				configuration.button.image = UIImage(systemName: "doc.viewfinder")
 				configuration.button.imagePadding = 8
 				configuration.button.cornerStyle = .capsule
-				configuration.buttonProperties.primaryAction = UIAction { [weak self] _ in self?.capture.scan() }
+				configuration.buttonProperties.primaryAction = UIAction { [weak self] _ in
+					self?.capture.scan(animated: true)
+				}
 			}
 			return configuration
 		}

@@ -6,8 +6,8 @@ import UIKit
 /// the main actor. A document without a picture is remembered until the copy changes; a refusal of
 /// the moment, such as an unreachable archive, is asked again.
 final class ThumbnailStore {
-	/// Three times the 52 points of a row's picture.
-	nonisolated static let maximumPixelSize = 156
+	/// Three times the 58 points of a row's picture at the default text size.
+	nonisolated static let maximumPixelSize = 174
 	private static let maximumPictures = 300
 
 	private enum Answer {
@@ -100,22 +100,6 @@ final class ThumbnailStore {
 		guard let picture = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) else {
 			return nil
 		}
-		return framed(UIImage(cgImage: picture, scale: 3, orientation: .up))
-	}
-
-	/// A page is paper, so a picture with a transparent background is drawn on white, which would
-	/// otherwise show the dark row through it; and a white page on a white row needs an edge.
-	nonisolated static func framed(_ picture: UIImage) -> UIImage {
-		let format = UIGraphicsImageRendererFormat()
-		format.scale = picture.scale
-		return UIGraphicsImageRenderer(size: picture.size, format: format).image { context in
-			let bounds = CGRect(origin: .zero, size: picture.size)
-			InterfacePalette.paper.setFill()
-			context.fill(bounds)
-			picture.draw(in: bounds)
-			InterfacePalette.pictureEdge.setStroke()
-			context.cgContext.setLineWidth(1 / picture.scale)
-			context.cgContext.stroke(bounds.insetBy(dx: 0.5 / picture.scale, dy: 0.5 / picture.scale))
-		}
+		return RowPicture.framed(picture)
 	}
 }
