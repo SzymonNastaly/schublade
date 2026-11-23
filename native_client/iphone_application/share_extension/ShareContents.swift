@@ -49,10 +49,12 @@ struct ShareContents {
 		return file?.lastPathComponent
 	}
 
-	/// Copies the file a provider offers into a directory of its own, because the provider's file
-	/// exists only during its callback and two shared files can carry one name.
-	static func copy(_ file: SharedFile) async throws -> URL {
-		let directory = try DocumentImport.workingDirectory()
+	/// Copies the file a provider offers into a directory of its own under `parent`, because the
+	/// provider's file exists only during its callback and two shared files can carry one name.
+	static func copy(_ file: SharedFile, into parent: URL) async throws -> URL {
+		// Without intermediate directories, so that no copy is made once the sheet removed `parent`.
+		let directory = parent.appending(path: UUID().uuidString, directoryHint: .isDirectory)
+		try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false)
 		return try await withCheckedThrowingContinuation { continuation in
 			_ = file.provider.loadFileRepresentation(for: file.type, openInPlace: false) { url, _, error in
 				guard let url else {

@@ -46,6 +46,11 @@ final class ShareViewController: UIViewController {
 	private var files: [ShareContents.SharedFile] = []
 	/// The copy of each file, made one after another as the sheet appears, which Send awaits.
 	private var copies: [Task<URL, any Error>] = []
+	/// Where the copies are made, which goes as a whole when the sheet ends without Send.
+	private let copiesDirectory = URL.temporaryDirectory.appending(
+		path: "imports/\(UUID().uuidString)",
+		directoryHint: .isDirectory
+	)
 	/// The names of the files the archive does not take, nil until a name is known.
 	private var leftOutNames: [String?] = []
 	private var overLimit = 0
@@ -99,6 +104,14 @@ final class ShareViewController: UIViewController {
 			return
 		}
 		copyFiles()
+	}
+
+	/// A swipe down ends the sheet as Cancel does, without calling it.
+	override func viewDidDisappear(_ animated: Bool) {
+		super.viewDidDisappear(animated)
+		if case .ready = phase {
+			discardCopies()
+		}
 	}
 
 	private func buildLayout() {
@@ -182,11 +195,12 @@ final class ShareViewController: UIViewController {
 		let size = ShareTileSize.of(count: files.count)
 		let scale = traitCollection.displayScale
 		var previous: Task<URL, any Error>?
-		copies = files.map { file in
+		try? FileManager.default.createDirectory(at: copiesDirectory, withIntermediateDirectories: true)
+		copies = files.map { [copiesDirectory] file in
 			let before = previous
 			let copy = Task {
 				_ = await before?.result
-				return try await ShareContents.copy(file)
+				return try await ShareContents.copy(file, into: copiesDirectory)
 			}
 			previous = copy
 			return copy
@@ -204,15 +218,15 @@ final class ShareViewController: UIViewController {
 	}
 
 	private func cancel() {
-		for copy in copies {
-			copy.cancel()
-			Task {
-				if let file = try? await copy.value {
-					try? FileManager.default.removeItem(at: file.deletingLastPathComponent())
-				}
-			}
-		}
+		discardCopies()
 		extensionContext?.cancelRequest(withError: CocoaError(.userCancelled))
+	}
+
+	/// Removes every copy at once, because the process may end right after the sheet. A copy still
+	/// being made finds its directory gone and makes none.
+	private func discardCopies() {
+		copies.forEach { $0.cancel() }
+		try? FileManager.default.removeItem(at: copiesDirectory)
 	}
 
 	/// Enqueues and starts each copy before the next, so a submission the application sees already
