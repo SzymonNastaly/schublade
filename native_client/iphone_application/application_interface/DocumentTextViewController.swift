@@ -2,8 +2,6 @@ import ApplicationBindings
 import LibraryPresentation
 import UIKit
 
-/// The text the archive extracted from one document, in the reader's text size. The Markdown is
-/// shown as text, with its headings set apart.
 final class DocumentTextViewController: UIViewController {
 	enum TextState: Equatable {
 		case loading
@@ -43,7 +41,6 @@ final class DocumentTextViewController: UIViewController {
 		load()
 	}
 
-	/// A text that was not there is asked for again, as after the copy read it.
 	func contentRevisionChanged() {
 		if case .unavailable = state {
 			load()
@@ -91,7 +88,6 @@ final class DocumentTextViewController: UIViewController {
 		}
 	}
 
-	/// The body text, with each Markdown heading in a heading's style and without its number signs.
 	private static func readableText(_ markdown: String) -> NSAttributedString {
 		let body: [NSAttributedString.Key: Any] = [
 			.font: UIFont.preferredFont(forTextStyle: .body),

@@ -191,7 +191,6 @@ public enum WindowContent: Equatable, Sendable {
 		}
 	}
 
-	/// The workspace of a page that lists no scope, such as a folder or Needs Attention.
 	private static func pageWorkspace(
 		title: String,
 		detailMode: WorkspaceDetailMode,

@@ -1,6 +1,5 @@
 import LibraryPresentation
 
-/// What the library's wording says of this iPhone.
 enum IphoneDevice {
 	/// 500 MB by default, the second choice, as the installed environment starts with.
 	static let wording = DeviceWording(

@@ -1,7 +1,6 @@
 import ApplicationBindings
 import Foundation
 
-/// Message and optional actions shown when the active listing returns zero rows.
 public struct EmptyListPresentation: Equatable, Sendable {
 	public let title: String
 	public let detail: String
@@ -78,7 +77,6 @@ public struct EmptyListPresentation: Equatable, Sendable {
 		return nil
 	}
 
-	/// An empty entry of an archive that holds documents elsewhere.
 	private static func emptyScopeWording(_ scope: LibraryScope?) -> (String, String) {
 		switch scope {
 		case .recentlyAdded:

@@ -3,10 +3,7 @@ import LibraryPresentation
 import SubmissionQueue
 import UIKit
 
-/// The library screen's collection view: the Sending section and the listing's sections in one
-/// diffable list, whose changes animate. It draws what `show` hands it and keeps nothing else.
 final class LibraryList {
-	/// Where a selected row leads.
 	struct Destination {
 		let document: DocumentIdentifier
 		let title: String?
@@ -42,7 +39,6 @@ final class LibraryList {
 		dataSource = makeDataSource()
 	}
 
-	/// Whether the list holds no row, so a message takes its place.
 	var isEmpty: Bool {
 		(dataSource?.snapshot().numberOfItems ?? 0) == 0
 	}
@@ -124,7 +120,6 @@ final class LibraryList {
 		)
 	}
 
-	/// A plain list, as Mail's, with a header for every section that has one.
 	private func layout() -> UICollectionViewLayout {
 		UICollectionViewCompositionalLayout { [weak self] index, environment in
 			var configuration = UICollectionLayoutListConfiguration(appearance: .plain)

@@ -3,9 +3,6 @@ import Observation
 import ScanRequest
 import UIKit
 
-/// Shows the screen the application's situation calls for: a message while the core starts or
-/// when it failed, the connection form while no archive is connected, and the library after.
-/// It also decides what a scan request from outside the application comes to on that screen.
 final class RootViewController: UIViewController {
 	private enum Screen: Equatable {
 		case starting

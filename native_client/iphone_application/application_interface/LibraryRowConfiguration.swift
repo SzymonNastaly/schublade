@@ -3,8 +3,6 @@ import LibraryPresentation
 import SubmissionQueue
 import UIKit
 
-/// How a row of the library screen draws a document and a submission, with the system's list cell
-/// and the wording the Mac shares.
 enum LibraryRowConfiguration {
 	static func configure(
 		_ cell: UICollectionViewListCell,

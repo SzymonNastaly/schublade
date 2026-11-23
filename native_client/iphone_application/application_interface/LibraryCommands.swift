@@ -1,9 +1,6 @@
 import SubmissionQueue
 import UIKit
 
-/// The library screen's bar items and its search field: Scan and Add at the bottom, as the system's
-/// own applications place their primary actions, and the filter menu at the top. The bottom bar
-/// gives way to the keyboard while a person searches.
 final class LibraryCommands: NSObject {
 	private weak var screen: LibraryViewController?
 	private let capture: DocumentCapture
@@ -36,7 +33,6 @@ final class LibraryCommands: NSObject {
 		])
 	)
 
-	/// A restricted token's one explanation, on request, in place of Scan and Add.
 	private lazy var restrictionItem = UIBarButtonItem(
 		title: "Sending Unavailable",
 		image: UIImage(systemName: "info.circle"),

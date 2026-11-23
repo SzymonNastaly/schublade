@@ -1,7 +1,5 @@
 import ApplicationBindings
 
-/// Plain user-facing sentences for runtime faults, unavailable document representations, and the
-/// condition of a document the archive has not archived.
 public enum LibraryFailureWording {
 	public static func faultSentence(_ fault: ApplicationFault) -> String {
 		switch fault {

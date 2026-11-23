@@ -2,8 +2,6 @@ import ApplicationBindings
 import Foundation
 import LibraryPresentation
 
-/// The collector's sentences: a folder's state, Needs Attention, what is in flight, the counts, the
-/// connection, and the recent uploads. Folder names and times come from the `ApplicationWordingContext`.
 public enum CollectorWording {
 	/// The kinds the archive accepts, as a folder's state names them.
 	private static let collectingDetail = "New PDF, JPEG, PNG, and WebP files upload automatically."

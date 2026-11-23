@@ -1,9 +1,6 @@
 import LibraryPresentation
 import UIKit
 
-/// A document row as Mail draws a message: the picture of the first page, the title with the amount
-/// beside its first line, the sender and the date on one line, and the summary, the excerpt, or the
-/// archive's progress below in its tone.
 struct DocumentRowContent: UIContentConfiguration, Equatable {
 	/// A page of A4 in the row's height.
 	static let pictureSize = CGSize(width: 40, height: 52)

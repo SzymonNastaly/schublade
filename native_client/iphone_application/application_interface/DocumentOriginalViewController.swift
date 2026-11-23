@@ -4,9 +4,6 @@ import LibraryPresentation
 import PDFKit
 import UIKit
 
-/// The original of one document: a PDF in `PDFView`, a picture that zooms, or why neither shows. An
-/// original the cache lacks is downloaded first, and one that could not be is read again when the
-/// copy changes or a person tries again.
 final class DocumentOriginalViewController: UIViewController {
 	enum OriginalState {
 		case loading
@@ -53,8 +50,6 @@ final class DocumentOriginalViewController: UIViewController {
 		load()
 	}
 
-	/// An original that could not be shown is asked for again, as after the archive became
-	/// reachable or finished preparing it.
 	func contentRevisionChanged() {
 		if case .unavailable = state {
 			load()
@@ -126,7 +121,6 @@ final class DocumentOriginalViewController: UIViewController {
 		}
 	}
 
-	/// Opens a PDF, or decodes a picture upright, away from the main actor.
 	@concurrent
 	private static func open(_ file: LocalFile) async -> OriginalState {
 		let url = URL(filePath: file.path)
@@ -148,7 +142,6 @@ final class DocumentOriginalViewController: UIViewController {
 	}
 }
 
-/// A picture that fits the screen and zooms up to four times, by pinching or a double tap.
 final class ZoomingPictureView: UIScrollView, UIScrollViewDelegate {
 	private let imageView = UIImageView()
 

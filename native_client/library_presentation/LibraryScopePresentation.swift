@@ -1,8 +1,6 @@
 import ApplicationBindings
 import Foundation
 
-/// What a listing of one scope shows around its rows: its title, the request that reads it, and the
-/// order and search it offers.
 public struct LibraryScopePresentation: Equatable, Sendable {
 	public let title: String
 	public let request: ListingRequest
@@ -45,7 +43,6 @@ public struct LibraryScopePresentation: Equatable, Sendable {
 		)
 	}
 
-	/// While a search runs before the local copy holds every text, how many texts it searches.
 	public static func textIndexingNotice(searchText: String, counts: LibraryCounts) -> String? {
 		let isSearching = !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
 		guard isSearching, counts.documentsAwaitingText > 0, counts.documents > 0 else {

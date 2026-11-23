@@ -2,8 +2,6 @@ import ApplicationBindings
 import LibraryPresentation
 import UIKit
 
-/// The filter menu of the library screen: the Mac's sidebar scopes, each with its count, and the
-/// chosen one checked.
 enum LibraryScopeMenu {
 	static func menu(
 		facets: LibraryFacets?,

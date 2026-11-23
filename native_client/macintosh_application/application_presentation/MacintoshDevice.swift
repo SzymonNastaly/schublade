@@ -1,6 +1,5 @@
 import LibraryPresentation
 
-/// What the library's wording says of this Mac.
 public enum MacintoshDevice {
 	/// Two gigabytes by default, the second choice.
 	public static let wording = DeviceWording(

@@ -55,7 +55,6 @@ targets:
         OTHER_SWIFT_FLAGS: -parse-as-library
         ENABLE_USER_SCRIPT_SANDBOXING: NO
 
-  # The library's wording, shared with the iPhone application.
   LibraryPresentation:
     type: library.static
     platform: macOS

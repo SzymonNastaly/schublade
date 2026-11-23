@@ -1,8 +1,6 @@
 import ApplicationBindings
 import LibraryPresentation
 
-/// The status line at the foot of the sidebar: the library's line, with the collector's faults and
-/// uploads, and a token that can only add documents named for the collector.
 public extension StatusLinePresentation {
 	static func resolve(statuses: ApplicationStatuses, context: ApplicationWordingContext) -> StatusLinePresentation {
 		if readsCollectorOnly(statuses) {

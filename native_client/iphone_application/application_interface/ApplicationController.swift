@@ -83,15 +83,12 @@ final class ApplicationController {
 		}
 	}
 
-	/// The application returns to the screen: the copy reads the archive now and every minute while
-	/// it shows, and what waits is sent.
 	func becameActive() {
 		attended = true
 		gateway.interfaceAttended(true)
 		submissions.resume()
 	}
 
-	/// The copy reads the archive on its own schedule again.
 	func resignedActive() {
 		attended = false
 		gateway.interfaceAttended(false)

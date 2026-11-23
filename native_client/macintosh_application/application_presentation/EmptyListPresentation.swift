@@ -1,7 +1,6 @@
 import ApplicationBindings
 import LibraryPresentation
 
-/// The empty list of the Mac's window, whose empty archive offers to add a folder.
 public extension EmptyListPresentation {
 	static func resolve(
 		navigation: LibraryNavigationState,

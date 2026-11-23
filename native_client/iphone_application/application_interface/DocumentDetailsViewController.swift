@@ -2,9 +2,6 @@ import ApplicationBindings
 import LibraryPresentation
 import UIKit
 
-/// What the archive read from one document, as the Mac's inspector shows it: the title, the fields,
-/// the summary, the tags, and the file. Each row copies its value from its context menu, and a
-/// sender, category, person, or tag shows its documents in the list.
 final class DocumentDetailsViewController: UIViewController, UICollectionViewDataSource, UICollectionViewDelegate {
 	private struct DetailSection {
 		let header: String?

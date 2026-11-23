@@ -77,7 +77,6 @@ targets:
       base:
         SWIFT_DEFAULT_ACTOR_ISOLATION: nonisolated
 
-  # The library's wording, shared with the Mac application.
   LibraryPresentation:
     type: library.static
     platform: iOS

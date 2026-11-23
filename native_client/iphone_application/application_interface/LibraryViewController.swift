@@ -6,11 +6,7 @@ import SubmissionQueue
 import UIKit
 import VisionKit
 
-/// The screen once an archive is connected: what is on its way to the archive on top, the local
-/// copy's documents under their headings below, the search field and the filter menu above, and
-/// Scan and Add at the bottom. A restricted token cannot send, so the bottom bar says why instead.
 final class LibraryViewController: UIViewController, UICollectionViewDelegate {
-	/// What the screen last asked the copy, and what the copy answered.
 	private struct ListedAnswer {
 		let outcome: LibraryListState.ListingOutcome
 		let scope: LibraryScope
@@ -35,15 +31,12 @@ final class LibraryViewController: UIViewController, UICollectionViewDelegate {
 	private var chosenScope = NamedScope(scope: .allDocuments, name: "All Documents")
 	private var searchText = ""
 	private var answer: ListedAnswer?
-	/// What the documents part shows now.
 	private(set) var state = LibraryListState.awaitingListing
 	private var facets: LibraryFacets?
-	/// The content revisions the listing and the facets were last asked at.
 	private var listedRevision: UInt64?
 	private var facetsRevision: UInt64?
 	private var newestListingRequest: UInt64 = 0
 	private var searchDelay: Task<Void, Never>?
-	/// When a pull asked the copy to read the archive, until the copy answers.
 	private var refreshStartedAt: Date?
 
 	init(controller: ApplicationController) {
@@ -106,7 +99,6 @@ final class LibraryViewController: UIViewController, UICollectionViewDelegate {
 		}
 	}
 
-	/// The search field's text changed. A cleared field lists at once; typing waits for a pause.
 	func searchTextChanged(_ text: String) {
 		guard text != searchText else {
 			return
@@ -136,7 +128,6 @@ final class LibraryViewController: UIViewController, UICollectionViewDelegate {
 		requestListing()
 	}
 
-	/// Opens the document of a row, or of a submission the archive holds.
 	func open(_ document: DocumentIdentifier, title: String?) {
 		let page = DocumentPageViewController(
 			controller: controller,
@@ -237,8 +228,6 @@ final class LibraryViewController: UIViewController, UICollectionViewDelegate {
 		)
 	}
 
-	/// Reads the listing of the chosen scope and search, and drops an answer that a newer request
-	/// overtook.
 	private func requestListing() {
 		guard case let .running(status) = controller.situation else {
 			return
@@ -309,7 +298,6 @@ private extension LibraryViewController {
 		}
 	}
 
-	/// A pull ends once the copy read the archive after it, or found it out of reach.
 	func endRefreshing(after status: LibraryStatus) {
 		guard let started = refreshStartedAt else {
 			return

@@ -1,7 +1,6 @@
 import ApplicationBindings
 import LibraryPresentation
 
-/// Plain user-facing sentences for startup failures and connection refusals, as the Mac words them.
 public enum ApplicationFailureWording {
 	private static let reopenRemedy = "Quit Schublade and open it again."
 

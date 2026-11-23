@@ -3,16 +3,12 @@ import LibraryPresentation
 import QuickLook
 import UIKit
 
-/// Takes one document elsewhere: Share hands the original to another application under its
-/// suggested name, Quick Look shows it with the system's viewer, and Open in Browser opens its page
-/// of the archive.
 final class DocumentFileActions: NSObject, QLPreviewControllerDataSource {
 	private let gateway: ApplicationGateway
 	private let document: DocumentIdentifier
 	private weak var presenter: UIViewController?
 	private var previewed: PreviewedDocumentItem?
 
-	/// The document's detail once read; the actions wait for it.
 	var detail: DocumentDetailPresentation? {
 		didSet {
 			for item in toolbarItems {

@@ -512,7 +512,6 @@ struct SeedDocumentRequest {
     /// A file on the server's machine whose bytes are the original, as a screen examination seeds
     /// real PDFs and pictures.
     original_file: Option<String>,
-    /// A picture on the server's machine that the thumbnail route serves.
     thumbnail_file: Option<String>,
     /// Extracted fields by key: a number, a date as `2026-10-20`, or text.
     #[serde(default)]

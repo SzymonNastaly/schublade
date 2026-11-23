@@ -5,26 +5,21 @@ import LibraryPresentation
 /// What the documents part of the library screen shows. One value drives the rows and the message
 /// in their place, so a screen never shows a message over rows or rows under a stale message.
 enum LibraryListState: Equatable {
-	/// No listing has been read yet.
 	case awaitingListing
 	/// The first copy of the archive fills and holds nothing of this request yet.
 	case fillingCopy(StatusLinePresentation)
-	/// The rows of a browse or a search, under their headings.
 	case documents([ListedSection])
 	/// The request found nothing: an empty scope, no match, or a fault of the library.
 	case empty(EmptyListPresentation)
 	/// The archive holds no document at all, which the iPhone words itself.
 	case emptyArchive
-	/// The listing could not be read.
 	case failed(EmptyListPresentation)
 
-	/// The rows under one heading, or before any heading in an order without them.
 	struct ListedSection: Equatable {
 		let heading: ListingHeading?
 		let rows: [DocumentRow]
 	}
 
-	/// What the last listing request of the screen answered.
 	enum ListingOutcome {
 		case listed([ListingRow])
 		case failed(ApplicationFault)
@@ -97,15 +92,12 @@ enum LibraryListState: Equatable {
 	}
 }
 
-/// A section of the library screen: the submissions on their way, then the listing's headings.
 nonisolated enum LibrarySection: Hashable {
 	case sending
 	case listed(ListingHeading?)
-	/// Why the listing shows no row, below the Sending section.
 	case notice
 }
 
-/// A row of the library screen.
 nonisolated enum LibraryItem: Hashable {
 	case submission(UUID)
 	case document(DocumentIdentifier)

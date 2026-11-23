@@ -3,13 +3,9 @@ import LibraryPresentation
 import Observation
 import UIKit
 
-/// One document: its original, its extracted text, and its details, which a segmented control
-/// switches between, and Share, Quick Look, and Open in Browser at the bottom. It reads the detail
-/// again whenever the copy changes, so a document opened from a Sending row appears once the copy
-/// holds it.
+/// It reads the detail again whenever the copy changes, so a document opened from a Sending row
+/// appears once the copy holds it.
 final class DocumentPageViewController: UIViewController {
-	/// The page's three parts: the reader's two tabs, as on the Mac, and the details, which the Mac
-	/// shows in its inspector.
 	enum Segment: Equatable {
 		case reader(ReaderTab)
 		case details
@@ -25,7 +21,6 @@ final class DocumentPageViewController: UIViewController {
 		}
 	}
 
-	/// What the copy answered for the document.
 	enum DetailState: Equatable {
 		case loading
 		/// The archive holds the document, but the copy does not yet.
@@ -45,7 +40,6 @@ final class DocumentPageViewController: UIViewController {
 	private(set) var segment = Segment.reader(.original)
 	private var loadedRevision: UInt64?
 	private var newestDetailRequest: UInt64 = 0
-	/// Each part once its first showing created it.
 	private(set) var original: DocumentOriginalViewController?
 	private(set) var text: DocumentTextViewController?
 	private(set) var details: DocumentDetailsViewController?
@@ -90,7 +84,6 @@ final class DocumentPageViewController: UIViewController {
 		navigationController?.setToolbarHidden(false, animated: animated)
 	}
 
-	/// Shows `segment`, as the segmented control does when a person taps it.
 	func select(_ segment: Segment) {
 		self.segment = segment
 		segmentedControl.selectedSegmentIndex = Segment.all.firstIndex(of: segment) ?? 0
@@ -133,7 +126,6 @@ final class DocumentPageViewController: UIViewController {
 		}
 	}
 
-	/// Reads the detail at `revision`, and drops an answer that a newer read overtook.
 	private func loadDetail(revision: UInt64) {
 		loadedRevision = revision
 		newestDetailRequest &+= 1
@@ -174,7 +166,6 @@ final class DocumentPageViewController: UIViewController {
 		showContent()
 	}
 
-	/// Creates the segment's part on its first showing and puts it in place of the others.
 	private func showContent() {
 		guard case let .loaded(detail) = detailState else {
 			return
