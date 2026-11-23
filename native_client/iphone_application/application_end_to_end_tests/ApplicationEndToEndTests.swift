@@ -191,7 +191,8 @@ final class ApplicationEndToEndTests: XCTestCase {
 		XCTAssertNil(refusal)
 		let library = LibraryViewController(controller: controller)
 		let navigation = UINavigationController(rootViewController: library)
-		library.loadViewIfNeeded()
+		let window = try TestWindow.showing(navigation)
+		defer { window.close() }
 		try await waitUntil("the seeded documents are listed") { Self.listedRows(library).count == 5 }
 		guard case let .documents(sections) = library.state else {
 			return XCTFail("The list shows \(library.state)")
@@ -213,16 +214,19 @@ final class ApplicationEndToEndTests: XCTestCase {
 			}
 		}
 
+		try await waitUntil("the details sheet shows") {
+			page.presentedViewController?.isBeingPresented == false
+		}
 		let detailRows = page.details.sections.flatMap(\.rows)
 		guard case let .head(title, _)? = detailRows.first else {
 			return XCTFail("The details sheet begins with \(String(describing: detailRows.first))")
 		}
 		XCTAssertEqual(title, "Haftpflichtversicherung Rechnung 5")
-		XCTAssertTrue(detailRows.contains(.extractedText))
 
-		page.showText()
+		try Self.select(.extractedText, in: page.details)
+		try await waitUntil("the text page shows") { navigation.topViewController is DocumentTextViewController }
 		let textPage = try XCTUnwrap(navigation.topViewController as? DocumentTextViewController)
-		textPage.loadViewIfNeeded()
+		XCTAssertNil(page.presentedViewController)
 		try await waitUntil("the extracted text shows") {
 			if case let .text(text) = textPage.state {
 				text.contains("Rechnung Nummer 5 für Haftpflichtversicherung.")
@@ -255,6 +259,19 @@ private extension ApplicationEndToEndTests {
 			}
 		}
 		return page
+	}
+
+	/// Taps a row of the details sheet as a person does.
+	@MainActor
+	static func select(_ row: DocumentDetailRow, in details: DocumentDetailsViewController) throws {
+		let sectionIndex = try XCTUnwrap(details.sections.firstIndex { $0.rows.contains(row) })
+		let indexPath = try IndexPath(
+			item: XCTUnwrap(details.sections[sectionIndex].rows.firstIndex(of: row)),
+			section: sectionIndex
+		)
+		let list = try XCTUnwrap(details.view.subviews.lazy.compactMap { $0 as? UICollectionView }.first)
+		XCTAssertTrue(details.collectionView(list, shouldSelectItemAt: indexPath))
+		details.collectionView(list, didSelectItemAt: indexPath)
 	}
 
 	@MainActor
