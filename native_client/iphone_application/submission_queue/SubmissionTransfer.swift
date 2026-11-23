@@ -29,6 +29,9 @@ public final class SubmissionTransfer: NSObject, URLSessionDataDelegate, Sendabl
 	private struct State {
 		/// Nil once the session ended.
 		var session: URLSession?
+		/// Set by `invalidate()`, after which the session accepts no task: URLSession raises an
+		/// exception for a task added to an invalidated session.
+		var invalidating = false
 		var answerBodies: [Int: Data] = [:]
 		var backgroundEventsCompletions: [BackgroundEventsCompletion]
 	}
@@ -84,7 +87,8 @@ public final class SubmissionTransfer: NSObject, URLSessionDataDelegate, Sendabl
 		request.httpMethod = "POST"
 		request.setValue(prepared.contentType, forHTTPHeaderField: "Content-Type")
 		request.setValue(prepared.authorization, forHTTPHeaderField: "Authorization")
-		guard let session = state.withLock({ $0.session }) else {
+		guard let session = state.withLock({ $0.invalidating ? nil : $0.session }) else {
+			onAnswer(attempt, nil)
 			return
 		}
 		let task = session.uploadTask(with: request, fromFile: body)
@@ -128,7 +132,10 @@ public final class SubmissionTransfer: NSObject, URLSessionDataDelegate, Sendabl
 	/// Lets the session go once its tasks end, so that another process may create it. Until then it
 	/// delivers the answers of those tasks, and then it reports `ended`.
 	public func invalidate() {
-		state.withLock { $0.session }?.finishTasksAndInvalidate()
+		state.withLock { state in
+			state.invalidating = true
+			return state.session
+		}?.finishTasksAndInvalidate()
 	}
 
 	public func urlSession(_: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {

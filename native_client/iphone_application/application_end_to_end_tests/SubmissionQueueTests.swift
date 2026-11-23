@@ -87,6 +87,26 @@ final class SubmissionQueueTests: XCTestCase {
 			.fileExists(atPath: queue.bodyFile(of: applicationUpload).path(percentEncoded: false)))
 	}
 
+	/// A force quit cancels an upload, which is never answered, so no answer to it removes its body.
+	func testAnArchivedAnswerRemovesTheBodyOfAnUploadThatWasNeverAnswered() throws {
+		let queue = try Self.queue()
+		let entry = try Self.enqueueLetter(into: queue)
+		let cancelledUpload = SubmissionAttempt(submission: entry.id)
+		let answeredUpload = SubmissionAttempt(submission: entry.id)
+		for attempt in [cancelledUpload, answeredUpload] {
+			try Data("the body of one upload".utf8).write(to: queue.bodyFile(of: attempt))
+		}
+
+		try queue.record(
+			.archived(document: Self.document, alreadyHeld: false, answeredAt: Self.archivedAt),
+			for: answeredUpload.submission
+		)
+
+		XCTAssertFalse(FileManager.default
+			.fileExists(atPath: queue.bodyFile(of: cancelledUpload).path(percentEncoded: false)))
+		XCTAssertNil(queue.entries().first.flatMap(queue.documentFile(of:)))
+	}
+
 	private static func queue() throws -> SubmissionQueue {
 		let directory = URL.temporaryDirectory.appending(path: UUID().uuidString, directoryHint: .isDirectory)
 		try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)

@@ -161,8 +161,8 @@ public struct SubmissionQueue: Sendable {
 		guard let entry = entry(identifier) else {
 			return answer
 		}
-		if case .archived = entry.answer, let document = documentFile(of: entry) {
-			try? FileManager.default.removeItem(at: document)
+		if case .archived = entry.answer {
+			removeBytes(of: entry)
 		}
 		return entry.answer ?? answer
 	}
@@ -180,6 +180,22 @@ public struct SubmissionQueue: Sendable {
 			return nil
 		}
 		return try record(SubmissionAnswerRecord(answer: answer, previous: entry.answer), for: attempt.submission)
+	}
+
+	/// Removes the document and the body of every upload of an archived submission, because the
+	/// archive holds the bytes. A body whose upload was cancelled, such as by a force quit, is never
+	/// answered, so the answer to its upload cannot remove it.
+	private func removeBytes(of entry: SubmissionEntry) {
+		if let document = documentFile(of: entry) {
+			try? FileManager.default.removeItem(at: document)
+		}
+		let files = (try? FileManager.default.contentsOfDirectory(
+			at: directory(of: entry.id),
+			includingPropertiesForKeys: nil
+		)) ?? []
+		for file in files where file.lastPathComponent.hasPrefix("\(Self.bodyName).") {
+			try? FileManager.default.removeItem(at: file)
+		}
 	}
 
 	public func remove(_ identifier: UUID) {
