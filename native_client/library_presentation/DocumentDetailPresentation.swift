@@ -48,7 +48,7 @@ public struct DocumentDetailPresentation: Equatable, Sendable {
 	}
 
 	public static func from(_ detail: DocumentDetail, context: WordingContext) -> DocumentDetailPresentation {
-		let title = displayTitle(for: detail)
+		let title = DocumentRowPresentation.displayTitle(detail.title, condition: detail.condition)
 		let headerSubtitle = buildHeaderSubtitle(detail: detail, context: context)
 		let detailRows = buildDetailRows(detail: detail, context: context)
 		let fileFacts = buildFileFacts(detail: detail, context: context)
@@ -67,19 +67,12 @@ public struct DocumentDetailPresentation: Equatable, Sendable {
 		)
 	}
 
-	private static func displayTitle(for detail: DocumentDetail) -> String {
-		if let title = detail.title, !title.isEmpty {
-			return title
-		}
-		switch detail.condition {
-		case .inIngestion:
-			return "Processing Document"
-		case .archived, .failed:
-			return "Untitled Document"
-		}
+	/// "Nordbank AG · 22 Sep 2026", without the page count, which the header adds.
+	public static func senderAndDate(of detail: DocumentDetail, context: WordingContext) -> String {
+		senderAndDateParts(of: detail, context: context).joined(separator: " · ")
 	}
 
-	private static func buildHeaderSubtitle(detail: DocumentDetail, context: WordingContext) -> String {
+	private static func senderAndDateParts(of detail: DocumentDetail, context: WordingContext) -> [String] {
 		var parts: [String] = []
 		if let sender = detail.sender, !sender.name.isEmpty {
 			parts.append(sender.name)
@@ -87,6 +80,11 @@ public struct DocumentDetailPresentation: Equatable, Sendable {
 		if let date = detail.documentDate {
 			parts.append(DocumentFormatting.calendarDate(date, context: context))
 		}
+		return parts
+	}
+
+	private static func buildHeaderSubtitle(detail: DocumentDetail, context: WordingContext) -> String {
+		var parts = senderAndDateParts(of: detail, context: context)
 		if let pages = detail.pageCount, pages > 0 {
 			parts.append(DocumentFormatting.countText(UInt64(pages), singular: "page"))
 		}
@@ -145,12 +143,6 @@ public struct DocumentDetailPresentation: Equatable, Sendable {
 		fields: [DetailField],
 		context: WordingContext
 	) -> [InspectorDetailRow] {
-		let currencyText: String? = fields.first { $0.key == "currency" }.flatMap { field in
-			if case let .text(text) = field.value, !text.isEmpty {
-				return text
-			}
-			return nil
-		}
 		let hasNumberAmount = fields.contains { field in
 			field.key == "amount" && isNumberField(field.value)
 		}
@@ -161,10 +153,10 @@ public struct DocumentDetailPresentation: Equatable, Sendable {
 			}
 			let label = labelForFieldKey(field.key)
 			if field.key == "amount", case let .number(decimalText) = field.value {
-				let formatted = DocumentFormatting.decimalAmount(decimalText, currency: currencyText)
+				let currency = DocumentFormatting.currency(in: fields)
 				return InspectorDetailRow(
 					label: label,
-					displayValue: formatted,
+					displayValue: DocumentFormatting.decimalAmount(decimalText, currency: currency),
 					copyValue: decimalText,
 					linkedScope: nil
 				)

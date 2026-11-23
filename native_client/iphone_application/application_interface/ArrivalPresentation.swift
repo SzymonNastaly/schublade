@@ -122,7 +122,7 @@ nonisolated enum ArrivalPresentation {
 		case let .inIngestion(stage):
 			return alreadyHeld ? .alreadyHeld(nil) : .reading(stage)
 		case .archived:
-			let row = documentRow(document, context: context)
+			let row = DocumentRowPresentation.from(document, context: context)
 			return alreadyHeld ? .alreadyHeld(row) : .filed(row)
 		case let .failed(reason):
 			return .failed(reason, title: document.title.flatMap { $0.isEmpty ? nil : $0 })
@@ -150,16 +150,10 @@ nonisolated enum ArrivalPresentation {
 		case let .failed(reason, _): (LibraryFailureWording.failureText(reason), .failure)
 		}
 		switch arrival.stage {
-		case let .filed(document), let .alreadyHeld(document?):
-			return DocumentRowPresentation(
-				title: document.title,
-				sender: document.sender,
-				dateText: document.dateText,
-				amountText: document.amountText,
-				thirdLineText: thirdLine,
-				thirdLineTone: tone,
-				contentKnown: true
-			)
+		case var .filed(document), var .alreadyHeld(document?):
+			document.thirdLineText = thirdLine
+			document.thirdLineTone = tone
+			return document
 		case let .failed(_, title?):
 			return plainRow(title: title, arrival.facts, thirdLine, tone)
 		default:
@@ -232,32 +226,5 @@ nonisolated enum ArrivalPresentation {
 	private static func sentence(_ reason: String) -> String {
 		let trimmed = reason.trimmingCharacters(in: .whitespacesAndNewlines)
 		return trimmed.hasSuffix(".") ? trimmed : "\(trimmed)."
-	}
-
-	/// The row of a filed document, from the detail the copy holds.
-	private static func documentRow(_ document: DocumentDetail, context: WordingContext) -> DocumentRowPresentation {
-		let currency = document.fields.first { $0.key == "currency" }.flatMap { field -> String? in
-			if case let .text(text) = field.value {
-				text
-			} else {
-				nil
-			}
-		}
-		let amount = document.fields.first { $0.key == "amount" }.flatMap { field -> String? in
-			if case let .number(decimalText) = field.value {
-				DocumentFormatting.decimalAmount(decimalText, currency: currency)
-			} else {
-				nil
-			}
-		}
-		return DocumentRowPresentation(
-			title: document.title.flatMap { $0.isEmpty ? nil : $0 } ?? "Untitled Document",
-			sender: document.sender?.name ?? "",
-			dateText: document.documentDate.map { DocumentFormatting.calendarDate($0, context: context) },
-			amountText: amount,
-			thirdLineText: "",
-			thirdLineTone: .secondary,
-			contentKnown: true
-		)
 	}
 }

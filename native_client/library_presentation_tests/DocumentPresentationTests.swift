@@ -94,6 +94,7 @@ struct DocumentPresentationTests {
 
 		let presented = DocumentDetailPresentation.from(detail, context: context)
 		#expect(presented.headerSubtitle == "Nordbank AG · 22 Sep 2026 · 3 pages")
+		#expect(DocumentDetailPresentation.senderAndDate(of: detail, context: context) == "Nordbank AG · 22 Sep 2026")
 		#expect(!presented.detailRows.contains { $0.label == "Currency" })
 
 		let amountRow = presented.detailRows.first { $0.label == "Amount" }
@@ -115,5 +116,36 @@ struct DocumentPresentationTests {
 		let offline = LibraryFailureWording.originalRefusalPlaceholder(.ArchiveUnreachable, device: macintosh)
 		#expect(offline.title == "The Original Is Not on This Mac")
 		#expect(offline.canRetry)
+	}
+
+	@Test func rowFromDetailMatchesTheRowOfTheListing() {
+		let detail = DocumentDetail(
+			document: DocumentIdentifier(value: "d1"),
+			condition: .archived,
+			title: "",
+			documentDate: CalendarDate(year: 2026, month: 9, day: 22),
+			sender: NamedScope(scope: .sender(sender: SenderIdentifier(value: "s1")), name: "Nordbank AG"),
+			category: nil,
+			person: nil,
+			tags: [],
+			summary: "Annual statement.",
+			fields: [
+				DetailField(key: "currency", value: .text(text: "EUR")),
+				DetailField(key: "amount", value: .number(decimalText: "1234.5")),
+			],
+			originalKind: .portableDocument,
+			byteSize: 125_400,
+			pageCount: 3,
+			arrivedAt: Date(timeIntervalSince1970: 1_790_000_000),
+			archivePage: "https://archive.example.org/documents/d1",
+			suggestedFileName: "2026-09-22 Nordbank AG.pdf"
+		)
+		let row = DocumentRowPresentation.from(detail, context: Self.fixedContext())
+		#expect(row.title == "Untitled Document")
+		#expect(row.sender == "Nordbank AG")
+		#expect(row.dateText == "22 Sep 2026")
+		#expect(row.amountText == "1,234.50 EUR")
+		#expect(row.thirdLineText == "Annual statement.")
+		#expect(row.thirdLineTone == .secondary)
 	}
 }

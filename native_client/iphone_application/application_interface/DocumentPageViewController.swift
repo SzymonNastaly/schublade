@@ -220,7 +220,8 @@ final class DocumentPageViewController: UIViewController {
 		let presentation = DocumentDetailPresentation.from(detail, context: .current())
 		title = presentation.title
 		if #available(iOS 26, *) {
-			navigationItem.subtitle = Self.subtitle(of: detail)
+			// The page count is left out, because it truncated the line.
+			navigationItem.subtitle = DocumentDetailPresentation.senderAndDate(of: detail, context: .current())
 		}
 		contentUnavailableConfiguration = nil
 		view.backgroundColor = InterfacePalette.readerBackdrop
@@ -263,12 +264,6 @@ final class DocumentPageViewController: UIViewController {
 		original.view.removeFromSuperview()
 		original.removeFromParent()
 		self.original = nil
-	}
-
-	/// The sender and the full date. The page count is left out, because it truncated the line.
-	private static func subtitle(of detail: DocumentDetail) -> String {
-		let date = detail.documentDate.map { DocumentFormatting.calendarDate($0, context: .current()) }
-		return [detail.sender?.name, date].compactMap(\.self).filter { !$0.isEmpty }.joined(separator: " · ")
 	}
 
 	private static func unavailableConfiguration(_ state: DetailState) -> UIContentUnavailableConfiguration? {

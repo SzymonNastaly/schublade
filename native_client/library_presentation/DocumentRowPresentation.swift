@@ -2,13 +2,13 @@ import ApplicationBindings
 
 /// Ready-to-render fields for one document row cell.
 public struct DocumentRowPresentation: Equatable, Sendable {
-	public let title: String
-	public let sender: String
-	public let dateText: String?
-	public let amountText: String?
-	public let thirdLineText: String
-	public let thirdLineTone: DocumentRowThirdLineTone
-	public let contentKnown: Bool
+	public var title: String
+	public var sender: String
+	public var dateText: String?
+	public var amountText: String?
+	public var thirdLineText: String
+	public var thirdLineTone: DocumentRowThirdLineTone
+	public var contentKnown: Bool
 
 	public init(
 		title: String,
@@ -29,47 +29,60 @@ public struct DocumentRowPresentation: Equatable, Sendable {
 	}
 
 	public static func from(_ row: DocumentRow, context: WordingContext) -> DocumentRowPresentation {
-		let displayTitle: String = if let title = row.title, !title.isEmpty {
-			title
-		} else {
-			switch row.condition {
-			case .inIngestion:
-				"Processing Document"
-			case .archived, .failed:
-				"Untitled Document"
-			}
+		let passage: String? = switch row.passage {
+		case let .summary(text), let .excerpt(text): text
+		case nil: nil
 		}
-
-		let dateText = row.documentDate.map { DocumentFormatting.calendarDate($0, context: context) }
-		let amountText = row.amount.map(DocumentFormatting.amount)
-
-		let thirdLineText: String
-		let thirdLineTone: DocumentRowThirdLineTone
-		switch row.condition {
-		case let .inIngestion(stage):
-			thirdLineText = LibraryFailureWording.stageText(stage)
-			thirdLineTone = .accent
-		case let .failed(reason):
-			thirdLineText = LibraryFailureWording.failureText(reason)
-			thirdLineTone = .failure
-		case .archived:
-			thirdLineTone = .secondary
-			switch row.passage {
-			case let .summary(text), let .excerpt(text):
-				thirdLineText = text
-			case nil:
-				thirdLineText = ""
-			}
-		}
-
+		let (thirdLineText, thirdLineTone) = thirdLine(row.condition, passage: passage)
 		return DocumentRowPresentation(
-			title: displayTitle,
+			title: displayTitle(row.title, condition: row.condition),
 			sender: row.senderName ?? "",
-			dateText: dateText,
-			amountText: amountText,
+			dateText: row.documentDate.map { DocumentFormatting.calendarDate($0, context: context) },
+			amountText: row.amount.map(DocumentFormatting.amount),
 			thirdLineText: thirdLineText,
 			thirdLineTone: thirdLineTone,
 			contentKnown: row.contentKnown
 		)
+	}
+
+	/// The row of a document the copy holds in full, for a row that shows it before the listing does.
+	/// A detail does not say whether the archive recorded the document's content, so the row does not
+	/// claim it.
+	public static func from(_ detail: DocumentDetail, context: WordingContext) -> DocumentRowPresentation {
+		let (thirdLineText, thirdLineTone) = thirdLine(detail.condition, passage: detail.summary)
+		return DocumentRowPresentation(
+			title: displayTitle(detail.title, condition: detail.condition),
+			sender: detail.sender?.name ?? "",
+			dateText: detail.documentDate.map { DocumentFormatting.calendarDate($0, context: context) },
+			amountText: DocumentFormatting.amountText(in: detail.fields),
+			thirdLineText: thirdLineText,
+			thirdLineTone: thirdLineTone,
+			contentKnown: false
+		)
+	}
+
+	/// A document's title, or what stands in for a title the archive has not given it.
+	static func displayTitle(_ title: String?, condition: DocumentCondition) -> String {
+		if let title, !title.isEmpty {
+			return title
+		}
+		switch condition {
+		case .inIngestion:
+			return "Processing Document"
+		case .archived, .failed:
+			return "Untitled Document"
+		}
+	}
+
+	/// An archived document shows its passage, one in ingestion its stage, and a failed one why.
+	private static func thirdLine(
+		_ condition: DocumentCondition,
+		passage: String?
+	) -> (String, DocumentRowThirdLineTone) {
+		switch condition {
+		case let .inIngestion(stage): (LibraryFailureWording.stageText(stage), .accent)
+		case let .failed(reason): (LibraryFailureWording.failureText(reason), .failure)
+		case .archived: (passage ?? "", .secondary)
+		}
 	}
 }

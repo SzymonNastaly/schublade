@@ -22,24 +22,13 @@ enum LibraryRowConfiguration {
 		setting: DocumentRowSetting,
 		context: WordingContext
 	) {
-		let presented = DocumentRowPresentation.from(row, context: context)
-		let underMonth = setting == .browsing(underMonth: true)
-		let browsingArchived = if case .browsing = setting, case .archived = row.condition {
-			true
-		} else {
-			false
+		var shown = DocumentRowPresentation.from(row, context: context)
+		if setting == .browsing(underMonth: true) {
+			shown.dateText = row.documentDate.map { DocumentFormatting.dayAndMonth($0, context: context) }
 		}
-		let shown = DocumentRowPresentation(
-			title: presented.title,
-			sender: presented.sender,
-			dateText: underMonth
-				? row.documentDate.map { DocumentFormatting.dayAndMonth($0, context: context) }
-				: presented.dateText,
-			amountText: presented.amountText,
-			thirdLineText: browsingArchived ? "" : presented.thirdLineText,
-			thirdLineTone: presented.thirdLineTone,
-			contentKnown: presented.contentKnown
-		)
+		if case .browsing = setting, case .archived = row.condition {
+			shown.thirdLineText = ""
+		}
 		// Only a passage of the text is an excerpt, whose matched words are marked.
 		let marked: String? = if case let .searching(text) = setting, case .excerpt = row.passage {
 			text

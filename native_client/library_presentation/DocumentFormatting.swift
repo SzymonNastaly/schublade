@@ -50,17 +50,10 @@ public enum DocumentFormatting {
 	}
 
 	public static func calendarDate(_ date: CalendarDate, context _: WordingContext) -> String {
-		let calendar = universalGregorianCalendar
-		let components = DateComponents(
-			calendar: calendar,
-			timeZone: calendar.timeZone,
-			year: Int(date.year),
-			month: Int(date.month),
-			day: Int(date.day)
-		)
-		guard let timestamp = calendar.date(from: components) else {
+		guard let timestamp = timestamp(of: date) else {
 			return isoDate(date)
 		}
+		let calendar = universalGregorianCalendar
 		return timestamp.formatted(
 			Date.FormatStyle(
 				date: .abbreviated,
@@ -74,22 +67,27 @@ public enum DocumentFormatting {
 
 	/// "31 Oct", for a row under a month's heading, which holds the year.
 	public static func dayAndMonth(_ date: CalendarDate, context _: WordingContext) -> String {
-		let calendar = universalGregorianCalendar
-		let components = DateComponents(
-			calendar: calendar,
-			timeZone: calendar.timeZone,
-			year: Int(date.year),
-			month: Int(date.month),
-			day: Int(date.day)
-		)
-		guard let timestamp = calendar.date(from: components) else {
+		guard let timestamp = timestamp(of: date) else {
 			return isoDate(date)
 		}
+		let calendar = universalGregorianCalendar
 		return timestamp.formatted(
 			Date.FormatStyle(locale: englishGreatBritain, calendar: calendar, timeZone: calendar.timeZone)
 				.day()
 				.month(.abbreviated)
 		)
+	}
+
+	/// The start of the day in universal time, nil for a day the calendar lacks.
+	private static func timestamp(of date: CalendarDate) -> Date? {
+		let calendar = universalGregorianCalendar
+		return calendar.date(from: DateComponents(
+			calendar: calendar,
+			timeZone: calendar.timeZone,
+			year: Int(date.year),
+			month: Int(date.month),
+			day: Int(date.day)
+		))
 	}
 
 	public static func isoDate(_ date: CalendarDate) -> String {
@@ -145,6 +143,28 @@ public enum DocumentFormatting {
 
 	public static func amount(_ amount: Amount) -> String {
 		decimalAmount(amount.decimalText, currency: amount.currency)
+	}
+
+	/// The amount among a document's extracted fields with its currency, nil when it names no amount
+	/// as a number.
+	public static func amountText(in fields: [DetailField]) -> String? {
+		fields.first { $0.key == "amount" }.flatMap { field in
+			if case let .number(decimalText) = field.value {
+				decimalAmount(decimalText, currency: currency(in: fields))
+			} else {
+				nil
+			}
+		}
+	}
+
+	static func currency(in fields: [DetailField]) -> String? {
+		fields.first { $0.key == "currency" }.flatMap { field in
+			if case let .text(text) = field.value, !text.isEmpty {
+				text
+			} else {
+				nil
+			}
+		}
 	}
 
 	public static func decimalAmount(_ decimalText: String, currency: String? = nil) -> String {
