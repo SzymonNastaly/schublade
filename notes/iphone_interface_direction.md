@@ -358,7 +358,7 @@ One content view, `DocumentRowContentView`, draws documents and arrivals from on
 - **The scope is a token.** While a scope other than All Documents is chosen and the search is active, `searchBar.searchTextField.tokens` holds one `UISearchToken` with the scope's symbol from `LibraryScopeMenu` and its name. Deleting the token chooses All Documents. This is the only place the scope shows while the stacked search bar of iOS 18 hides the title.
 - **Suggestions offer a scope.** While the typed text is a prefix of a category's, a tag's, or a person's name, ignoring case and diacritics, `searchController.searchSuggestions` holds up to three `UISearchSuggestionItem`s, each with the name, the kind as its description ("Category", "Tag", "Person"), and the symbol. Choosing one clears the text, chooses the scope, and inserts the token. The facets hold no senders, so a sender is never suggested.
 - **The excerpt marks what matched.** In a row under "Matches in Text", each occurrence of a search term in the excerpt is drawn in `label` at semibold weight. The comparison ignores case and diacritics. The rest stays `secondaryLabel`.
-- **A text match opens on the match.** A row under "Matches in Text" opens its document in the Text reading mode with the find navigator showing the search text (section 5).
+- **A text match opens on the match.** A row under "Matches in Text" opens its document's text page with the find navigator showing the search text (section 5).
 - The 250 ms pause, the "Search All Documents" button of the empty result, and the hidden arrivals stay as they are.
 - No scope bar. Its segments are fixed, and the scopes are a list the household makes.
 - No recent searches.
@@ -428,12 +428,12 @@ All are `UIContentUnavailableConfiguration`, as today.
 │ │ ┌──────────────────────────────────┐ │ │
 │ │ │ IBAN    DE72 9605 1240 0471 …  ⧉ │ │ │
 │ │ └──────────────────────────────────┘ │ │
-│ ( ↑ )                      ( ≣ | ⓘ )     │  toolbar
+│ ( ↑ )                          ( ⓘ )     │  toolbar
 └──────────────────────────────────────────┘
 ```
 
 - The original fills the page, under both bars. The segmented control and its bar go.
-- The details are a sheet. The text is a reading mode that replaces the original in place.
+- The details are a sheet. The text is a page of its own, one step further: the owner reads the original and the details often and the extracted text rarely, so the text is findable but not prominent (owner, 2026-11-23).
 - The title is in the bar, truncated, for orientation. Its one full statement is the head of the details sheet. The card that repeats it goes.
 
 A persistent sheet at half height is the phone's form of the Mac's reader with its inspector: the top of the letter and the facts are on the screen together. A segmented control makes the person choose one.
@@ -446,12 +446,11 @@ A persistent sheet at half height is the phone's form of the Mac's reader with i
 
 ### The toolbar
 
-`toolbarItems = [shareItem, .flexibleSpace(), textItem, detailsItem]`. On iOS 26 the two trailing items share one glass capsule.
+`toolbarItems = [shareItem, .flexibleSpace(), detailsItem]`. The text has no toolbar item.
 
 | Item | Symbol | Title | Behaviour |
 | --- | --- | --- | --- |
 | `shareItem` | `square.and.arrow.up` | Share | `UIActivityViewController` with the named copy, as today |
-| `textItem` | `text.page` | Show Text, or Show Original while the text shows | Toggles the reading mode. `isSelected` while the text shows. `UISelectionFeedbackGenerator().selectionChanged()` |
 | `detailsItem` | `info.circle` | Details | Presents or dismisses the sheet. `isSelected` while it shows |
 
 Quick Look goes, because it showed the same file as the page under it. Printing and Markup remain in the share sheet. "Open in Browser" moves to the foot of the details.
@@ -478,7 +477,7 @@ Its list, inset grouped:
 2. **Facts**, without a header: every `InspectorDetailRow` that has no `linkedScope`, in the presentation's order. Date, Amount, Due, IBAN, Invoice, Customer, Policy, and the others.
 3. **Filed under**: every row with a `linkedScope`. Sender, Category, Person. Each has a disclosure indicator. A tap dismisses the sheet, pops to the library, and chooses the scope, as today.
 4. **Tags**, while the document has any, one row a tag, with a disclosure indicator.
-5. **File**: the file facts, then a row "Open in Browser" (`safari`, text in the tint). The section's footer reads "Edit the details, retry, or delete this document in your archive in the browser."
+5. **File**: the file facts, then a row "Extracted Text" (`text.page`, disclosure indicator) that pushes the text page, then a row "Open in Browser" (`safari`, text in the tint). The section's footer reads "Edit the details, retry, or delete this document in your archive in the browser."
 
 Rows:
 
@@ -489,7 +488,13 @@ Rows:
 
 ### The text
 
-`DocumentTextViewController`, a `UITextView`, shown in place of the original with a 0.2 s cross-dissolve.
+`DocumentTextViewController`, a `UITextView`, pushed onto the page's navigation stack with the title "Text". It is reached three ways, none of them on the page itself:
+
+- an "Extracted Text" row (`text.page`, with a disclosure indicator) in the details sheet, in the section with "Open in Browser"; tapping it dismisses the sheet and pushes the text, and Back returns to the original with the sheet as the person left it;
+- a row under "Matches in Text", which opens the document page and the text page above it in one push, with the find navigator on the term;
+- for VoiceOver, an accessibility custom action "Show Text" on the original, because for a VoiceOver user a scan's text is the document.
+
+The page itself:
 
 - Body text in `body`, `label`, with `lineHeightMultiple` 1.15 and `paragraphSpacing` 8.
 - `textContainerInset` is 16 on top, 24 at the bottom, and the sides follow `readableContentGuide`, at least 20.
@@ -498,7 +503,7 @@ Rows:
 - A table row, a line that starts with "|", is drawn in the monospaced system font at the `footnote` size. A separator row of dashes is dropped. No table layout is built.
 - The system sans serif stays. Invoices are numbers in columns, and a serif face would serve the three paragraphs of a letter at the cost of the figures.
 - `isFindInteractionEnabled = true`. A page opened from a row under "Matches in Text" starts in the text, sets `findInteraction.searchText` to the search text, and calls `presentFindNavigator(showingReplace: false)`.
-- For a VoiceOver user the text is the document, because a scan has no text layer. `textItem`'s hint says "Shows the text the archive read from this document."
+- The custom action's name is "Show Text", and the row's hint says "Shows the text the archive read from this document."
 
 ### Arriving, failed, absent
 
@@ -667,7 +672,6 @@ One file, `Haptics.swift`, with one function per moment, so no screen picks a ge
 | An arrival becomes its document, scene active | `UINotificationFeedbackGenerator`, `.success` |
 | An arrival is not accepted or the token is refused, scene active | `UINotificationFeedbackGenerator`, `.error` |
 | A fact is copied | `UIImpactFeedbackGenerator(style: .light)` |
-| The reading mode toggles | `UISelectionFeedbackGenerator` |
 | The share sheet has handed everything over | `.success` |
 | The share sheet could not read a file | `.warning` |
 | A connection is refused | `.error` |
@@ -789,7 +793,7 @@ Proof:
 
 ### Unit D3: the document page
 
-1. `application_interface/DocumentPageViewController.swift`: remove the segments, the full-bleed original, the reading mode, the sheet's presentation and its remembered state.
+1. `application_interface/DocumentPageViewController.swift`: remove the segments, the full-bleed original, the pushed text page with its three ways in, the sheet's presentation and its remembered state.
 2. `application_interface/DocumentDetailsViewController.swift`: the sheet's list, tap to copy, "Open in Browser" with its footer.
 3. `application_interface/DocumentFileActions.swift`: the three toolbar items, without Quick Look and the browser item.
 4. `application_interface/DocumentTextViewController.swift`: the typography, the page marks, the table rows, the find navigator.
@@ -803,7 +807,7 @@ Proof:
 - `d3_page_original.png`: the sheet dismissed, the page under both bars.
 - `d3_details_large.png`: the sheet at the large detent, down to "Open in Browser" and its footer.
 - `d3_copied.png`: the IBAN row reading "Copied".
-- `d3_text.png`: the text of a two-page statement with a page mark.
+- `d3_text.png`: the text page of a two-page statement with a page mark, reached from the "Extracted Text" row.
 - `d3_text_found.png`: opened from "Matches in Text", the find navigator showing the term.
 - `d3_details_accessibility_size.png`.
 - A sentence in the commit that says whether the zoom stayed, with what the ten pulls showed.
