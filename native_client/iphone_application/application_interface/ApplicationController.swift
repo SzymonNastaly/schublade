@@ -103,7 +103,8 @@ final class ApplicationController {
 
 	/// Asks the copy to read the archive and waits until it has, or until no read can follow without
 	/// the person, as for a refused token. An archive out of reach is waited for, because the network
-	/// may return meanwhile; the background refresh that calls this ends the wait when its time is up.
+	/// may return meanwhile, until the background refresh that calls this is cancelled because its
+	/// time is up. The wait in Rust ignores the cancellation, so it ends at the next status.
 	func refreshLibrary() async -> SynchronizationAnswer {
 		guard await coreStart?.value == true else {
 			return .withheld
@@ -121,6 +122,9 @@ final class ApplicationController {
 			case .withheld?:
 				return .withheld
 			case .outOfReach?, nil:
+				guard !Task.isCancelled else {
+					return .outOfReach
+				}
 				revision = status.revision
 			}
 		}
