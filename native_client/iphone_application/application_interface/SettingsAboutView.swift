@@ -1,6 +1,6 @@
 import UIKit
 
-/// The icon, the name, and the version and build, centred under the last section of Settings.
+/// The icon, the name, and the version and build, centred in the last section of Settings, which has no rows.
 final class SettingsAboutView: UICollectionReusableView {
 	override init(frame: CGRect) {
 		super.init(frame: frame)
@@ -30,7 +30,7 @@ final class SettingsAboutView: UICollectionReusableView {
 		NSLayoutConstraint.activate([
 			icon.widthAnchor.constraint(equalToConstant: 60),
 			icon.heightAnchor.constraint(equalToConstant: 60),
-			stack.topAnchor.constraint(equalTo: topAnchor, constant: 32),
+			stack.topAnchor.constraint(equalTo: topAnchor, constant: 12),
 			stack.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -24),
 			stack.centerXAnchor.constraint(equalTo: centerXAnchor),
 			stack.leadingAnchor.constraint(greaterThanOrEqualTo: leadingAnchor),

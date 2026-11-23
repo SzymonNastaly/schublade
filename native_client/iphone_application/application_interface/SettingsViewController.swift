@@ -4,7 +4,8 @@ import Observation
 import UIKit
 
 /// Settings, a sheet over the library: the connected archive with the way to a new token, the room
-/// downloaded originals take, the ways to scan without opening Schublade, and the version.
+/// downloaded originals take, the ways to scan without opening Schublade while the token can send,
+/// and the version.
 final class SettingsViewController: UIViewController, UICollectionViewDataSource, UICollectionViewDelegate {
 	private let controller: ApplicationController
 	private var sections: [SettingsSection] = []

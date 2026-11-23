@@ -59,7 +59,7 @@ enum SettingsFooter: Equatable {
 }
 
 /// A section of Settings: the archive, the storage of originals, the ways to scan from outside the
-/// application, and the about footer under the last.
+/// application while the token can send, and the about footer in a section without rows.
 struct SettingsSection: Equatable {
 	let header: String?
 	let footer: SettingsFooter?
@@ -83,6 +83,12 @@ struct SettingsSection: Equatable {
 		}
 		archiveRows.append(.replaceToken)
 		let storageNote = "Originals read longest ago go first. Each is downloaded again when you open it."
+		let scanning = SettingsSection(
+			header: "Scan Without Opening Schublade",
+			footer: nil,
+			rows: ScanShortcut.all.map(SettingsRow.scanShortcut)
+		)
+		let about = SettingsSection(header: nil, footer: .about, rows: [])
 		return [
 			SettingsSection(
 				header: "Archive",
@@ -101,12 +107,7 @@ struct SettingsSection: Equatable {
 					.removeDownloadedOriginals(available: (storage?.heldBytes ?? 0) > 0),
 				]
 			),
-			SettingsSection(
-				header: "Scan Without Opening Schublade",
-				footer: .about,
-				rows: ScanShortcut.all.map(SettingsRow.scanShortcut)
-			),
-		]
+		] + (restricted ? [] : [scanning]) + [about]
 	}
 }
 
