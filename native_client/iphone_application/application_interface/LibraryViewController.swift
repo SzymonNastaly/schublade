@@ -27,6 +27,7 @@ final class LibraryViewController: UIViewController, UICollectionViewDelegate {
 		submissions: controller.submissions
 	)
 	private let searchController = UISearchController(searchResultsController: nil)
+	private lazy var search = LibrarySearch(screen: self)
 	private var refresh: LibraryRefresh?
 	private lazy var commands = LibraryCommands(screen: self, capture: capture) { [weak self] in
 		guard let self else {
@@ -37,11 +38,11 @@ final class LibraryViewController: UIViewController, UICollectionViewDelegate {
 		}
 	}
 
-	private var chosenScope = NamedScope(scope: .allDocuments, name: "All Documents")
+	private(set) var chosenScope = NamedScope(scope: .allDocuments, name: "All Documents")
 	private var searchText = ""
 	private var answer: ListedAnswer?
 	private(set) var state = LibraryListState.awaitingListing
-	private var facets: LibraryFacets?
+	private(set) var facets: LibraryFacets?
 	private var listedRevision: UInt64?
 	private var facetsRevision: UInt64?
 	private var newestListingRequest: UInt64 = 0
@@ -68,8 +69,8 @@ final class LibraryViewController: UIViewController, UICollectionViewDelegate {
 		view.backgroundColor = .systemBackground
 		definesPresentationContext = true
 		searchController.obscuresBackgroundDuringPresentation = false
-		searchController.searchResultsUpdater = commands
-		searchController.delegate = commands
+		searchController.searchResultsUpdater = search
+		searchController.delegate = search
 		searchController.searchBar.placeholder = "Search"
 		navigationItem.searchController = searchController
 		searchController.searchBar.autocapitalizationType = .none
@@ -151,6 +152,7 @@ final class LibraryViewController: UIViewController, UICollectionViewDelegate {
 	private func showScope() {
 		title = scopePresentation.title
 		commands.showFiltering(chosenScope.scope != .allDocuments)
+		search.showToken(in: searchController, scope: chosenScope)
 	}
 
 	private func follow() {

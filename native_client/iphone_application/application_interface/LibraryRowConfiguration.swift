@@ -40,6 +40,12 @@ enum LibraryRowConfiguration {
 			thirdLineTone: presented.thirdLineTone,
 			contentKnown: presented.contentKnown
 		)
+		// Only a passage of the text is an excerpt, whose matched words are marked.
+		let marked: String? = if case let .searching(text) = setting, case .excerpt = row.passage {
+			text
+		} else {
+			nil
+		}
 		let identity = "document.\(row.document.value)"
 		let content = DocumentRowContent(
 			identity: identity,
@@ -47,7 +53,8 @@ enum LibraryRowConfiguration {
 			picture: picture,
 			trailing: .absent,
 			spokenValue: nil,
-			updatesFrequently: false
+			updatesFrequently: false,
+			markedSearch: marked
 		)
 		cell.contentConfiguration = content
 		content.describe(cell)

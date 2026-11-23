@@ -118,22 +118,3 @@ final class LibraryCommands: NSObject {
 		return [UIMenu(options: .displayInline, children: importActions())]
 	}
 }
-
-extension LibraryCommands: UISearchResultsUpdating, UISearchControllerDelegate {
-	func updateSearchResults(for searchController: UISearchController) {
-		screen?.searchTextChanged(searchController.searchBar.text ?? "")
-	}
-
-	/// Before iOS 26 the toolbar gives way to the keyboard. From iOS 26 the search field is in it.
-	func willPresentSearchController(_: UISearchController) {
-		if #unavailable(iOS 26) {
-			screen?.navigationController?.setToolbarHidden(true, animated: true)
-		}
-	}
-
-	func willDismissSearchController(_: UISearchController) {
-		if #unavailable(iOS 26) {
-			screen?.navigationController?.setToolbarHidden(false, animated: true)
-		}
-	}
-}

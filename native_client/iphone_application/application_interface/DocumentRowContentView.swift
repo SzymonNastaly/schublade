@@ -14,6 +14,8 @@ struct DocumentRowContent: UIContentConfiguration, Equatable {
 	let spokenValue: String?
 	/// An arrival changes as it is sent and read.
 	let updatesFrequently: Bool
+	/// The search whose words the third line marks, nil for a line without an excerpt.
+	var markedSearch: String?
 
 	func makeContentView() -> any UIView & UIContentView {
 		DocumentRowContentView(configuration: self)
@@ -282,7 +284,6 @@ final class DocumentRowContentView: UIView, UIContentView {
 		let amountLine = large ? RowCaptionText.dateAndAmount(row) : row.amountText
 			.map { NSAttributedString(string: $0) }
 		amountLabel.attributedText = amountLine
-		thirdLabel.text = row.thirdLineText
 		// UIKit sets a configuration inside the list's own animations, and a stack view counts each
 		// hiding made inside an animation, so a label hidden twice stays hidden in its arrangement
 		// after it shows again. Each label is therefore hidden or shown only when that changes, and
@@ -296,6 +297,11 @@ final class DocumentRowContentView: UIView, UIContentView {
 		case .secondary: .secondaryLabel
 		case .accent: .tintColor
 		case .failure: InterfacePalette.attentionText
+		}
+		if let search = content.markedSearch {
+			thirdLabel.attributedText = LibrarySearch.markedExcerpt(row.thirdLineText, searchText: search)
+		} else {
+			thirdLabel.text = row.thirdLineText
 		}
 	}
 
