@@ -148,6 +148,8 @@ final class ShareViewController: UIViewController {
 		container: SharedContainer,
 		archive: ConnectedArchive
 	) {
+		// Cancel would end the extension between two files, after some were already on their way.
+		navigationItem.leftBarButtonItem?.isEnabled = false
 		navigationItem.rightBarButtonItem?.isEnabled = false
 		progressIndicator.startAnimating()
 		Task {
