@@ -23,11 +23,12 @@ final class ShareIntakeTests: XCTestCase {
 		let entries = try await [
 			ShareIntake.SharedFile(file: letter, type: .pdf, suggestedName: "Letter from the Stadtwerke.pdf"),
 			ShareIntake.SharedFile(file: receipt, type: .heic, suggestedName: "Receipt"),
-		].asyncMap { try await ShareIntake.receive($0, into: queue, now: sharedAt) }
+		].asyncMap { try await ShareIntake.receive($0, picture: nil, into: queue, now: sharedAt) }
 		var refusal: (any Error)?
 		do {
 			_ = try await ShareIntake.receive(
 				ShareIntake.SharedFile(file: notes, type: .plainText, suggestedName: "Notes"),
+				picture: nil,
 				into: queue,
 				now: sharedAt
 			)
@@ -57,6 +58,7 @@ final class ShareIntakeTests: XCTestCase {
 
 		let entry = try await ShareIntake.receive(
 			ShareIntake.SharedFile(file: photograph, type: .heic, suggestedName: "Receipt"),
+			picture: nil,
 			into: queue
 		)
 

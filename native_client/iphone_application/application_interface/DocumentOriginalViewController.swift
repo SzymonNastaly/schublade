@@ -1,7 +1,7 @@
 import ApplicationBindings
-import ImageIO
 import LibraryPresentation
 import PDFKit
+import SubmissionQueue
 import UIKit
 
 final class DocumentOriginalViewController: UIViewController {
@@ -242,15 +242,7 @@ final class DocumentOriginalViewController: UIViewController {
 		if let document = PDFDocument(url: url) {
 			return .portableDocument(document)
 		}
-		// Only a thumbnail applies the EXIF orientation, so a phone's photograph stands upright.
-		let options: [CFString: Any] = [
-			kCGImageSourceCreateThumbnailFromImageAlways: true,
-			kCGImageSourceCreateThumbnailWithTransform: true,
-			kCGImageSourceThumbnailMaxPixelSize: maximumPixelSize,
-			kCGImageSourceShouldCacheImmediately: true,
-		]
-		guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
-		      let picture = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary)
+		guard let picture = PictureFile.decoded(from: url, longerSide: maximumPixelSize, cachedImmediately: true)
 		else {
 			return .unavailable(LibraryFailureWording.unreadableOriginalPlaceholder)
 		}

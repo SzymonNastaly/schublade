@@ -46,6 +46,9 @@ final class ShareViewController: UIViewController {
 	private var files: [ShareContents.SharedFile] = []
 	/// The copy of each file, made one after another as the sheet appears, which Send awaits.
 	private var copies: [Task<URL, any Error>] = []
+	/// The first page of each copy at the size a submission keeps, from the rendering its tile shows,
+	/// so Quick Look draws each file once.
+	private var submissionPictures: [Task<CGImage?, Never>] = []
 	/// Where the copies are made, which goes as a whole once nothing needs it: when the sheet ends
 	/// without Send, and after Send once the queue has taken every copy it could read.
 	private let copiesDirectory = URL.temporaryDirectory.appending(
@@ -191,7 +194,7 @@ final class ShareViewController: UIViewController {
 	}
 
 	/// Copies each file before the next, because an extension is ended above about 120 MB, and asks
-	/// Quick Look for its picture once its copy exists.
+	/// Quick Look for its picture once its copy exists, which its tile shows and its submission keeps.
 	private func copyFiles() {
 		let size = ShareTileSize.of(count: files.count)
 		let scale = traitCollection.displayScale
@@ -206,14 +209,15 @@ final class ShareViewController: UIViewController {
 			previous = copy
 			return copy
 		}
-		for (index, copy) in copies.enumerated() {
+		submissionPictures = copies.enumerated().map { index, copy in
 			Task { [weak self] in
 				guard let file = try? await copy.value,
-				      let picture = await ShareTileSize.picture(of: file, size: size, scale: scale)
+				      let rendering = await ShareTileSize.rendering(of: file, size: size, scale: scale)
 				else {
-					return
+					return nil
 				}
-				self?.sheet.update(index) { $0.picture = picture }
+				self?.sheet.update(index) { $0.picture = ShareTileSize.framed(rendering, size: size, scale: scale) }
+				return SubmissionPicture.reduced(rendering)
 			}
 		}
 	}
@@ -257,6 +261,7 @@ final class ShareViewController: UIViewController {
 					let copy = try await copies[index].value
 					let entry = try await ShareIntake.receive(
 						ShareIntake.SharedFile(file: copy, type: file.type, suggestedName: file.provider.suggestedName),
+						picture: submissionPictures[index].value,
 						into: queue
 					)
 					switch await queue.prepare(

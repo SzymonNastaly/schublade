@@ -1,5 +1,5 @@
 import ApplicationBindings
-import ImageIO
+import SubmissionQueue
 import UIKit
 
 /// Keeps the first-page pictures of the rows in memory, reads each once, and decodes it away from
@@ -121,17 +121,6 @@ final class ThumbnailStore {
 
 	@concurrent
 	private static func decode(atPath path: String) async -> UIImage? {
-		guard let source = CGImageSourceCreateWithURL(URL(filePath: path) as CFURL, nil) else {
-			return nil
-		}
-		let options: [CFString: Any] = [
-			kCGImageSourceCreateThumbnailFromImageAlways: true,
-			kCGImageSourceCreateThumbnailWithTransform: true,
-			kCGImageSourceThumbnailMaxPixelSize: maximumPixelSize,
-		]
-		guard let picture = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) else {
-			return nil
-		}
-		return RowPicture.framed(picture)
+		PictureFile.decoded(from: URL(filePath: path), longerSide: maximumPixelSize).map(RowPicture.framed)
 	}
 }

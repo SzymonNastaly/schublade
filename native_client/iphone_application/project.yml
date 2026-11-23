@@ -169,9 +169,10 @@ targets:
     sources:
       - path: share_extension
         excludes: ["*.entitlements"]
-      # The sheet draws and feels as the application does, from the same two files.
+      # The sheet draws and feels as the application does, from the same three files.
       - application_interface/InterfacePalette.swift
       - application_interface/Haptics.swift
+      - application_interface/PagePicture.swift
     dependencies:
       - target: SubmissionQueue
       - target: ApplicationBindings

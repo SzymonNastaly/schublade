@@ -1,6 +1,5 @@
 import ApplicationBindings
 import Foundation
-import ImageIO
 import LibraryPresentation
 import Observation
 import SubmissionQueue
@@ -265,8 +264,7 @@ extension SubmissionCoordinator {
 			return picture
 		}
 		guard let file = queue.pictureFile(of: identifier),
-		      let source = CGImageSourceCreateWithURL(file as CFURL, nil),
-		      let decoded = CGImageSourceCreateImageAtIndex(source, 0, nil)
+		      let decoded = PictureFile.decoded(from: file, longerSide: SubmissionPicture.pixelLimit)
 		else {
 			return nil
 		}

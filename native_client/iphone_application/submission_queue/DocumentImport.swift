@@ -1,5 +1,4 @@
 import Foundation
-import ImageIO
 import UniformTypeIdentifiers
 
 /// A file a person chose in Photos or Files or shared from another application, made into
@@ -49,30 +48,12 @@ public enum DocumentImport {
 			throw .unacceptedKind(file.lastPathComponent)
 		}
 		let converted = file.deletingLastPathComponent().appending(path: "\(UUID().uuidString).jpg")
-		// A share extension is ended above about 120 MB, and a picture of the 48-megapixel camera
-		// takes about 190 MB decoded. ImageIO therefore decodes it at most `convertedPixelLimit` on
-		// its longer side, upright, and the picture is released before the next file.
+		// The picture is released before the next file, because a share extension is ended above
+		// about 120 MB.
 		let written = autoreleasepool {
-			let hint = [kCGImageSourceTypeIdentifierHint: type.identifier] as CFDictionary
-			let decoding = [
-				kCGImageSourceCreateThumbnailFromImageAlways: true,
-				kCGImageSourceCreateThumbnailWithTransform: true,
-				kCGImageSourceThumbnailMaxPixelSize: convertedPixelLimit,
-			] as CFDictionary
-			guard let source = CGImageSourceCreateWithURL(file as CFURL, hint),
-			      let picture = CGImageSourceCreateThumbnailAtIndex(source, 0, decoding),
-			      let destination = CGImageDestinationCreateWithURL(
-			      	converted as CFURL,
-			      	UTType.jpeg.identifier as CFString,
-			      	1,
-			      	nil
-			      )
-			else {
-				return false
-			}
-			let options = [kCGImageDestinationLossyCompressionQuality: 0.85] as CFDictionary
-			CGImageDestinationAddImage(destination, picture, options)
-			return CGImageDestinationFinalize(destination)
+			PictureFile.decoded(from: file, longerSide: convertedPixelLimit, type: type).map {
+				PictureFile.writeJPEG($0, to: converted, quality: 0.85)
+			} ?? false
 		}
 		guard written else {
 			throw .unreadable(file.lastPathComponent)

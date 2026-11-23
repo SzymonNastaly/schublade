@@ -1,16 +1,12 @@
 import CoreGraphics
 import Foundation
-import ImageIO
 import QuickLookThumbnailing
-import UniformTypeIdentifiers
 
 /// The first page of a submission as a small picture, which the row of the submission shows from
-/// the moment it is created until the archive's own picture of the document replaces it. Every
-/// decode is bounded by the picture's size, because the share extension is ended above about 120 MB.
+/// the moment it is created until the archive's own picture of the document replaces it.
 public enum SubmissionPicture {
 	/// The longer side in pixels: three times the largest picture a row draws.
 	public static let pixelLimit = 312
-	static let compressionQuality = 0.8
 
 	/// The picture of a file the archive accepts: a picture decoded by ImageIO at the limit, upright,
 	/// or the first page of a PDF, which Quick Look renders outside this process. Nil when neither
@@ -18,7 +14,7 @@ public enum SubmissionPicture {
 	@concurrent
 	public static func make(from file: URL, kind: SubmissionFileKind) async -> CGImage? {
 		guard kind == .pdf else {
-			return decoded(from: file)
+			return PictureFile.decoded(from: file, longerSide: pixelLimit)
 		}
 		let request = QLThumbnailGenerator.Request(
 			fileAt: file,
@@ -51,31 +47,5 @@ public enum SubmissionPicture {
 		context.fill(CGRect(x: 0, y: 0, width: width, height: height))
 		context.draw(page, in: CGRect(x: 0, y: 0, width: width, height: height))
 		return context.makeImage()
-	}
-
-	private static func decoded(from file: URL) -> CGImage? {
-		let decoding = [
-			kCGImageSourceCreateThumbnailFromImageAlways: true,
-			kCGImageSourceCreateThumbnailWithTransform: true,
-			kCGImageSourceThumbnailMaxPixelSize: pixelLimit,
-		] as CFDictionary
-		guard let source = CGImageSourceCreateWithURL(file as CFURL, nil) else {
-			return nil
-		}
-		return CGImageSourceCreateThumbnailAtIndex(source, 0, decoding)
-	}
-
-	static func write(_ picture: CGImage, to file: URL) -> Bool {
-		guard let destination = CGImageDestinationCreateWithURL(
-			file as CFURL,
-			UTType.jpeg.identifier as CFString,
-			1,
-			nil
-		) else {
-			return false
-		}
-		let options = [kCGImageDestinationLossyCompressionQuality: compressionQuality] as CFDictionary
-		CGImageDestinationAddImage(destination, picture, options)
-		return CGImageDestinationFinalize(destination)
 	}
 }

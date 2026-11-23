@@ -45,8 +45,7 @@ struct DocumentRowContent: UIContentConfiguration, Equatable {
 	}
 }
 
-/// The first page of a row, an A4 page cut to the row's proportions from its top edge, so the
-/// letterhead stays in view and no picture is letterboxed.
+/// The first page of a row, as `PagePicture` cuts and draws it.
 enum RowPicture {
 	/// 44 by 58 points at the default text size, growing with the text up to 66 points wide.
 	static var size: CGSize {
@@ -54,28 +53,14 @@ enum RowPicture {
 		return CGSize(width: width.rounded(), height: (width * 58 / 44).rounded())
 	}
 
-	/// Cut from the top and drawn on white, because a page is paper and a transparent picture would
-	/// show the dark row through it.
+	/// The picture at its own pixels, three to a point, in the row's proportion of 44 to 58.
 	nonisolated static func framed(_ picture: CGImage) -> UIImage {
-		let proportion = 44.0 / 58.0
-		let width = Double(picture.width)
-		let height = Double(picture.height)
-		let cut = if width / height > proportion {
-			CGRect(x: ((width - height * proportion) / 2).rounded(), y: 0, width: height * proportion, height: height)
-		} else {
-			CGRect(x: 0, y: 0, width: width, height: (width / proportion).rounded())
-		}
-		let cropped = picture.cropping(to: cut.integral) ?? picture
-		let format = UIGraphicsImageRendererFormat()
-		format.scale = 3
-		format.opaque = true
-		let pointSize = CGSize(width: Double(cropped.width) / 3, height: Double(cropped.height) / 3)
-		return UIGraphicsImageRenderer(size: pointSize, format: format).image { context in
-			let bounds = CGRect(origin: .zero, size: pointSize)
-			InterfacePalette.paper.setFill()
-			context.fill(bounds)
-			UIImage(cgImage: cropped, scale: 3, orientation: .up).draw(in: bounds)
-		}
+		let cut = PagePicture.cut(picture, proportion: 44.0 / 58.0)
+		return PagePicture.onPaper(
+			cut,
+			size: CGSize(width: Double(cut.width) / 3, height: Double(cut.height) / 3),
+			scale: 3
+		)
 	}
 }
 
@@ -270,18 +255,7 @@ final class DocumentRowContentView: UIView, UIContentView {
 
 	private func applyText(_ content: DocumentRowContent) {
 		let row = content.row
-		if let picture = content.picture {
-			pictureView.image = picture
-			pictureView.contentMode = .scaleAspectFill
-			pictureView.backgroundColor = InterfacePalette.paper
-			pictureView.layer.borderWidth = 0.5
-			pictureView.layer.borderColor = InterfacePalette.pictureEdge.cgColor
-		} else {
-			pictureView.image = UIImage(systemName: "doc.text")
-			pictureView.contentMode = .center
-			pictureView.backgroundColor = .secondarySystemFill
-			pictureView.layer.borderWidth = 0
-		}
+		pictureView.showPage(content.picture, placeholder: "doc.text")
 		titleLabel.text = row.title
 		let large = accessibilitySized
 		senderLabel.show(sender: row.sender, date: large ? nil : row.dateText)

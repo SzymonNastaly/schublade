@@ -77,7 +77,7 @@ public struct SubmissionQueue: Sendable {
 			)
 			try JSONEncoder().encode(manifest).write(to: building.appending(path: Self.manifestName))
 			if let reduced = picture.flatMap(SubmissionPicture.reduced) {
-				_ = SubmissionPicture.write(reduced, to: building.appending(path: Self.pictureName))
+				_ = PictureFile.writeJPEG(reduced, to: building.appending(path: Self.pictureName), quality: 0.8)
 			}
 		} catch {
 			try? FileManager.default.removeItem(at: building)

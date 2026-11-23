@@ -1,3 +1,4 @@
+import CoreGraphics
 import Foundation
 import UniformTypeIdentifiers
 
@@ -22,12 +23,14 @@ public enum ShareIntake {
 		}
 	}
 
-	/// Converts and enqueues one shared file with its upload claimed, away from the caller's actor.
+	/// Converts and enqueues one shared file with its upload claimed, away from the caller's actor,
+	/// with the picture of its first page that the caller drew already, or nil.
 	/// The share extension starts that upload before it receives the next file, so it holds one
 	/// decoded picture at most and leaves no claimed submission waiting for the others.
 	@concurrent
 	public static func receive(
 		_ shared: SharedFile,
+		picture: CGImage?,
 		into queue: SubmissionQueue,
 		now: Date = .now
 	) async throws -> SubmissionEntry {
@@ -37,12 +40,12 @@ public enum ShareIntake {
 				type: shared.type,
 				suggestedName: shared.suggestedName
 			)
-			return try await queue.enqueue(
+			return try queue.enqueue(
 				document: imported.file,
 				fileName: imported.fileName,
 				kind: imported.kind,
 				origin: .share,
-				picture: SubmissionPicture.make(from: imported.file, kind: imported.kind),
+				picture: picture,
 				claimingUpload: true,
 				now: now
 			)

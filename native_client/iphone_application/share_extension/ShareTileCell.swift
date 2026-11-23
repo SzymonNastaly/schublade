@@ -30,9 +30,8 @@ enum ShareTileSize {
 		count == 1 ? single : several
 	}
 
-	/// The picture of a copied file, rendered by Quick Look outside the extension's memory and cut
-	/// from its top to the tile's shape on white, because a page is paper.
-	static func picture(of file: URL, size: CGSize, scale: CGFloat) async -> UIImage? {
+	/// The first page of a copied file, which Quick Look renders outside the extension's memory.
+	static func rendering(of file: URL, size: CGSize, scale: CGFloat) async -> CGImage? {
 		// A page is narrower than a tile, so Quick Look fits it in a box tall enough that its width
 		// fills the tile; a wide picture is cut at its sides.
 		let side = max(size.width, size.height) * 1.5
@@ -42,32 +41,12 @@ enum ShareTileSize {
 			scale: scale,
 			representationTypes: .thumbnail
 		)
-		guard let rendered = try? await QLThumbnailGenerator.shared.generateBestRepresentation(for: request).cgImage
-		else {
-			return nil
-		}
-		return framed(rendered, size: size, scale: scale)
+		return try? await QLThumbnailGenerator.shared.generateBestRepresentation(for: request).cgImage
 	}
 
-	private static func framed(_ picture: CGImage, size: CGSize, scale: CGFloat) -> UIImage {
-		let proportion = size.width / size.height
-		let width = Double(picture.width)
-		let height = Double(picture.height)
-		let cut = if width / height > proportion {
-			CGRect(x: ((width - height * proportion) / 2).rounded(), y: 0, width: height * proportion, height: height)
-		} else {
-			CGRect(x: 0, y: 0, width: width, height: (width / proportion).rounded())
-		}
-		let cropped = picture.cropping(to: cut.integral) ?? picture
-		let format = UIGraphicsImageRendererFormat()
-		format.scale = scale
-		format.opaque = true
-		return UIGraphicsImageRenderer(size: size, format: format).image { context in
-			let bounds = CGRect(origin: .zero, size: size)
-			InterfacePalette.paper.setFill()
-			context.fill(bounds)
-			UIImage(cgImage: cropped).draw(in: bounds)
-		}
+	/// A rendering as a tile of `size` shows it, as `PagePicture` cuts and draws it.
+	static func framed(_ rendering: CGImage, size: CGSize, scale: CGFloat) -> UIImage {
+		PagePicture.onPaper(PagePicture.cut(rendering, proportion: size.width / size.height), size: size, scale: scale)
 	}
 }
 
@@ -115,21 +94,8 @@ final class ShareTileCell: UICollectionViewCell {
 
 	func show(_ tile: ShareTile, large: Bool) {
 		pictureWidth.constant = large ? ShareTileSize.single.width : ShareTileSize.several.width
-		if let picture = tile.picture {
-			pictureView.image = picture
-			pictureView.contentMode = .scaleToFill
-			pictureView.backgroundColor = InterfacePalette.paper
-			pictureView.layer.borderWidth = 0.5
-			pictureView.layer.borderColor = InterfacePalette.pictureEdge.cgColor
-		} else {
-			pictureView.image = UIImage(systemName: tile.isPicture ? "photo" : "doc.richtext")
-			pictureView.preferredSymbolConfiguration = UIImage.SymbolConfiguration(
-				textStyle: large ? .largeTitle : .title2
-			)
-			pictureView.contentMode = .center
-			pictureView.backgroundColor = .secondarySystemFill
-			pictureView.layer.borderWidth = 0
-		}
+		pictureView.preferredSymbolConfiguration = UIImage.SymbolConfiguration(textStyle: large ? .largeTitle : .title2)
+		pictureView.showPage(tile.picture, placeholder: tile.isPicture ? "photo" : "doc.richtext")
 		nameLabel.text = tile.isPicture ? nil : tile.name
 		let markSize = UIImage.SymbolConfiguration(pointSize: large ? 28 : 22, weight: .semibold)
 		switch tile.mark {

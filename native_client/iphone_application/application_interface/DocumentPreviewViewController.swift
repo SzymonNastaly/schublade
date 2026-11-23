@@ -1,6 +1,6 @@
 import ApplicationBindings
-import ImageIO
 import PDFKit
+import SubmissionQueue
 import UIKit
 
 /// The picture a row's context menu lifts: the row's own picture scaled up, and the first page of
@@ -56,16 +56,7 @@ final class DocumentPreviewViewController: UIViewController {
 			}
 			return UIImage(cgImage: drawn, scale: scale, orientation: .up)
 		}
-		let options: [CFString: Any] = [
-			kCGImageSourceCreateThumbnailFromImageAlways: true,
-			kCGImageSourceCreateThumbnailWithTransform: true,
-			kCGImageSourceThumbnailMaxPixelSize: Int(max(pointSize.width, pointSize.height) * scale),
-		]
-		guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),
-		      let picture = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary)
-		else {
-			return nil
-		}
-		return UIImage(cgImage: picture)
+		let longerSide = Int(max(pointSize.width, pointSize.height) * scale)
+		return PictureFile.decoded(from: url, longerSide: longerSide).map { UIImage(cgImage: $0) }
 	}
 }
