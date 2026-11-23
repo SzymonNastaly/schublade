@@ -14,9 +14,15 @@ final class DocumentOriginalViewController: UIViewController {
 
 	private let gateway: ApplicationGateway
 	private let document: DocumentIdentifier
-	private let kind: OriginalKind
+	/// Read again with every detail, because the archive prints an email after the page opened.
+	private var kind: OriginalKind
+	/// The document's page in the archive while the document failed, where a person can retry it.
+	private var failedDocumentPage: URL?
 	private(set) var state = OriginalState.loading
 	private var newestRequest: UInt64 = 0
+	private var appeared = false
+	/// The document whose first page was placed below the bars.
+	private weak var placedDocument: PDFDocument?
 	let portableDocumentView = PDFView()
 	private let pictureView = ZoomingPictureView()
 
@@ -50,6 +56,72 @@ final class DocumentOriginalViewController: UIViewController {
 		load()
 	}
 
+	/// The kind and the failure of the newest detail. An email the archive has printed since the
+	/// last one loads its PDF.
+	func show(kind: OriginalKind, failedDocumentPage: URL?) {
+		let printed = self.kind == .unprintedEmail && kind != .unprintedEmail
+		self.kind = kind
+		let pageChanged = self.failedDocumentPage != failedDocumentPage
+		self.failedDocumentPage = failedDocumentPage
+		if printed, isViewLoaded {
+			load()
+		} else if pageChanged, case let .unavailable(placeholder) = state {
+			show(.unavailable(placeholder))
+		}
+	}
+
+	override func viewIsAppearing(_ animated: Bool) {
+		super.viewIsAppearing(animated)
+		showPortableDocumentIfAppearing()
+	}
+
+	override func viewDidAppear(_ animated: Bool) {
+		super.viewDidAppear(animated)
+		appeared = true
+		placeFirstPageBelowBars()
+	}
+
+	override func viewDidDisappear(_ animated: Bool) {
+		super.viewDidDisappear(animated)
+		appeared = false
+	}
+
+	/// PDFView leaves a new document at the offset zero, under the bars, when the bars reached the
+	/// page after it, as they do in the zoom transition. Each document is placed once, so a page the
+	/// person returns to stays where it was read.
+	private func placeFirstPageBelowBars() {
+		guard appeared, let document = portableDocumentView.document, placedDocument !== document,
+		      let pages = portableDocumentView.subviews.lazy.compactMap({ $0 as? UIScrollView }).first
+		else {
+			return
+		}
+		placedDocument = document
+		view.layoutIfNeeded()
+		pages.setContentOffset(CGPoint(x: pages.contentOffset.x, y: -pages.adjustedContentInset.top), animated: false)
+	}
+
+	/// PDFView places a new document's first page below the bars it finds at that moment, so a page
+	/// that loads under the text page, which opened above it from a search, gets its document once
+	/// it appears.
+	private func showPortableDocumentIfAppearing() {
+		guard case let .portableDocument(document) = state, view.window != nil,
+		      portableDocumentView.document !== document
+		else {
+			return
+		}
+		portableDocumentView.document = document
+		placeFirstPageBelowBars()
+	}
+
+	/// PDFView leaves its safe area to its scroll view's top alone and ignores a raised bottom, so the
+	/// height the details sheet covers is given to that scroll view as an inset of its own. A page
+	/// then scrolls its last lines above the sheet.
+	override func viewSafeAreaInsetsDidChange() {
+		super.viewSafeAreaInsetsDidChange()
+		let pages = portableDocumentView.subviews.lazy.compactMap { $0 as? UIScrollView }.first
+		pages?.contentInset.bottom = additionalSafeAreaInsets.bottom
+	}
+
 	func contentRevisionChanged() {
 		if case .unavailable = state {
 			load()
@@ -74,7 +146,7 @@ final class DocumentOriginalViewController: UIViewController {
 			let next: OriginalState
 			do throws(RepresentationRefusal) {
 				let file = try await gateway.original(document)
-				next = await Self.open(file)
+				next = await Self.open(file, maximumPixelSize: largestPictureNeeded())
 			} catch {
 				next = .unavailable(LibraryFailureWording.originalRefusalPlaceholder(
 					error,
@@ -97,11 +169,9 @@ final class DocumentOriginalViewController: UIViewController {
 			var loading = UIContentUnavailableConfiguration.loading()
 			loading.text = "Loading Original…"
 			contentUnavailableConfiguration = loading
-		case let .portableDocument(document):
+		case .portableDocument:
 			contentUnavailableConfiguration = nil
-			if portableDocumentView.document !== document {
-				portableDocumentView.document = document
-			}
+			showPortableDocumentIfAppearing()
 			portableDocumentView.isHidden = false
 		case let .picture(picture):
 			contentUnavailableConfiguration = nil
@@ -112,17 +182,36 @@ final class DocumentOriginalViewController: UIViewController {
 			configuration.image = UIImage(systemName: "doc.text.magnifyingglass")
 			configuration.text = placeholder.title
 			configuration.secondaryText = placeholder.detail
+			var buttons: [(title: String, action: UIAction)] = []
 			if placeholder.canRetry {
+				buttons.append(("Try Again", UIAction { [weak self] _ in self?.load() }))
+			}
+			if let failedDocumentPage {
+				buttons.append(("Open in Browser", UIAction { _ in UIApplication.shared.open(failedDocumentPage) }))
+			}
+			if let first = buttons.first {
 				configuration.button = .plain()
-				configuration.button.title = "Try Again"
-				configuration.buttonProperties.primaryAction = UIAction { [weak self] _ in self?.load() }
+				configuration.button.title = first.title
+				configuration.buttonProperties.primaryAction = first.action
+			}
+			if buttons.count > 1 {
+				configuration.secondaryButton = .plain()
+				configuration.secondaryButton.title = buttons[1].title
+				configuration.secondaryButtonProperties.primaryAction = buttons[1].action
 			}
 			contentUnavailableConfiguration = configuration
 		}
 	}
 
+	/// The longest side in pixels that a picture shows at its largest zoom on this screen, because a
+	/// photograph of 48 megapixels decoded whole takes about 195 MB.
+	private func largestPictureNeeded() -> Int {
+		let screenSide = max(view.bounds.width, view.bounds.height) * traitCollection.displayScale
+		return Int(max(screenSide, 1024) * pictureView.maximumZoomScale)
+	}
+
 	@concurrent
-	private static func open(_ file: LocalFile) async -> OriginalState {
+	private static func open(_ file: LocalFile, maximumPixelSize: Int) async -> OriginalState {
 		let url = URL(filePath: file.path)
 		if let document = PDFDocument(url: url) {
 			return .portableDocument(document)
@@ -131,6 +220,7 @@ final class DocumentOriginalViewController: UIViewController {
 		let options: [CFString: Any] = [
 			kCGImageSourceCreateThumbnailFromImageAlways: true,
 			kCGImageSourceCreateThumbnailWithTransform: true,
+			kCGImageSourceThumbnailMaxPixelSize: maximumPixelSize,
 			kCGImageSourceShouldCacheImmediately: true,
 		]
 		guard let source = CGImageSourceCreateWithURL(url as CFURL, nil),

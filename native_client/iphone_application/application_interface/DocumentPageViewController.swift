@@ -162,6 +162,7 @@ final class DocumentPageViewController: UIViewController {
 		segmentBar.isHidden = false
 		contentUnavailableConfiguration = nil
 		actions.detail = presentation
+		original?.show(kind: detail.originalKind, failedDocumentPage: Self.failedDocumentPage(of: detail))
 		details?.show(presentation)
 		showContent()
 	}
@@ -176,12 +177,14 @@ final class DocumentPageViewController: UIViewController {
 		let part: UIViewController
 		switch segment {
 		case .reader(.original):
-			part = original ?? DocumentOriginalViewController(
+			let shown = original ?? DocumentOriginalViewController(
 				gateway: controller.gateway,
 				document: document,
 				kind: detail.originalKind
 			)
-			original = part as? DocumentOriginalViewController
+			shown.show(kind: detail.originalKind, failedDocumentPage: Self.failedDocumentPage(of: detail))
+			original = shown
+			part = shown
 		case .reader(.text):
 			part = text ?? DocumentTextViewController(gateway: controller.gateway, document: document, searchText: nil)
 			text = part as? DocumentTextViewController
@@ -204,6 +207,14 @@ final class DocumentPageViewController: UIViewController {
 		part.view.autoresizingMask = [.flexibleWidth, .flexibleHeight]
 		content.addSubview(part.view)
 		part.didMove(toParent: self)
+	}
+
+	private static func failedDocumentPage(of detail: DocumentDetail) -> URL? {
+		if case .failed = detail.condition {
+			URL(string: detail.archivePage)
+		} else {
+			nil
+		}
 	}
 
 	private static func unavailableConfiguration(_ state: DetailState) -> UIContentUnavailableConfiguration? {
