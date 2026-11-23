@@ -148,15 +148,4 @@ final class SubmissionTests: XCTestCase {
 		}
 		return status.counts.documents
 	}
-
-	@MainActor
-	private func waitUntil(_ expectation: String, condition: () -> Bool) async throws {
-		let deadline = ContinuousClock.now + .seconds(30)
-		while !condition() {
-			guard ContinuousClock.now < deadline else {
-				throw ConditionNotReached(expectation: expectation, detail: "not within 30 seconds")
-			}
-			try await Task.sleep(for: .milliseconds(50))
-		}
-	}
 }

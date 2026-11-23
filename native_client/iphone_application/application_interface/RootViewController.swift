@@ -1,12 +1,15 @@
 import ApplicationBindings
 import Observation
+import ScanRequest
 import UIKit
 
 /// Shows the screen the application's situation calls for: a message while the core starts or
 /// when it failed, the connection form while no archive is connected, and the submissions after.
+/// It also decides what a scan request from outside the application comes to on that screen.
 final class RootViewController: UIViewController {
 	private enum Screen: Equatable {
-		case message(String)
+		case starting
+		case failure(String)
 		case connection
 		case submissions
 	}
@@ -14,6 +17,7 @@ final class RootViewController: UIViewController {
 	private let controller: ApplicationController
 	private var screen: Screen?
 	private var shown: UIViewController?
+	private var submissions: SubmissionsViewController?
 
 	init(controller: ApplicationController) {
 		self.controller = controller
@@ -31,10 +35,13 @@ final class RootViewController: UIViewController {
 		follow()
 	}
 
-	/// Shows the screen for the situation, and again on its next change.
+	/// Shows the screen for the situation and answers a scan request, and again on the next change.
 	private func follow() {
 		withObservationTracking {
 			show(Self.screen(for: controller.situation))
+			if ScanRequestCenter.shared.isPending {
+				answerScanRequest()
+			}
 		} onChange: { [weak self] in
 			Task { @MainActor in
 				self?.follow()
@@ -42,12 +49,26 @@ final class RootViewController: UIViewController {
 		}
 	}
 
+	/// A request waits while the core starts, so a request that started the application opens the
+	/// camera. The submissions screen answers it. Any other screen drops it, because a camera that
+	/// opened once a person had connected would answer a request made long before.
+	private func answerScanRequest() {
+		switch screen {
+		case .starting?, nil:
+			break
+		case .failure?, .connection?:
+			_ = ScanRequestCenter.shared.take()
+		case .submissions?:
+			submissions?.answerScanRequest()
+		}
+	}
+
 	private static func screen(for situation: ApplicationController.Situation) -> Screen {
 		switch situation {
 		case .starting:
-			.message("")
+			.starting
 		case let .failedToStart(detail):
-			.message("Schublade could not start: \(detail)")
+			.failure("Schublade could not start: \(detail)")
 		case let .running(status):
 			if case .notConfigured = status.archive {
 				.connection
@@ -62,13 +83,19 @@ final class RootViewController: UIViewController {
 			return
 		}
 		screen = next
-		let child: UIViewController = switch next {
-		case let .message(text):
-			MessageViewController(text: text)
+		submissions = nil
+		let child: UIViewController
+		switch next {
+		case .starting:
+			child = MessageViewController(text: "")
+		case let .failure(text):
+			child = MessageViewController(text: text)
 		case .connection:
-			UINavigationController(rootViewController: ConnectionViewController(controller: controller))
+			child = UINavigationController(rootViewController: ConnectionViewController(controller: controller))
 		case .submissions:
-			UINavigationController(rootViewController: SubmissionsViewController(controller: controller))
+			let screen = SubmissionsViewController(controller: controller)
+			submissions = screen
+			child = UINavigationController(rootViewController: screen)
 		}
 		shown?.willMove(toParent: nil)
 		shown?.view.removeFromSuperview()

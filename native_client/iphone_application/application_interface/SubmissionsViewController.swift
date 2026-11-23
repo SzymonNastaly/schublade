@@ -6,7 +6,8 @@ import VisionKit
 
 /// The main screen: Scan at the bottom, Add in the navigation bar, and every submission with what
 /// the archive answered. A restricted token cannot send, so the screen says why in place of both.
-/// A scan requested from outside the application presents the document camera once this screen shows.
+/// A scan requested from outside the application presents the document camera once this screen is in
+/// the window.
 final class SubmissionsViewController: UIViewController, UICollectionViewDelegate {
 	private let controller: ApplicationController
 	private lazy var capture = DocumentCapture(presenter: self, submissions: controller.submissions)
@@ -151,9 +152,6 @@ final class SubmissionsViewController: UIViewController, UICollectionViewDelegat
 		withObservationTracking {
 			show(controller.submissions.entries, progress: controller.submissions.progress)
 			showSending(permitted: controller.sendingPermitted)
-			if ScanRequestCenter.shared.isPending {
-				answerScanRequest()
-			}
 		} onChange: { [weak self] in
 			Task { @MainActor in
 				self?.follow()
@@ -181,11 +179,12 @@ final class SubmissionsViewController: UIViewController, UICollectionViewDelegat
 		contentUnavailableConfiguration = entries.isEmpty ? empty : nil
 	}
 
-	/// Takes a pending scan request while this screen shows, and opens the camera if the token may
-	/// send. A restricted token's screen says why it cannot, so its request is dropped.
-	private func answerScanRequest() {
-		guard viewIfLoaded?.window != nil, !(presentedViewController is VNDocumentCameraViewController),
-		      ScanRequestCenter.shared.take(), controller.sendingPermitted
+	/// Takes a pending scan request once this screen is in the window, and opens the camera unless it
+	/// shows already. A request made while it shows is taken too, so that Save does not open the
+	/// camera again. A restricted token's screen says why it cannot send, so its request is dropped.
+	func answerScanRequest() {
+		guard viewIfLoaded?.window != nil, ScanRequestCenter.shared.take(), controller.sendingPermitted,
+		      !(presentedViewController is VNDocumentCameraViewController)
 		else {
 			return
 		}
