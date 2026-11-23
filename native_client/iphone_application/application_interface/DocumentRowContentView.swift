@@ -77,10 +77,10 @@ enum RowPicture {
 final class DocumentRowContentView: UIView, UIContentView {
 	private let pictureView = UIImageView()
 	private let titleLabel = UILabel()
-	private let senderLabel = UILabel()
-	private let dateLabel = UILabel()
+	private let senderLabel = SenderAndDateLabel()
 	private let amountLabel = UILabel()
 	private let thirdLabel = UILabel()
+	private let caption = UIStackView()
 	private let textStack = UIStackView()
 	private let accessory = UIView()
 	private let activityView = UIActivityIndicatorView(style: .medium)
@@ -114,6 +114,8 @@ final class DocumentRowContentView: UIView, UIContentView {
 		apply(configuration, after: nil)
 		registerForTraitChanges([UITraitPreferredContentSizeCategory.self]) { (view: Self, _) in
 			view.sizePicture()
+			view.arrangeCaption()
+			view.applyText(view.shown)
 		}
 	}
 
@@ -130,27 +132,37 @@ final class DocumentRowContentView: UIView, UIContentView {
 		pictureView.tintColor = .tertiaryLabel
 		style(titleLabel, .headline, color: .label, lines: 2)
 		style(senderLabel, .subheadline, color: .secondaryLabel, lines: 1)
-		style(dateLabel, .subheadline, color: .secondaryLabel, lines: 1)
 		style(amountLabel, .subheadline, color: .label, lines: 1)
-		// The subheadline's 15 points at the default text size, with digits of one width, so the
-		// amounts of the rows form a column.
-		amountLabel.font = UIFontMetrics(forTextStyle: .subheadline)
-			.scaledFont(for: .monospacedDigitSystemFont(ofSize: 15, weight: .medium))
+		amountLabel.font = RowCaptionText.amountFont
 		style(thirdLabel, .footnote, color: .secondaryLabel, lines: 2)
-		// A long sender gives way, and the date and the amount stay whole.
-		for whole in [dateLabel, amountLabel] {
-			whole.setContentCompressionResistancePriority(.required, for: .horizontal)
-			whole.setContentHuggingPriority(.required, for: .horizontal)
-		}
-		senderLabel.setContentHuggingPriority(.required, for: .horizontal)
-		let caption = UIStackView(arrangedSubviews: [senderLabel, dateLabel, UIView(), amountLabel])
-		caption.alignment = .firstBaseline
-		caption.setCustomSpacing(8, after: caption.arrangedSubviews[2])
+		// The sender and the date take what the amount leaves, and the amount stays whole.
+		senderLabel.setContentHuggingPriority(.defaultLow, for: .horizontal)
+		senderLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+		amountLabel.setContentCompressionResistancePriority(.required, for: .horizontal)
+		amountLabel.setContentHuggingPriority(.required, for: .horizontal)
+		caption.addArrangedSubview(senderLabel)
+		caption.addArrangedSubview(amountLabel)
 		textStack.addArrangedSubview(titleLabel)
 		textStack.addArrangedSubview(caption)
 		textStack.addArrangedSubview(thirdLabel)
 		textStack.axis = .vertical
 		textStack.spacing = 3
+		arrangeCaption()
+	}
+
+	private var accessibilitySized: Bool {
+		traitCollection.preferredContentSizeCategory.isAccessibilityCategory
+	}
+
+	/// At an accessibility size the amount leaves the sender's line for a line of its own, which the
+	/// date joins, and the title and the sender take more lines.
+	private func arrangeCaption() {
+		let large = accessibilitySized
+		caption.axis = large ? .vertical : .horizontal
+		caption.alignment = large ? .leading : .firstBaseline
+		caption.spacing = large ? 3 : 8
+		titleLabel.numberOfLines = large ? 4 : 2
+		senderLabel.numberOfLines = large ? 2 : 1
 	}
 
 	private func buildAccessory() {
@@ -265,18 +277,19 @@ final class DocumentRowContentView: UIView, UIContentView {
 			pictureView.layer.borderWidth = 0
 		}
 		titleLabel.text = row.title
-		senderLabel.text = row.sender
-		dateLabel.text = row.dateText.map { row.sender.isEmpty ? $0 : " · \($0)" }
-		amountLabel.text = row.amountText
+		let large = accessibilitySized
+		senderLabel.show(sender: row.sender, date: large ? nil : row.dateText)
+		let amountLine = large ? RowCaptionText.dateAndAmount(row) : row.amountText
+			.map { NSAttributedString(string: $0) }
+		amountLabel.attributedText = amountLine
 		thirdLabel.text = row.thirdLineText
 		// UIKit sets a configuration inside the list's own animations, and a stack view counts each
 		// hiding made inside an animation, so a label hidden twice stays hidden in its arrangement
 		// after it shows again. Each label is therefore hidden or shown only when that changes, and
 		// without an animation.
 		UIView.performWithoutAnimation {
-			Self.show(senderLabel, !row.sender.isEmpty)
-			Self.show(dateLabel, row.dateText != nil)
-			Self.show(amountLabel, row.amountText != nil)
+			Self.show(senderLabel, !row.sender.isEmpty || !large && row.dateText != nil)
+			Self.show(amountLabel, amountLine != nil)
 			Self.show(thirdLabel, !row.thirdLineText.isEmpty)
 		}
 		thirdLabel.textColor = switch row.thirdLineTone {
@@ -291,8 +304,10 @@ final class DocumentRowContentView: UIView, UIContentView {
 			label.isHidden = !shown
 		}
 	}
+}
 
-	private func applyTrailing(_ trailing: RowTrailing, after previous: RowTrailing?, animated: Bool) {
+private extension DocumentRowContentView {
+	func applyTrailing(_ trailing: RowTrailing, after previous: RowTrailing?, animated: Bool) {
 		let showsAccessory = trailing != .absent
 		accessory.isHidden = !showsAccessory
 		accessorySize?.constant = showsAccessory ? Self.accessorySide : 0

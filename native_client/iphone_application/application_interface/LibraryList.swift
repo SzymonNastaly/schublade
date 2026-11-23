@@ -11,9 +11,7 @@ final class LibraryList {
 
 	/// Everything a snapshot is made of, so an unchanged input applies nothing.
 	private struct Shown: Equatable {
-		let state: LibraryListState
-		let arrivals: [Arrival]
-		let searching: Bool
+		let content: LibraryListContent
 		let notice: NoticeWording?
 		let now: Date
 	}
@@ -40,7 +38,7 @@ final class LibraryList {
 	private var shown: Shown?
 	private var arrivals: [UUID: Arrival] = [:]
 	private var rows: [DocumentIdentifier: DocumentRow] = [:]
-	private var searching = false
+	private var searchText: String?
 	private var context = WordingContext.current()
 	private var notice: UIContentUnavailableConfiguration?
 
@@ -67,64 +65,42 @@ final class LibraryList {
 		(dataSource?.snapshot().numberOfItems ?? 0) == 0
 	}
 
-	/// Shows the documents of `state` under their headings, with `arrivals` and the listing's
-	/// documents in ingestion together on top. The listing's own Arriving heading is not drawn again.
-	func show(
-		_ state: LibraryListState,
-		arrivals: [Arrival],
-		searching: Bool,
-		notice: UIContentUnavailableConfiguration?,
-		context: WordingContext
-	) {
+	/// Shows the documents of the content's state under their headings, with its arrivals and the
+	/// listing's documents in ingestion together on top. The listing's own Arriving heading is not
+	/// drawn again.
+	func show(_ content: LibraryListContent, notice: UIContentUnavailableConfiguration?, context: WordingContext) {
 		let next = Shown(
-			state: state,
-			arrivals: arrivals,
-			searching: searching,
+			content: content,
 			notice: notice.map(NoticeWording.init),
 			now: context.calendar.startOfDay(for: context.now)
 		)
 		guard let dataSource, next != shown else {
 			return
 		}
+		let searchChanged = shown?.content.searchText != content.searchText
 		shown = next
 		self.context = context
 		self.notice = notice
-		self.searching = searching
-		self.arrivals = Dictionary(uniqueKeysWithValues: arrivals.map { ($0.id, $0) })
+		searchText = content.searchText
+		arrivals = Dictionary(uniqueKeysWithValues: content.arrivals.map { ($0.id, $0) })
 		let previousRows = rows
-		let listed = if case let .documents(listed) = state {
-			listed
-		} else {
-			[LibraryListState.ListedSection]()
+		rows = Dictionary(content.state.listedSections.flatMap(\.rows).map { ($0.document, $0) }) { first, _ in first }
+		var snapshot = Self.snapshot(of: content, noticed: !content.arrivals.isEmpty && notice != nil)
+		let previous = dataSource.snapshot()
+		// A row shows its date another way under another heading, and marks other words in another
+		// search. A snapshot refuses to reconfigure an item it lacks, such as a listed document that
+		// an arrival shows.
+		let revised = snapshot.itemIdentifiers.filter { item in
+			switch item {
+			case .arrival, .notice:
+				true
+			case let .document(identifier):
+				searchChanged || previousRows[identifier] != rows[identifier]
+					|| previous.sectionIdentifier(containingItem: item) != snapshot
+					.sectionIdentifier(containingItem: item)
+			}
 		}
-		rows = Dictionary(listed.flatMap(\.rows).map { ($0.document, $0) }) { first, _ in first }
-		let shownByArrival = Set(arrivals.compactMap(\.document))
-		let arrivingDocuments = listed.filter { $0.heading == .arriving }
-			.flatMap { $0.rows.map(\.document) }
-			.filter { !shownByArrival.contains($0) }
-		let sections = listed.filter { $0.heading != .arriving }
-		var snapshot = NSDiffableDataSourceSnapshot<LibrarySection, LibraryItem>()
-		if !arrivals.isEmpty || !arrivingDocuments.isEmpty {
-			snapshot.appendSections([.arriving])
-			snapshot.appendItems(arrivals.map { .arrival($0.id) } + arrivingDocuments.map { .document($0) })
-		}
-		for section in sections {
-			snapshot.appendSections([.listed(section.heading)])
-			snapshot.appendItems(section.rows.map { .document($0.document) })
-		}
-		// Below what is on its way, the message about the listing takes a row, so it never leaves the
-		// rest of the screen empty.
-		let noticed = !arrivals.isEmpty && notice != nil
-		if noticed {
-			snapshot.appendSections([.notice])
-			snapshot.appendItems([.notice])
-		}
-		// A listed document that an arrival shows is in `rows` but not in the snapshot, and a
-		// snapshot refuses to reconfigure an item it lacks.
-		let revised = rows.compactMap { identifier, row in
-			previousRows[identifier].flatMap { $0 == row ? nil : LibraryItem.document(identifier) }
-		}.filter { snapshot.indexOfItem($0) != nil }
-		snapshot.reconfigureItems(arrivals.map { .arrival($0.id) } + revised + (noticed ? [.notice] : []))
+		snapshot.reconfigureItems(revised)
 		dataSource.apply(snapshot, animatingDifferences: collectionView.window != nil)
 	}
 
@@ -162,8 +138,37 @@ final class LibraryList {
 			animated: false
 		)
 	}
+}
 
-	private func layout() -> UICollectionViewLayout {
+private extension LibraryList {
+	static func snapshot(
+		of content: LibraryListContent,
+		noticed: Bool
+	) -> NSDiffableDataSourceSnapshot<LibrarySection, LibraryItem> {
+		let listed = content.state.listedSections
+		let shownByArrival = Set(content.arrivals.compactMap(\.document))
+		let arrivingDocuments = listed.filter { $0.heading == .arriving }
+			.flatMap { $0.rows.map(\.document) }
+			.filter { !shownByArrival.contains($0) }
+		var snapshot = NSDiffableDataSourceSnapshot<LibrarySection, LibraryItem>()
+		if !content.arrivals.isEmpty || !arrivingDocuments.isEmpty {
+			snapshot.appendSections([.arriving])
+			snapshot.appendItems(content.arrivals.map { .arrival($0.id) } + arrivingDocuments.map { .document($0) })
+		}
+		for section in listed where section.heading != .arriving {
+			snapshot.appendSections([.listed(section.heading)])
+			snapshot.appendItems(section.rows.map { .document($0.document) })
+		}
+		// Below what is on its way, the message about the listing takes a row, so it never leaves the
+		// rest of the screen empty.
+		if noticed {
+			snapshot.appendSections([.notice])
+			snapshot.appendItems([.notice])
+		}
+		return snapshot
+	}
+
+	func layout() -> UICollectionViewLayout {
 		UICollectionViewCompositionalLayout { [weak self] index, environment in
 			var configuration = UICollectionLayoutListConfiguration(appearance: .plain)
 			let section = self?.dataSource?.sectionIdentifier(for: index)
@@ -183,10 +188,10 @@ final class LibraryList {
 		}
 	}
 
-	private func makeDataSource() -> UICollectionViewDiffableDataSource<LibrarySection, LibraryItem> {
+	func makeDataSource() -> UICollectionViewDiffableDataSource<LibrarySection, LibraryItem> {
 		let cell = UICollectionView
-			.CellRegistration<UICollectionViewListCell, LibraryItem> { [weak self] cell, _, item in
-				self?.configure(cell, item)
+			.CellRegistration<UICollectionViewListCell, LibraryItem> { [weak self] cell, indexPath, item in
+				self?.configure(cell, item, at: indexPath)
 			}
 		let header = UICollectionView.SupplementaryRegistration<UICollectionViewListCell>(
 			elementKind: UICollectionView.elementKindSectionHeader
@@ -206,7 +211,7 @@ final class LibraryList {
 		return source
 	}
 
-	private func headerText(at index: Int) -> String? {
+	func headerText(at index: Int) -> String? {
 		switch dataSource?.sectionIdentifier(for: index) {
 		case .arriving?:
 			"Arriving"
@@ -217,7 +222,7 @@ final class LibraryList {
 		}
 	}
 
-	private func configure(_ cell: UICollectionViewListCell, _ item: LibraryItem) {
+	func configure(_ cell: UICollectionViewListCell, _ item: LibraryItem, at indexPath: IndexPath) {
 		switch item {
 		case let .arrival(identifier):
 			guard let arrival = arrivals[identifier] else {
@@ -242,19 +247,20 @@ final class LibraryList {
 			let picture = thumbnails.picture(for: identifier) { [weak self] loaded in
 				self?.pictureLoaded(loaded)
 			}
-			LibraryRowConfiguration.configure(
-				cell,
-				document: row,
-				picture: picture,
-				searching: searching,
-				context: context
-			)
+			let setting: DocumentRowSetting = if let searchText {
+				.searching(searchText)
+			} else if case .listed(.period?)? = dataSource?.sectionIdentifier(for: indexPath.section) {
+				.browsing(underMonth: true)
+			} else {
+				.browsing(underMonth: false)
+			}
+			LibraryRowConfiguration.configure(cell, document: row, picture: picture, setting: setting, context: context)
 		case .notice:
 			LibraryRowConfiguration.configure(cell, notice: notice)
 		}
 	}
 
-	private func pictureLoaded(_ document: DocumentIdentifier) {
+	func pictureLoaded(_ document: DocumentIdentifier) {
 		guard var snapshot = dataSource?.snapshot() else {
 			return
 		}

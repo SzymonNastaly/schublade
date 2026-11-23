@@ -55,6 +55,13 @@ struct DocumentPresentationTests {
 		#expect(arriving.thirdLineTone == .accent)
 	}
 
+	@Test func dayAndMonthLeavesTheYearToTheHeading() {
+		let context = Self.fixedContext()
+		#expect(DocumentFormatting
+			.dayAndMonth(CalendarDate(year: 2026, month: 10, day: 31), context: context) == "31 Oct")
+		#expect(DocumentFormatting.dayAndMonth(CalendarDate(year: 2026, month: 9, day: 2), context: context) == "2 Sep")
+	}
+
 	@Test func detailPresentationFormatsDecimalAmountsIbanPeriodsAndOfflinePlaceholder() {
 		let context = Self.fixedContext()
 		let senderScope = NamedScope(scope: .sender(sender: SenderIdentifier(value: "s1")), name: "Nordbank AG")

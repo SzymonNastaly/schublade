@@ -15,6 +15,15 @@ enum LibraryListState: Equatable {
 	case emptyArchive
 	case failed(EmptyListPresentation)
 
+	/// The documents under their headings, none in any other state.
+	var listedSections: [ListedSection] {
+		if case let .documents(sections) = self {
+			sections
+		} else {
+			[]
+		}
+	}
+
 	struct ListedSection: Equatable {
 		let heading: ListingHeading?
 		let rows: [DocumentRow]
@@ -90,6 +99,14 @@ enum LibraryListState: Equatable {
 		}
 		return headings.map { ListedSection(heading: $0, rows: rowsByHeading[$0] ?? []) }
 	}
+}
+
+/// What the library's list shows.
+struct LibraryListContent: Equatable {
+	let state: LibraryListState
+	let arrivals: [Arrival]
+	/// The text of a search, nil while a person browses.
+	let searchText: String?
 }
 
 nonisolated enum LibrarySection: Hashable {

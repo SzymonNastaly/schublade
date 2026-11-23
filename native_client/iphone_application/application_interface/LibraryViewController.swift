@@ -207,7 +207,11 @@ final class LibraryViewController: UIViewController, UICollectionViewDelegate {
 		guard case let .running(status) = controller.situation else {
 			// The camera opened by a request that started the application shows over this screen
 			// while the core starts, and the row of its scan shows already.
-			list.show(.awaitingListing, arrivals: arrivals, searching: false, notice: nil, context: context)
+			list.show(
+				LibraryListContent(state: .awaitingListing, arrivals: arrivals, searchText: nil),
+				notice: nil,
+				context: context
+			)
 			return
 		}
 		thumbnails.contentRevisionChanged(to: status.contentRevision)
@@ -231,7 +235,11 @@ final class LibraryViewController: UIViewController, UICollectionViewDelegate {
 		if landed {
 			list.scrollToTop()
 		}
-		list.show(state, arrivals: arrivals, searching: searching, notice: unavailable, context: context)
+		list.show(
+			LibraryListContent(state: state, arrivals: arrivals, searchText: searching ? answer?.searchText : nil),
+			notice: unavailable,
+			context: context
+		)
 		contentUnavailableConfiguration = list.isEmpty ? unavailable : nil
 	}
 

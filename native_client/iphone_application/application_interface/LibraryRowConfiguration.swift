@@ -2,32 +2,44 @@ import ApplicationBindings
 import LibraryPresentation
 import UIKit
 
+/// Where a document's row shows.
+enum DocumentRowSetting: Equatable {
+	case browsing(underMonth: Bool)
+	/// The text the person searches for.
+	case searching(String)
+}
+
 /// The cell of each kind of library row. Every kind sets the accessibility identifier, because a
 /// reused cell would otherwise keep the one of the row it showed before.
 enum LibraryRowConfiguration {
 	/// While a person browses, an archived document's summary repeats its title, so its row has no
-	/// third line. A search shows the passage that matched.
+	/// third line. A search shows the passage that matched. Under a month's heading the date leaves
+	/// the year to the heading.
 	static func configure(
 		_ cell: UICollectionViewListCell,
 		document row: DocumentRow,
 		picture: UIImage?,
-		searching: Bool,
+		setting: DocumentRowSetting,
 		context: WordingContext
 	) {
 		let presented = DocumentRowPresentation.from(row, context: context)
-		let shown = if !searching, case .archived = row.condition {
-			DocumentRowPresentation(
-				title: presented.title,
-				sender: presented.sender,
-				dateText: presented.dateText,
-				amountText: presented.amountText,
-				thirdLineText: "",
-				thirdLineTone: presented.thirdLineTone,
-				contentKnown: presented.contentKnown
-			)
+		let underMonth = setting == .browsing(underMonth: true)
+		let browsingArchived = if case .browsing = setting, case .archived = row.condition {
+			true
 		} else {
-			presented
+			false
 		}
+		let shown = DocumentRowPresentation(
+			title: presented.title,
+			sender: presented.sender,
+			dateText: underMonth
+				? row.documentDate.map { DocumentFormatting.dayAndMonth($0, context: context) }
+				: presented.dateText,
+			amountText: presented.amountText,
+			thirdLineText: browsingArchived ? "" : presented.thirdLineText,
+			thirdLineTone: presented.thirdLineTone,
+			contentKnown: presented.contentKnown
+		)
 		let identity = "document.\(row.document.value)"
 		let content = DocumentRowContent(
 			identity: identity,

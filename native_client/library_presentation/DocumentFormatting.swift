@@ -72,6 +72,26 @@ public enum DocumentFormatting {
 		)
 	}
 
+	/// "31 Oct", for a row under a month's heading, which holds the year.
+	public static func dayAndMonth(_ date: CalendarDate, context _: WordingContext) -> String {
+		let calendar = universalGregorianCalendar
+		let components = DateComponents(
+			calendar: calendar,
+			timeZone: calendar.timeZone,
+			year: Int(date.year),
+			month: Int(date.month),
+			day: Int(date.day)
+		)
+		guard let timestamp = calendar.date(from: components) else {
+			return isoDate(date)
+		}
+		return timestamp.formatted(
+			Date.FormatStyle(locale: englishGreatBritain, calendar: calendar, timeZone: calendar.timeZone)
+				.day()
+				.month(.abbreviated)
+		)
+	}
+
 	public static func isoDate(_ date: CalendarDate) -> String {
 		String(format: "%04u-%02u-%02u", UInt32(date.year), UInt32(date.month), UInt32(date.day))
 	}
