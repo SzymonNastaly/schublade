@@ -5,8 +5,8 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use archive_access::{ContentDigest, DocumentIdentifier, Timestamp};
 use archive_replica::replica_records::{
-    CalendarDate, CategoryIdentifier, CategoryRecord, DocumentCondition, DocumentRecord, ExtractedField, FieldValue,
-    PersonAssignment, SenderIdentifier, SenderRecord,
+    CalendarDate, CategoryIdentifier, CategoryRecord, DocumentCondition, DocumentRecord, ExtractedField, FailureReason,
+    FieldValue, IngestionStage, PersonAssignment, SenderIdentifier, SenderRecord,
 };
 use collection_core::candidate_classification::{ContentKind, identify_content_kind};
 use collection_core::file_system_observation::content_digest_of;
@@ -47,34 +47,23 @@ enum SeedTarget {
     Created(DocumentIdentifier),
 }
 
-const STATUSES_WITHOUT_REASON: [&str; 6] = [
-    "awaiting_rendering",
-    "processing",
-    "extracting",
-    "recognizing_text",
-    "classifying",
-    "archived",
-];
-const FAILURE_REASONS: [&str; 4] = [
-    "unreadable_file",
-    "page_limit_exceeded",
-    "unreadable_page",
-    "processing_error",
-];
-
+/// The condition a request names, refused unless the archive knows its status and failure reason.
 fn seed_condition(status: Option<&str>, failure_reason: Option<&str>) -> Result<Option<DocumentCondition>, String> {
-    match (status, failure_reason) {
-        (None, None) => Ok(None),
-        (Some("failed"), Some(reason)) if FAILURE_REASONS.contains(&reason) => {
-            Ok(DocumentCondition::parse("failed", Some(reason)))
+    if failure_reason.is_some() && status != Some("failed") {
+        return Err("Only the status failed takes a failure_reason".to_owned());
+    }
+    let Some(status) = status else {
+        return Ok(None);
+    };
+    match DocumentCondition::parse(status, failure_reason) {
+        None => Err("The status failed takes a failure_reason".to_owned()),
+        Some(DocumentCondition::Arriving(IngestionStage::Unrecognized(status))) => {
+            Err(format!("Unknown status {status}"))
         }
-        (Some("failed"), _) => Err(format!(
-            "The status failed takes a failure_reason of {}",
-            FAILURE_REASONS.join(", ")
-        )),
-        (Some(status), None) if STATUSES_WITHOUT_REASON.contains(&status) => Ok(DocumentCondition::parse(status, None)),
-        (Some(status), None) => Err(format!("Unknown status {status}")),
-        (_, Some(_)) => Err("Only the status failed takes a failure_reason".to_owned()),
+        Some(DocumentCondition::Failed(FailureReason::Unrecognized(reason))) => {
+            Err(format!("Unknown failure_reason {reason}"))
+        }
+        condition => Ok(condition),
     }
 }
 
@@ -327,7 +316,6 @@ pub fn seed_corpus(archive: &ScriptedArchive, count: usize) {
 mod tests {
     use super::*;
     use crate::{ArchiveRequest, Body, DOCUMENT_PATH_PREFIX, SEED_DOCUMENT_PATH, ScriptedServer, route_request};
-    use archive_replica::replica_records::FailureReason;
     use archive_replica::{ArchiveReader, PageAnswer};
     use scripted_archive::UploadOutcome;
     use serde_json::json;
@@ -528,8 +516,12 @@ mod tests {
             (
                 json!({ "identifier": document.as_str(), "status": "failed" }),
                 400,
-                "The status failed takes a failure_reason of unreadable_file, page_limit_exceeded, unreadable_page, \
-                 processing_error",
+                "The status failed takes a failure_reason",
+            ),
+            (
+                json!({ "identifier": document.as_str(), "status": "failed", "failure_reason": "smudged_page" }),
+                400,
+                "Unknown failure_reason smudged_page",
             ),
             (
                 json!({ "identifier": document.as_str(), "status": "archived", "failure_reason": "unreadable_page" }),
