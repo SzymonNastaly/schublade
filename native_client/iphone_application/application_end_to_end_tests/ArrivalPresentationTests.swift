@@ -278,7 +278,7 @@ final class ArrivalPresentationTests: XCTestCase {
 		title: String,
 		second: String,
 		third: String,
-		trailing: RowTrailing,
+		trailing: RowTrailingIndicator,
 		file: StaticString = #filePath,
 		line: UInt = #line
 	) {

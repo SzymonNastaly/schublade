@@ -100,13 +100,13 @@ Editing, deleting, retrying, and tokens stay in the browser.
 ```text
 RootViewController
 ├─ starting: a blank screen in systemBackground, no spinner for the first 400 ms
-├─ WelcomeViewController          (no archive configured)
+├─ ConnectionFormViewController   (no archive configured)
 └─ UINavigationController
    └─ LibraryViewController       (root)
       ├─ push  DocumentPageViewController
       │        └─ sheet  DocumentDetailsViewController  (medium and large detents)
       ├─ sheet SettingsViewController in its own UINavigationController
-      │        └─ push  WelcomeViewController in its replace-token form
+      │        └─ push  ConnectionFormViewController in its replace-token form
       ├─ full screen  VNDocumentCameraViewController
       └─ sheet PHPickerViewController, UIDocumentPickerViewController
 ```
@@ -182,7 +182,7 @@ The row is a `UIListContentConfiguration.subtitleCell()` with a disclosure indic
 
 ### First launch
 
-`WelcomeViewController` replaces `ConnectionViewController`. One screen, no pages to swipe, no navigation bar.
+`ConnectionFormViewController` replaces `ConnectionViewController`. One screen, no pages to swipe, no navigation bar.
 
 ```text
 ┌──────────────────────────────────────────┐
@@ -574,7 +574,7 @@ A sheet with a large detent only. A `UINavigationController` whose root is `Sett
 
 - A row with the host as its text and the status line as its secondary text, with the status line's symbol: `checkmark.circle` "Up to date · 09:41", `wifi.slash` "Offline · updated 09:12", `exclamationmark.triangle.fill` "Token refused". The symbol takes `attentionText` for the last and `secondaryLabel` otherwise.
 - "Open Archive in Browser" (`safari`), which opens the origin.
-- "Replace Token…" (`key`), which pushes `WelcomeViewController` in its replace form: no icon, the title "Replace Token", the address filled in, the token field focused.
+- "Replace Token…" (`key`), which pushes `ConnectionFormViewController` in its replace form: no icon, the title "Replace Token", the address filled in, the token field focused.
 - The footer says what the token permits, in one of two sentences.
   - "This iPhone reads your archive and sends documents to it."
   - "This token reads only part of your archive, so this iPhone cannot send documents. To scan and share, replace it with a token without a restriction."
@@ -795,7 +795,7 @@ Proof:
 
 1. `application_interface/DocumentPageViewController.swift`: remove the segments, the full-bleed original, the pushed text page with its three ways in, the sheet's presentation and its remembered state.
 2. `application_interface/DocumentDetailsViewController.swift`: the sheet's list, tap to copy, "Open in Browser" with its footer.
-3. `application_interface/DocumentFileActions.swift`: the three toolbar items, without Quick Look and the browser item.
+3. `application_interface/DocumentPageToolbar.swift`: the three toolbar items, without Quick Look and the browser item.
 4. `application_interface/DocumentTextViewController.swift`: the typography, the page marks, the table rows, the find navigator.
 5. `application_interface/DocumentOriginalViewController.swift`: the inset under the sheet, the button of a failed document.
 6. `application_end_to_end_tests/ApplicationEndToEndTests.swift`: the test that opens a seeded document reads the details from the sheet instead of the segment.
@@ -830,12 +830,12 @@ Proof, by the route of AGENTS.md, "AXe drives the iPhone simulator":
 
 ### Unit D5: first launch and Settings
 
-1. `application_interface/WelcomeViewController.swift`, new, in place of `ConnectionViewController.swift`, with its replace form.
+1. `application_interface/ConnectionFormViewController.swift`, new, in place of `ConnectionViewController.swift`, with its replace form.
 2. `application_interface/SettingsViewController.swift`, new, and the three storage calls in `ApplicationGateway.swift`.
 3. `application_interface/RootViewController.swift`: the welcome screen, and the 400 ms before a spinner.
 4. `application/Assets.xcassets`: `ApplicationIconPicture`, and the dark and tinted variants of `AppIcon`.
 5. `application_end_to_end_tests/`: the tests that connect through the form use the new screen's identifiers.
-6. After the website half of unit I6: `SceneDelegate.swift` and `WelcomeViewController.swift` take `schublade://connect`, and the scan button appears.
+6. After the website half of unit I6: `SceneDelegate.swift` and `ConnectionFormViewController.swift` take `schublade://connect`, and the scan button appears.
 
 Proof:
 

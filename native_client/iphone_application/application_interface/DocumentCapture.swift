@@ -105,7 +105,7 @@ extension DocumentCapture: VNDocumentCameraViewControllerDelegate {
 		let savedAt = Date.now
 		let name = "Scan \(Self.scanNameFormatter.string(from: savedAt))"
 		Task {
-			// The row lands during the dismissal with the first page as its picture, before the PDF
+			// The row appears during the dismissal with the first page as its picture, before the PDF
 			// is written.
 			let firstPage = await Self.reducedFirstPage(of: pages)
 			let identifier = submissions.prepare(
@@ -169,7 +169,7 @@ extension DocumentCapture: VNDocumentCameraViewControllerDelegate {
 
 /// Photos and Files.
 extension DocumentCapture: PHPickerViewControllerDelegate, UIDocumentPickerDelegate {
-	/// Every chosen photo lands as a row at once, newest first in the order chosen, and each is
+	/// Every chosen photo appears as a row at once, newest first in the order chosen, and each is
 	/// copied and sent in turn.
 	func picker(_ picker: PHPickerViewController, didFinishPicking results: [PHPickerResult]) {
 		picker.dismiss(animated: true)

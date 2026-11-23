@@ -54,7 +54,7 @@ final class LibraryViewController: UIViewController {
 	private var facetsRevision: UInt64?
 	private var newestListingRequest: UInt64 = 0
 	private var searchDelay: Task<Void, Never>?
-	private var arrivalMoments = ArrivalMoments()
+	private var arrivalFeedback = ArrivalFeedback()
 	private var hasAppeared = false
 	private var shownAttention: ConnectionAttention?
 
@@ -263,7 +263,7 @@ private extension LibraryViewController {
 		let context = WordingContext.current()
 		let searching = !(answer?.searchText ?? "").isBlank
 		let arrivals = searching ? [] : controller.submissions.arrivals(context: context)
-		let landed = arrivalMoments.follow(
+		let appeared = arrivalFeedback.follow(
 			arrivals,
 			sceneActive: view.window?.windowScene?.activationState == .foregroundActive
 		)
@@ -284,7 +284,7 @@ private extension LibraryViewController {
 			searching: searching,
 			actions: emptyStateActions
 		)
-		if landed {
+		if appeared {
 			list.scrollToTop()
 		}
 		let searchText = searching ? answer?.searchText : nil

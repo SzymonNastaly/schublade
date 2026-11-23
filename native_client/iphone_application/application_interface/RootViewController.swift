@@ -93,7 +93,7 @@ final class RootViewController: UIViewController {
 		case let .failure(text):
 			child = MessageViewController(text: text)
 		case .welcome:
-			child = WelcomeViewController(controller: controller, purpose: .firstConnection)
+			child = ConnectionFormViewController(controller: controller, purpose: .firstConnection)
 		case .library:
 			let screen = LibraryViewController(controller: controller)
 			library = screen

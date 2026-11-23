@@ -2,8 +2,8 @@ import UIKit
 
 /// One function per moment that a person feels, so no screen picks a generator of its own.
 enum Haptics {
-	/// A scan or an import landed as a row on top of the library.
-	static func arrivalLanded() {
+	/// A scan or an import appeared as a row on top of the library.
+	static func arrivalAppeared() {
 		UIImpactFeedbackGenerator(style: .medium).impactOccurred()
 	}
 

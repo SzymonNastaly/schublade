@@ -45,7 +45,7 @@ nonisolated struct Arrival: Equatable, Identifiable {
 }
 
 /// What the trailing edge of a row shows.
-nonisolated enum RowTrailing: Equatable {
+nonisolated enum RowTrailingIndicator: Equatable {
 	case absent
 	case activity
 	case progress(Double)
@@ -160,7 +160,7 @@ nonisolated enum ArrivalPresentation {
 		}
 	}
 
-	static func trailing(_ stage: ArrivalStage) -> RowTrailing {
+	static func trailing(_ stage: ArrivalStage) -> RowTrailingIndicator {
 		switch stage {
 		case .preparing: .activity
 		case .waiting, .retrying, .alreadyHeld: .absent

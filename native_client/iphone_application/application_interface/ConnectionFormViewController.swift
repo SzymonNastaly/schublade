@@ -4,7 +4,7 @@ import UniformTypeIdentifiers
 /// The first screen a person sees: the icon, what Schublade does, and the archive's address and a
 /// token, as the website's Settings issues one. Pushed from Settings with the connected archive's
 /// address filled in, the same form replaces the token.
-final class WelcomeViewController: UIViewController, UICollectionViewDataSource, UICollectionViewDelegate {
+final class ConnectionFormViewController: UIViewController, UICollectionViewDataSource, UICollectionViewDelegate {
 	enum Purpose: Equatable {
 		/// No archive is connected yet. Once one is, the root screen shows the library.
 		case firstConnection
@@ -301,7 +301,7 @@ final class WelcomeViewController: UIViewController, UICollectionViewDataSource,
 	}
 }
 
-extension WelcomeViewController: UITextFieldDelegate {
+extension ConnectionFormViewController: UITextFieldDelegate {
 	func textFieldDidBeginEditing(_ textField: UITextField) {
 		// Connect stays in view under the field the keyboard rose for.
 		guard textField === tokenField else {

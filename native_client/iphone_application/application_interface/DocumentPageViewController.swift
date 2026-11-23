@@ -44,7 +44,7 @@ final class DocumentPageViewController: UIViewController {
 	private var newestDetailRequest: UInt64 = 0
 	private(set) var original: DocumentOriginalViewController?
 	private(set) weak var text: DocumentTextViewController?
-	private lazy var actions: DocumentFileActions = .init(
+	private lazy var toolbar: DocumentPageToolbar = .init(
 		gateway: controller.gateway,
 		document: document,
 		page: self
@@ -59,7 +59,7 @@ final class DocumentPageViewController: UIViewController {
 			},
 			showText: { [weak self] in self?.showText() }
 		),
-		toolbarItems: actions.sheetItems,
+		toolbarItems: toolbar.sheetItems,
 		page: self,
 		preferences: controller.environment.preferences
 	) { [weak self] covered in
@@ -95,7 +95,7 @@ final class DocumentPageViewController: UIViewController {
 		super.viewDidLoad()
 		navigationItem.largeTitleDisplayMode = .never
 		view.backgroundColor = .systemBackground
-		toolbarItems = actions.pageItems
+		toolbarItems = toolbar.pageItems
 		follow()
 	}
 
@@ -209,7 +209,7 @@ final class DocumentPageViewController: UIViewController {
 	private func show(_ state: DetailState) {
 		detailState = state
 		guard case let .loaded(detail) = state else {
-			actions.detail = nil
+			toolbar.detail = nil
 			detailsSheet.dismiss(animated: true)
 			removeOriginal()
 			view.backgroundColor = .systemBackground
@@ -225,7 +225,7 @@ final class DocumentPageViewController: UIViewController {
 		}
 		contentUnavailableConfiguration = nil
 		view.backgroundColor = InterfacePalette.readerBackdrop
-		actions.detail = presentation
+		toolbar.detail = presentation
 		details.show(presentation)
 		showOriginal(detail)
 		presentRememberedDetails(animated: true)

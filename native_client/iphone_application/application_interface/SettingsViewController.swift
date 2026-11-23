@@ -169,11 +169,11 @@ final class SettingsViewController: UIViewController, UICollectionViewDataSource
 
 	/// The replace form with the archive's address filled in. It returns to Settings once the
 	/// archive accepts the new token, or closes the sheet when it opened on the form.
-	private func replaceForm(closingSheet: Bool) -> WelcomeViewController? {
+	private func replaceForm(closingSheet: Bool) -> ConnectionFormViewController? {
 		guard let origin = controller.archiveOrigin else {
 			return nil
 		}
-		return WelcomeViewController(
+		return ConnectionFormViewController(
 			controller: controller,
 			purpose: .tokenReplacement(origin: origin)
 		) { [weak self] in

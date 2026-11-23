@@ -5,7 +5,7 @@ import UIKit
 /// The document page's toolbar: Share, and the item that shows or hides the details. The page and
 /// the details sheet each hold one, with the items in the same places, so the items stay put while
 /// the sheet rises behind them and the sheet's own item reads as selected.
-final class DocumentFileActions {
+final class DocumentPageToolbar {
 	private let gateway: ApplicationGateway
 	private let document: DocumentIdentifier
 	private weak var page: UIViewController?

@@ -12,7 +12,7 @@ struct DocumentRowContent: UIContentConfiguration, Equatable {
 	var document: DocumentIdentifier?
 	let row: DocumentRowPresentation
 	let picture: UIImage?
-	let trailing: RowTrailing
+	let trailing: RowTrailingIndicator
 	/// What VoiceOver reads after the row's label, nil for the third line.
 	let spokenValue: String?
 	/// An arrival changes as it is sent and read.
@@ -293,7 +293,7 @@ final class DocumentRowContentView: UIView, UIContentView {
 }
 
 private extension DocumentRowContentView {
-	func applyTrailing(_ trailing: RowTrailing, after previous: RowTrailing?, animated: Bool) {
+	func applyTrailing(_ trailing: RowTrailingIndicator, after previous: RowTrailingIndicator?, animated: Bool) {
 		let showsAccessory = trailing != .absent
 		accessory.isHidden = !showsAccessory
 		accessorySize?.constant = showsAccessory ? Self.accessorySide : 0
