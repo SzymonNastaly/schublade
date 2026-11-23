@@ -19,6 +19,8 @@ final class ApplicationController {
 	private(set) var situation = Situation.starting
 	/// What the share extension last read about the connected archive.
 	@ObservationIgnored private var recordedArchive: ConnectedArchive?
+	/// Whether the application is on the screen, which the core learns once it started too.
+	@ObservationIgnored private var attended = false
 
 	init(environment: ApplicationEnvironment) {
 		self.environment = environment
@@ -59,6 +61,7 @@ final class ApplicationController {
 				situation = .failedToStart(String(describing: error))
 				return
 			}
+			gateway.interfaceAttended(attended)
 			#if DEBUG
 			if let examination = environment.examination {
 				Task {
@@ -80,10 +83,18 @@ final class ApplicationController {
 		}
 	}
 
-	/// The application returns to the screen: read the archive, and send what waits.
+	/// The application returns to the screen: the copy reads the archive now and every minute while
+	/// it shows, and what waits is sent.
 	func becameActive() {
-		gateway.synchronize()
+		attended = true
+		gateway.interfaceAttended(true)
 		submissions.resume()
+	}
+
+	/// The copy reads the archive on its own schedule again.
+	func resignedActive() {
+		attended = false
+		gateway.interfaceAttended(false)
 	}
 
 	/// Follows the library's status until the core stops. A newly connected archive sends the

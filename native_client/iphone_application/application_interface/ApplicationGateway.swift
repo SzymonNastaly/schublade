@@ -42,6 +42,44 @@ final class ApplicationGateway {
 		}
 	}
 
+	func facets() async throws(ApplicationFault) -> LibraryFacets {
+		try await libraryQuery { library in
+			try await library.facets()
+		}
+	}
+
+	/// The document's detail, or nil while the copy does not hold it.
+	func document(_ document: DocumentIdentifier) async throws(ApplicationFault) -> DocumentDetail? {
+		try await libraryQuery { library in
+			try await library.document(document: document)
+		}
+	}
+
+	/// The original as a file on this iPhone, downloaded first when the cache lacks it.
+	func original(_ document: DocumentIdentifier) async throws(RepresentationRefusal) -> LocalFile {
+		try await representationQuery { library in
+			try await library.original(document: document)
+		}
+	}
+
+	/// The first page as a picture, or nil for a document that has none.
+	func thumbnail(_ document: DocumentIdentifier) async throws(RepresentationRefusal) -> LocalFile? {
+		try await representationQuery { library in
+			try await library.thumbnail(document: document)
+		}
+	}
+
+	func extractedText(_ document: DocumentIdentifier) async throws(RepresentationRefusal) -> String {
+		try await representationQuery { library in
+			try await library.extractedText(document: document)
+		}
+	}
+
+	/// Whether a screen shows the library. While attended, the copy reads the archive every minute.
+	func interfaceAttended(_ attended: Bool) {
+		core?.interfaceAttended(attended: attended)
+	}
+
 	/// Asks the copy to read the archive's changes now, as after a sent document was archived,
 	/// instead of at its next scheduled time.
 	func synchronize() {
@@ -63,6 +101,19 @@ final class ApplicationGateway {
 			try await call(library)
 		} otherwise: { detail in
 			ApplicationFault.Unexpected(detail: detail)
+		}
+	}
+
+	private func representationQuery<Answer>(
+		_ call: (Library) async throws -> Answer
+	) async throws(RepresentationRefusal) -> Answer {
+		guard let library else {
+			throw .Application(fault: .Stopped)
+		}
+		return try await narrowing {
+			try await call(library)
+		} otherwise: { detail in
+			RepresentationRefusal.Application(fault: .Unexpected(detail: detail))
 		}
 	}
 

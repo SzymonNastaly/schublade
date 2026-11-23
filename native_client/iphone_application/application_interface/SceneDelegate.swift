@@ -39,4 +39,8 @@ final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
 	func sceneDidBecomeActive(_: UIScene) {
 		(UIApplication.shared.delegate as? ApplicationDelegate)?.controller.becameActive()
 	}
+
+	func sceneWillResignActive(_: UIScene) {
+		(UIApplication.shared.delegate as? ApplicationDelegate)?.controller.resignedActive()
+	}
 }
