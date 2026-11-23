@@ -24,7 +24,7 @@ final class LibraryRefresh {
 		let pull = number
 		gateway.synchronize()
 		// An archive out of reach or refusing the token publishes no new status after a pull.
-		if let status = currentStatus(), Self.archiveWithheld(status) {
+		if let status = currentStatus(), SynchronizationAnswer.resolve(status, requestedAt: .distantFuture) != nil {
 			Task { [weak self] in
 				try? await Task.sleep(for: .milliseconds(500))
 				self?.follow(status)
@@ -43,12 +43,7 @@ final class LibraryRefresh {
 		guard let started = startedAt else {
 			return
 		}
-		let answered = if case let .complete(synchronizedAt) = status.copy, synchronizedAt >= started {
-			true
-		} else {
-			Self.archiveWithheld(status)
-		}
-		if answered {
+		if SynchronizationAnswer.resolve(status, requestedAt: started) != nil {
 			end()
 		}
 	}
@@ -59,15 +54,5 @@ final class LibraryRefresh {
 		}
 		startedAt = nil
 		control.endRefreshing()
-	}
-
-	private static func archiveWithheld(_ status: LibraryStatus) -> Bool {
-		switch status.archive {
-		case .configured(_, _, .unreachable, _, _), .configured(_, _, .suspended, _, _),
-		     .configured(_, _, .archiveOutdated, _, _):
-			true
-		default:
-			false
-		}
 	}
 }
