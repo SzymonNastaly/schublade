@@ -8,8 +8,8 @@ import Synchronization
 /// The session calls its delegate on its own queue, so this class, in a nonisolated module, keeps its
 /// state behind a mutex.
 public final class SubmissionTransfer: NSObject, URLSessionDataDelegate, Sendable {
-	/// The archive's answer to a submission, or nil when none came, such as without a network.
-	public typealias AnswerHandler = @Sendable (UUID, DocumentSubmissionAnswer?) -> Void
+	/// The archive's answer to one upload, or nil when none came, such as without a network.
+	public typealias AnswerHandler = @Sendable (SubmissionAttempt, DocumentSubmissionAnswer?) -> Void
 	/// The fraction of a submission's body sent so far.
 	public typealias ProgressHandler = @Sendable (UUID, Double) -> Void
 
@@ -54,9 +54,9 @@ public final class SubmissionTransfer: NSObject, URLSessionDataDelegate, Sendabl
 	}
 
 	/// Starts the upload of a prepared body.
-	public func send(_ identifier: UUID, request prepared: DocumentSubmissionRequest, body: URL) {
+	public func send(_ attempt: SubmissionAttempt, request prepared: DocumentSubmissionRequest, body: URL) {
 		guard let url = URL(string: prepared.url) else {
-			onAnswer(identifier, nil)
+			onAnswer(attempt, nil)
 			return
 		}
 		var request = URLRequest(url: url)
@@ -67,7 +67,7 @@ public final class SubmissionTransfer: NSObject, URLSessionDataDelegate, Sendabl
 			return
 		}
 		let task = session.uploadTask(with: request, fromFile: body)
-		task.taskDescription = identifier.uuidString
+		task.taskDescription = attempt.taskDescription
 		task.resume()
 	}
 
@@ -77,14 +77,15 @@ public final class SubmissionTransfer: NSObject, URLSessionDataDelegate, Sendabl
 			return []
 		}
 		let tasks = await session.allTasks
-		return Set(tasks.compactMap { task in task.taskDescription.flatMap(UUID.init(uuidString:)) })
+		return Set(tasks.compactMap { task in SubmissionAttempt(taskDescription: task.taskDescription)?.submission })
 	}
 
 	public func cancel(_ identifier: UUID) async {
 		guard let session = state.withLock({ $0.session }) else {
 			return
 		}
-		for task in await session.allTasks where task.taskDescription == identifier.uuidString {
+		let tasks = await session.allTasks
+		for task in tasks where SubmissionAttempt(taskDescription: task.taskDescription)?.submission == identifier {
 			task.cancel()
 		}
 	}
@@ -115,25 +116,27 @@ public final class SubmissionTransfer: NSObject, URLSessionDataDelegate, Sendabl
 		totalBytesSent: Int64,
 		totalBytesExpectedToSend: Int64
 	) {
-		guard let identifier = task.taskDescription.flatMap(UUID.init(uuidString:)), totalBytesExpectedToSend > 0 else {
+		guard let attempt = SubmissionAttempt(taskDescription: task.taskDescription),
+		      totalBytesExpectedToSend > 0
+		else {
 			return
 		}
-		onProgress(identifier, Double(totalBytesSent) / Double(totalBytesExpectedToSend))
+		onProgress(attempt.submission, Double(totalBytesSent) / Double(totalBytesExpectedToSend))
 	}
 
 	public func urlSession(_: URLSession, task: URLSessionTask, didCompleteWithError error: (any Error)?) {
 		let body = state.withLock { $0.answerBodies.removeValue(forKey: task.taskIdentifier) } ?? Data()
-		guard let identifier = task.taskDescription.flatMap(UUID.init(uuidString:)) else {
+		guard let attempt = SubmissionAttempt(taskDescription: task.taskDescription) else {
 			return
 		}
 		if let error = error as? URLError, error.code == .cancelled {
 			return
 		}
 		guard error == nil, let response = task.response as? HTTPURLResponse else {
-			onAnswer(identifier, nil)
+			onAnswer(attempt, nil)
 			return
 		}
-		onAnswer(identifier, readDocumentSubmissionAnswer(status: UInt16(response.statusCode), body: body))
+		onAnswer(attempt, readDocumentSubmissionAnswer(status: UInt16(response.statusCode), body: body))
 	}
 
 	public func urlSessionDidFinishEvents(forBackgroundURLSession _: URLSession) {

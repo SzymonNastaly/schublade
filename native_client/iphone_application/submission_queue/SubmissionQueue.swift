@@ -117,9 +117,9 @@ public struct SubmissionQueue: Sendable {
 		return FileManager.default.fileExists(atPath: file.path(percentEncoded: false)) ? file : nil
 	}
 
-	/// Where the request's body is written and uploaded from.
-	public func bodyFile(of identifier: UUID) -> URL {
-		directory(of: identifier).appending(path: Self.bodyName)
+	/// Where the body of one upload is written and uploaded from.
+	func bodyFile(of attempt: SubmissionAttempt) -> URL {
+		directory(of: attempt.submission).appending(path: "\(Self.bodyName).\(attempt.identifier.uuidString)")
 	}
 
 	/// Records the archive's answer and answers the one that stands. An archived answer is final,
@@ -158,7 +158,6 @@ public struct SubmissionQueue: Sendable {
 				throw .queueUnwritable(String(cString: strerror(failure)))
 			}
 		}
-		try? FileManager.default.removeItem(at: bodyFile(of: identifier))
 		guard let entry = entry(identifier) else {
 			return answer
 		}
@@ -168,17 +167,19 @@ public struct SubmissionQueue: Sendable {
 		return entry.answer ?? answer
 	}
 
-	/// Records the archive's answer to a submission, or the lack of one, whichever process the
-	/// upload's session delivered it to. Answers nil when the submission is gone.
+	/// Records the archive's answer to one upload, or the lack of one, whichever process the upload's
+	/// session delivered it to, and removes that upload's body, which no other upload reads. Answers
+	/// nil when the submission is gone.
 	@discardableResult
 	public func receive(
 		_ answer: DocumentSubmissionAnswer?,
-		for identifier: UUID
+		for attempt: SubmissionAttempt
 	) throws(QueueFailure) -> SubmissionAnswerRecord? {
-		guard let entry = entry(identifier) else {
+		try? FileManager.default.removeItem(at: bodyFile(of: attempt))
+		guard let entry = entry(attempt.submission) else {
 			return nil
 		}
-		return try record(SubmissionAnswerRecord(answer: answer, previous: entry.answer), for: identifier)
+		return try record(SubmissionAnswerRecord(answer: answer, previous: entry.answer), for: attempt.submission)
 	}
 
 	public func remove(_ identifier: UUID) {

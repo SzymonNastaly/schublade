@@ -29,8 +29,8 @@ final class ShareViewController: UIViewController {
 				identifier: installation.shareExtensionTransferSessionIdentifier,
 				sharedContainer: installation.applicationGroupIdentifier
 			)
-		) { identifier, answer in
-			_ = try? queue.receive(answer, for: identifier)
+		) { attempt, answer in
+			_ = try? queue.receive(answer, for: attempt)
 		} onProgress: { _, _ in }
 	}()
 
@@ -168,8 +168,8 @@ final class ShareViewController: UIViewController {
 						archiveOrigin: archive.origin,
 						credentials: installation.credentialStorage
 					) {
-					case let .prepared(request, body):
-						Self.transfer?.send(entry.id, request: request, body: body)
+					case let .prepared(request, attempt, body):
+						Self.transfer?.send(attempt, request: request, body: body)
 					case let .answered(answer):
 						_ = try? queue.record(answer, for: entry.id)
 					}

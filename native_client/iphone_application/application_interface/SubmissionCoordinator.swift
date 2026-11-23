@@ -64,9 +64,9 @@ final class SubmissionCoordinator {
 	}
 
 	private func transfer(configuration: URLSessionConfiguration) -> SubmissionTransfer {
-		SubmissionTransfer(configuration: configuration) { [weak self] identifier, answer in
+		SubmissionTransfer(configuration: configuration) { [weak self] attempt, answer in
 			Task { @MainActor in
-				self?.received(answer, for: identifier)
+				self?.received(answer, for: attempt)
 			}
 		} onProgress: { [weak self] identifier, fraction in
 			Task { @MainActor in
@@ -139,8 +139,8 @@ final class SubmissionCoordinator {
 		inFlight.insert(entry.id)
 		Task {
 			switch await queue.prepare(entry, archiveOrigin: archiveOrigin, credentials: credentials) {
-			case let .prepared(request, body):
-				sending.send(entry.id, request: request, body: body)
+			case let .prepared(request, attempt, body):
+				sending.send(attempt, request: request, body: body)
 			case let .answered(answer):
 				inFlight.remove(entry.id)
 				record(answer, for: entry.id)
@@ -148,10 +148,10 @@ final class SubmissionCoordinator {
 		}
 	}
 
-	private func received(_ answer: DocumentSubmissionAnswer?, for identifier: UUID) {
-		inFlight.remove(identifier)
-		progress[identifier] = nil
-		let recorded = try? queue.receive(answer, for: identifier)
+	private func received(_ answer: DocumentSubmissionAnswer?, for attempt: SubmissionAttempt) {
+		inFlight.remove(attempt.submission)
+		progress[attempt.submission] = nil
+		let recorded = try? queue.receive(answer, for: attempt)
 		reload()
 		switch recorded {
 		case .archived?:
