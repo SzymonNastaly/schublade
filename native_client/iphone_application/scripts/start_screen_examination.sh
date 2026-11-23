@@ -21,6 +21,31 @@ cd "$(dirname "$0")/.."
 
 appearance="${1:-light}"
 contents="${2:-seeded}"
+# What each mode puts in the archive and sends: whether the test documents are seeded, a seeded letter
+# sent again as a scan, a letter the archive does not hold sent as a three-page scan, a text file
+# named as a PDF beside it, whether the archive accepts another token once the application has
+# connected, and the archive's own options. An arriving scan is read at 40 KB a second, so its upload
+# is under way for about 13 seconds.
+seeded=true
+sent_letter=""
+arriving_letter=""
+refused_file=false
+token_replaced=false
+archive_options=""
+case "$contents" in
+	seeded) sent_letter=dental_invoice_scanned.pdf ;;
+	empty) seeded=false ;;
+	arriving) arriving_letter=hardware_store_receipt_scanned.pdf archive_options="--ingest-pace 40000" ;;
+	refused)
+		arriving_letter=hardware_store_receipt_scanned.pdf archive_options="--ingest-pace 40000" refused_file=true
+		;;
+	token-refused) sent_letter=dental_invoice_scanned.pdf token_replaced=true ;;
+	restricted) archive_options="--restrict-to-category Invoice" ;;
+	*)
+		echo "error: the mode is one of seeded, empty, arriving, refused, token-refused, and restricted" >&2
+		exit 1
+		;;
+esac
 token="${EXAMINATION_TOKEN:-screen-examination-token}"
 documents="$(cd ../../test_fixtures/documents && pwd)"
 work="${EXAMINATION_DIRECTORY:-/tmp/schublade_iphone_screen_examination}"
@@ -35,17 +60,8 @@ xcodebuild -quiet -project Schublade.xcodeproj -scheme Schublade -configuration 
 pkill -f "scripted-archive-server --token $token" || true
 rm -rf "$work"
 mkdir -p "$work/pictures" "$work/sent"
-# An arriving scan is read at 40 KB a second, so its upload is under way for about 13 seconds.
-pace=""
-restriction=""
-if [ "$contents" = restricted ]; then
-	restriction="--restrict-to-category Invoice"
-fi
-if [ "$contents" = arriving ] || [ "$contents" = refused ]; then
-	pace="--ingest-pace 40000"
-fi
 # The server ends when its standard input closes, so a sleep holds it open for two hours.
-nohup sh -c "sleep 7200 | exec ../target/debug/scripted-archive-server --token $token --permission read $pace $restriction" \
+nohup sh -c "sleep 7200 | exec ../target/debug/scripted-archive-server --token $token --permission read $archive_options" \
 	>"$work/server.log" 2>&1 </dev/null &
 for _ in $(seq 50); do
 	grep -q '^listening ' "$work/server.log" 2>/dev/null && break
@@ -53,22 +69,19 @@ for _ in $(seq 50); do
 done
 address="$(sed -n 's/^listening //p' "$work/server.log")"
 
-# The letter that arrives: the hardware store's receipt, with a page of the insurance policy and one
+# The letter that arrives is the hardware store's receipt, with a page of the insurance policy and one
 # of the tax assessment behind it, so the scan has three pages and the archive files it under the
 # receipt's title.
-arriving_letter="hardware_store_receipt_scanned.pdf"
 scan="$work/sent/Scan 2026-11-23 09.12.pdf"
-if [ "$contents" != empty ]; then
+if [ "$seeded" = true ]; then
 	for file in "$documents"/*.pdf "$documents"/*.jpg; do
 		stem="$(basename "${file%.*}")"
 		sips -s format png -Z 360 "$file" --out "$work/pictures/$stem.png" >/dev/null
 	done
-	if [ "$contents" = restricted ]; then
-		arriving_letter=""
-	elif [ "$contents" = seeded ] || [ "$contents" = token-refused ]; then
-		cp "$documents/dental_invoice_scanned.pdf" "$scan"
-		arriving_letter=""
-	else
+	if [ -n "$sent_letter" ]; then
+		cp "$documents/$sent_letter" "$scan"
+	fi
+	if [ -n "$arriving_letter" ]; then
 		# Each page is drawn at the 3,508 pixels of A4 at 300 dots per inch, as the document camera
 		# writes it, so the scan weighs what a phone's does and its upload outlasts the socket buffers.
 		pages=()
@@ -79,7 +92,7 @@ if [ "$contents" != empty ]; then
 		done
 		"/System/Library/Automator/Combine PDF Pages.action/Contents/MacOS/join" -o "$scan" "${pages[@]}"
 	fi
-	if [ "$contents" = refused ]; then
+	if [ "$refused_file" = true ]; then
 		printf 'Shopping list: milk, bread, light bulbs.\n' >"$work/sent/Shopping list.pdf"
 	fi
 	python3 - "$address" "$documents" "$work/pictures" "$arriving_letter" "$scan" "$work/filed.json" <<'SEED'
@@ -184,7 +197,7 @@ SIMCTL_CHILD_SCHUBLADE_APPLICATION_ENVIRONMENT=isolated \
 	xcrun simctl launch "$simulator" org.schublade.iphone.development >/dev/null
 echo "simulator: $simulator"
 echo "archive: $address"
-if [ "$contents" = token-refused ]; then
+if [ "$token_replaced" = true ]; then
 	sleep 15
 	curl -sf -X POST "$address/scripted/token" -d "another-token"
 	echo "the archive now refuses $token; pull the list to have the copy read it"
