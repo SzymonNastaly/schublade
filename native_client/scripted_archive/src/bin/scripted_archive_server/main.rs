@@ -106,44 +106,56 @@ fn split_url(url: &str) -> (&str, Option<&str>) {
     }
 }
 
-fn route_request(
-    archive: &ScriptedArchive,
-    authorized: bool,
-    method: &tiny_http::Method,
-    url: &str,
-    headers: RequestHeaders<'_>,
-    body: Vec<u8>,
-) -> Answer {
-    let RequestHeaders {
-        if_none_match,
-        content_type,
-    } = headers;
+/// What the router reads and changes.
+struct ScriptedServer {
+    archive: ScriptedArchive,
+    /// The `Authorization` header the archive accepts. `POST /scripted/token` replaces it, as an
+    /// owner's revocation replaces the token a client holds.
+    accepted_authorization: String,
+}
+
+/// What the router reads of a request besides its body.
+struct ArchiveRequest<'request> {
+    method: &'request tiny_http::Method,
+    url: &'request str,
+    authorization: Option<&'request str>,
+    if_none_match: Option<&'request str>,
+    content_type: Option<&'request str>,
+}
+
+/// The `/scripted/` routes answer without the token, so a test or an examination can arrange the
+/// archive while the client's token is refused.
+fn route_request(server: &mut ScriptedServer, request: &ArchiveRequest<'_>, body: Vec<u8>) -> Answer {
     use tiny_http::Method;
-    let (path, query) = split_url(url);
-    if path == HELD_DIGESTS_PATH && *method == Method::Get {
-        let held = archive
-            .held_digests()
-            .into_iter()
-            .map(|digest| digest.hexadecimal() + "\n")
-            .collect();
-        return Answer {
-            status: 200,
-            content_type: Some("text/plain".to_owned()),
-            headers: Vec::new(),
-            body: Body::Text(held),
-        };
+    let (path, query) = split_url(request.url);
+    match (request.method, path) {
+        (Method::Get, HELD_DIGESTS_PATH) => {
+            let held = server
+                .archive
+                .held_digests()
+                .into_iter()
+                .map(|digest| digest.hexadecimal() + "\n")
+                .collect();
+            return Answer {
+                status: 200,
+                content_type: Some("text/plain".to_owned()),
+                headers: Vec::new(),
+                body: Body::Text(held),
+            };
+        }
+        (Method::Post, SEED_DOCUMENT_PATH) => return seed_document_endpoint(&server.archive, &body),
+        (Method::Post, TOKEN_PATH) => return replace_token(server, &body),
+        _ => {}
     }
-    if path == SEED_DOCUMENT_PATH && *method == Method::Post {
-        return seed_document_endpoint(archive, &body);
-    }
-    if !authorized {
+    if request.authorization != Some(server.accepted_authorization.as_str()) {
         return Answer::problem(401, "Send the scripted bearer token");
     }
-    let mut answer = match (method, path) {
+    let archive = &server.archive;
+    let mut answer = match (request.method, path) {
         (Method::Get, AUTHORIZATION_PATH) => serve_authorization(archive, query),
         (Method::Get, CHANGES_PATH) => serve_changes(archive, query),
         (Method::Post, LOOKUP_PATH) => look_up(archive, &body),
-        (Method::Post, INGEST_PATH) => ingest(archive, content_type, &body),
+        (Method::Post, INGEST_PATH) => ingest(archive, request.content_type, &body),
         (Method::Put, path)
             if let Some(digest) = path
                 .strip_prefix(CONTENT_PATH_PREFIX)
@@ -155,7 +167,7 @@ fn route_request(
             if let Some(id) = rest.strip_suffix("/text") {
                 serve_document_text(archive, id, query)
             } else if let Some(id) = rest.strip_suffix("/original") {
-                serve_document_original(archive, id, query, if_none_match)
+                serve_document_original(archive, id, query, request.if_none_match)
             } else if let Some(id) = rest.strip_suffix("/thumbnail") {
                 serve_document_thumbnail(archive, id, query)
             } else {
@@ -168,10 +180,20 @@ fn route_request(
     answer
 }
 
-/// The request headers a route reads.
-struct RequestHeaders<'request> {
-    if_none_match: Option<&'request str>,
-    content_type: Option<&'request str>,
+/// `POST /scripted/token` with a new token as its body: from then on the archive accepts only that
+/// token.
+fn replace_token(server: &mut ScriptedServer, body: &[u8]) -> Answer {
+    let token = std::str::from_utf8(body).map(str::trim).unwrap_or_default();
+    if token.is_empty() {
+        return Answer::problem(400, "Send the token the archive accepts from now on as the body");
+    }
+    server.accepted_authorization = format!("Bearer {token}");
+    Answer {
+        status: 204,
+        content_type: None,
+        headers: Vec::new(),
+        body: Body::Empty,
+    }
 }
 
 struct Options {
@@ -182,16 +204,6 @@ struct Options {
     /// examination can show an upload under way.
     ingest_pace: Option<usize>,
     restricted_category: Option<String>,
-}
-
-/// `POST /scripted/token` with a new token as its body: from then on the archive accepts only that
-/// token, as an archive does once its owner revokes the one a client holds.
-fn replaced_token(method: &tiny_http::Method, url: &str, body: &[u8]) -> Option<String> {
-    if *method != tiny_http::Method::Post || url != TOKEN_PATH {
-        return None;
-    }
-    let token = std::str::from_utf8(body).ok()?.trim();
-    (!token.is_empty()).then(|| token.to_owned())
 }
 
 fn parse_options() -> Options {
@@ -231,99 +243,73 @@ fn parse_options() -> Options {
 
 fn main() {
     let options = parse_options();
-    let mut expected_auth = format!("Bearer {}", options.token);
-    let archive = ScriptedArchive::new();
-    archive.set_permission_level(options.permission);
+    let mut server = ScriptedServer {
+        archive: ScriptedArchive::new(),
+        accepted_authorization: format!("Bearer {}", options.token),
+    };
+    server.archive.set_permission_level(options.permission);
     if let Some(name) = &options.restricted_category {
-        restrict_to_category(&archive, name);
+        restrict_to_category(&server.archive, name);
     }
     if options.seed > 0 {
-        seed_corpus(&archive, options.seed);
+        seed_corpus(&server.archive, options.seed);
     }
 
     let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("a local port is free");
     if let Some(pace) = options.ingest_pace {
         limit_receive_buffer(&listener, pace / 10);
     }
-    let server = tiny_http::Server::from_listener(listener, None).expect("the listener serves HTTP");
-    println!("listening http://{}", server.server_addr());
+    let http_server = tiny_http::Server::from_listener(listener, None).expect("the listener serves HTTP");
+    println!("listening http://{}", http_server.server_addr());
     let _ = std::io::stdout().flush();
     std::thread::spawn(|| {
         let _ = std::io::stdin().lock().read_to_end(&mut Vec::new());
         std::process::exit(0);
     });
-
-    for mut request in server.incoming_requests() {
-        let authorized = request
-            .headers()
-            .iter()
-            .any(|header| header.field.equiv("Authorization") && header.value.as_str() == expected_auth);
-        let header = |name: &'static str| {
-            request
-                .headers()
-                .iter()
-                .find(|header| header.field.equiv(name))
-                .map(|header| header.value.as_str().to_owned())
-        };
-        let (if_none_match, content_type) = (header("If-None-Match"), header("Content-Type"));
-        let mut body = Vec::new();
-        let pace = options.ingest_pace.filter(|_| request.url() == INGEST_PATH);
-        let answer = if read_body(request.as_reader(), pace, &mut body).is_err() {
-            Answer::problem(400, "The body could not be read")
-        } else if let Some(token) = replaced_token(request.method(), request.url(), &body) {
-            expected_auth = format!("Bearer {token}");
-            Answer {
-                status: 204,
-                content_type: None,
-                headers: Vec::new(),
-                body: Body::Empty,
-            }
-        } else {
-            let (method, url) = (request.method().clone(), request.url().to_owned());
-            let headers = RequestHeaders {
-                if_none_match: if_none_match.as_deref(),
-                content_type: content_type.as_deref(),
-            };
-            route_request(&archive, authorized, &method, &url, headers, body)
-        };
-        let mut headers = Vec::new();
-        if let Some(content_type) = answer.content_type {
-            headers.push(
-                tiny_http::Header::from_bytes("Content-Type", content_type).expect("a content type is a header value"),
-            );
-        }
-        for (name, value) in answer.headers {
-            headers.push(tiny_http::Header::from_bytes(name, value).expect("valid HTTP header"));
-        }
-        let mut response: tiny_http::Response<std::io::Cursor<Vec<u8>>> = match answer.body {
-            Body::Text(text) => tiny_http::Response::from_data(text.into_bytes()),
-            Body::Bytes(bytes) => tiny_http::Response::from_data(bytes),
-            Body::Empty => tiny_http::Response::from_data(Vec::new()),
-        }
-        .with_status_code(answer.status);
-        for header in headers {
-            response = response.with_header(header);
-        }
-        let _ = request.respond(response);
+    for request in http_server.incoming_requests() {
+        answer_request(&mut server, options.ingest_pace, request);
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn only_a_post_of_a_token_to_its_path_replaces_the_token() {
-        use tiny_http::Method;
-        assert_eq!(
-            replaced_token(&Method::Post, TOKEN_PATH, b"another-token\n"),
-            Some("another-token".to_owned())
-        );
-        assert_eq!(replaced_token(&Method::Post, TOKEN_PATH, b"  "), None);
-        assert_eq!(replaced_token(&Method::Get, TOKEN_PATH, b"another-token"), None);
-        assert_eq!(
-            replaced_token(&Method::Post, SEED_DOCUMENT_PATH, b"another-token"),
-            None
+/// Reads the body of a request, at `ingest_pace` for an upload to the ingest route, routes it, and
+/// sends the answer.
+fn answer_request(server: &mut ScriptedServer, ingest_pace: Option<usize>, mut request: tiny_http::Request) {
+    let header = |name: &'static str| {
+        request
+            .headers()
+            .iter()
+            .find(|header| header.field.equiv(name))
+            .map(|header| header.value.as_str().to_owned())
+    };
+    let (authorization, if_none_match, content_type) =
+        (header("Authorization"), header("If-None-Match"), header("Content-Type"));
+    let pace = ingest_pace.filter(|_| request.url() == INGEST_PATH);
+    let mut body = Vec::new();
+    let answer = if read_body(request.as_reader(), pace, &mut body).is_err() {
+        Answer::problem(400, "The body could not be read")
+    } else {
+        let routed = ArchiveRequest {
+            method: request.method(),
+            url: request.url(),
+            authorization: authorization.as_deref(),
+            if_none_match: if_none_match.as_deref(),
+            content_type: content_type.as_deref(),
+        };
+        route_request(server, &routed, body)
+    };
+    let mut response = match answer.body {
+        Body::Text(text) => tiny_http::Response::from_data(text.into_bytes()),
+        Body::Bytes(bytes) => tiny_http::Response::from_data(bytes),
+        Body::Empty => tiny_http::Response::from_data(Vec::new()),
+    }
+    .with_status_code(answer.status);
+    if let Some(content_type) = answer.content_type {
+        response = response.with_header(
+            tiny_http::Header::from_bytes("Content-Type", content_type).expect("a content type is a header value"),
         );
     }
+    for (name, value) in answer.headers {
+        response = response.with_header(tiny_http::Header::from_bytes(name, value).expect("valid HTTP header"));
+    }
+    let _ = request.respond(response);
 }

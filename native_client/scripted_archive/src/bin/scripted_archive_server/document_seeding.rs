@@ -326,24 +326,36 @@ pub fn seed_corpus(archive: &ScriptedArchive, count: usize) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{Body, DOCUMENT_PATH_PREFIX, RequestHeaders, SEED_DOCUMENT_PATH, route_request};
+    use crate::{ArchiveRequest, Body, DOCUMENT_PATH_PREFIX, SEED_DOCUMENT_PATH, ScriptedServer, route_request};
     use archive_replica::replica_records::FailureReason;
     use archive_replica::{ArchiveReader, PageAnswer};
     use scripted_archive::UploadOutcome;
     use serde_json::json;
 
-    fn request(archive: &ScriptedArchive, method: tiny_http::Method, url: &str, body: Vec<u8>) -> Answer {
-        let headers = RequestHeaders {
+    const AUTHORIZATION: &str = "Bearer scripted-seeding-token";
+
+    fn seeding_server() -> ScriptedServer {
+        ScriptedServer {
+            archive: ScriptedArchive::new(),
+            accepted_authorization: AUTHORIZATION.to_owned(),
+        }
+    }
+
+    fn request(server: &mut ScriptedServer, method: tiny_http::Method, url: &str, body: Vec<u8>) -> Answer {
+        let request = ArchiveRequest {
+            method: &method,
+            url,
+            authorization: Some(AUTHORIZATION),
             if_none_match: None,
             content_type: Some("application/json"),
         };
-        route_request(archive, true, &method, url, headers, body)
+        route_request(server, &request, body)
     }
 
     /// The status and the JSON body of `POST /scripted/documents`.
-    fn seed(archive: &ScriptedArchive, body: serde_json::Value) -> (u16, serde_json::Value) {
+    fn seed(server: &mut ScriptedServer, body: serde_json::Value) -> (u16, serde_json::Value) {
         let answer = request(
-            archive,
+            server,
             tiny_http::Method::Post,
             SEED_DOCUMENT_PATH,
             body.to_string().into_bytes(),
@@ -363,20 +375,20 @@ mod tests {
 
     #[test]
     fn an_uploaded_scan_moves_through_ingestion_to_its_filed_title() {
-        let archive = ScriptedArchive::new();
+        let mut server = seeding_server();
         let scan = b"%PDF-1.7 a scanned letter";
-        let (document, content) = uploaded(&archive, scan);
-        let PageAnswer::Page(uploaded_page) = archive.read_changes(None).unwrap() else {
+        let (document, content) = uploaded(&server.archive, scan);
+        let PageAnswer::Page(uploaded_page) = server.archive.read_changes(None).unwrap() else {
             panic!("expected a page");
         };
         assert_eq!(uploaded_page.documents[0].condition.status_name(), "processing");
 
         let answer = seed(
-            &archive,
+            &mut server,
             json!({ "content_sha256": content, "status": "recognizing_text" }),
         );
         assert_eq!(answer, (200, json!({ "document_id": document.as_str() })));
-        let PageAnswer::Page(following) = archive.read_changes(Some(&uploaded_page.cursor)).unwrap() else {
+        let PageAnswer::Page(following) = server.archive.read_changes(Some(&uploaded_page.cursor)).unwrap() else {
             panic!("expected a page");
         };
         let stages: Vec<(&str, &str)> = following
@@ -393,37 +405,38 @@ mod tests {
             "sender_name": "Stadtwerke",
             "page_count": 2,
         });
-        assert_eq!(seed(&archive, classifying).0, 200);
+        assert_eq!(seed(&mut server, classifying).0, 200);
         assert_eq!(
             seed(
-                &archive,
+                &mut server,
                 json!({ "identifier": document.as_str(), "status": "archived" })
             )
             .0,
             200
         );
-        let filed = archive.document(&document).unwrap();
+        let filed = server.archive.document(&document).unwrap();
         assert_eq!(filed.condition, DocumentCondition::Archived);
         assert_eq!(filed.title.as_deref(), Some("Water bill"));
         assert_eq!(filed.page_count, Some(2));
         assert_eq!(filed.media_type, "application/pdf");
         assert_eq!(filed.original, Some(content_digest_of(scan)));
-        assert_eq!(archive.records().senders[0].name, "Stadtwerke");
+        assert_eq!(server.archive.records().senders[0].name, "Stadtwerke");
     }
 
     #[test]
     fn a_token_restricted_to_a_category_reads_only_its_documents() {
-        let archive = ScriptedArchive::new();
-        restrict_to_category(&archive, "Invoice");
+        let mut server = seeding_server();
+        restrict_to_category(&server.archive, "Invoice");
         for (identifier, category) in [
             ("60000000-0000-4000-8000-000000000001", "Invoice"),
             ("60000000-0000-4000-8000-000000000002", "Receipt"),
         ] {
             let document = json!({ "identifier": identifier, "title": category, "category_name": category });
-            assert_eq!(seed(&archive, document).0, 200);
+            assert_eq!(seed(&mut server, document).0, 200);
         }
-        assert!(archive.read_authorization().unwrap().restricted);
-        let titles: Vec<Option<String>> = archive
+        assert!(server.archive.read_authorization().unwrap().restricted);
+        let titles: Vec<Option<String>> = server
+            .archive
             .admitted_records()
             .documents
             .into_iter()
@@ -434,19 +447,19 @@ mod tests {
 
     #[test]
     fn a_failed_status_records_its_reason() {
-        let archive = ScriptedArchive::new();
-        let (document, content) = uploaded(&archive, b"%PDF-1.7 a blurred photograph");
+        let mut server = seeding_server();
+        let (document, content) = uploaded(&server.archive, b"%PDF-1.7 a blurred photograph");
         let failed = json!({ "content_sha256": content, "status": "failed", "failure_reason": "unreadable_page" });
-        assert_eq!(seed(&archive, failed).0, 200);
+        assert_eq!(seed(&mut server, failed).0, 200);
         assert_eq!(
-            archive.document(&document).unwrap().condition,
+            server.archive.document(&document).unwrap().condition,
             DocumentCondition::Failed(FailureReason::UnreadablePage)
         );
     }
 
     #[test]
     fn a_new_document_is_archived_with_typed_fields() {
-        let archive = ScriptedArchive::new();
+        let mut server = seeding_server();
         let identifier = "60000000-0000-4000-8000-000000000001";
         let fields = json!({
             "invoice_number": "2026-10-20",
@@ -454,10 +467,11 @@ mod tests {
             "amount": 72.09,
         });
         assert_eq!(
-            seed(&archive, json!({ "identifier": identifier, "fields": fields })).0,
+            seed(&mut server, json!({ "identifier": identifier, "fields": fields })).0,
             200
         );
-        let document = archive
+        let document = server
+            .archive
             .document(&DocumentIdentifier::parse(identifier).unwrap())
             .unwrap();
         assert_eq!(document.condition, DocumentCondition::Archived);
@@ -482,8 +496,8 @@ mod tests {
 
     #[test]
     fn a_seed_request_with_loose_input_is_refused_and_writes_nothing() {
-        let archive = ScriptedArchive::new();
-        let (document, content) = uploaded(&archive, b"%PDF-1.7 an uploaded scan");
+        let mut server = seeding_server();
+        let (document, content) = uploaded(&server.archive, b"%PDF-1.7 an uploaded scan");
         let absent_content = "0".repeat(64);
         let refusals = [
             (
@@ -549,7 +563,7 @@ mod tests {
             ),
         ];
         for (body, status, detail) in refusals {
-            let (answered_status, answer) = seed(&archive, body.clone());
+            let (answered_status, answer) = seed(&mut server, body.clone());
             assert_eq!(
                 (answered_status, answer["detail"].as_str()),
                 (status, Some(detail)),
@@ -557,7 +571,7 @@ mod tests {
             );
         }
         let (status, answer) = seed(
-            &archive,
+            &mut server,
             json!({ "identifier": document.as_str(), "titel": "Water bill" }),
         );
         assert_eq!(status, 400);
@@ -567,15 +581,15 @@ mod tests {
                 .unwrap()
                 .starts_with("Invalid request for /scripted/documents: unknown field `titel`")
         );
-        let unchanged = archive.document(&document).unwrap();
+        let unchanged = server.archive.document(&document).unwrap();
         assert_eq!(unchanged.condition.status_name(), "processing");
         assert_eq!(unchanged.fields.len(), 0);
-        assert_eq!(archive.records().documents.len(), 1);
+        assert_eq!(server.archive.records().documents.len(), 1);
     }
 
     #[test]
     fn a_thumbnail_is_served_with_the_media_type_of_its_bytes() {
-        let archive = ScriptedArchive::new();
+        let mut server = seeding_server();
         let directory = tempfile::tempdir().unwrap();
         let picture = directory.path().join("first_page.jpg");
         std::fs::write(&picture, [0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10]).unwrap();
@@ -584,7 +598,7 @@ mod tests {
         let identifier = "60000000-0000-4000-8000-000000000003";
 
         let refused = seed(
-            &archive,
+            &mut server,
             json!({ "identifier": identifier, "thumbnail_file": portable_document }),
         );
         assert_eq!(
@@ -600,11 +614,15 @@ mod tests {
             )
         );
         assert_eq!(
-            seed(&archive, json!({ "identifier": identifier, "thumbnail_file": picture })).0,
+            seed(
+                &mut server,
+                json!({ "identifier": identifier, "thumbnail_file": picture })
+            )
+            .0,
             200
         );
         let thumbnail = request(
-            &archive,
+            &mut server,
             tiny_http::Method::Get,
             &format!("{DOCUMENT_PATH_PREFIX}{identifier}/thumbnail"),
             Vec::new(),
