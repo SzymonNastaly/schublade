@@ -151,7 +151,9 @@ final class ShareViewController: UIViewController {
 		container: SharedContainer,
 		archive: ConnectedArchive
 	) {
-		// Cancel would end the extension between two files, after some were already on their way.
+		// Cancel or a swipe down would end the extension between two files, after some were already
+		// on their way.
+		isModalInPresentation = true
 		navigationItem.leftBarButtonItem?.isEnabled = false
 		navigationItem.rightBarButtonItem?.isEnabled = false
 		progressIndicator.startAnimating()
