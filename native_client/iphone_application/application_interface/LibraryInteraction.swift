@@ -24,11 +24,13 @@ final class LibraryInteraction: NSObject, UICollectionViewDelegate {
 		list.destination(at: indexPath) != nil
 	}
 
-	func collectionView(_: UICollectionView, didSelectItemAt indexPath: IndexPath) {
+	func collectionView(_ collectionView: UICollectionView, didSelectItemAt indexPath: IndexPath) {
 		switch list.destination(at: indexPath) {
 		case let .document(document, title, opening)?:
 			screen?.open(document, title: title, opening: opening)
 		case .tokenReplacement?:
+			// Settings comes as a sheet, whose dismissal never makes the library appear again.
+			collectionView.deselectItem(at: indexPath, animated: true)
 			screen?.openSettings(replacingToken: true)
 		case let .scope(scope)?:
 			screen?.chooseSuggested(scope)
