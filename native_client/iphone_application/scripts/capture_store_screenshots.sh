@@ -185,7 +185,7 @@ examination="$(EXAMINATION_SIMULATOR="$simulator" EXAMINATION_TOKEN="$token" EXA
 address="$(sed -n 's/^archive: //p' <<<"$examination")"
 digest="$(sed -n 's/^scan digest: //p' <<<"$examination")"
 xcrun simctl status_bar "$simulator" override --time 9:41 --dataNetwork wifi --wifiMode active --wifiBars 3 \
-	--cellularMode active --cellularBars 4 --batteryState charged --batteryLevel 100
+	--cellularMode active --cellularBars 4 --batteryState discharging --batteryLevel 100
 
 # The archive answers 404 until the whole scan has arrived, at 40 KB a second.
 appearance=light
