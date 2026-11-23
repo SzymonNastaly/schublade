@@ -24,7 +24,7 @@ final class LibraryRefresh {
 		let pull = number
 		gateway.synchronize()
 		// An archive out of reach or refusing the token publishes no new status after a pull.
-		if let status = currentStatus(), SynchronizationAnswer.resolve(status, requestedAt: .distantFuture) != nil {
+		if let status = currentStatus(), SynchronizationAnswer.withoutRead(status.archive) != nil {
 			Task { [weak self] in
 				try? await Task.sleep(for: .milliseconds(500))
 				self?.follow(status)

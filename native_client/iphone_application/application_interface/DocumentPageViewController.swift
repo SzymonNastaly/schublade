@@ -174,10 +174,10 @@ final class DocumentPageViewController: UIViewController {
 	}
 
 	private func copyHasReadArchive(_ status: LibraryStatus) -> Bool {
-		guard let awaitingSince, case let .complete(synchronizedAt) = status.copy else {
-			return awaitingSince == nil
+		guard let awaitingSince else {
+			return true
 		}
-		return synchronizedAt.timeIntervalSince(awaitingSince) > Self.pageRequestLimit
+		return status.copy.hasRead(since: awaitingSince.addingTimeInterval(Self.pageRequestLimit))
 	}
 
 	private func loadDetail(revision: UInt64) {

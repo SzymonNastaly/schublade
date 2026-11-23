@@ -13,27 +13,33 @@ enum SynchronizationAnswer: Equatable {
 	/// person acts. Such a status is not published again after a request.
 	case withheld
 
-	/// Nil while the read may still come. The copy records its times in whole milliseconds, so the
-	/// two times are compared in whole milliseconds: a read completed in the millisecond of the request
-	/// counts, or the request would wait for a read that never comes.
+	/// Nil while the read may still come.
 	static func resolve(_ status: LibraryStatus, requestedAt: Date) -> SynchronizationAnswer? {
-		let read: Double? = if case let .complete(synchronizedAt) = status.copy {
-			wholeMilliseconds(synchronizedAt, .toNearestOrAwayFromZero)
-		} else {
+		status.copy.hasRead(since: requestedAt) ? .synchronized : withoutRead(status.archive)
+	}
+
+	/// The answer of a connection that publishes no read after a request, nil while one may come.
+	static func withoutRead(_ archive: ArchiveConnection) -> SynchronizationAnswer? {
+		switch archive.configuration?.condition {
+		case nil, .suspended, .archiveOutdated:
+			.withheld
+		case .unreachable:
+			.outOfReach
+		case .connected, .checking, .deferred:
 			nil
 		}
-		if let read, read >= wholeMilliseconds(requestedAt, .down) {
-			return .synchronized
+	}
+}
+
+extension LibraryCopy {
+	/// Whether the copy completed a read of the archive at or after a time. The copy records its times
+	/// in whole milliseconds, so the two times are compared in whole milliseconds: a read completed in
+	/// the millisecond of the time counts, or a request would wait for a read that never comes.
+	func hasRead(since time: Date) -> Bool {
+		guard case let .complete(synchronizedAt) = self else {
+			return false
 		}
-		switch status.archive {
-		case .notConfigured, .configured(_, _, .suspended, _, _), .configured(_, _, .archiveOutdated, _, _):
-			return .withheld
-		case .configured(_, _, .unreachable, _, _):
-			return .outOfReach
-		case .configured(_, _, .connected, _, _), .configured(_, _, .checking, _, _),
-		     .configured(_, _, .deferred, _, _):
-			return nil
-		}
+		return Self.wholeMilliseconds(synchronizedAt, .toNearestOrAwayFromZero) >= Self.wholeMilliseconds(time, .down)
 	}
 
 	private static func wholeMilliseconds(_ date: Date, _ rounding: FloatingPointRoundingRule) -> Double {

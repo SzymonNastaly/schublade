@@ -108,10 +108,10 @@ enum ConnectionAttention: Equatable {
 	case archiveOutdated
 
 	static func resolve(_ archive: ArchiveConnection) -> ConnectionAttention? {
-		switch archive {
-		case .configured(_, _, .suspended(.credentialRefused), _, _): .tokenRefused
-		case .configured(_, _, .suspended(.credentialInsufficient), _, _): .tokenLacksPermission
-		case .configured(_, _, .archiveOutdated, _, _): .archiveOutdated
+		switch archive.configuration?.condition {
+		case .suspended(.credentialRefused): .tokenRefused
+		case .suspended(.credentialInsufficient): .tokenLacksPermission
+		case .archiveOutdated: .archiveOutdated
 		default: nil
 		}
 	}

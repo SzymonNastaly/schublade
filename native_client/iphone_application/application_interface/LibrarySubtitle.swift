@@ -19,8 +19,8 @@ enum LibrarySubtitle {
 		} else {
 			false
 		}
-		let outOfReach = switch status.archive {
-		case .configured(_, _, .unreachable, _, _), .configured(_, _, .deferred, _, _): true
+		let outOfReach = switch status.archive.configuration?.condition {
+		case .unreachable, .deferred: true
 		default: false
 		}
 		if filling || outOfReach {

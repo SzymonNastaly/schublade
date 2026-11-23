@@ -38,10 +38,10 @@ final class ApplicationController {
 
 	/// The archive's origin while one is connected.
 	var archiveOrigin: String? {
-		guard case let .running(status) = situation, case let .configured(origin, _, _, _, _) = status.archive else {
+		guard case let .running(status) = situation else {
 			return nil
 		}
-		return origin
+		return status.archive.configuration?.origin
 	}
 
 	/// Whether the connected token may send. A restricted token reads only part of the archive, and
@@ -54,11 +54,7 @@ final class ApplicationController {
 		case .failedToStart:
 			false
 		case let .running(status):
-			if case let .configured(_, _, _, _, restricted) = status.archive {
-				!restricted
-			} else {
-				false
-			}
+			status.archive.configuration.map { !$0.restricted } ?? false
 		}
 	}
 
@@ -180,12 +176,7 @@ final class ApplicationController {
 	}
 
 	private static func connectedArchive(_ connection: ArchiveConnection) -> ConnectedArchive? {
-		switch connection {
-		case .notConfigured:
-			nil
-		case let .configured(origin, _, _, _, restricted):
-			ConnectedArchive(origin: origin, restricted: restricted)
-		}
+		connection.configuration.map { ConnectedArchive(origin: $0.origin, restricted: $0.restricted) }
 	}
 
 	/// The next status tries again after a failure, and until then the share extension reads the

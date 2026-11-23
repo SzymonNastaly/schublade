@@ -73,12 +73,12 @@ struct SettingsSection: Equatable {
 		storage: OriginalStorage?,
 		context: WordingContext
 	) -> [SettingsSection] {
-		guard case let .configured(origin, host, _, _, restricted) = library.archive else {
+		guard let archive = library.archive.configuration else {
 			return []
 		}
 		let status = StatusLinePresentation.resolve(library: library, fault: nil, uploadingFiles: 0, context: context)
-		var archiveRows: [SettingsRow] = [.archive(host: host, status: status)]
-		if let address = URL(string: origin) {
+		var archiveRows: [SettingsRow] = [.archive(host: archive.host, status: status)]
+		if let address = URL(string: archive.origin) {
 			archiveRows.append(.openArchiveInBrowser(address))
 		}
 		archiveRows.append(.replaceToken)
@@ -92,7 +92,7 @@ struct SettingsSection: Equatable {
 		return [
 			SettingsSection(
 				header: "Archive",
-				footer: .text(restricted
+				footer: .text(archive.restricted
 					? ConnectedArchive.restrictionSentence
 					: "This iPhone reads your archive and sends documents to it."),
 				rows: archiveRows
@@ -107,7 +107,7 @@ struct SettingsSection: Equatable {
 					.removeDownloadedOriginals(available: (storage?.heldBytes ?? 0) > 0),
 				]
 			),
-		] + (restricted ? [] : [scanning]) + [about]
+		] + (archive.restricted ? [] : [scanning]) + [about]
 	}
 }
 
