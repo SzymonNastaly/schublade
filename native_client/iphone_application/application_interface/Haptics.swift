@@ -21,4 +21,14 @@ enum Haptics {
 	static func factCopied() {
 		UIImpactFeedbackGenerator(style: .light).impactOccurred()
 	}
+
+	/// The share sheet has handed every file to its upload.
+	static func shareHandedOver() {
+		UINotificationFeedbackGenerator().notificationOccurred(.success)
+	}
+
+	/// The share sheet could not read a file a person shared.
+	static func shareUnread() {
+		UINotificationFeedbackGenerator().notificationOccurred(.warning)
+	}
 }

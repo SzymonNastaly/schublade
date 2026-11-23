@@ -2,19 +2,21 @@ import SubmissionQueue
 import UIKit
 import UniformTypeIdentifiers
 
-/// Schublade in another application's share sheet: how many files go to which archive, with Send
-/// and Cancel. Send makes a submission of each file, starts its upload in the extension's own
-/// background session, and closes. The application receives the answers that arrive after that.
+/// Schublade in another application's share sheet: a picture of each file, how many go to which
+/// archive, and Send. The files are copied as the sheet appears, so their pictures show before Send.
+/// Send makes a submission of each copy, starts its upload in the extension's own background
+/// session, and closes once every file is on its way. The application receives the answers that
+/// arrive after that.
 final class ShareViewController: UIViewController {
-	/// Whether the sheet can send, decided once from the record the application keeps.
-	private enum Readiness {
-		case ready(SharedInstallation, SharedContainer, ConnectedArchive)
-		case refused(String)
-	}
-
-	private struct AcceptedItem {
-		let provider: NSItemProvider
-		let type: UTType
+	/// What the sheet shows, from the moment it appears to the moment it closes.
+	private enum Phase {
+		case unavailable(ShareUnavailability)
+		case ready
+		/// The upload of the file at `current` is being prepared.
+		case sending(current: Int)
+		/// Every file is on its way, and the sheet closes a moment later.
+		case handedOver
+		case partlyUnread(unreadNames: [String], sentCount: Int)
 	}
 
 	/// One session per process, because a process may create a background session only once per
@@ -37,191 +39,266 @@ final class ShareViewController: UIViewController {
 		}
 	}()
 
-	private let messageLabel = UILabel()
-	private let detailLabel = UILabel()
-	private let progressIndicator = UIActivityIndicatorView(style: .medium)
+	private static let handedOverPause = Duration.milliseconds(800)
+
+	private var phase = Phase.ready
+	private var destination: ShareDestination?
+	private var files: [ShareContents.SharedFile] = []
+	/// The copy of each file, made one after another as the sheet appears, which Send awaits.
+	private var copies: [Task<URL, any Error>] = []
+	/// The names of the files the archive does not take, nil until a name is known.
+	private var leftOutNames: [String?] = []
+	private var overLimit = 0
+
+	private let bar = UINavigationBar()
+	private lazy var sheet = ShareSheetView(
+		tiles: files.map { ShareTile(name: nil, isPicture: !$0.type.conforms(to: .pdf)) }
+	)
+	private let unavailableView = UIContentUnavailableView(configuration: .empty())
 
 	override func viewDidLoad() {
 		super.viewDidLoad()
 		view.backgroundColor = .systemBackground
-		let readiness = Self.readiness()
-		let providers = (extensionContext?.inputItems ?? [])
-			.compactMap { $0 as? NSExtensionItem }
-			.flatMap { $0.attachments ?? [] }
-		var accepted: [AcceptedItem] = []
-		var refusedNames: [String] = []
-		for provider in providers {
-			if let type = DocumentImport.preferredType(among: provider.registeredContentTypes) {
-				accepted.append(AcceptedItem(provider: provider, type: type))
-			} else if !provider.registeredContentTypes.allSatisfy({ $0.conforms(to: .url) }) {
-				// Safari shares the page's address beside its PDF, which is no file a person chose.
-				refusedNames.append(provider.suggestedName ?? "an unnamed file")
-			}
+		// The sheet lives in the host's window, which carries the host's tint, not the extension's.
+		view.tintColor = UIColor(resource: .accent)
+		let shared = ShareContents(items: extensionContext?.inputItems ?? [])
+		files = shared.files
+		overLimit = shared.overLimit
+		leftOutNames = shared.leftOut.map { _ in nil }
+		switch ShareDestination.resolve() {
+		case let .success(found) where !files.isEmpty:
+			destination = found
+			phase = .ready
+		case .success:
+			phase = .unavailable(.nothingToSend)
+		case let .failure(unavailability):
+			phase = .unavailable(unavailability)
 		}
-		let sent = Array(accepted.prefix(ShareIntake.fileLimit))
-		let leftOver = accepted.count - sent.count
-
-		navigationItem.title = "Schublade"
-		navigationItem.leftBarButtonItem = UIBarButtonItem(
-			systemItem: .cancel,
-			primaryAction: UIAction { [weak self] _ in
-				self?.extensionContext?.cancelRequest(withError: CocoaError(.userCancelled))
-			}
-		)
-		switch readiness {
-		case let .ready(installation, container, archive) where !sent.isEmpty:
-			messageLabel.text = Self.offerSentence(count: sent.count, host: archive.host)
-			let send = UIBarButtonItem(primaryAction: UIAction(title: "Send") { [weak self] _ in
-				self?.send(sent, installation: installation, container: container, archive: archive)
-			})
-			send.style = .done
-			navigationItem.rightBarButtonItem = send
-		case .ready:
-			messageLabel.text = "Schublade sends PDFs and pictures, and none was shared."
-		case let .refused(sentence):
-			messageLabel.text = sentence
-		}
-		detailLabel.text = Self.refusalSentence(refusedNames: refusedNames, leftOver: leftOver)
 		buildLayout()
+		show()
+		Task {
+			for (index, file) in files.enumerated() {
+				// A file sent keeps no extension, because the archive names it by its kind, while the name of
+				// a file left out keeps the extension that says why.
+				let name = await ShareContents.name(of: file.provider)
+					.map(DocumentImport.nameWithoutRecognizedExtension)
+				sheet.update(index) { $0.name = name }
+			}
+			for (index, provider) in shared.leftOut.enumerated() {
+				leftOutNames[index] = await ShareContents.name(of: provider)
+			}
+			if case .ready = phase {
+				show()
+			}
+		}
+	}
+
+	override func viewIsAppearing(_ animated: Bool) {
+		super.viewIsAppearing(animated)
+		guard case .ready = phase, copies.isEmpty else {
+			return
+		}
+		copyFiles()
 	}
 
 	private func buildLayout() {
-		let bar = UINavigationBar()
+		navigationItem.title = "Schublade"
 		bar.items = [navigationItem]
-		bar.translatesAutoresizingMaskIntoConstraints = false
-		messageLabel.font = .preferredFont(forTextStyle: .body)
-		detailLabel.font = .preferredFont(forTextStyle: .footnote)
-		detailLabel.textColor = .secondaryLabel
-		for label in [messageLabel, detailLabel] {
-			label.numberOfLines = 0
-			label.adjustsFontForContentSizeCategory = true
+		for subview in [sheet, unavailableView, bar] as [UIView] {
+			subview.translatesAutoresizingMaskIntoConstraints = false
+			view.addSubview(subview)
 		}
-		let content = UIStackView(arrangedSubviews: [messageLabel, detailLabel, progressIndicator])
-		content.axis = .vertical
-		content.alignment = .leading
-		content.spacing = 12
-		content.translatesAutoresizingMaskIntoConstraints = false
-		view.addSubview(bar)
-		view.addSubview(content)
 		NSLayoutConstraint.activate([
 			bar.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
 			bar.leadingAnchor.constraint(equalTo: view.leadingAnchor),
 			bar.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-			content.topAnchor.constraint(equalTo: bar.bottomAnchor, constant: 20),
-			content.leadingAnchor.constraint(equalTo: view.layoutMarginsGuide.leadingAnchor),
-			content.trailingAnchor.constraint(equalTo: view.layoutMarginsGuide.trailingAnchor),
+			sheet.topAnchor.constraint(equalTo: bar.bottomAnchor),
+			sheet.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+			sheet.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+			sheet.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor),
+			unavailableView.topAnchor.constraint(equalTo: bar.bottomAnchor),
+			unavailableView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+			unavailableView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+			unavailableView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
 		])
 	}
 
-	private static func readiness() -> Readiness {
-		guard let installation = try? SharedInstallation.read(), let container = try? installation.container() else {
-			return .refused("Schublade cannot reach the documents it shares with this sheet. Reinstall Schublade.")
+	private func show() {
+		sheet.isHidden = false
+		unavailableView.isHidden = true
+		switch phase {
+		case let .unavailable(unavailability):
+			sheet.isHidden = true
+			unavailableView.isHidden = false
+			unavailableView.configuration = unavailability.configuration
+			navigationItem.leftBarButtonItem = cancelItem()
+			navigationItem.rightBarButtonItem = nil
+		case .ready:
+			sheet.show(ShareSheetView.Words(
+				headline: files.count == 1 ? "1 document" : "\(files.count) documents",
+				destination: destination.map { "to your archive at \($0.archive.host)" },
+				footnote: leftOutSentence
+			))
+			navigationItem.leftBarButtonItem = cancelItem()
+			navigationItem.rightBarButtonItem = sendItem()
+		case let .sending(current):
+			sheet.show(ShareSheetView.Words(
+				headline: files.count == 1 ? "Sending…" : "Sending \(current + 1) of \(files.count)…",
+				destination: destination.map { "to your archive at \($0.archive.host)" },
+				footnote: leftOutSentence
+			))
+			if !(navigationItem.rightBarButtonItem?.customView is UIActivityIndicatorView) {
+				let indicator = UIActivityIndicatorView(style: .medium)
+				indicator.startAnimating()
+				let item = UIBarButtonItem(customView: indicator)
+				if #available(iOS 26, *) {
+					item.hidesSharedBackground = true
+				}
+				navigationItem.rightBarButtonItem = item
+			}
+			navigationItem.leftBarButtonItem?.isEnabled = false
+		case .handedOver:
+			sheet.show(ShareSheetView.Words(headline: "On its way to your archive.", handedOver: true))
+			navigationItem.leftBarButtonItem?.isEnabled = false
+			navigationItem.rightBarButtonItem = nil
+		case let .partlyUnread(unreadNames, sentCount):
+			sheet.show(ShareSheetView.Words(
+				headline: "Schublade could not read \(ListFormatter.localizedString(byJoining: unreadNames)).",
+				destination: sentCount == 0 ? nil : "The other files are on their way to your archive."
+			))
+			navigationItem.leftBarButtonItem = nil
+			navigationItem.rightBarButtonItem = UIBarButtonItem(
+				systemItem: .done,
+				primaryAction: UIAction { [weak self] _ in
+					self?.extensionContext?.completeRequest(returningItems: nil)
+				}
+			)
 		}
-		guard let archive = container.connectedArchive() else {
-			return .refused("Open Schublade and connect your archive, then share again.")
-		}
-		guard !archive.restricted else {
-			return .refused(ConnectedArchive.restrictionSentence)
-		}
-		return .ready(installation, container, archive)
 	}
 
-	private static func offerSentence(count: Int, host: String) -> String {
-		count == 1 ? "Send 1 document to \(host)." : "Send \(count) documents to \(host)."
+	/// Copies each file before the next, because an extension is ended above about 120 MB, and asks
+	/// Quick Look for its picture once its copy exists.
+	private func copyFiles() {
+		let size = ShareTileSize.of(count: files.count)
+		let scale = traitCollection.displayScale
+		var previous: Task<URL, any Error>?
+		copies = files.map { file in
+			let before = previous
+			let copy = Task {
+				_ = await before?.result
+				return try await ShareContents.copy(file)
+			}
+			previous = copy
+			return copy
+		}
+		for (index, copy) in copies.enumerated() {
+			Task { [weak self] in
+				guard let file = try? await copy.value,
+				      let picture = await ShareTileSize.picture(of: file, size: size, scale: scale)
+				else {
+					return
+				}
+				self?.sheet.update(index) { $0.picture = picture }
+			}
+		}
 	}
 
-	private static func refusalSentence(refusedNames: [String], leftOver: Int) -> String? {
-		var sentences: [String] = []
-		if !refusedNames.isEmpty {
-			let names = ListFormatter.localizedString(byJoining: refusedNames)
-			sentences.append("Schublade sends only PDFs and pictures, so it leaves out \(names).")
+	private func cancel() {
+		for copy in copies {
+			copy.cancel()
+			Task {
+				if let file = try? await copy.value {
+					try? FileManager.default.removeItem(at: file.deletingLastPathComponent())
+				}
+			}
 		}
-		if leftOver > 0 {
-			sentences.append("The archive takes \(ShareIntake.fileLimit) files at a time, so \(leftOver) stay here.")
-		}
-		return sentences.isEmpty ? nil : sentences.joined(separator: " ")
+		extensionContext?.cancelRequest(withError: CocoaError(.userCancelled))
 	}
 
-	/// Copies, converts, enqueues, and starts each file before the next, because an extension is
-	/// ended above about 120 MB, and because a submission the application sees must already carry
-	/// the claim of the upload that this extension starts at once.
-	private func send(
-		_ items: [AcceptedItem],
-		installation: SharedInstallation,
-		container: SharedContainer,
-		archive: ConnectedArchive
-	) {
+	/// Enqueues and starts each copy before the next, so a submission the application sees already
+	/// carries the claim of the upload that this extension starts at once.
+	private func send() {
+		guard let destination else {
+			return
+		}
 		// Cancel or a swipe down would end the extension between two files, after some were already
 		// on their way.
 		isModalInPresentation = true
-		navigationItem.leftBarButtonItem?.isEnabled = false
-		navigationItem.rightBarButtonItem?.isEnabled = false
-		progressIndicator.startAnimating()
 		Task {
-			let queue = container.submissionQueue
-			var sentCount = 0
-			var unsentNames: [String] = []
-			for item in items {
+			let queue = destination.container.submissionQueue
+			var unreadNames: [String] = []
+			for (index, file) in files.enumerated() {
+				phase = .sending(current: index)
+				show()
+				sheet.reveal(index)
 				do {
-					let copy = try await Self.copy(item)
+					let copy = try await copies[index].value
 					let entry = try await ShareIntake.receive(
-						ShareIntake.SharedFile(file: copy, type: item.type, suggestedName: item.provider.suggestedName),
+						ShareIntake.SharedFile(file: copy, type: file.type, suggestedName: file.provider.suggestedName),
 						into: queue
 					)
 					switch await queue.prepare(
 						entry,
-						archiveOrigin: archive.origin,
-						credentials: installation.credentialStorage
+						archiveOrigin: destination.archive.origin,
+						credentials: destination.installation.credentialStorage
 					) {
 					case let .prepared(request, attempt, body):
 						Self.transfer?.send(attempt, request: request, body: body)
 					case let .answered(answer):
 						_ = try? queue.record(answer, for: entry.id)
 					}
-					sentCount += 1
+					sheet.update(index) { $0.mark = .started }
 				} catch {
-					unsentNames.append(item.provider.suggestedName ?? "an unnamed file")
+					unreadNames.append(sheet.tiles[index].name ?? "an unnamed file")
+					sheet.update(index) { $0.mark = .unread }
 				}
 			}
-			progressIndicator.stopAnimating()
-			guard !unsentNames.isEmpty else {
-				extensionContext?.completeRequest(returningItems: nil)
+			guard unreadNames.isEmpty else {
+				phase = .partlyUnread(unreadNames: unreadNames, sentCount: files.count - unreadNames.count)
+				show()
+				Haptics.shareUnread()
 				return
 			}
-			showUnsent(unsentNames, sentCount: sentCount)
+			phase = .handedOver
+			show()
+			Haptics.shareHandedOver()
+			try? await Task.sleep(for: Self.handedOverPause)
+			extensionContext?.completeRequest(returningItems: nil)
 		}
 	}
+}
 
-	private func showUnsent(_ names: [String], sentCount: Int) {
-		messageLabel.text = "Schublade could not read \(ListFormatter.localizedString(byJoining: names))."
-		detailLabel.text = sentCount == 0 ? nil : "The other files are on their way to your archive."
-		navigationItem.leftBarButtonItem = nil
-		navigationItem.rightBarButtonItem = UIBarButtonItem(
-			systemItem: .done,
-			primaryAction: UIAction { [weak self] _ in
-				self?.extensionContext?.completeRequest(returningItems: nil)
-			}
-		)
+/// The bar's items and the footnote, apart from the states that choose them.
+private extension ShareViewController {
+	func cancelItem() -> UIBarButtonItem {
+		UIBarButtonItem(systemItem: .cancel, primaryAction: UIAction { [weak self] _ in
+			self?.cancel()
+		})
 	}
 
-	/// Copies the file a provider offers into a directory the extension owns, because the provider's
-	/// file exists only during its callback.
-	private static func copy(_ item: AcceptedItem) async throws -> URL {
-		let directory = try DocumentImport.workingDirectory()
-		return try await withCheckedThrowingContinuation { continuation in
-			_ = item.provider.loadFileRepresentation(for: item.type, openInPlace: false) { url, _, error in
-				guard let url else {
-					continuation.resume(throwing: error ?? CocoaError(.fileReadUnknown))
-					return
-				}
-				let copy = directory.appending(path: url.lastPathComponent)
-				do {
-					try FileManager.default.copyItem(at: url, to: copy)
-					continuation.resume(returning: copy)
-				} catch {
-					continuation.resume(throwing: error)
-				}
-			}
+	func sendItem() -> UIBarButtonItem {
+		let item = UIBarButtonItem(primaryAction: UIAction(title: "Send") { [weak self] _ in
+			self?.send()
+		})
+		if #available(iOS 26, *) {
+			item.style = .prominent
+			// A prominent item in the extension's bar takes the item's tint and ignores the view's.
+			item.tintColor = UIColor(resource: .accent)
+		} else {
+			item.style = .done
 		}
+		return item
+	}
+
+	var leftOutSentence: String? {
+		var sentences: [String] = []
+		if !leftOutNames.isEmpty {
+			let joined = ListFormatter.localizedString(byJoining: leftOutNames.map { $0 ?? "an unnamed file" })
+			sentences.append("Schublade sends only PDFs and pictures, so it leaves out \(joined).")
+		}
+		if overLimit > 0 {
+			sentences.append("The archive takes \(ShareIntake.fileLimit) files at a time, so \(overLimit) stay here.")
+		}
+		return sentences.isEmpty ? nil : sentences.joined(separator: " ")
 	}
 }

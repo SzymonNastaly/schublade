@@ -84,7 +84,7 @@ public enum DocumentImport {
 	/// A name without the extension it may carry, as Safari's suggested names do, because the
 	/// extension of the kind sent follows it. Only an extension that names a type goes, so
 	/// "Invoice 10.2026" keeps its ".2026".
-	private static func nameWithoutRecognizedExtension(_ name: String) -> String {
+	public static func nameWithoutRecognizedExtension(_ name: String) -> String {
 		let named = URL(filePath: name.replacingOccurrences(of: "/", with: "-"))
 		guard let namedType = UTType(filenameExtension: named.pathExtension), !namedType.isDynamic else {
 			return named.lastPathComponent
