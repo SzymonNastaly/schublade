@@ -149,7 +149,7 @@ final class SubmissionCoordinator {
 	/// Starts every submission that is due at `now` and has no upload in the application's session:
 	/// an unanswered one, unless the share extension claimed it less than 15 minutes ago, and an
 	/// unavailable one whose time has come. Called at launch, on returning to the foreground, when a
-	/// connection is made, and when the next submission falls due.
+	/// connection is made, after every answer, and when the next submission falls due.
 	func resume(now: Date = .now) {
 		queue.removeExpired(now: now)
 		reload()
@@ -164,16 +164,12 @@ final class SubmissionCoordinator {
 		}
 	}
 
-	/// The archive at `origin` accepted a token, so every submission whose token was refused is sent
-	/// again with it at once. A token replaced on the same origin leaves the library's origin as it
-	/// was, so nothing else would resume them.
+	/// The archive at `origin` accepted a token that permits sending, so every submission whose token
+	/// was refused is sent again with it at once. A token replaced on the same origin leaves the
+	/// library's origin as it was, so nothing else would resume them.
 	func tokenAccepted(by origin: String) {
 		archiveOrigin = origin
-		let released = queue.releaseRefusedTokens()
-		reload()
-		for entry in released where !inFlight.contains(entry.id) {
-			send(entry)
-		}
+		queue.tokenAccepted()
 		resume()
 	}
 
@@ -206,18 +202,15 @@ final class SubmissionCoordinator {
 		}
 	}
 
+	/// Resumes after every answer, because the refusal of a token replaced meanwhile makes its
+	/// submission due at once, and the acceptance passed over that submission while it was in flight.
 	private func received(_ recorded: SubmissionAnswerRecord?, for identifier: UUID) {
 		inFlight.remove(identifier)
 		progress[identifier] = nil
-		reload()
-		switch recorded {
-		case .archived?:
+		resume()
+		if case .archived? = recorded {
 			gateway.synchronize()
 			contentChanged()
-		case .unavailable?:
-			scheduleResumption()
-		case .rejected?, .refusedToken?, nil:
-			break
 		}
 	}
 

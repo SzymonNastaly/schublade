@@ -107,15 +107,40 @@ final class SubmissionQueueTests: XCTestCase {
 		XCTAssertNil(queue.entries().first.flatMap(queue.documentFile(of:)))
 	}
 
+	/// An upload under way while a person replaced a refused token carries the old token, and the
+	/// archive's refusal of it says nothing of the new one, so the submission is sent again at once,
+	/// even a share whose extension claimed it a moment ago. A refusal of the new token stands.
+	func testARefusalOfATokenReplacedSinceSendsTheSubmissionAgainAtOnce() throws {
+		let queue = try Self.queue()
+		let sharedAt = Self.archivedAt
+		let acceptedAt = sharedAt.addingTimeInterval(60)
+		let share = try Self.enqueueLetter(into: queue, claimedAt: sharedAt)
+		queue.tokenAccepted(at: acceptedAt)
+
+		try queue.receive(.tokenRefused, for: SubmissionAttempt(submission: share.id, preparedAt: sharedAt))
+
+		XCTAssertEqual(queue.entry(share.id)?.sendingDueAt, acceptedAt)
+		let preparedAfter = SubmissionAttempt(submission: share.id, preparedAt: acceptedAt.addingTimeInterval(1))
+		try queue.receive(.tokenRefused, for: preparedAfter)
+		XCTAssertNil(queue.entry(share.id)?.sendingDueAt)
+	}
+
 	private static func queue() throws -> SubmissionQueue {
 		let directory = URL.temporaryDirectory.appending(path: UUID().uuidString, directoryHint: .isDirectory)
 		try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
 		return SubmissionQueue(root: directory.appending(path: "queue", directoryHint: .isDirectory))
 	}
 
-	private static func enqueueLetter(into queue: SubmissionQueue) throws -> SubmissionEntry {
+	private static func enqueueLetter(into queue: SubmissionQueue, claimedAt: Date? = nil) throws -> SubmissionEntry {
 		let letter = URL.temporaryDirectory.appending(path: "\(UUID().uuidString).pdf")
 		try Data("%PDF-1.4\nA letter answered twice \(UUID().uuidString)\n%%EOF\n".utf8).write(to: letter)
-		return try queue.enqueue(document: letter, fileName: "Letter.pdf", kind: .pdf, origin: .share)
+		return try queue.enqueue(
+			document: letter,
+			fileName: "Letter.pdf",
+			kind: .pdf,
+			origin: .share,
+			claimingUpload: claimedAt != nil,
+			now: claimedAt ?? .now
+		)
 	}
 }

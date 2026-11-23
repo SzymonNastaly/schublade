@@ -20,6 +20,8 @@ public struct SubmissionQueue: Sendable {
 	/// The first page as a small JPEG, which stays when the archive takes the bytes, so the row keeps
 	/// its picture until the archive's own replaces it.
 	private static let pictureName = "thumbnail.jpg"
+	/// When the archive last accepted a token that permits sending.
+	private static let tokenAcceptanceName = "token_accepted.json"
 	/// How long an archived submission stays listed.
 	public static let archivedRetention: TimeInterval = 7 * 24 * 3600
 
@@ -164,7 +166,7 @@ public struct SubmissionQueue: Sendable {
 			rename(temporaryPath, archivedPath)
 		case .archived(_, alreadyHeld: true, _):
 			renamex_np(temporaryPath, archivedPath, UInt32(RENAME_EXCL))
-		case .rejected, .refusedToken, .unavailable:
+		case .rejected, .refusedToken, .tokenReplaced, .unavailable:
 			rename(temporaryPath, directory.appending(path: Self.answerName).path(percentEncoded: false))
 		}
 		if renamed != 0 {
@@ -185,7 +187,10 @@ public struct SubmissionQueue: Sendable {
 
 	/// Records the archive's answer to one upload, or the lack of one, whichever process the upload's
 	/// session delivered it to, and removes that upload's body, which no other upload reads. Answers
-	/// nil when the submission is gone.
+	/// nil when the submission is gone. A refusal of the token of an attempt prepared before the last
+	/// accepted token is not final, because it says nothing of the token that replaced it. The
+	/// acceptance is read after the refusal is written, and `tokenAccepted` writes the acceptance
+	/// before it reads the refusals, so one of the two releases every such refusal.
 	@discardableResult
 	public func receive(
 		_ answer: DocumentSubmissionAnswer?,
@@ -195,7 +200,36 @@ public struct SubmissionQueue: Sendable {
 		guard let entry = entry(attempt.submission) else {
 			return nil
 		}
-		return try record(SubmissionAnswerRecord(answer: answer, previous: entry.answer), for: attempt.submission)
+		let recorded = try record(
+			SubmissionAnswerRecord(answer: answer, previous: entry.answer),
+			for: attempt.submission
+		)
+		guard case .refusedToken = recorded, let acceptedAt = tokenAcceptedAt, attempt.preparedAt < acceptedAt else {
+			return recorded
+		}
+		return try record(.tokenReplaced(acceptedAt: acceptedAt), for: attempt.submission)
+	}
+
+	/// The archive accepted a token that permits sending at `now`. Every token refusal recorded so far
+	/// answered an upload prepared before, so each submission is sent again with the new token.
+	public func tokenAccepted(at now: Date = .now) {
+		let acceptance = root.appending(path: Self.tokenAcceptanceName)
+		let temporary = root.appending(path: "\(Self.tokenAcceptanceName).\(UUID().uuidString)")
+		try? FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+		let written = (try? JSONEncoder().encode(now).write(to: temporary)) != nil
+		if !written || rename(temporary.path(percentEncoded: false), acceptance.path(percentEncoded: false)) != 0 {
+			try? FileManager.default.removeItem(at: temporary)
+		}
+		for entry in entries() {
+			if case .refusedToken? = entry.answer {
+				_ = try? record(.tokenReplaced(acceptedAt: now), for: entry.id)
+			}
+		}
+	}
+
+	private var tokenAcceptedAt: Date? {
+		(try? Data(contentsOf: root.appending(path: Self.tokenAcceptanceName)))
+			.flatMap { try? JSONDecoder().decode(Date.self, from: $0) }
 	}
 
 	/// Removes the document and the body of every upload of an archived submission, because the
@@ -211,19 +245,6 @@ public struct SubmissionQueue: Sendable {
 		)) ?? []
 		for file in files where file.lastPathComponent.hasPrefix("\(Self.bodyName).") {
 			try? FileManager.default.removeItem(at: file)
-		}
-	}
-
-	/// Clears the answer of every submission whose token the archive refused, so each is sent again
-	/// with the token that replaced it, and answers them. A share extension's claim of such a
-	/// submission holds again, though its upload was answered, so the caller sends them at once.
-	public func releaseRefusedTokens() -> [SubmissionEntry] {
-		entries().compactMap { refused in
-			guard case .refusedToken? = refused.answer else {
-				return nil
-			}
-			try? FileManager.default.removeItem(at: directory(of: refused.id).appending(path: Self.answerName))
-			return entry(refused.id)
 		}
 	}
 

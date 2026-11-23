@@ -10,18 +10,26 @@ public enum SubmissionAnswerRecord: Codable, Equatable, Sendable {
 	case rejected(reason: String, answeredAt: Date)
 	/// The archive refused the token, or the token does not permit sending.
 	case refusedToken(answeredAt: Date)
+	/// The archive refused a token that it has replaced since with the token accepted at
+	/// `acceptedAt`, which no upload has carried yet.
+	case tokenReplaced(acceptedAt: Date)
 	/// No answer or one that says to try again. `attempts` counts the answers of this kind in a row.
 	case unavailable(attempts: Int, answeredAt: Date)
 
-	/// When an unavailable submission is sent again: a minute after the first failure, doubling
-	/// with each one after, and at most an hour apart.
+	/// When the submission is sent again: one whose token was replaced at once, even a share whose
+	/// extension's claim has not lapsed, because the archive answered its upload; an unavailable one
+	/// a minute after the first failure, doubling with each one after, and at most an hour apart.
 	public var nextAttempt: Date? {
-		guard case let .unavailable(attempts, answeredAt) = self else {
+		switch self {
+		case let .tokenReplaced(acceptedAt):
+			return acceptedAt
+		case let .unavailable(attempts, answeredAt):
+			let exponent = min(max(attempts - 1, 0), 6)
+			let delay = min(60.0 * Double(1 << exponent), 3600)
+			return answeredAt.addingTimeInterval(delay)
+		case .archived, .rejected, .refusedToken:
 			return nil
 		}
-		let exponent = min(max(attempts - 1, 0), 6)
-		let delay = min(60.0 * Double(1 << exponent), 3600)
-		return answeredAt.addingTimeInterval(delay)
 	}
 }
 

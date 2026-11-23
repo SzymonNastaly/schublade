@@ -79,7 +79,7 @@ nonisolated enum ArrivalPresentation {
 		let stage: ArrivalStage
 		var opened: DocumentIdentifier?
 		switch entry.answer {
-		case nil, .unavailable:
+		case nil, .unavailable, .tokenReplaced:
 			if let sentFraction, sentFraction > 0 {
 				stage = .sending(fraction: min(sentFraction, 1))
 			} else if case let .unavailable(attempts, answeredAt)? = entry.answer {

@@ -11,28 +11,40 @@ public enum SubmissionPreparation: Sendable {
 /// One upload of a submission. Each has a body file of its own, because after the share
 /// extension's claim lapsed the application sends a submission whose upload in the extension's
 /// session may still wait to read its body. The upload's task carries the attempt as its
-/// description, so whichever process receives the answer removes that body and no other.
+/// description, so whichever process receives the answer removes that body and no other, and knows
+/// whether the token it carried was replaced since.
 public struct SubmissionAttempt: Hashable, Sendable {
 	public let submission: UUID
 	public let identifier: UUID
+	/// Taken before the body reads the token, so an attempt prepared after a token was accepted
+	/// carries that token.
+	public let preparedAt: Date
 
-	public init(submission: UUID) {
+	public init(submission: UUID, preparedAt: Date = .now) {
 		self.submission = submission
 		identifier = UUID()
+		self.preparedAt = preparedAt
 	}
 
-	/// The attempt that a task's description names, nil for a task that names none.
+	/// The attempt that a task's description names, nil for a task that names none. An upload
+	/// started by a build whose descriptions carried no time counts as prepared before any token was
+	/// accepted.
 	public init?(taskDescription: String?) {
-		let parts = taskDescription?.split(separator: " ").compactMap { UUID(uuidString: String($0)) } ?? []
-		guard parts.count == 2 else {
+		let parts = taskDescription?.split(separator: " ").map(String.init) ?? []
+		guard (2 ... 3).contains(parts.count),
+		      let submission = UUID(uuidString: parts[0]),
+		      let identifier = UUID(uuidString: parts[1])
+		else {
 			return nil
 		}
-		submission = parts[0]
-		identifier = parts[1]
+		self.submission = submission
+		self.identifier = identifier
+		let seconds = parts.count == 3 ? TimeInterval(parts[2]) : nil
+		preparedAt = seconds.map(Date.init(timeIntervalSinceReferenceDate:)) ?? .distantPast
 	}
 
 	public var taskDescription: String {
-		"\(submission.uuidString) \(identifier.uuidString)"
+		"\(submission.uuidString) \(identifier.uuidString) \(preparedAt.timeIntervalSinceReferenceDate)"
 	}
 }
 

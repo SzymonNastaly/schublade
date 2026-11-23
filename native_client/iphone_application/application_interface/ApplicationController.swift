@@ -94,7 +94,11 @@ final class ApplicationController {
 	func connect(address: String, token: String) async -> String? {
 		do throws(ConnectionRefusal) {
 			let grant = try await gateway.connectArchive(address: address, token: token)
-			submissions.tokenAccepted(by: grant.origin)
+			// The ingest route refuses a restricted token, so the held submissions wait for one that
+			// may send. The grant answers before `sendingPermitted`, which waits for the next status.
+			if !grant.restricted {
+				submissions.tokenAccepted(by: grant.origin)
+			}
 			return nil
 		} catch {
 			return ConnectionWording.refusalSentence(error)
