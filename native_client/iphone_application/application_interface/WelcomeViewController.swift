@@ -239,7 +239,7 @@ final class WelcomeViewController: UIViewController, UICollectionViewDataSource,
 		case .token:
 			cell.host(FormFieldView(label: "Token", field: tokenField, accessory: pasteControl))
 		case .connect:
-			cell.host(connectButton, insets: .zero)
+			cell.host(connectButton, fillingCell: true)
 		}
 	}
 

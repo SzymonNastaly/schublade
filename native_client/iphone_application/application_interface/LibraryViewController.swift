@@ -45,7 +45,7 @@ final class LibraryViewController: UIViewController {
 		}
 	}
 
-	private(set) var chosenScope = NamedScope(scope: .allDocuments, name: "All Documents")
+	private(set) var chosenScope = NamedScope.allDocuments
 	private var searchText = ""
 	private var answer: ListedAnswer?
 	private(set) var state = LibraryListState.awaitingListing
@@ -124,7 +124,7 @@ final class LibraryViewController: UIViewController {
 		}
 		searchText = text
 		searchDelay?.cancel()
-		guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+		guard !text.isBlank else {
 			requestListing()
 			return
 		}
@@ -177,7 +177,7 @@ final class LibraryViewController: UIViewController {
 		LibraryEmptyStates.Actions(
 			scan: { [weak self] in self?.capture.scan(animated: true) },
 			searchAllDocuments: { [weak self] in
-				self?.choose(NamedScope(scope: .allDocuments, name: "All Documents"))
+				self?.choose(.allDocuments)
 			},
 			readAgain: { [weak self] in self?.requestListing() }
 		)
@@ -261,7 +261,7 @@ private extension LibraryViewController {
 	func render() {
 		let sendingPermitted = controller.sendingPermitted
 		let context = WordingContext.current()
-		let searching = !(answer?.searchText ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+		let searching = !(answer?.searchText ?? "").isBlank
 		let arrivals = searching ? [] : controller.submissions.arrivals(context: context)
 		let landed = arrivalMoments.follow(
 			arrivals,

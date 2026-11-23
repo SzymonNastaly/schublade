@@ -83,29 +83,19 @@ final class TokenField: UITextField {
 }
 
 extension UICollectionViewListCell {
-	/// Puts a view of the form in the cell, inside its margins or at the given insets.
-	func host(_ content: UIView, insets: NSDirectionalEdgeInsets? = nil) {
+	/// Puts a view of the form in the cell, inside its margins, or filling it to its edges.
+	func host(_ content: UIView, fillingCell: Bool = false) {
 		contentConfiguration = nil
 		contentView.subviews.forEach { $0.removeFromSuperview() }
 		content.translatesAutoresizingMaskIntoConstraints = false
 		contentView.addSubview(content)
 		let margins = contentView.layoutMarginsGuide
 		NSLayoutConstraint.activate([
-			content.topAnchor.constraint(
-				equalTo: insets == nil ? margins.topAnchor : contentView.topAnchor,
-				constant: insets?.top ?? 0
-			),
-			content.bottomAnchor.constraint(
-				equalTo: insets == nil ? margins.bottomAnchor : contentView.bottomAnchor,
-				constant: -(insets?.bottom ?? 0)
-			),
-			content.leadingAnchor.constraint(
-				equalTo: insets == nil ? margins.leadingAnchor : contentView.leadingAnchor,
-				constant: insets?.leading ?? 0
-			),
+			content.topAnchor.constraint(equalTo: fillingCell ? contentView.topAnchor : margins.topAnchor),
+			content.bottomAnchor.constraint(equalTo: fillingCell ? contentView.bottomAnchor : margins.bottomAnchor),
+			content.leadingAnchor.constraint(equalTo: fillingCell ? contentView.leadingAnchor : margins.leadingAnchor),
 			content.trailingAnchor.constraint(
-				equalTo: insets == nil ? margins.trailingAnchor : contentView.trailingAnchor,
-				constant: -(insets?.trailing ?? 0)
+				equalTo: fillingCell ? contentView.trailingAnchor : margins.trailingAnchor
 			),
 		])
 	}

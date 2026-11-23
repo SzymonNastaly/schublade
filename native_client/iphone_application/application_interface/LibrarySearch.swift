@@ -6,8 +6,22 @@ struct ScopeSuggestion: Equatable {
 	let scope: NamedScope
 	/// "Category", "Tag", or "Person".
 	let kind: String
-	let symbol: String
 	let documents: UInt64
+
+	var symbol: String {
+		LibraryScopeMenu.symbol(of: scope.scope)
+	}
+}
+
+extension String {
+	/// Whether a person typed nothing but spaces, which searches for nothing.
+	var isBlank: Bool {
+		trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+	}
+}
+
+extension NamedScope {
+	static let allDocuments = NamedScope(scope: .allDocuments, name: "All Documents")
 }
 
 /// The library's search field: the chosen scope as a token while a person searches, the scopes
@@ -57,12 +71,7 @@ final class LibrarySearch: NSObject {
 			counts.filter { count in
 				count.scope.scope != chosen && begins(count.scope.name, with: typed)
 			}.map { count in
-				ScopeSuggestion(
-					scope: count.scope,
-					kind: kind,
-					symbol: LibraryScopeMenu.symbol(of: count.scope.scope),
-					documents: count.documents
-				)
+				ScopeSuggestion(scope: count.scope, kind: kind, documents: count.documents)
 			}
 		}
 		return Array(offered.prefix(maximumSuggestions))
@@ -132,7 +141,7 @@ extension LibrarySearch: UISearchResultsUpdating, UISearchControllerDelegate {
 		// The person deleted the token, which shows everything again.
 		if tokenScope != nil, searchController.searchBar.searchTextField.tokens.isEmpty {
 			tokenScope = nil
-			screen.choose(NamedScope(scope: .allDocuments, name: "All Documents"))
+			screen.choose(.allDocuments)
 		}
 		screen.searchTextChanged(searchController.searchBar.text ?? "")
 	}

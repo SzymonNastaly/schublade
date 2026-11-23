@@ -57,7 +57,7 @@ enum LibraryListState: Equatable {
 			if !sections.isEmpty {
 				return .documents(sections)
 			}
-			let searching = !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+			let searching = !searchText.isBlank
 			if case .filling = status.copy, !searching {
 				return .fillingCopy(StatusLinePresentation.resolve(
 					library: status,

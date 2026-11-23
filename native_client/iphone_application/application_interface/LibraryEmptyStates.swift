@@ -26,25 +26,22 @@ enum LibraryEmptyStates {
 			loading.text = "Loading Documents…"
 			loading.secondaryText = status.text
 			return loading
-		case let .empty(empty), let .failed(empty):
-			var configuration = UIContentUnavailableConfiguration.search()
-			if case .failed = state {
-				configuration = .empty()
-				configuration.image = UIImage(systemName: "exclamationmark.triangle")
-			} else if !searching {
-				configuration = .empty()
+		case let .failed(empty):
+			var configuration = UIContentUnavailableConfiguration.empty()
+			configuration.image = UIImage(systemName: "exclamationmark.triangle")
+			configuration.text = empty.title
+			configuration.secondaryText = empty.detail
+			addPlainButton("Try Again", to: &configuration, perform: actions.readAgain)
+			return configuration
+		case let .empty(empty):
+			var configuration: UIContentUnavailableConfiguration = searching ? .search() : .empty()
+			if !searching {
 				configuration.image = UIImage(systemName: "tray")
 			}
 			configuration.text = empty.title
 			configuration.secondaryText = empty.detail
-			if case .failed = state {
-				configuration.button = .plain()
-				configuration.button.title = "Try Again"
-				configuration.buttonProperties.primaryAction = UIAction { _ in actions.readAgain() }
-			} else if empty.showsSearchAllDocumentsButton {
-				configuration.button = .plain()
-				configuration.button.title = "Search All Documents"
-				configuration.buttonProperties.primaryAction = UIAction { _ in actions.searchAllDocuments() }
+			if empty.showsSearchAllDocumentsButton {
+				addPlainButton("Search All Documents", to: &configuration, perform: actions.searchAllDocuments)
 			}
 			return configuration
 		case .emptyArchive:
@@ -66,5 +63,15 @@ enum LibraryEmptyStates {
 			}
 			return configuration
 		}
+	}
+
+	private static func addPlainButton(
+		_ title: String,
+		to configuration: inout UIContentUnavailableConfiguration,
+		perform: @escaping () -> Void
+	) {
+		configuration.button = .plain()
+		configuration.button.title = title
+		configuration.buttonProperties.primaryAction = UIAction { _ in perform() }
 	}
 }
