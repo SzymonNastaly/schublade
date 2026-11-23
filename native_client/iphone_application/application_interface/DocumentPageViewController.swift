@@ -3,56 +3,84 @@ import LibraryPresentation
 import Observation
 import UIKit
 
-/// It reads the detail again whenever the copy changes, so a document opened from a Sending row
-/// appears once the copy holds it.
+/// How a person reached a document's page, which decides what the page says while the copy lacks
+/// the document.
+enum DocumentOpening: Equatable {
+	/// From a row of the copy's listing, which held the document.
+	case listed
+	/// From an arrival the archive named, which the copy may not have read yet.
+	case arrival
+	/// From a row under Matches in Text: the text opens above the page, finding the search's words.
+	case textMatch(searchText: String)
+}
+
+/// The original under both bars, with the details as a sheet over it and the text one page further.
+/// It reads the detail again whenever the copy changes, so a document opened from an arrival
+/// appears once the copy holds it, and an email's PDF once the archive printed it.
 final class DocumentPageViewController: UIViewController {
-	enum Segment: Equatable {
-		case reader(ReaderTab)
-		case details
-
-		static let all: [Segment] = [.reader(.original), .reader(.text), .details]
-
-		var title: String {
-			switch self {
-			case .reader(.original): "Original"
-			case .reader(.text): "Text"
-			case .details: "Details"
-			}
-		}
-	}
-
 	enum DetailState: Equatable {
 		case loading
-		/// The archive holds the document, but the copy does not yet.
+		/// The archive named the document, and the copy has not read it yet.
+		case arriving
+		/// The copy held the document and holds it no longer, or read the archive without finding it.
 		case absent
 		case loaded(DocumentDetail)
 		case failed(ApplicationFault)
 	}
 
+	/// The longest a request for a page of changes takes. A page the copy applied this long after a
+	/// page began awaiting a document was requested after the archive named it.
+	private static let pageRequestLimit: TimeInterval = 30
+
 	let document: DocumentIdentifier
+	private let opening: DocumentOpening
 	private let controller: ApplicationController
 	private let showScope: (NamedScope) -> Void
-	private lazy var actions = DocumentFileActions(gateway: controller.gateway, document: document, presenter: self)
-	private let segmentedControl = UISegmentedControl(items: Segment.all.map(\.title))
-	private let segmentBar = UIView()
-	private let content = UIView()
+	/// When the page began awaiting a document the copy has not read, nil once the copy held it or
+	/// when the page opened from the copy's listing.
+	private var awaitingSince: Date?
 	private(set) var detailState = DetailState.loading
-	private(set) var segment = Segment.reader(.original)
 	private var loadedRevision: UInt64?
 	private var newestDetailRequest: UInt64 = 0
 	private(set) var original: DocumentOriginalViewController?
-	private(set) var text: DocumentTextViewController?
-	private(set) var details: DocumentDetailsViewController?
+	private(set) weak var text: DocumentTextViewController?
+	private lazy var actions: DocumentFileActions = .init(
+		gateway: controller.gateway,
+		document: document,
+		page: self
+	) { [weak self] in
+		self?.detailsSheet.toggle()
+	}
+
+	private lazy var detailsSheet: DocumentDetailsSheet = .init(
+		details: DocumentDetailsViewController(
+			showScope: { [weak self] scope in
+				self?.detailsSheet.dismiss(animated: true) { self?.showScope(scope) }
+			},
+			showText: { [weak self] in self?.showText() }
+		),
+		toolbarItems: actions.sheetItems,
+		page: self
+	) { [weak self] covered in
+		self?.original?.additionalSafeAreaInsets.bottom = covered
+	}
+
+	var details: DocumentDetailsViewController {
+		detailsSheet.details
+	}
 
 	init(
 		controller: ApplicationController,
 		document: DocumentIdentifier,
 		provisionalTitle: String?,
+		opening: DocumentOpening,
 		showScope: @escaping (NamedScope) -> Void
 	) {
 		self.controller = controller
 		self.document = document
+		self.opening = opening
 		self.showScope = showScope
+		awaitingSince = opening == .arrival ? Date() : nil
 		super.init(nibName: nil, bundle: nil)
 		title = provisionalTitle
 	}
@@ -66,16 +94,7 @@ final class DocumentPageViewController: UIViewController {
 		super.viewDidLoad()
 		navigationItem.largeTitleDisplayMode = .never
 		view.backgroundColor = .systemBackground
-		buildSegmentBar()
-		content.translatesAutoresizingMaskIntoConstraints = false
-		view.addSubview(content)
-		NSLayoutConstraint.activate([
-			content.topAnchor.constraint(equalTo: segmentBar.bottomAnchor),
-			content.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-			content.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-			content.bottomAnchor.constraint(equalTo: view.bottomAnchor),
-		])
-		toolbarItems = actions.toolbarItems
+		toolbarItems = actions.pageItems
 		follow()
 	}
 
@@ -84,39 +103,66 @@ final class DocumentPageViewController: UIViewController {
 		navigationController?.setToolbarHidden(false, animated: animated)
 	}
 
-	func select(_ segment: Segment) {
-		self.segment = segment
-		segmentedControl.selectedSegmentIndex = Segment.all.firstIndex(of: segment) ?? 0
-		showContent()
+	override func viewDidAppear(_ animated: Bool) {
+		super.viewDidAppear(animated)
+		presentRememberedDetails(animated: animated)
 	}
 
-	private func buildSegmentBar() {
-		segmentedControl.selectedSegmentIndex = 0
-		segmentedControl.addAction(UIAction { [weak self] _ in
+	/// The sheet goes with the page, by the same gesture. A back swipe the person cancels brings
+	/// `viewDidAppear` again, which presents it again.
+	override func viewWillDisappear(_ animated: Bool) {
+		super.viewWillDisappear(animated)
+		detailsSheet.dismiss(animated: animated)
+	}
+
+	/// Pushes the page, with the text above it when a search matched the text.
+	func push(onto navigationController: UINavigationController?) {
+		guard let navigationController else {
+			return
+		}
+		guard case let .textMatch(searchText) = opening else {
+			navigationController.pushViewController(self, animated: true)
+			return
+		}
+		let stack = navigationController.viewControllers + [self, makeTextPage(searchText: searchText)]
+		navigationController.setViewControllers(stack, animated: true)
+	}
+
+	/// The text page of this document, for the navigation stack. `searchText` opens it with the
+	/// find navigator on those words.
+	func makeTextPage(searchText: String?) -> DocumentTextViewController {
+		let page = DocumentTextViewController(gateway: controller.gateway, document: document, searchText: searchText)
+		text = page
+		return page
+	}
+
+	/// Pushes the text, after the sheet has gone, which comes back as it was when the person returns.
+	func showText() {
+		let push = { [weak self] in
 			guard let self else {
 				return
 			}
-			select(Segment.all[segmentedControl.selectedSegmentIndex])
-		}, for: .valueChanged)
-		segmentedControl.accessibilityIdentifier = "document.segments"
-		segmentedControl.translatesAutoresizingMaskIntoConstraints = false
-		segmentBar.translatesAutoresizingMaskIntoConstraints = false
-		segmentBar.addSubview(segmentedControl)
-		view.addSubview(segmentBar)
-		NSLayoutConstraint.activate([
-			segmentBar.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
-			segmentBar.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-			segmentBar.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-			segmentedControl.topAnchor.constraint(equalTo: segmentBar.topAnchor, constant: 8),
-			segmentedControl.bottomAnchor.constraint(equalTo: segmentBar.bottomAnchor, constant: -8),
-			segmentedControl.leadingAnchor.constraint(equalTo: segmentBar.layoutMarginsGuide.leadingAnchor),
-			segmentedControl.trailingAnchor.constraint(equalTo: segmentBar.layoutMarginsGuide.trailingAnchor),
-		])
+			navigationController?.pushViewController(makeTextPage(searchText: nil), animated: true)
+		}
+		detailsSheet.dismiss(animated: true, completion: push)
+	}
+
+	private func presentRememberedDetails(animated: Bool) {
+		guard detailsSheet.remembered, case .loaded = detailState, view.window != nil,
+		      navigationController?.topViewController === self
+		else {
+			return
+		}
+		detailsSheet.present(animated: animated)
 	}
 
 	private func follow() {
 		withObservationTracking {
-			if case let .running(status) = controller.situation, status.contentRevision != loadedRevision {
+			guard case let .running(status) = controller.situation else {
+				return
+			}
+			// A copy that read the archive through changes no content when it lacks the document.
+			if status.contentRevision != loadedRevision || (detailState == .arriving && copyHasReadArchive(status)) {
 				loadDetail(revision: status.contentRevision)
 			}
 		} onChange: { [weak self] in
@@ -126,6 +172,13 @@ final class DocumentPageViewController: UIViewController {
 		}
 	}
 
+	private func copyHasReadArchive(_ status: LibraryStatus) -> Bool {
+		guard let awaitingSince, case let .complete(synchronizedAt) = status.copy else {
+			return awaitingSince == nil
+		}
+		return synchronizedAt.timeIntervalSince(awaitingSince) > Self.pageRequestLimit
+	}
+
 	private func loadDetail(revision: UInt64) {
 		loadedRevision = revision
 		newestDetailRequest &+= 1
@@ -133,7 +186,13 @@ final class DocumentPageViewController: UIViewController {
 		Task {
 			let state: DetailState
 			do throws(ApplicationFault) {
-				state = try await controller.gateway.document(document).map(DetailState.loaded) ?? .absent
+				if let detail = try await controller.gateway.document(document) {
+					state = .loaded(detail)
+				} else if case let .running(status) = controller.situation, !copyHasReadArchive(status) {
+					state = .arriving
+				} else {
+					state = .absent
+				}
 			} catch {
 				state = .failed(error)
 			}
@@ -149,83 +208,84 @@ final class DocumentPageViewController: UIViewController {
 	private func show(_ state: DetailState) {
 		detailState = state
 		guard case let .loaded(detail) = state else {
-			segmentBar.isHidden = true
 			actions.detail = nil
+			detailsSheet.dismiss(animated: true)
+			removeOriginal()
+			view.backgroundColor = .systemBackground
 			contentUnavailableConfiguration = Self.unavailableConfiguration(state)
 			return
 		}
+		awaitingSince = nil
 		let presentation = DocumentDetailPresentation.from(detail, context: .current())
 		title = presentation.title
 		if #available(iOS 26, *) {
-			navigationItem.subtitle = presentation.headerSubtitle
+			navigationItem.subtitle = Self.subtitle(of: detail)
 		}
-		segmentBar.isHidden = false
 		contentUnavailableConfiguration = nil
+		view.backgroundColor = InterfacePalette.readerBackdrop
 		actions.detail = presentation
-		original?.show(kind: detail.originalKind, failedDocumentPage: Self.failedDocumentPage(of: detail))
-		details?.show(presentation)
-		showContent()
+		details.show(presentation)
+		showOriginal(detail)
+		presentRememberedDetails(animated: true)
 	}
 
-	private func showContent() {
-		guard case let .loaded(detail) = detailState else {
-			return
-		}
-		// The bar above a part takes the part's background, so no band of another colour divides them.
-		view.backgroundColor = segment == .details ? .systemGroupedBackground : .systemBackground
-		let presentation = DocumentDetailPresentation.from(detail, context: .current())
-		let part: UIViewController
-		switch segment {
-		case .reader(.original):
-			let shown = original ?? DocumentOriginalViewController(
-				gateway: controller.gateway,
-				document: document,
-				kind: detail.originalKind
-			)
-			shown.show(kind: detail.originalKind, failedDocumentPage: Self.failedDocumentPage(of: detail))
-			original = shown
-			part = shown
-		case .reader(.text):
-			part = text ?? DocumentTextViewController(gateway: controller.gateway, document: document, searchText: nil)
-			text = part as? DocumentTextViewController
-		case .details:
-			let shown = details ?? DocumentDetailsViewController(showScope: showScope)
-			shown.show(presentation)
-			details = shown
-			part = shown
-		}
-		for child in children where child !== part {
-			child.willMove(toParent: nil)
-			child.view.removeFromSuperview()
-			child.removeFromParent()
-		}
-		guard part.parent == nil else {
-			return
-		}
-		addChild(part)
-		part.view.frame = content.bounds
-		part.view.autoresizingMask = [.flexibleWidth, .flexibleHeight]
-		content.addSubview(part.view)
-		part.didMove(toParent: self)
-	}
-
-	private static func failedDocumentPage(of detail: DocumentDetail) -> URL? {
-		if case .failed = detail.condition {
+	private func showOriginal(_ detail: DocumentDetail) {
+		let failedDocumentPage: URL? = if case .failed = detail.condition {
 			URL(string: detail.archivePage)
 		} else {
 			nil
 		}
+		if let original {
+			original.show(kind: detail.originalKind, failedDocumentPage: failedDocumentPage)
+			return
+		}
+		let shown = DocumentOriginalViewController(
+			gateway: controller.gateway,
+			document: document,
+			kind: detail.originalKind
+		)
+		shown.show(kind: detail.originalKind, failedDocumentPage: failedDocumentPage)
+		addChild(shown)
+		shown.view.frame = view.bounds
+		shown.view.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+		view.addSubview(shown.view)
+		shown.didMove(toParent: self)
+		shown.offerText { [weak self] in self?.showText() }
+		original = shown
+	}
+
+	private func removeOriginal() {
+		guard let original else {
+			return
+		}
+		original.willMove(toParent: nil)
+		original.view.removeFromSuperview()
+		original.removeFromParent()
+		self.original = nil
+	}
+
+	/// The sender and the full date. The page count is left out, because it truncated the line.
+	private static func subtitle(of detail: DocumentDetail) -> String {
+		let date = detail.documentDate.map { DocumentFormatting.calendarDate($0, context: .current()) }
+		return [detail.sender?.name, date].compactMap(\.self).filter { !$0.isEmpty }.joined(separator: " · ")
 	}
 
 	private static func unavailableConfiguration(_ state: DetailState) -> UIContentUnavailableConfiguration? {
 		switch state {
 		case .loading:
 			return .loading()
-		case .absent:
+		case .arriving:
 			var configuration = UIContentUnavailableConfiguration.loading()
 			configuration.text = "Arriving in Your Library"
 			configuration.secondaryText = "The archive holds this document. It opens here once \(IphoneDevice.wording.phrase) "
 				+ "has read it."
+			return configuration
+		case .absent:
+			var configuration = UIContentUnavailableConfiguration.empty()
+			configuration.image = UIImage(systemName: "doc")
+			configuration.text = "Not in Your Library"
+			configuration.secondaryText = "The archive no longer holds this document, or the token of "
+				+ "\(IphoneDevice.wording.phrase) may not read it."
 			return configuration
 		case let .failed(fault):
 			var configuration = UIContentUnavailableConfiguration.empty()

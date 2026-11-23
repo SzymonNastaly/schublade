@@ -26,8 +26,8 @@ final class LibraryInteraction: NSObject, UICollectionViewDelegate {
 
 	func collectionView(_: UICollectionView, didSelectItemAt indexPath: IndexPath) {
 		switch list.destination(at: indexPath) {
-		case let .document(document, title)?:
-			screen?.open(document, title: title)
+		case let .document(document, title, opening)?:
+			screen?.open(document, title: title, opening: opening)
 		case .tokenReplacement?:
 			screen?.replaceToken()
 		case let .scope(scope)?:
@@ -74,7 +74,7 @@ final class LibraryInteraction: NSObject, UICollectionViewDelegate {
 			return
 		}
 		animator.addCompletion { [weak self] in
-			self?.screen?.open(row.document, title: row.title)
+			self?.screen?.open(row.document, title: row.title, opening: .listed)
 		}
 	}
 

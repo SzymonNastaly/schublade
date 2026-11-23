@@ -2,67 +2,56 @@ import ApplicationBindings
 import LibraryPresentation
 import UIKit
 
+/// The details sheet over a document's original: the title and summary, the facts a person copies
+/// with a tap, what the document is filed under, its tags, and its file with the ways to the text
+/// and to the archive in the browser.
 final class DocumentDetailsViewController: UIViewController, UICollectionViewDataSource, UICollectionViewDelegate {
-	private struct DetailSection {
-		let header: String?
-		let rows: [DetailRow]
-	}
-
-	private struct DetailRow {
-		let text: String
-		let secondaryText: String?
-		let style: DetailRowStyle
-		let copyValue: String
-		let scope: NamedScope?
-	}
-
+	private static let copiedDuration = Duration.seconds(1)
 	private let showScope: (NamedScope) -> Void
-	private var sections: [DetailSection] = []
+	private let showText: () -> Void
+	private(set) var sections: [DocumentDetailSection] = []
+	/// The fact that reads "Copied" for a second after its tap.
+	private var copiedFact: IndexPath?
+	private var copyNumber: UInt64 = 0
+
 	private lazy var collectionView: UICollectionView = {
-		var configuration = UICollectionLayoutListConfiguration(appearance: .insetGrouped)
-		configuration.headerMode = .supplementary
-		configuration.itemSeparatorHandler = { _, separator in
-			var aligned = separator
-			aligned.bottomSeparatorInsets.leading = 20
-			return aligned
-		}
 		let layout = UICollectionViewCompositionalLayout { [weak self] index, environment in
-			var section = configuration
-			section.headerMode = self?.sections[index].header == nil ? .none : .supplementary
-			return NSCollectionLayoutSection.list(using: section, layoutEnvironment: environment)
+			var configuration = UICollectionLayoutListConfiguration(appearance: .insetGrouped)
+			configuration.backgroundColor = Self.sheetBackground
+			if let self, index < sections.count {
+				configuration.headerMode = sections[index].header == nil ? .none : .supplementary
+				configuration.footerMode = sections[index].footer == nil ? .none : .supplementary
+			}
+			return NSCollectionLayoutSection.list(using: configuration, layoutEnvironment: environment)
 		}
 		return UICollectionView(frame: .zero, collectionViewLayout: layout)
 	}()
 
-	private let cellRegistration = UICollectionView
-		.CellRegistration<UICollectionViewListCell, DetailRow> { cell, _, row in
-			var content: UIListContentConfiguration
-			switch row.style {
-			case .title:
-				content = .subtitleCell()
-				content.textProperties.font = .preferredFont(forTextStyle: .title2).bold()
-				content.secondaryTextProperties.font = .preferredFont(forTextStyle: .subheadline)
-				content.secondaryTextProperties.color = .secondaryLabel
-				content.textToSecondaryTextVerticalPadding = 6
-			case .field:
-				content = .valueCell()
-				content.prefersSideBySideTextAndSecondaryText = true
-				content.secondaryTextProperties.color = row.scope == nil ? .secondaryLabel : InterfacePalette.link
-			case .paragraph:
-				content = .cell()
-			}
-			content.text = row.text
-			content.secondaryText = row.secondaryText
-			cell.contentConfiguration = content
-			cell.accessories = row.scope == nil ? [] : [.disclosureIndicator()]
+	/// Clear from iOS 26, so the sheet's glass shows through, and the grouped background before.
+	private static var sheetBackground: UIColor {
+		if #available(iOS 26, *) {
+			.clear
+		} else {
+			.systemGroupedBackground
+		}
+	}
+
+	private lazy var cellRegistration = UICollectionView
+		.CellRegistration<UICollectionViewListCell, DocumentDetailRow> { [weak self] cell, indexPath, row in
+			row.configure(cell, copied: self?.copiedFact == indexPath)
 		}
 
 	private let headerRegistration = UICollectionView.SupplementaryRegistration<UICollectionViewListCell>(
 		elementKind: UICollectionView.elementKindSectionHeader
 	) { _, _, _ in }
 
-	init(showScope: @escaping (NamedScope) -> Void) {
+	private let footerRegistration = UICollectionView.SupplementaryRegistration<UICollectionViewListCell>(
+		elementKind: UICollectionView.elementKindSectionFooter
+	) { _, _, _ in }
+
+	init(showScope: @escaping (NamedScope) -> Void, showText: @escaping () -> Void) {
 		self.showScope = showScope
+		self.showText = showText
 		super.init(nibName: nil, bundle: nil)
 	}
 
@@ -73,8 +62,12 @@ final class DocumentDetailsViewController: UIViewController, UICollectionViewDat
 
 	override func viewDidLoad() {
 		super.viewDidLoad()
+		view.backgroundColor = Self.sheetBackground
+		collectionView.backgroundColor = Self.sheetBackground
 		collectionView.frame = view.bounds
 		collectionView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+		// A registration made during the first dequeue fails an assertion.
+		_ = cellRegistration
 		collectionView.dataSource = self
 		collectionView.delegate = self
 		collectionView.accessibilityIdentifier = "document.details"
@@ -82,39 +75,12 @@ final class DocumentDetailsViewController: UIViewController, UICollectionViewDat
 	}
 
 	func show(_ detail: DocumentDetailPresentation) {
-		let heading = DetailRow(
-			text: detail.title,
-			secondaryText: detail.headerSubtitle.isEmpty ? nil : detail.headerSubtitle,
-			style: .title,
-			copyValue: detail.title,
-			scope: nil
-		)
-		var shown = [DetailSection(header: nil, rows: [heading])]
-		if !detail.detailRows.isEmpty {
-			shown.append(DetailSection(header: "Details", rows: detail.detailRows.map { row in
-				DetailRow(
-					text: row.label,
-					secondaryText: row.displayValue,
-					style: .field,
-					copyValue: row.copyValue ?? row.displayValue,
-					scope: row.linkedScope
-				)
-			}))
+		let shown = DocumentDetailSection.sections(of: detail)
+		guard shown.map(\.rows) != sections.map(\.rows) else {
+			return
 		}
-		if let summary = detail.summary {
-			shown.append(DetailSection(header: "Summary", rows: [
-				DetailRow(text: summary, secondaryText: nil, style: .paragraph, copyValue: summary, scope: nil),
-			]))
-		}
-		if !detail.tags.isEmpty {
-			shown.append(DetailSection(header: "Tags", rows: detail.tags.map { tag in
-				DetailRow(text: tag.name, secondaryText: nil, style: .paragraph, copyValue: tag.name, scope: tag)
-			}))
-		}
-		shown.append(DetailSection(header: "File", rows: detail.fileFacts.map { fact in
-			DetailRow(text: fact.label, secondaryText: fact.value, style: .field, copyValue: fact.value, scope: nil)
-		}))
 		sections = shown
+		copiedFact = nil
 		if isViewLoaded {
 			collectionView.reloadData()
 		}
@@ -141,24 +107,41 @@ final class DocumentDetailsViewController: UIViewController, UICollectionViewDat
 
 	func collectionView(
 		_ collectionView: UICollectionView,
-		viewForSupplementaryElementOfKind _: String,
+		viewForSupplementaryElementOfKind kind: String,
 		at indexPath: IndexPath
 	) -> UICollectionReusableView {
-		let header = collectionView.dequeueConfiguredReusableSupplementary(using: headerRegistration, for: indexPath)
-		var content = UIListContentConfiguration.header()
-		content.text = sections[indexPath.section].header
-		header.contentConfiguration = content
-		return header
+		let section = sections[indexPath.section]
+		let isFooter = kind == UICollectionView.elementKindSectionFooter
+		let view = collectionView.dequeueConfiguredReusableSupplementary(
+			using: isFooter ? footerRegistration : headerRegistration,
+			for: indexPath
+		)
+		var content: UIListContentConfiguration = isFooter ? .footer() : .header()
+		content.text = isFooter ? section.footer : section.header
+		view.contentConfiguration = content
+		return view
 	}
 
 	func collectionView(_: UICollectionView, shouldSelectItemAt indexPath: IndexPath) -> Bool {
-		sections[indexPath.section].rows[indexPath.item].scope != nil
+		switch sections[indexPath.section].rows[indexPath.item] {
+		case .head, .fileFact: false
+		case .fact, .filed, .tag, .extractedText, .openInBrowser: true
+		}
 	}
 
 	func collectionView(_ collectionView: UICollectionView, didSelectItemAt indexPath: IndexPath) {
 		collectionView.deselectItem(at: indexPath, animated: true)
-		if let scope = sections[indexPath.section].rows[indexPath.item].scope {
+		switch sections[indexPath.section].rows[indexPath.item] {
+		case let .fact(row):
+			copy(row, at: indexPath)
+		case let .filed(_, scope), let .tag(scope):
 			showScope(scope)
+		case .extractedText:
+			showText()
+		case let .openInBrowser(page):
+			UIApplication.shared.open(page)
+		case .head, .fileFact:
+			break
 		}
 	}
 
@@ -167,10 +150,11 @@ final class DocumentDetailsViewController: UIViewController, UICollectionViewDat
 		contextMenuConfigurationForItemsAt indexPaths: [IndexPath],
 		point _: CGPoint
 	) -> UIContextMenuConfiguration? {
-		guard let indexPath = indexPaths.first else {
+		guard let indexPath = indexPaths.first,
+		      let value = sections[indexPath.section].rows[indexPath.item].copyValue
+		else {
 			return nil
 		}
-		let value = sections[indexPath.section].rows[indexPath.item].copyValue
 		return UIContextMenuConfiguration(actionProvider: { _ in
 			let copy = UIAction(title: "Copy", image: UIImage(systemName: "doc.on.doc")) { _ in
 				UIPasteboard.general.string = value
@@ -178,16 +162,38 @@ final class DocumentDetailsViewController: UIViewController, UICollectionViewDat
 			return UIMenu(children: [copy])
 		})
 	}
-}
 
-private enum DetailRowStyle {
-	case title
-	case field
-	case paragraph
-}
+	/// Writes the fact to the pasteboard, and its row reads "Copied" for a second.
+	private func copy(_ row: InspectorDetailRow, at indexPath: IndexPath) {
+		UIPasteboard.general.string = row.copyValue ?? row.displayValue
+		Haptics.factCopied()
+		UIAccessibility.post(notification: .announcement, argument: "Copied")
+		let previous = copiedFact
+		copiedFact = indexPath
+		copyNumber &+= 1
+		let number = copyNumber
+		redraw([previous, indexPath].compactMap(\.self))
+		Task { [weak self] in
+			try? await Task.sleep(for: Self.copiedDuration)
+			guard let self, copyNumber == number else {
+				return
+			}
+			copiedFact = nil
+			redraw([indexPath])
+		}
+	}
 
-private extension UIFont {
-	func bold() -> UIFont {
-		fontDescriptor.withSymbolicTraits(.traitBold).map { UIFont(descriptor: $0, size: 0) } ?? self
+	private func redraw(_ indexPaths: [IndexPath]) {
+		for indexPath in Set(indexPaths) {
+			guard let cell = collectionView.cellForItem(at: indexPath) as? UICollectionViewListCell,
+			      indexPath.section < sections.count, indexPath.item < sections[indexPath.section].rows.count
+			else {
+				continue
+			}
+			let row = sections[indexPath.section].rows[indexPath.item]
+			UIView.transition(with: cell, duration: 0.15, options: [.transitionCrossDissolve, .allowUserInteraction]) {
+				row.configure(cell, copied: self.copiedFact == indexPath)
+			}
+		}
 	}
 }

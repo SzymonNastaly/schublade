@@ -122,6 +122,18 @@ final class DocumentOriginalViewController: UIViewController {
 		pages?.contentInset.bottom = additionalSafeAreaInsets.bottom
 	}
 
+	/// VoiceOver's way to the text from wherever it is on the original, because for a person who
+	/// cannot see a scan its text is the document.
+	func offerText(_ showText: @escaping () -> Void) {
+		let action = UIAccessibilityCustomAction(name: "Show Text") { _ in
+			showText()
+			return true
+		}
+		for shown in [view, portableDocumentView, pictureView] as [UIView] {
+			shown.accessibilityCustomActions = [action]
+		}
+	}
+
 	func contentRevisionChanged() {
 		if case .unavailable = state {
 			load()

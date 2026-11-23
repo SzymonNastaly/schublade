@@ -216,16 +216,17 @@ final class LibraryViewController: UIViewController {
 }
 
 extension LibraryViewController {
-	func open(_ document: DocumentIdentifier, title: String?) {
+	func open(_ document: DocumentIdentifier, title: String?, opening: DocumentOpening) {
 		let page = DocumentPageViewController(
 			controller: controller,
 			document: document,
-			provisionalTitle: title
+			provisionalTitle: title,
+			opening: opening
 		) { [weak self] scope in
 			self?.navigationController?.popToRootViewController(animated: true)
 			self?.choose(scope)
 		}
-		navigationController?.pushViewController(page, animated: true)
+		page.push(onto: navigationController)
 	}
 
 	/// A scope the search offered: the text goes, and the scope becomes the search field's token.

@@ -1,9 +1,9 @@
 import UIKit
 
 /// The colours Schublade brings from its website into an otherwise native screen, the same as the
-/// Mac's: blue for the archive, orange for what needs attention, and the link blue of titles. Each
-/// has a dark variant, because the website has none. Controls and text in the archive's blue take
-/// the AccentColor asset.
+/// Mac's: blue for the archive and orange for what needs attention. Each has a dark variant,
+/// because the website has none. Controls and text in the archive's blue take the AccentColor
+/// asset.
 enum InterfacePalette {
 	/// The documents section of the website, for graphics only, such as the ring of an upload: as
 	/// text on white it measures 3.08:1, below the 4.5:1 that text needs.
@@ -11,8 +11,6 @@ enum InterfacePalette {
 	/// The orange of the website's failed documents, darkened in the light appearance to 5.09:1 on
 	/// white, for the text and the symbols of what needs a person's attention.
 	static let attentionText = dynamic(light: 0xA85A00, dark: 0xF5A03C)
-	/// The website's link colour, for links to documents.
-	static let link = dynamic(light: 0x0B57B0, dark: 0x7DB8FF)
 	/// Behind the picture of a page, which is white in either appearance.
 	nonisolated static let paper = UIColor.white
 	/// The edge drawn into a page's picture, which shows on a light row and fades on a dark one.

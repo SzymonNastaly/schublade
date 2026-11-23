@@ -98,8 +98,9 @@ final class ApplicationEndToEndTests: XCTestCase {
 		await gateway.shutdown()
 	}
 
-	/// A seeded document opened from the list as a person taps its row: the page reads the detail, the
-	/// original as a PDF of one page, and the extracted text.
+	/// A seeded document opened from the list as a person taps its row: the page reads the detail into
+	/// its details sheet, the original as a PDF of one page, and the extracted text on the page that
+	/// the sheet's Extracted Text row pushes.
 	@MainActor
 	func testADocumentOpensFromTheList() async throws {
 		let controller = ApplicationController(environment: .isolated())
@@ -121,18 +122,7 @@ final class ApplicationEndToEndTests: XCTestCase {
 		let row = try XCTUnwrap(sections.first?.rows.first)
 		XCTAssertEqual(row.title, "Haftpflichtversicherung Rechnung 5")
 
-		let indexPath = try XCTUnwrap(library.list.indexPath(of: .document(row.document)))
-		let rows = library.list.collectionView
-		rows.delegate?.collectionView?(rows, didSelectItemAt: indexPath)
-		let page = try XCTUnwrap(navigation.topViewController as? DocumentPageViewController)
-		page.loadViewIfNeeded()
-		try await waitUntil("the detail is read") {
-			if case .loaded = page.detailState {
-				true
-			} else {
-				false
-			}
-		}
+		let page = try await Self.tap(row, in: library)
 		XCTAssertEqual(page.title, "Haftpflichtversicherung Rechnung 5")
 		try await waitUntil("the original shows as a PDF") {
 			if case let .portableDocument(document)? = page.original?.state {
@@ -142,15 +132,45 @@ final class ApplicationEndToEndTests: XCTestCase {
 			}
 		}
 
-		page.select(.reader(.text))
+		let detailRows = page.details.sections.flatMap(\.rows)
+		guard case let .head(title, _)? = detailRows.first else {
+			return XCTFail("The details sheet begins with \(String(describing: detailRows.first))")
+		}
+		XCTAssertEqual(title, "Haftpflichtversicherung Rechnung 5")
+		XCTAssertTrue(detailRows.contains(.extractedText))
+
+		page.showText()
+		let textPage = try XCTUnwrap(navigation.topViewController as? DocumentTextViewController)
+		textPage.loadViewIfNeeded()
 		try await waitUntil("the extracted text shows") {
-			if case let .text(text)? = page.text?.state {
+			if case let .text(text) = textPage.state {
 				text.contains("Rechnung Nummer 5 für Haftpflichtversicherung.")
 			} else {
 				false
 			}
 		}
 		await controller.gateway.shutdown()
+	}
+
+	/// Taps the row as a person does and waits until the page has read the document's detail.
+	@MainActor
+	private static func tap(
+		_ row: DocumentRow,
+		in library: LibraryViewController
+	) async throws -> DocumentPageViewController {
+		let indexPath = try XCTUnwrap(library.list.indexPath(of: .document(row.document)))
+		let rows = library.list.collectionView
+		rows.delegate?.collectionView?(rows, didSelectItemAt: indexPath)
+		let page = try XCTUnwrap(library.navigationController?.topViewController as? DocumentPageViewController)
+		page.loadViewIfNeeded()
+		try await waitUntil("the detail is read") {
+			if case .loaded = page.detailState {
+				true
+			} else {
+				false
+			}
+		}
+		return page
 	}
 
 	@MainActor

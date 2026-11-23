@@ -59,6 +59,17 @@ await_text() {
 	return 1
 }
 
+# Fails after the given seconds unless the text has left the accessibility tree.
+await_text_gone() {
+	local text="$1" seconds="$2"
+	for _ in $(seq "$seconds"); do
+		[[ "$(axe describe-ui --udid "$simulator")" != *"$text"* ]] && return 0
+		sleep 1
+	done
+	echo "error: \"$text\" did not leave the screen within $seconds seconds in the $appearance scenes" >&2
+	return 1
+}
+
 # Keeps the screen once two screenshots a second apart are identical, so no animation is caught
 # half-way and no picture is caught loading.
 capture() {
@@ -87,9 +98,17 @@ return_to_library() {
 	sleep 1
 }
 
+# Opens a document's page and waits for its original. The page presents the details sheet if it
+# showed when the last page closed, a moment after the original.
 open_document() {
 	axe tap --id "$1" --wait-timeout 10 --udid "$simulator" >/dev/null
-	await_text '"AXUniqueId" : "document.segments"' 10
+	await_text '"AXUniqueId" : "document.original.pdf"' 10
+	await_text 'Ihre Rechnung' 20
+	sleep 2
+}
+
+details_sheet_shown() {
+	[[ "$(axe describe-ui --udid "$simulator")" == *'"AXUniqueId" : "document.details.hide"'* ]]
 }
 
 scene_library_arriving() {
@@ -116,9 +135,10 @@ scene_search_scope() {
 
 scene_document_original() {
 	open_document "$nordkabel_invoice"
-	axe tap --label Original --udid "$simulator" >/dev/null
-	await_text '"AXUniqueId" : "document.original.pdf"' 10
-	await_text 'Ihre Rechnung' 20
+	if details_sheet_shown; then
+		axe tap --id document.details.hide --udid "$simulator" >/dev/null
+		await_text_gone '"AXUniqueId" : "document.details.hide"' 10
+	fi
 	capture "$1"
 	axe tap --id BackButton --udid "$simulator" >/dev/null
 	return_to_library
@@ -126,8 +146,10 @@ scene_document_original() {
 
 scene_document_details() {
 	open_document "$nordkabel_invoice"
-	axe tap --label Details --udid "$simulator" >/dev/null
-	await_text '"AXUniqueId" : "document.details"' 10
+	if ! details_sheet_shown; then
+		axe tap --id document.details.show --udid "$simulator" >/dev/null
+		await_text '"AXUniqueId" : "document.details.hide"' 10
+	fi
 	capture "$1"
 	axe tap --id BackButton --udid "$simulator" >/dev/null
 	return_to_library

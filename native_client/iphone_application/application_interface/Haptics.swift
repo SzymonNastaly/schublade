@@ -16,4 +16,9 @@ enum Haptics {
 	static func arrivalRefused() {
 		UINotificationFeedbackGenerator().notificationOccurred(.error)
 	}
+
+	/// A person copied a fact of a document's details.
+	static func factCopied() {
+		UIImpactFeedbackGenerator(style: .light).impactOccurred()
+	}
 }

@@ -5,7 +5,7 @@ import UIKit
 
 final class LibraryList {
 	enum Destination {
-		case document(DocumentIdentifier, title: String?)
+		case document(DocumentIdentifier, title: String?, opening: DocumentOpening)
 		/// The form that replaces a token the archive refused.
 		case tokenReplacement
 		/// A scope the search offered.
@@ -131,7 +131,13 @@ final class LibraryList {
 	func destination(at indexPath: IndexPath) -> Destination? {
 		switch dataSource?.itemIdentifier(for: indexPath) {
 		case let .document(identifier)?:
-			return .document(identifier, title: rows[identifier]?.title)
+			let textMatched = dataSource?.sectionIdentifier(for: indexPath.section) == .listed(.textMatched)
+			let opening: DocumentOpening = if textMatched, let searchText {
+				.textMatch(searchText: searchText)
+			} else {
+				.listed
+			}
+			return .document(identifier, title: rows[identifier]?.title, opening: opening)
 		case let .arrival(identifier)?:
 			guard let arrival = arrivals[identifier] else {
 				return nil
@@ -142,11 +148,14 @@ final class LibraryList {
 			guard let document = arrival.document else {
 				return nil
 			}
-			let title: String? = switch arrival.stage {
-			case let .filed(row), let .alreadyHeld(row?): row.title
-			default: nil
+			switch arrival.stage {
+			case let .filed(row), let .alreadyHeld(row?):
+				return .document(document, title: row.title, opening: .listed)
+			case .sent, .alreadyHeld(nil):
+				return .document(document, title: nil, opening: .arrival)
+			default:
+				return .document(document, title: nil, opening: .listed)
 			}
-			return .document(document, title: title)
 		case .attention?:
 			return attention?.replacesToken == true ? .tokenReplacement : nil
 		case let .suggestion(scope)?:
