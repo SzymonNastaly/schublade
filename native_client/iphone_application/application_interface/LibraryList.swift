@@ -34,6 +34,7 @@ final class LibraryList {
 	let collectionView: UICollectionView
 	private let thumbnails: ThumbnailStore
 	private let submissions: SubmissionCoordinator
+	private let gateway: ApplicationGateway
 	private weak var presenter: UIViewController?
 	private var dataSource: UICollectionViewDiffableDataSource<LibrarySection, LibraryItem>?
 	private var shown: Shown?
@@ -46,17 +47,18 @@ final class LibraryList {
 
 	init(
 		in view: UIView,
-		presenter: UIViewController & UICollectionViewDelegate,
+		presenter: UIViewController,
 		thumbnails: ThumbnailStore,
-		submissions: SubmissionCoordinator
+		submissions: SubmissionCoordinator,
+		gateway: ApplicationGateway
 	) {
 		self.thumbnails = thumbnails
 		self.submissions = submissions
+		self.gateway = gateway
 		self.presenter = presenter
 		collectionView = UICollectionView(frame: view.bounds, collectionViewLayout: UICollectionViewFlowLayout())
 		collectionView.collectionViewLayout = layout()
 		collectionView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
-		collectionView.delegate = presenter
 		collectionView.refreshControl = refreshControl
 		collectionView.alwaysBounceVertical = true
 		collectionView.accessibilityIdentifier = "library.list"
@@ -145,6 +147,15 @@ final class LibraryList {
 		case .notice?, nil:
 			return nil
 		}
+	}
+
+	func item(at indexPath: IndexPath) -> LibraryItem? {
+		dataSource?.itemIdentifier(for: indexPath)
+	}
+
+	/// The listed row of a document, which a search or a scope may not show.
+	func row(of document: DocumentIdentifier) -> DocumentRow? {
+		rows[document]
 	}
 
 	func indexPath(of item: LibraryItem) -> IndexPath? {
@@ -309,11 +320,32 @@ private extension LibraryList {
 	}
 }
 
-/// The swipe actions of an arrival.
+/// The swipe actions of a row.
 private extension LibraryList {
-	/// An arrival that the archive has not archived can be removed, and one it did not accept can be
-	/// taken elsewhere, because the iPhone still holds its file.
+	/// A document can be shared. An arrival that the archive has not archived can be removed, and one
+	/// it did not accept can be taken elsewhere, because the iPhone still holds its file. A full swipe
+	/// does nothing, because a sheet that opened from one would surprise.
 	func swipeActions(at indexPath: IndexPath) -> UISwipeActionsConfiguration? {
+		if case let .document(document)? = dataSource?.itemIdentifier(for: indexPath), let row = rows[document] {
+			let share = UIContextualAction(style: .normal, title: "Share") { [weak self] _, view, done in
+				guard let self else {
+					return done(false)
+				}
+				OriginalCopies.share(
+					document,
+					fileName: row.suggestedFileName,
+					gateway: gateway,
+					presenter: presenter,
+					source: view
+				)
+				done(true)
+			}
+			share.image = UIImage(systemName: "square.and.arrow.up")
+			share.backgroundColor = .tintColor
+			let configuration = UISwipeActionsConfiguration(actions: [share])
+			configuration.performsFirstActionWithFullSwipe = false
+			return configuration
+		}
 		guard case let .arrival(identifier)? = dataSource?.itemIdentifier(for: indexPath),
 		      let arrival = arrivals[identifier], arrival.document == nil
 		else {

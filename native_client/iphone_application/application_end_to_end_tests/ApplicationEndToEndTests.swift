@@ -122,7 +122,8 @@ final class ApplicationEndToEndTests: XCTestCase {
 		XCTAssertEqual(row.title, "Haftpflichtversicherung Rechnung 5")
 
 		let indexPath = try XCTUnwrap(library.list.indexPath(of: .document(row.document)))
-		library.collectionView(library.list.collectionView, didSelectItemAt: indexPath)
+		let rows = library.list.collectionView
+		rows.delegate?.collectionView?(rows, didSelectItemAt: indexPath)
 		let page = try XCTUnwrap(navigation.topViewController as? DocumentPageViewController)
 		page.loadViewIfNeeded()
 		try await waitUntil("the detail is read") {

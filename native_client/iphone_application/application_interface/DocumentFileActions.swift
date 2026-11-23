@@ -51,14 +51,16 @@ final class DocumentFileActions: NSObject, QLPreviewControllerDataSource {
 	}
 
 	private func share() {
-		Task {
-			guard let file = await namedCopy() else {
-				return
-			}
-			let sheet = UIActivityViewController(activityItems: [file], applicationActivities: nil)
-			sheet.popoverPresentationController?.sourceItem = shareItem
-			presenter?.present(sheet, animated: true)
+		guard let detail else {
+			return
 		}
+		OriginalCopies.share(
+			document,
+			fileName: detail.suggestedFileName,
+			gateway: gateway,
+			presenter: presenter,
+			source: shareItem
+		)
 	}
 
 	private func preview() {
@@ -80,36 +82,16 @@ final class DocumentFileActions: NSObject, QLPreviewControllerDataSource {
 		UIApplication.shared.open(page)
 	}
 
-	/// The original under its suggested name in a directory of its own, because the cache names its
-	/// files by content and another application shows the name it receives. Says why when the
-	/// original cannot be had.
 	private func namedCopy() async -> URL? {
 		guard let detail else {
 			return nil
 		}
-		do throws(RepresentationRefusal) {
-			let original = try await gateway.original(document)
-			let directory = URL.temporaryDirectory.appending(path: UUID().uuidString, directoryHint: .isDirectory)
-			let copy = directory.appending(path: detail.suggestedFileName)
-			do {
-				try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-				try FileManager.default.copyItem(at: URL(filePath: original.path), to: copy)
-			} catch {
-				alert("The Original Could Not Be Copied", error.localizedDescription)
-				return nil
-			}
-			return copy
-		} catch {
-			let placeholder = LibraryFailureWording.originalRefusalPlaceholder(error, device: IphoneDevice.wording)
-			alert(placeholder.title, placeholder.detail)
-			return nil
-		}
-	}
-
-	private func alert(_ title: String, _ message: String) {
-		let alert = UIAlertController(title: title, message: message, preferredStyle: .alert)
-		alert.addAction(UIAlertAction(title: "OK", style: .default))
-		presenter?.present(alert, animated: true)
+		return await OriginalCopies.namedCopy(
+			of: document,
+			fileName: detail.suggestedFileName,
+			gateway: gateway,
+			presenter: presenter
+		)
 	}
 
 	func numberOfPreviewItems(in _: QLPreviewController) -> Int {

@@ -6,7 +6,7 @@ import SubmissionQueue
 import UIKit
 import VisionKit
 
-final class LibraryViewController: UIViewController, UICollectionViewDelegate {
+final class LibraryViewController: UIViewController {
 	private struct ListedAnswer {
 		let outcome: LibraryListState.ListingOutcome
 		let scope: LibraryScope
@@ -24,7 +24,14 @@ final class LibraryViewController: UIViewController, UICollectionViewDelegate {
 		in: view,
 		presenter: self,
 		thumbnails: thumbnails,
-		submissions: controller.submissions
+		submissions: controller.submissions,
+		gateway: controller.gateway
+	)
+	private lazy var interaction = LibraryInteraction(
+		screen: self,
+		list: list,
+		thumbnails: thumbnails,
+		gateway: controller.gateway
 	)
 	private let searchController = UISearchController(searchResultsController: nil)
 	private lazy var search = LibrarySearch(screen: self)
@@ -64,6 +71,7 @@ final class LibraryViewController: UIViewController, UICollectionViewDelegate {
 	override func viewDidLoad() {
 		super.viewDidLoad()
 		navigationItem.largeTitleDisplayMode = .always
+		list.collectionView.delegate = interaction
 		navigationItem.backButtonDisplayMode = .minimal
 		navigationController?.navigationBar.prefersLargeTitles = true
 		view.backgroundColor = .systemBackground
@@ -282,21 +290,6 @@ extension LibraryViewController {
 			self?.choose(scope)
 		}
 		navigationController?.pushViewController(page, animated: true)
-	}
-
-	func collectionView(_: UICollectionView, shouldSelectItemAt indexPath: IndexPath) -> Bool {
-		list.destination(at: indexPath) != nil
-	}
-
-	func collectionView(_: UICollectionView, didSelectItemAt indexPath: IndexPath) {
-		switch list.destination(at: indexPath) {
-		case let .document(document, title)?:
-			open(document, title: title)
-		case .tokenReplacement?:
-			replaceToken()
-		case nil:
-			break
-		}
 	}
 
 	/// The form with the archive's address filled in, until Settings holds it. A token the archive
