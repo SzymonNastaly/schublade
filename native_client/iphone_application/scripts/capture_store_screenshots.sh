@@ -28,6 +28,7 @@ scenes=(
 	"04_document_details scene_document_details"
 	"05_context_menu_preview scene_context_menu_preview"
 	"06_share_sheet scene_share_sheet"
+	"07_settings scene_settings"
 )
 
 simulator=""
@@ -164,6 +165,21 @@ scene_context_menu_preview() {
 	sleep 3
 	capture "$1"
 	axe tap -x 100 -y 90 --udid "$simulator" >/dev/null
+	return_to_library
+}
+
+scene_settings() {
+	axe tap --id library.more --wait-timeout 10 --udid "$simulator" >/dev/null
+	await_text '"AXLabel" : "Settings"' 10
+	axe tap --label Settings --wait-timeout 10 --udid "$simulator" >/dev/null
+	await_text '"AXUniqueId" : "settings.keepOriginals"' 10
+	# The end of Settings shows the ways to scan and the icon, and leaves out the archive's row, whose
+	# host is the examination's 127.0.0.1 and whose time is not the status bar's 9:41.
+	for _ in 1 2; do
+		axe swipe --start-x 220 --start-y 800 --end-x 220 --end-y 200 --duration 0.2 --udid "$simulator" >/dev/null
+	done
+	capture "$1"
+	axe tap --label Done --udid "$simulator" >/dev/null
 	return_to_library
 }
 
