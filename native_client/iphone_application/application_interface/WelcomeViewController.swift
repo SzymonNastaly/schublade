@@ -264,6 +264,9 @@ final class WelcomeViewController: UIViewController, UICollectionViewDataSource,
 			if let refusal {
 				refuse(refusal)
 			} else {
+				// A secure field that leaves the screen holding text makes the system offer to save it as
+				// a password, and the Keychain item of the core already keeps the token.
+				tokenField.text = nil
 				connected()
 			}
 		}
