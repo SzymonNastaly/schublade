@@ -1,7 +1,7 @@
 import Foundation
 
-/// What becomes of the files a person shares with Schublade: each one the archive takes is a
-/// submission of its own, a HEIC picture as a JPEG, and the others are named.
+/// What becomes of a file a person shares with Schublade: a submission of its own, a HEIC picture
+/// as a JPEG, or a refusal for a kind the archive does not take.
 public enum ShareIntake {
 	/// The archive takes at most 20 files per upload, and the share extension accepts as many.
 	public static let fileLimit = 20
@@ -18,33 +18,28 @@ public enum ShareIntake {
 		}
 	}
 
-	public struct Reception: Sendable {
-		/// The new submissions, in the order of the shared files.
-		public let entries: [SubmissionEntry]
-		/// The file names of the shared files the archive does not take or that could not be read.
-		public let refusedNames: [String]
-	}
-
-	/// Converts and enqueues the first `fileLimit` files one at a time, away from the caller's actor,
-	/// so a share extension holds one decoded picture at most.
+	/// Converts and enqueues one shared file with its upload claimed, away from the caller's actor.
+	/// The share extension starts that upload before it receives the next file, so it holds one
+	/// decoded picture at most and leaves no claimed submission waiting for the others.
 	@concurrent
-	public static func receive(_ files: [SharedFile], into queue: SubmissionQueue) async -> Reception {
-		var entries: [SubmissionEntry] = []
-		var refusedNames: [String] = []
-		for shared in files.prefix(fileLimit) {
-			do {
-				let imported = try DocumentImport.prepare(file: shared.file, suggestedName: shared.suggestedName)
-				try entries.append(queue.enqueue(
-					document: imported.file,
-					fileName: imported.fileName,
-					kind: imported.kind,
-					origin: .share
-				))
-			} catch {
-				try? FileManager.default.removeItem(at: shared.file)
-				refusedNames.append(shared.file.lastPathComponent)
-			}
+	public static func receive(
+		_ shared: SharedFile,
+		into queue: SubmissionQueue,
+		now: Date = .now
+	) async throws -> SubmissionEntry {
+		do {
+			let imported = try DocumentImport.prepare(file: shared.file, suggestedName: shared.suggestedName)
+			return try queue.enqueue(
+				document: imported.file,
+				fileName: imported.fileName,
+				kind: imported.kind,
+				origin: .share,
+				claimingUpload: true,
+				now: now
+			)
+		} catch {
+			try? FileManager.default.removeItem(at: shared.file)
+			throw error
 		}
-		return Reception(entries: entries, refusedNames: refusedNames)
 	}
 }

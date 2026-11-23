@@ -85,10 +85,11 @@ final class SubmissionTests: XCTestCase {
 		await controller.gateway.shutdown()
 	}
 
-	/// A submission that another process queued without starting it, as the share extension leaves
-	/// one when it is ended in between, is sent when the application resumes, and arrives.
+	/// The share extension claims the upload of each submission it creates. The application sends a
+	/// claimed submission without an answer only once the claim is 15 minutes old, as when the
+	/// extension was ended before its upload started, and an unclaimed one at once.
 	@MainActor
-	func testASubmissionAnotherProcessQueuedIsSentOnResume() async throws {
+	func testAClaimedSubmissionIsLeftToTheShareExtensionForFifteenMinutes() async throws {
 		let environment = ApplicationEnvironment.isolated()
 		let controller = ApplicationController(environment: environment)
 		controller.launch()
@@ -97,28 +98,47 @@ final class SubmissionTests: XCTestCase {
 		_ = await controller.connect(address: address, token: "scripted-end-to-end-token")
 		try await waitUntil("five documents") { Self.documents(controller) >= 5 }
 		let before = Self.documents(controller)
-
-		let shared = URL.temporaryDirectory.appending(path: "\(UUID().uuidString).pdf")
-		try Data("%PDF-1.4\nA letter shared from Mail \(UUID().uuidString)\n%%EOF\n".utf8).write(to: shared)
-		let entry = try environment.sharedContainer.submissionQueue.enqueue(
-			document: shared,
+		let queue = environment.sharedContainer.submissionQueue
+		let claimedAt = Date.now
+		let claimed = try queue.enqueue(
+			document: Self.letter("A letter shared from Mail"),
 			fileName: "Letter.pdf",
 			kind: .pdf,
-			origin: .share
+			origin: .share,
+			claimingUpload: true,
+			now: claimedAt
 		)
-		XCTAssertFalse(controller.submissions.entries.contains { $0.id == entry.id })
+		let unclaimed = try queue.enqueue(
+			document: Self.letter("A letter imported from Files"),
+			fileName: "Receipt.pdf",
+			kind: .pdf,
+			origin: .importedFile
+		)
 
-		controller.submissions.resume()
+		controller.submissions.resume(now: claimedAt.addingTimeInterval(14 * 60))
+		try await waitUntil("the unclaimed submission is archived") { Self.isArchived(unclaimed, controller) }
+		try await Task.sleep(for: .seconds(1))
+		XCTAssertEqual(controller.submissions.entries.first { $0.id == claimed.id }?.answer, nil)
 
-		try await waitUntil("the shared submission is archived") {
-			if case .archived = controller.submissions.entries.first(where: { $0.id == entry.id })?.answer {
-				true
-			} else {
-				false
-			}
-		}
-		try await waitUntil("the document arrives in the library") { Self.documents(controller) == before + 1 }
+		controller.submissions.resume(now: claimedAt.addingTimeInterval(16 * 60))
+		try await waitUntil("the claimed submission is archived") { Self.isArchived(claimed, controller) }
+		try await waitUntil("both documents arrive in the library") { Self.documents(controller) == before + 2 }
 		await controller.gateway.shutdown()
+	}
+
+	private static func letter(_ text: String) throws -> URL {
+		let file = URL.temporaryDirectory.appending(path: "\(UUID().uuidString).pdf")
+		try Data("%PDF-1.4\n\(text) \(UUID().uuidString)\n%%EOF\n".utf8).write(to: file)
+		return file
+	}
+
+	@MainActor
+	private static func isArchived(_ entry: SubmissionEntry, _ controller: ApplicationController) -> Bool {
+		if case .archived = controller.submissions.entries.first(where: { $0.id == entry.id })?.answer {
+			true
+		} else {
+			false
+		}
 	}
 
 	@MainActor

@@ -46,4 +46,7 @@ public struct SubmissionManifest: Codable, Equatable, Sendable {
 	/// The pages of a scan, nil for anything else.
 	public let pageCount: Int?
 	public let createdAt: Date
+	/// When the share extension claimed the upload, which it starts right after creating the
+	/// submission. Nil for a submission the application sends.
+	public let uploadClaimedAt: Date?
 }

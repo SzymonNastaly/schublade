@@ -61,10 +61,25 @@ public extension SubmissionAnswerRecord {
 
 /// One submission as the queue holds it.
 public struct SubmissionEntry: Equatable, Sendable, Identifiable {
+	/// How long the application leaves an unanswered submission to the share extension that claimed
+	/// its upload. It covers an extension that was ended before its upload started, and an upload
+	/// both processes send is harmless, because the archive answers the second as already archived.
+	public static let claimDuration: TimeInterval = 15 * 60
+
 	public let manifest: SubmissionManifest
 	public let answer: SubmissionAnswerRecord?
 
 	public var id: UUID {
 		manifest.identifier
+	}
+
+	/// When the application sends this submission unless its upload is under way: an unanswered one
+	/// at once, or once the share extension's claim lapsed, and an unavailable one at its next
+	/// attempt. Nil for an answer that no attempt would change.
+	public var sendingDueAt: Date? {
+		guard let answer else {
+			return manifest.uploadClaimedAt?.addingTimeInterval(Self.claimDuration) ?? manifest.createdAt
+		}
+		return answer.nextAttempt
 	}
 }

@@ -37,13 +37,15 @@ public struct SubmissionQueue: Sendable {
 		submissions.appending(path: identifier.uuidString, directoryHint: .isDirectory)
 	}
 
-	/// Moves `document` into a new submission, which then owns the file.
+	/// Moves `document` into a new submission, which then owns the file. The share extension claims
+	/// the upload at `now`, before the rename, so the application never sees its submission unclaimed.
 	public func enqueue(
 		document: URL,
 		fileName: String,
 		kind: SubmissionFileKind,
 		origin: SubmissionOrigin,
 		pageCount: Int? = nil,
+		claimingUpload: Bool = false,
 		now: Date = .now
 	) throws(QueueFailure) -> SubmissionEntry {
 		let identifier = UUID()
@@ -61,7 +63,8 @@ public struct SubmissionQueue: Sendable {
 				kind: kind,
 				byteCount: UInt64(byteCount),
 				pageCount: pageCount,
-				createdAt: now
+				createdAt: now,
+				uploadClaimedAt: claimingUpload ? now : nil
 			)
 			try JSONEncoder().encode(manifest).write(to: building.appending(path: Self.manifestName))
 		} catch {

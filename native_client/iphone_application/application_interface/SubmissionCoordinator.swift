@@ -23,7 +23,7 @@ final class SubmissionCoordinator {
 	/// are delivered, and a later share can upload in it.
 	@ObservationIgnored private var attached: SubmissionTransfer?
 	@ObservationIgnored private var inFlight: Set<UUID> = []
-	@ObservationIgnored private var retry: Task<Void, Never>?
+	@ObservationIgnored private var resumption: Task<Void, Never>?
 	/// The archive's origin while one is connected.
 	@ObservationIgnored var archiveOrigin: String?
 
@@ -106,28 +106,21 @@ final class SubmissionCoordinator {
 		reload()
 	}
 
-	/// Starts every submission that waits: unanswered ones without an upload in the application's
-	/// session, and unavailable ones whose time has come. Called at launch, on returning to the
-	/// foreground, and when a connection is made.
-	func resume() {
-		queue.removeExpired()
+	/// Starts every submission that is due at `now` and has no upload in the application's session:
+	/// an unanswered one, unless the share extension claimed it less than 15 minutes ago, and an
+	/// unavailable one whose time has come. Called at launch, on returning to the foreground, when a
+	/// connection is made, and when the next submission falls due.
+	func resume(now: Date = .now) {
+		queue.removeExpired(now: now)
 		reload()
 		Task {
 			if let sending {
 				await inFlight.formUnion(sending.submissionsInFlight())
 			}
-			let now = Date.now
-			for entry in entries where !inFlight.contains(entry.id) {
-				switch entry.answer {
-				case nil:
-					send(entry)
-				case let answer? where (answer.nextAttempt ?? .distantFuture) <= now:
-					send(entry)
-				case .some:
-					break
-				}
+			for entry in entries where !inFlight.contains(entry.id) && (entry.sendingDueAt ?? .distantFuture) <= now {
+				send(entry)
 			}
-			scheduleRetry()
+			scheduleResumption()
 		}
 	}
 
@@ -164,7 +157,7 @@ final class SubmissionCoordinator {
 		case .archived?:
 			gateway.synchronize()
 		case .unavailable?:
-			scheduleRetry()
+			scheduleResumption()
 		case .rejected?, .refusedToken?, nil:
 			break
 		}
@@ -175,13 +168,15 @@ final class SubmissionCoordinator {
 		reload()
 	}
 
-	/// Wakes at the earliest next attempt of an unavailable submission.
-	private func scheduleRetry() {
-		retry?.cancel()
-		guard let next = entries.compactMap(\.answer?.nextAttempt).min() else {
+	/// Wakes when the next submission falls due. One due already was sent by `resume`, or waits for
+	/// a connection, which resumes again.
+	private func scheduleResumption() {
+		resumption?.cancel()
+		let now = Date.now
+		guard let next = entries.compactMap(\.sendingDueAt).filter({ $0 > now }).min() else {
 			return
 		}
-		retry = Task { [weak self] in
+		resumption = Task { [weak self] in
 			try? await Task.sleep(for: .seconds(max(next.timeIntervalSinceNow, 1)))
 			guard !Task.isCancelled else {
 				return

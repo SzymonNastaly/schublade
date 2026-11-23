@@ -139,8 +139,9 @@ final class ShareViewController: UIViewController {
 		return sentences.isEmpty ? nil : sentences.joined(separator: " ")
 	}
 
-	/// Copies, converts, and enqueues the files one at a time, then starts each upload, because an
-	/// extension is ended above about 120 MB.
+	/// Copies, converts, enqueues, and starts each file before the next, because an extension is
+	/// ended above about 120 MB, and because a submission the application sees must already carry
+	/// the claim of the upload that this extension starts at once.
 	private func send(
 		_ items: [AcceptedItem],
 		installation: SharedInstallation,
@@ -150,37 +151,37 @@ final class ShareViewController: UIViewController {
 		navigationItem.rightBarButtonItem?.isEnabled = false
 		progressIndicator.startAnimating()
 		Task {
-			var shared: [ShareIntake.SharedFile] = []
-			var unreadNames: [String] = []
+			let queue = container.submissionQueue
+			var sentCount = 0
+			var unsentNames: [String] = []
 			for item in items {
 				do {
 					let copy = try await Self.copy(item)
-					shared.append(ShareIntake.SharedFile(file: copy, suggestedName: item.provider.suggestedName))
+					let entry = try await ShareIntake.receive(
+						ShareIntake.SharedFile(file: copy, suggestedName: item.provider.suggestedName),
+						into: queue
+					)
+					switch await queue.prepare(
+						entry,
+						archiveOrigin: archive.origin,
+						credentials: installation.credentialStorage
+					) {
+					case let .prepared(request, body):
+						Self.transfer?.send(entry.id, request: request, body: body)
+					case let .answered(answer):
+						_ = try? queue.record(answer, for: entry.id)
+					}
+					sentCount += 1
 				} catch {
-					unreadNames.append(item.provider.suggestedName ?? "an unnamed file")
-				}
-			}
-			let queue = container.submissionQueue
-			let reception = await ShareIntake.receive(shared, into: queue)
-			for entry in reception.entries {
-				switch await queue.prepare(
-					entry,
-					archiveOrigin: archive.origin,
-					credentials: installation.credentialStorage
-				) {
-				case let .prepared(request, body):
-					Self.transfer?.send(entry.id, request: request, body: body)
-				case let .answered(answer):
-					_ = try? queue.record(answer, for: entry.id)
+					unsentNames.append(item.provider.suggestedName ?? "an unnamed file")
 				}
 			}
 			progressIndicator.stopAnimating()
-			let unsent = unreadNames + reception.refusedNames
-			guard !unsent.isEmpty else {
+			guard !unsentNames.isEmpty else {
 				extensionContext?.completeRequest(returningItems: nil)
 				return
 			}
-			showUnsent(unsent, sentCount: reception.entries.count)
+			showUnsent(unsentNames, sentCount: sentCount)
 		}
 	}
 
