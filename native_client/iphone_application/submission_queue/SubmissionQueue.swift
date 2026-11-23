@@ -123,10 +123,12 @@ public struct SubmissionQueue: Sendable {
 	}
 
 	/// Records the archive's answer and answers the one that stands. An archived answer is final,
-	/// whichever process records what: the first one is renamed exclusively into a file of its own,
-	/// which the queue reads before any other answer, and the submission gives up its bytes at once,
-	/// because the archive holds them. Any other answer replaces the one before it by a rename, and a
-	/// refused submission keeps its bytes, so a person can still share the file.
+	/// whichever process records what: it goes into a file of its own, which the queue reads before
+	/// any other answer, and the submission gives up its bytes at once, because the archive holds
+	/// them. A newly archived answer replaces an archived one, and one that names the document already
+	/// held is renamed exclusively, so the second upload of a submission that both processes sent
+	/// never hides that the first archived it. Any other answer replaces the one before it by a
+	/// rename, and a refused submission keeps its bytes, so a person can still share the file.
 	@discardableResult
 	public func record(
 		_ answer: SubmissionAnswerRecord,
@@ -140,13 +142,13 @@ public struct SubmissionQueue: Sendable {
 			throw .queueUnwritable(error.localizedDescription)
 		}
 		let temporaryPath = temporary.path(percentEncoded: false)
-		let renamed = if case .archived = answer {
-			renamex_np(
-				temporaryPath,
-				directory.appending(path: Self.archivedAnswerName).path(percentEncoded: false),
-				UInt32(RENAME_EXCL)
-			)
-		} else {
+		let archivedPath = directory.appending(path: Self.archivedAnswerName).path(percentEncoded: false)
+		let renamed = switch answer {
+		case .archived(_, alreadyHeld: false, _):
+			rename(temporaryPath, archivedPath)
+		case .archived(_, alreadyHeld: true, _):
+			renamex_np(temporaryPath, archivedPath, UInt32(RENAME_EXCL))
+		case .rejected, .refusedToken, .unavailable:
 			rename(temporaryPath, directory.appending(path: Self.answerName).path(percentEncoded: false))
 		}
 		if renamed != 0 {
