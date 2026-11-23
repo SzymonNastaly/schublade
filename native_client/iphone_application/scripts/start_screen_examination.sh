@@ -6,13 +6,15 @@
 # three-page letter the archive does not hold, which stays in ingestion until a request names its
 # stage, and with `refused` a text file named as a PDF is sent beside it, which the archive does not
 # accept. With `token-refused`, the archive is seeded and accepts another token once the application
-# has connected and read it, as when its owner revokes this iPhone's token. EXAMINATION_SIMULATOR,
+# has connected and read it, as when its owner revokes this iPhone's token. With `restricted`, the token
+# reads only the invoices and nothing is sent, because the archive refuses an upload with such a
+# token. EXAMINATION_SIMULATOR,
 # EXAMINATION_TOKEN, and EXAMINATION_DIRECTORY replace the first iPhone simulator, the token, and the
 # working directory, so a second examination leaves this one's archive running. Prints the simulator,
 # the archive's address, and in `arriving` and `refused` the requests that move the scan's document on:
 #   curl -X POST <archive>/scripted/documents -d '{"content_sha256": "<digest>", "status": "recognizing_text"}'
 #   curl -X POST <archive>/scripted/documents -d @/tmp/schublade_iphone_screen_examination/filed.json
-#   scripts/execute_on_macintosh.sh native_client/iphone_application/scripts/start_screen_examination.sh [light|dark] [seeded|empty|arriving|refused|token-refused]
+#   scripts/execute_on_macintosh.sh native_client/iphone_application/scripts/start_screen_examination.sh [light|dark] [seeded|empty|arriving|refused|token-refused|restricted]
 set -euo pipefail
 export PATH="/opt/homebrew/bin:$HOME/.cargo/bin:$PATH"
 cd "$(dirname "$0")/.."
@@ -35,11 +37,15 @@ rm -rf "$work"
 mkdir -p "$work/pictures" "$work/sent"
 # An arriving scan is read at 40 KB a second, so its upload is under way for about 13 seconds.
 pace=""
+restriction=""
+if [ "$contents" = restricted ]; then
+	restriction="--restrict-to-category Invoice"
+fi
 if [ "$contents" = arriving ] || [ "$contents" = refused ]; then
 	pace="--ingest-pace 40000"
 fi
 # The server ends when its standard input closes, so a sleep holds it open for two hours.
-nohup sh -c "sleep 7200 | exec ../target/debug/scripted-archive-server --token $token --permission read $pace" \
+nohup sh -c "sleep 7200 | exec ../target/debug/scripted-archive-server --token $token --permission read $pace $restriction" \
 	>"$work/server.log" 2>&1 </dev/null &
 for _ in $(seq 50); do
 	grep -q '^listening ' "$work/server.log" 2>/dev/null && break
@@ -57,7 +63,9 @@ if [ "$contents" != empty ]; then
 		stem="$(basename "${file%.*}")"
 		sips -s format png -Z 360 "$file" --out "$work/pictures/$stem.png" >/dev/null
 	done
-	if [ "$contents" = seeded ] || [ "$contents" = token-refused ]; then
+	if [ "$contents" = restricted ]; then
+		arriving_letter=""
+	elif [ "$contents" = seeded ] || [ "$contents" = token-refused ]; then
 		cp "$documents/dental_invoice_scanned.pdf" "$scan"
 		arriving_letter=""
 	else

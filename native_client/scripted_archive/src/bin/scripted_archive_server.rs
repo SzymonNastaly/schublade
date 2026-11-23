@@ -20,7 +20,7 @@ use collection_core::content_synchronization::{
 };
 use collection_core::domain_types::{DocumentStatus, TimingPolicy};
 use collection_core::file_system_observation::{VerifiedContent, content_digest_of};
-use scripted_archive::{ScriptedArchive, UploadOutcome};
+use scripted_archive::{ArchiveScope, ScriptedArchive, UploadOutcome};
 use sha2::{Digest, Sha256};
 
 const DEFAULT_TOKEN: &str = "scripted-ingest-token";
@@ -597,13 +597,27 @@ fn seed_sender(archive: &ScriptedArchive, name: String) -> SenderIdentifier {
 }
 
 fn seed_category(archive: &ScriptedArchive, name: String) -> CategoryIdentifier {
-    let identifier = CategoryIdentifier::parse(&deterministic_identifier(3, &name)).unwrap_or_else(|| unreachable!());
+    let identifier = category_identifier(&name);
     archive.put_category(CategoryRecord {
         identifier: identifier.clone(),
         name,
         expected_fields: vec!["amount".to_owned(), "currency".to_owned()],
     });
     identifier
+}
+
+/// The identifier a seeded category of this name receives, before or after it is seeded.
+fn category_identifier(name: &str) -> CategoryIdentifier {
+    CategoryIdentifier::parse(&deterministic_identifier(3, name)).unwrap_or_else(|| unreachable!())
+}
+
+/// Lets the token read only the documents of the category with this name, as a token issued for
+/// part of the archive does, so the iPhone shows how it explains that such a token cannot send.
+fn restrict_to_category(archive: &ScriptedArchive, name: &str) {
+    archive.restrict_scope(ArchiveScope {
+        allowed_categories: Some(BTreeSet::from([category_identifier(name)])),
+        ..ArchiveScope::default()
+    });
 }
 
 fn deterministic_identifier(kind: u8, name: &str) -> String {
@@ -932,6 +946,7 @@ struct Options {
     /// Bytes per second at which the body of an upload to the ingest route is read, so a screen
     /// examination can show an upload under way.
     ingest_pace: Option<usize>,
+    restricted_category: Option<String>,
 }
 
 /// Keeps the kernel from taking much more of a body than the server has read, so the client's count
@@ -987,6 +1002,7 @@ fn parse_options() -> Options {
         permission: PermissionLevel::Read,
         seed: 0,
         ingest_pace: None,
+        restricted_category: None,
     };
     while let Some(arg) = args.next() {
         match arg.as_str() {
@@ -1005,6 +1021,9 @@ fn parse_options() -> Options {
                 let value = args.next().expect("--ingest-pace requires bytes per second");
                 options.ingest_pace = Some(value.parse().expect("--ingest-pace requires an integer"));
             }
+            "--restrict-to-category" => {
+                options.restricted_category = Some(args.next().expect("--restrict-to-category requires a name"));
+            }
             other => panic!("unknown option: {other}"),
         }
     }
@@ -1016,6 +1035,9 @@ fn main() {
     let mut expected_auth = format!("Bearer {}", options.token);
     let archive = ScriptedArchive::new();
     archive.set_permission_level(options.permission);
+    if let Some(name) = &options.restricted_category {
+        restrict_to_category(&archive, name);
+    }
     if options.seed > 0 {
         seed_corpus(&archive, options.seed);
     }
@@ -1185,6 +1207,27 @@ mod tests {
         assert_eq!(filed.media_type, "application/pdf");
         assert_eq!(filed.original, Some(content_digest_of(scan)));
         assert_eq!(archive.records().senders[0].name, "Stadtwerke");
+    }
+
+    #[test]
+    fn a_token_restricted_to_a_category_reads_only_its_documents() {
+        let archive = ScriptedArchive::new();
+        restrict_to_category(&archive, "Invoice");
+        for (identifier, category) in [
+            ("60000000-0000-4000-8000-000000000001", "Invoice"),
+            ("60000000-0000-4000-8000-000000000002", "Receipt"),
+        ] {
+            let document = json!({ "identifier": identifier, "title": category, "category_name": category });
+            assert_eq!(seed(&archive, document).0, 200);
+        }
+        assert!(archive.read_authorization().unwrap().restricted);
+        let titles: Vec<Option<String>> = archive
+            .admitted_records()
+            .documents
+            .into_iter()
+            .map(|document| document.title)
+            .collect();
+        assert_eq!(titles, vec![Some("Invoice".to_owned())]);
     }
 
     #[test]
