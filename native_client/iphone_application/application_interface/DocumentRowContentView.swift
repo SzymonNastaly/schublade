@@ -47,15 +47,17 @@ struct DocumentRowContent: UIContentConfiguration, Equatable {
 
 /// The first page of a row, as `PagePicture` cuts and draws it.
 enum RowPicture {
-	/// 44 by 58 points at the default text size, growing with the text up to 66 points wide.
+	nonisolated static let defaultSize = CGSize(width: 44, height: 58)
+
+	/// The default size at the default text size, growing with the text up to 66 points wide.
 	static var size: CGSize {
-		let width = min(UIFontMetrics(forTextStyle: .body).scaledValue(for: 44), 66)
-		return CGSize(width: width.rounded(), height: (width * 58 / 44).rounded())
+		let width = min(UIFontMetrics(forTextStyle: .body).scaledValue(for: defaultSize.width), 66)
+		return CGSize(width: width.rounded(), height: (width * defaultSize.height / defaultSize.width).rounded())
 	}
 
-	/// The picture at its own pixels, three to a point, in the row's proportion of 44 to 58.
+	/// The picture at its own pixels, three to a point, in the row's proportion.
 	nonisolated static func framed(_ picture: CGImage) -> UIImage {
-		let cut = PagePicture.cut(picture, proportion: 44.0 / 58.0)
+		let cut = PagePicture.cut(picture, proportion: defaultSize.width / defaultSize.height)
 		return PagePicture.onPaper(
 			cut,
 			size: CGSize(width: Double(cut.width) / 3, height: Double(cut.height) / 3),

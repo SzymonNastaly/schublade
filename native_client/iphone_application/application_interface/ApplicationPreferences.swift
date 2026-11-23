@@ -4,8 +4,6 @@ import Foundation
 /// take, which the core receives at every start because it keeps no choice of its own, and whether
 /// a document's details show when its page opens.
 final class ApplicationPreferences {
-	/// 500 MB, the second of `IphoneDevice.wording.storageLimitChoices`.
-	static let defaultOriginalStorageLimit: UInt64 = 500_000_000
 	private static let originalStorageLimitKey = "originalStorageLimit"
 	private static let detailsShownKey = "document.detailsShown"
 
@@ -19,7 +17,7 @@ final class ApplicationPreferences {
 	var originalStorageLimit: UInt64? {
 		get {
 			guard defaults.object(forKey: Self.originalStorageLimitKey) != nil else {
-				return Self.defaultOriginalStorageLimit
+				return IphoneDevice.defaultOriginalStorageLimit
 			}
 			let stored = defaults.integer(forKey: Self.originalStorageLimitKey)
 			return stored <= 0 ? nil : UInt64(stored)

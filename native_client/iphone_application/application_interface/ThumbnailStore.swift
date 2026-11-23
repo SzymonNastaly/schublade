@@ -8,8 +8,8 @@ import UIKit
 /// started. A document without a picture is remembered until the copy changes; a refusal of the
 /// moment, such as an unreachable archive, is asked again after a pause.
 final class ThumbnailStore {
-	/// Three times the 58 points of a row's picture at the default text size.
-	nonisolated static let maximumPixelSize = 174
+	/// Three pixels to a point of a row's picture at the default text size.
+	nonisolated static let maximumPixelSize = Int(RowPicture.defaultSize.height) * 3
 	private static let maximumPictures = 300
 	private static let simultaneousReads = 4
 	/// Offline, every reconfiguration of a row would otherwise ask the copy again.
