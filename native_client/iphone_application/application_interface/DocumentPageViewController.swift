@@ -183,7 +183,7 @@ final class DocumentPageViewController: UIViewController {
 			)
 			original = part as? DocumentOriginalViewController
 		case .reader(.text):
-			part = text ?? DocumentTextViewController(gateway: controller.gateway, document: document)
+			part = text ?? DocumentTextViewController(gateway: controller.gateway, document: document, searchText: nil)
 			text = part as? DocumentTextViewController
 		case .details:
 			let shown = details ?? DocumentDetailsViewController(showScope: showScope)

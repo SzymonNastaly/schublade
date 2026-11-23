@@ -94,11 +94,15 @@ def typed(value):
 
 
 def text_layer(path):
-    """The text of a digital PDF, so a search finds words that only its text holds."""
+    """The text of a digital PDF, so a search finds words that only its text holds, with a
+    "## Page N" heading before each page, as the archive writes it."""
     if not path.endswith(".pdf"):
         return ""
     reading = subprocess.run(["pdftotext", "-layout", path, "-"], capture_output=True, text=True)
-    return reading.stdout.strip() if reading.returncode == 0 else ""
+    if reading.returncode != 0:
+        return ""
+    pages = [page.strip() for page in reading.stdout.split("\f")]
+    return "\n\n".join(f"## Page {number}\n\n{page}" for number, page in enumerate(pages, 1) if page)
 
 
 catalog = json.load(open(f"{documents}/expected_extraction.json"))
