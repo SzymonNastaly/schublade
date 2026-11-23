@@ -214,6 +214,19 @@ public struct SubmissionQueue: Sendable {
 		}
 	}
 
+	/// Clears the answer of every submission whose token the archive refused, so each is sent again
+	/// with the token that replaced it, and answers them. A share extension's claim of such a
+	/// submission holds again, though its upload was answered, so the caller sends them at once.
+	public func releaseRefusedTokens() -> [SubmissionEntry] {
+		entries().compactMap { refused in
+			guard case .refusedToken? = refused.answer else {
+				return nil
+			}
+			try? FileManager.default.removeItem(at: directory(of: refused.id).appending(path: Self.answerName))
+			return entry(refused.id)
+		}
+	}
+
 	public func remove(_ identifier: UUID) {
 		try? FileManager.default.removeItem(at: directory(of: identifier))
 	}

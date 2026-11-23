@@ -93,7 +93,8 @@ final class ApplicationController {
 	/// Connects the archive at `address` with `token`, and answers the sentence of a refusal.
 	func connect(address: String, token: String) async -> String? {
 		do throws(ConnectionRefusal) {
-			_ = try await gateway.connectArchive(address: address, token: token)
+			let grant = try await gateway.connectArchive(address: address, token: token)
+			submissions.tokenAccepted(by: grant.origin)
 			return nil
 		} catch {
 			return ConnectionWording.refusalSentence(error)

@@ -2,9 +2,9 @@ import ApplicationBindings
 import UIKit
 
 /// The swipe actions of the library's rows. A document can be shared. An arrival that the archive
-/// has not archived can be removed, and one it did not accept can be taken elsewhere, because the
-/// iPhone still holds its file. A full swipe does nothing, because a sheet that opened from one
-/// would surprise.
+/// has not archived can be removed, and one it did not accept or whose token it refused can be taken
+/// elsewhere, because the iPhone still holds its file. A full swipe does nothing, because a sheet
+/// that opened from one would surprise.
 final class LibrarySwipeActions {
 	private let gateway: ApplicationGateway
 	private let submissions: SubmissionCoordinator
@@ -42,7 +42,10 @@ final class LibrarySwipeActions {
 			done(true)
 		}
 		remove.image = UIImage(systemName: "trash")
-		guard case .notAccepted = arrival.stage else {
+		switch arrival.stage {
+		case .notAccepted, .tokenRefused:
+			break
+		default:
 			return Self.configuration([remove])
 		}
 		let share = Self.share { [weak self] view in

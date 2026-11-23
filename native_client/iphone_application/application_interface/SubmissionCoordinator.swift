@@ -162,6 +162,19 @@ final class SubmissionCoordinator {
 		}
 	}
 
+	/// The archive at `origin` accepted a token, so every submission whose token was refused is sent
+	/// again with it at once. A token replaced on the same origin leaves the library's origin as it
+	/// was, so nothing else would resume them.
+	func tokenAccepted(by origin: String) {
+		archiveOrigin = origin
+		let released = queue.releaseRefusedTokens()
+		reload()
+		for entry in released where !inFlight.contains(entry.id) {
+			send(entry)
+		}
+		resume()
+	}
+
 	func documentFile(of entry: SubmissionEntry) -> URL? {
 		queue.documentFile(of: entry)
 	}

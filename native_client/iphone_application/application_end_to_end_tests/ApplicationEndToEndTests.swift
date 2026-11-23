@@ -1,6 +1,7 @@
 import ApplicationBindings
 import Foundation
 import LibraryPresentation
+import SubmissionQueue
 import UIKit
 import XCTest
 @testable import ApplicationInterface
@@ -108,12 +109,12 @@ final class ApplicationEndToEndTests: XCTestCase {
 		try await waitUntil("the core starts") { controller.situation != .starting }
 		let refusal = try await controller.connect(address: Self.archiveAddress(), token: Self.token)
 		XCTAssertNil(refusal)
-		let filledAnswer = await controller.refreshLibrary()
+		let filledAnswer = try await Self.refresh(controller)
 		XCTAssertEqual(filledAnswer, .synchronized)
 		let filled = try await controller.gateway.libraryStatusAfter(nil)
 
 		try await Self.addDocument()
-		let answer = await controller.refreshLibrary()
+		let answer = try await Self.refresh(controller)
 
 		XCTAssertEqual(answer, .synchronized)
 		let status = try await controller.gateway.libraryStatusAfter(nil)
@@ -121,16 +122,18 @@ final class ApplicationEndToEndTests: XCTestCase {
 		await controller.gateway.shutdown()
 	}
 
-	/// A token the archive no longer accepts leaves the copy waiting for the person, and the token
-	/// that replaces it, connected as the replace form does, lets the copy read the archive again.
+	/// A token the archive no longer accepts leaves the copy, a scan, and a share sent meanwhile
+	/// waiting for the person, and the token that replaces it, connected as the replace form does, lets
+	/// the copy read the archive again and sends both at once, the share although the share extension
+	/// claimed its upload a moment ago.
 	@MainActor
-	func testAReplacedTokenLetsTheCopyReadAgain() async throws {
+	func testAReplacedTokenLetsTheCopyReadAgainAndSendsWhatItHeld() async throws {
 		let controller = ApplicationController(environment: .isolated())
 		controller.launch()
 		try await waitUntil("the core starts") { controller.situation != .starting }
 		let refusal = try await controller.connect(address: Self.archiveAddress(), token: Self.token)
 		XCTAssertNil(refusal)
-		let filledAnswer = await controller.refreshLibrary()
+		let filledAnswer = try await Self.refresh(controller)
 		XCTAssertEqual(filledAnswer, .synchronized)
 
 		let replacement = "replaced-end-to-end-token"
@@ -138,17 +141,41 @@ final class ApplicationEndToEndTests: XCTestCase {
 		addTeardownBlock {
 			try await Self.acceptOnly(Self.token)
 		}
-		let refusedAnswer = await controller.refreshLibrary()
+		let refusedAnswer = try await Self.refresh(controller)
 		XCTAssertEqual(refusedAnswer, .withheld)
 		let refused = try await controller.gateway.libraryStatusAfter(nil)
 		XCTAssertEqual(ConnectionAttention.resolve(refused.archive), .tokenRefused)
+		try controller.submissions.submit(
+			document: Self.letter("A letter scanned while the token was refused"),
+			fileName: "Scan.pdf",
+			kind: .pdf,
+			origin: .scan,
+			pageCount: 1
+		)
+		try await waitUntil("the archive refuses the scan's token") {
+			controller.submissions.entries.first?.answer?.refusedTheToken == true
+		}
+		// The share extension records the archive's refusal of a share as the application does.
+		let queue = controller.environment.sharedContainer.submissionQueue
+		let share = try queue.enqueue(
+			document: Self.letter("A letter shared while the token was refused"),
+			fileName: "Letter.pdf",
+			kind: .pdf,
+			origin: .share,
+			claimingUpload: true
+		)
+		try queue.record(.refusedToken(answeredAt: .now), for: share.id)
 
 		let replacementRefusal = try await controller.connect(address: Self.archiveAddress(), token: replacement)
 		XCTAssertNil(replacementRefusal)
-		let replacedAnswer = await controller.refreshLibrary()
+		let replacedAnswer = try await Self.refresh(controller)
 		XCTAssertEqual(replacedAnswer, .synchronized)
 		let status = try await controller.gateway.libraryStatusAfter(nil)
 		XCTAssertNil(ConnectionAttention.resolve(status.archive))
+		try await waitUntil("the held scan and share are archived") {
+			controller.submissions.entries.count == 2
+				&& controller.submissions.entries.allSatisfy { $0.answer?.archivedTheBytes == true }
+		}
 		await controller.gateway.shutdown()
 	}
 
@@ -205,10 +232,13 @@ final class ApplicationEndToEndTests: XCTestCase {
 		}
 		await controller.gateway.shutdown()
 	}
+}
 
+/// What the tests do as a person or as the archive's owner would, and what they wait for.
+private extension ApplicationEndToEndTests {
 	/// Taps the row as a person does and waits until the page has read the document's detail.
 	@MainActor
-	private static func tap(
+	static func tap(
 		_ row: DocumentRow,
 		in library: LibraryViewController
 	) async throws -> DocumentPageViewController {
@@ -228,14 +258,14 @@ final class ApplicationEndToEndTests: XCTestCase {
 	}
 
 	@MainActor
-	private static func listedRows(_ library: LibraryViewController) -> [DocumentRow] {
+	static func listedRows(_ library: LibraryViewController) -> [DocumentRow] {
 		guard case let .documents(sections) = library.state else {
 			return []
 		}
 		return sections.flatMap(\.rows)
 	}
 
-	private static func archiveAddress() throws -> String {
+	static func archiveAddress() throws -> String {
 		try XCTUnwrap(
 			ProcessInfo.processInfo.environment["SCHUBLADE_SCRIPTED_ARCHIVE"],
 			"The check script passes the scripted archive's address"
@@ -245,7 +275,7 @@ final class ApplicationEndToEndTests: XCTestCase {
 	/// Follows the library until its copy holds at least `count` documents. After 30 seconds it shuts
 	/// the core down, which ends the waiting read, because a read in Rust ignores cancellation.
 	@MainActor
-	private static func awaitDocuments(_ count: UInt64, in gateway: ApplicationGateway) async throws -> LibraryStatus {
+	static func awaitDocuments(_ count: UInt64, in gateway: ApplicationGateway) async throws -> LibraryStatus {
 		var latest: LibraryStatus?
 		let timeout = Task { @MainActor in
 			try await Task.sleep(for: .seconds(30))
@@ -268,8 +298,36 @@ final class ApplicationEndToEndTests: XCTestCase {
 		}
 	}
 
+	/// Asks the copy to read the archive, as the background refresh does. After 30 seconds it shuts the
+	/// core down, which ends the refresh's waiting read, and fails, so an archive out of reach fails
+	/// the test rather than holding it.
+	@MainActor
+	static func refresh(_ controller: ApplicationController) async throws -> SynchronizationAnswer {
+		let timeout = Task { @MainActor () -> Bool in
+			do {
+				try await Task.sleep(for: .seconds(30))
+			} catch {
+				return false
+			}
+			await controller.gateway.shutdown()
+			return true
+		}
+		let answer = await controller.refreshLibrary()
+		timeout.cancel()
+		if await timeout.value {
+			throw ConditionNotReached(expectation: "the refresh answers within 30 seconds", detail: "\(answer)")
+		}
+		return answer
+	}
+
+	static func letter(_ text: String) throws -> URL {
+		let file = URL.temporaryDirectory.appending(path: "\(UUID().uuidString).pdf")
+		try Data("%PDF-1.4\n\(text) \(UUID().uuidString)\n%%EOF\n".utf8).write(to: file)
+		return file
+	}
+
 	/// Makes the scripted archive accept only this token, as when its owner revokes another.
-	private static func acceptOnly(_ token: String) async throws {
+	static func acceptOnly(_ token: String) async throws {
 		let address = try XCTUnwrap(URL(string: archiveAddress()))
 		var request = URLRequest(url: address.appending(path: "scripted/token"))
 		request.httpMethod = "POST"
@@ -282,7 +340,7 @@ final class ApplicationEndToEndTests: XCTestCase {
 	}
 
 	/// Adds one archived document to the scripted archive.
-	private static func addDocument() async throws {
+	static func addDocument() async throws {
 		let address = try XCTUnwrap(URL(string: archiveAddress()))
 		var request = URLRequest(url: address.appending(path: "scripted/documents"))
 		request.httpMethod = "POST"
@@ -299,20 +357,20 @@ final class ApplicationEndToEndTests: XCTestCase {
 	}
 }
 
-/// A condition a test waited for that did not arrive.
-struct ConditionNotReached: Error {
-	let expectation: String
-	let detail: String
-}
-
-/// Polls `condition` on the main actor until it holds, for at most 30 seconds.
-@MainActor
-func waitUntil(_ expectation: String, condition: () -> Bool) async throws {
-	let deadline = ContinuousClock.now + .seconds(30)
-	while !condition() {
-		guard ContinuousClock.now < deadline else {
-			throw ConditionNotReached(expectation: expectation, detail: "not within 30 seconds")
+private extension SubmissionAnswerRecord {
+	var refusedTheToken: Bool {
+		if case .refusedToken = self {
+			true
+		} else {
+			false
 		}
-		try await Task.sleep(for: .milliseconds(50))
+	}
+
+	var archivedTheBytes: Bool {
+		if case .archived = self {
+			true
+		} else {
+			false
+		}
 	}
 }
