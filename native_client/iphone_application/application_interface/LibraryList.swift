@@ -8,6 +8,8 @@ final class LibraryList {
 		case document(DocumentIdentifier, title: String?)
 		/// The form that replaces a token the archive refused.
 		case tokenReplacement
+		/// A scope the search offered.
+		case scope(NamedScope)
 	}
 
 	/// Everything a snapshot is made of, so an unchanged input applies nothing.
@@ -34,7 +36,7 @@ final class LibraryList {
 	let collectionView: UICollectionView
 	private let thumbnails: ThumbnailStore
 	private let submissions: SubmissionCoordinator
-	private let gateway: ApplicationGateway
+	private let swipeActions: LibrarySwipeActions
 	private weak var presenter: UIViewController?
 	private var dataSource: UICollectionViewDiffableDataSource<LibrarySection, LibraryItem>?
 	private var shown: Shown?
@@ -44,6 +46,7 @@ final class LibraryList {
 	private var context = WordingContext.current()
 	private var notice: UIContentUnavailableConfiguration?
 	private var attention: ConnectionAttention?
+	private var suggestions: [LibraryScope: ScopeSuggestion] = [:]
 
 	init(
 		in view: UIView,
@@ -54,7 +57,7 @@ final class LibraryList {
 	) {
 		self.thumbnails = thumbnails
 		self.submissions = submissions
-		self.gateway = gateway
+		swipeActions = LibrarySwipeActions(gateway: gateway, submissions: submissions, presenter: presenter)
 		self.presenter = presenter
 		collectionView = UICollectionView(frame: view.bounds, collectionViewLayout: UICollectionViewFlowLayout())
 		collectionView.collectionViewLayout = layout()
@@ -88,17 +91,19 @@ final class LibraryList {
 		self.notice = notice
 		searchText = content.searchText
 		attention = content.attention
+		suggestions = Dictionary(content.suggestions.map { ($0.scope.scope, $0) }) { first, _ in first }
 		arrivals = Dictionary(uniqueKeysWithValues: content.arrivals.map { ($0.id, $0) })
 		let previousRows = rows
 		rows = Dictionary(content.state.listedSections.flatMap(\.rows).map { ($0.document, $0) }) { first, _ in first }
-		var snapshot = Self.snapshot(of: content, noticed: !content.arrivals.isEmpty && notice != nil)
+		let shared = !content.arrivals.isEmpty || !content.suggestions.isEmpty
+		var snapshot = Self.snapshot(of: content, noticed: shared && notice != nil)
 		let previous = dataSource.snapshot()
 		// A row shows its date another way under another heading, and marks other words in another
 		// search. A snapshot refuses to reconfigure an item it lacks, such as a listed document that
 		// an arrival shows.
 		let revised = snapshot.itemIdentifiers.filter { item in
 			switch item {
-			case .arrival, .notice, .attention:
+			case .arrival, .notice, .attention, .suggestion:
 				true
 			case let .document(identifier):
 				searchChanged || previousRows[identifier] != rows[identifier]
@@ -144,6 +149,8 @@ final class LibraryList {
 			return .document(document, title: title)
 		case .attention?:
 			return attention?.replacesToken == true ? .tokenReplacement : nil
+		case let .suggestion(scope)?:
+			return suggestions[scope].map { .scope($0.scope) }
 		case .notice?, nil:
 			return nil
 		}
@@ -191,6 +198,10 @@ private extension LibraryList {
 			snapshot.appendSections([.attention])
 			snapshot.appendItems([.attention])
 		}
+		if !content.suggestions.isEmpty {
+			snapshot.appendSections([.suggestions])
+			snapshot.appendItems(content.suggestions.map { .suggestion($0.scope.scope) })
+		}
 		if !content.arrivals.isEmpty || !arrivingDocuments.isEmpty {
 			snapshot.appendSections([.arriving])
 			snapshot.appendItems(content.arrivals.map { .arrival($0.id) } + arrivingDocuments.map { .document($0) })
@@ -212,18 +223,30 @@ private extension LibraryList {
 		UICollectionViewCompositionalLayout { [weak self] index, environment in
 			var configuration = UICollectionLayoutListConfiguration(appearance: .plain)
 			let section = self?.dataSource?.sectionIdentifier(for: index)
-			configuration.headerMode = [.listed(nil), .notice, .attention].contains(section) ? .none : .supplementary
+			configuration.headerMode = [.listed(nil), .notice, .attention, .suggestions].contains(section)
+				? .none : .supplementary
 			configuration.itemSeparatorHandler = { [weak self] indexPath, separator in
 				var aligned = separator
-				aligned.bottomSeparatorInsets.leading = DocumentRowContent.textLeading
-				if [.notice, .attention].contains(self?.dataSource?.itemIdentifier(for: indexPath)) {
-					aligned.topSeparatorVisibility = .hidden
+				aligned.topSeparatorVisibility = .hidden
+				switch self?.dataSource?.itemIdentifier(for: indexPath) {
+				case .notice?, .attention?:
 					aligned.bottomSeparatorVisibility = .hidden
+				case .suggestion?:
+					break
+				case .arrival?, .document?, nil:
+					aligned.bottomSeparatorInsets.leading = DocumentRowContent.textLeading
 				}
 				return aligned
 			}
 			configuration.trailingSwipeActionsConfigurationProvider = { [weak self] indexPath in
-				self?.swipeActions(at: indexPath)
+				switch self?.dataSource?.itemIdentifier(for: indexPath) {
+				case let .document(document)?:
+					self?.rows[document].flatMap { self?.swipeActions.configuration(document: $0) }
+				case let .arrival(identifier)?:
+					self?.arrivals[identifier].flatMap { self?.swipeActions.configuration(arrival: $0) }
+				default:
+					nil
+				}
 			}
 			return NSCollectionLayoutSection.list(using: configuration, layoutEnvironment: environment)
 		}
@@ -258,7 +281,7 @@ private extension LibraryList {
 			"Arriving"
 		case let .listed(heading?)?:
 			DocumentFormatting.headingText(heading, context: context)
-		case .listed(nil)?, .notice?, .attention?, nil:
+		case .listed(nil)?, .notice?, .attention?, .suggestions?, nil:
 			nil
 		}
 	}
@@ -298,6 +321,10 @@ private extension LibraryList {
 			LibraryRowConfiguration.configure(cell, document: row, picture: picture, setting: setting, context: context)
 		case .notice:
 			LibraryRowConfiguration.configure(cell, notice: notice)
+		case let .suggestion(scope):
+			if let suggestion = suggestions[scope] {
+				LibraryRowConfiguration.configure(cell, suggestion: suggestion)
+			}
 		case .attention:
 			if let attention {
 				LibraryRowConfiguration.configure(cell, attention: attention)
@@ -317,82 +344,5 @@ private extension LibraryList {
 		}
 		snapshot.reconfigureItems(present)
 		dataSource?.apply(snapshot, animatingDifferences: false)
-	}
-}
-
-/// The swipe actions of a row.
-private extension LibraryList {
-	/// A document can be shared. An arrival that the archive has not archived can be removed, and one
-	/// it did not accept can be taken elsewhere, because the iPhone still holds its file. A full swipe
-	/// does nothing, because a sheet that opened from one would surprise.
-	func swipeActions(at indexPath: IndexPath) -> UISwipeActionsConfiguration? {
-		if case let .document(document)? = dataSource?.itemIdentifier(for: indexPath), let row = rows[document] {
-			let share = UIContextualAction(style: .normal, title: "Share") { [weak self] _, view, done in
-				guard let self else {
-					return done(false)
-				}
-				OriginalCopies.share(
-					document,
-					fileName: row.suggestedFileName,
-					gateway: gateway,
-					presenter: presenter,
-					source: view
-				)
-				done(true)
-			}
-			share.image = UIImage(systemName: "square.and.arrow.up")
-			share.backgroundColor = .tintColor
-			let configuration = UISwipeActionsConfiguration(actions: [share])
-			configuration.performsFirstActionWithFullSwipe = false
-			return configuration
-		}
-		guard case let .arrival(identifier)? = dataSource?.itemIdentifier(for: indexPath),
-		      let arrival = arrivals[identifier], arrival.document == nil
-		else {
-			return nil
-		}
-		var actions: [UIContextualAction] = []
-		let remove = UIContextualAction(style: .destructive, title: "Remove") { [weak self] _, _, done in
-			self?.submissions.remove(identifier)
-			done(true)
-		}
-		remove.image = UIImage(systemName: "trash")
-		actions.append(remove)
-		if case .notAccepted = arrival.stage {
-			let share = UIContextualAction(style: .normal, title: "Share") { [weak self] _, view, done in
-				self?.shareFile(of: identifier, from: view)
-				done(true)
-			}
-			share.image = UIImage(systemName: "square.and.arrow.up")
-			share.backgroundColor = .tintColor
-			actions.append(share)
-		}
-		let configuration = UISwipeActionsConfiguration(actions: actions)
-		configuration.performsFirstActionWithFullSwipe = false
-		return configuration
-	}
-
-	/// Hands the file under the name the archive was sent, in a directory of its own that goes once
-	/// the sheet closes.
-	func shareFile(of identifier: UUID, from view: UIView) {
-		guard let entry = submissions.entries.first(where: { $0.id == identifier }),
-		      let file = submissions.documentFile(of: entry)
-		else {
-			return
-		}
-		let directory = URL.temporaryDirectory.appending(path: UUID().uuidString, directoryHint: .isDirectory)
-		let copy = directory.appending(path: entry.manifest.fileName)
-		do {
-			try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-			try FileManager.default.copyItem(at: file, to: copy)
-		} catch {
-			return
-		}
-		let sheet = UIActivityViewController(activityItems: [copy], applicationActivities: nil)
-		sheet.popoverPresentationController?.sourceView = view
-		sheet.completionWithItemsHandler = { _, _, _, _ in
-			try? FileManager.default.removeItem(at: directory)
-		}
-		presenter?.present(sheet, animated: true)
 	}
 }

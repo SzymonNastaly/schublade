@@ -173,70 +173,6 @@ final class LibraryViewController: UIViewController {
 		}
 	}
 
-	private func render() {
-		let sendingPermitted = controller.sendingPermitted
-		let context = WordingContext.current()
-		let searching = !(answer?.searchText ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-		let arrivals = searching ? [] : controller.submissions.arrivals(context: context)
-		let landed = arrivalMoments.follow(
-			arrivals,
-			sceneActive: view.window?.windowScene?.activationState == .foregroundActive
-		)
-		guard case let .running(status) = controller.situation else {
-			renderStarting(arrivals: arrivals, sendingPermitted: sendingPermitted, context: context)
-			return
-		}
-		thumbnails.contentRevisionChanged(to: status.contentRevision)
-		if status.contentRevision != listedRevision {
-			requestListing()
-		}
-		if status.contentRevision != facetsRevision {
-			requestFacets(revision: status.contentRevision)
-		}
-		refresh?.follow(status)
-		state = resolvedState(status: status, context: context)
-		commands.arrange(
-			LibraryCommands.Arrangement(sendingPermitted: sendingPermitted, showsFilter: state != .emptyArchive)
-		)
-		showSubtitle(status: status)
-		let attention = announced(ConnectionAttention.resolve(status.archive))
-		let unavailable = LibraryEmptyStates.configuration(
-			state,
-			sendingPermitted: sendingPermitted,
-			searching: searching,
-			actions: emptyStateActions
-		)
-		if landed {
-			list.scrollToTop()
-		}
-		list.show(
-			LibraryListContent(
-				attention: attention,
-				state: state,
-				arrivals: arrivals,
-				searchText: searching ? answer?.searchText : nil
-			),
-			notice: unavailable,
-			context: context
-		)
-		list.showEmpty(list.isEmpty ? unavailable : nil)
-	}
-
-	/// The camera opened by a request that started the application shows over this screen while the
-	/// core starts, and the row of its scan shows already.
-	private func renderStarting(arrivals: [Arrival], sendingPermitted: Bool, context: WordingContext) {
-		commands.arrange(LibraryCommands.Arrangement(sendingPermitted: sendingPermitted, showsFilter: false))
-		list.show(
-			LibraryListContent(attention: nil, state: .awaitingListing, arrivals: arrivals, searchText: nil),
-			notice: nil,
-			context: context
-		)
-	}
-
-	private func rerender() {
-		render()
-	}
-
 	private var emptyStateActions: LibraryEmptyStates.Actions {
 		LibraryEmptyStates.Actions(
 			scan: { [weak self] in self?.capture.scan(animated: true) },
@@ -274,7 +210,7 @@ final class LibraryViewController: UIViewController {
 				return
 			}
 			answer = ListedAnswer(outcome: outcome, scope: scope, searchText: text, documentCount: count)
-			rerender()
+			render()
 		}
 	}
 }
@@ -290,6 +226,13 @@ extension LibraryViewController {
 			self?.choose(scope)
 		}
 		navigationController?.pushViewController(page, animated: true)
+	}
+
+	/// A scope the search offered: the text goes, and the scope becomes the search field's token.
+	func chooseSuggested(_ scope: NamedScope) {
+		searchController.searchBar.text = ""
+		searchTextChanged("")
+		choose(scope)
 	}
 
 	/// The form with the archive's address filled in, until Settings holds it. A token the archive
@@ -321,6 +264,84 @@ extension LibraryViewController {
 }
 
 private extension LibraryViewController {
+	func render() {
+		let sendingPermitted = controller.sendingPermitted
+		let context = WordingContext.current()
+		let searching = !(answer?.searchText ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+		let arrivals = searching ? [] : controller.submissions.arrivals(context: context)
+		let landed = arrivalMoments.follow(
+			arrivals,
+			sceneActive: view.window?.windowScene?.activationState == .foregroundActive
+		)
+		guard case let .running(status) = controller.situation else {
+			renderStarting(arrivals: arrivals, sendingPermitted: sendingPermitted, context: context)
+			return
+		}
+		followCopy(status)
+		state = resolvedState(status: status, context: context)
+		commands.arrange(
+			LibraryCommands.Arrangement(sendingPermitted: sendingPermitted, showsFilter: state != .emptyArchive)
+		)
+		showSubtitle(status: status)
+		let attention = announced(ConnectionAttention.resolve(status.archive))
+		let unavailable = LibraryEmptyStates.configuration(
+			state,
+			sendingPermitted: sendingPermitted,
+			searching: searching,
+			actions: emptyStateActions
+		)
+		if landed {
+			list.scrollToTop()
+		}
+		let searchText = searching ? answer?.searchText : nil
+		list.show(
+			LibraryListContent(
+				attention: attention,
+				suggestions: searchText.map { LibrarySearch.suggestions(
+					for: $0,
+					facets: facets,
+					chosen: chosenScope.scope
+				) }
+					?? [],
+				state: state,
+				arrivals: arrivals,
+				searchText: searchText
+			),
+			notice: unavailable,
+			context: context
+		)
+		list.showEmpty(list.isEmpty ? unavailable : nil)
+	}
+
+	/// The camera opened by a request that started the application shows over this screen while the
+	/// core starts, and the row of its scan shows already.
+	func renderStarting(arrivals: [Arrival], sendingPermitted: Bool, context: WordingContext) {
+		commands.arrange(LibraryCommands.Arrangement(sendingPermitted: sendingPermitted, showsFilter: false))
+		list.show(
+			LibraryListContent(
+				attention: nil,
+				suggestions: [],
+				state: .awaitingListing,
+				arrivals: arrivals,
+				searchText: nil
+			),
+			notice: nil,
+			context: context
+		)
+	}
+
+	/// Reads the listing and the facets again when the copy changed, and ends a pull it answered.
+	func followCopy(_ status: LibraryStatus) {
+		thumbnails.contentRevisionChanged(to: status.contentRevision)
+		if status.contentRevision != listedRevision {
+			requestListing()
+		}
+		if status.contentRevision != facetsRevision {
+			requestFacets(revision: status.contentRevision)
+		}
+		refresh?.follow(status)
+	}
+
 	/// Every row at once, because a diffable list needs every identifier. Five thousand rows cross
 	/// from Rust in a few milliseconds, away from the main actor.
 	@concurrent

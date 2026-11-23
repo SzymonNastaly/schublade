@@ -60,6 +60,7 @@ enum LibraryRowConfiguration {
 		content.describe(cell)
 		cell.accessories = []
 		cell.accessibilityIdentifier = identity
+		cell.accessibilityHint = nil
 	}
 
 	static func configure(
@@ -81,6 +82,26 @@ enum LibraryRowConfiguration {
 		content.describe(cell)
 		cell.accessories = []
 		cell.accessibilityIdentifier = identity
+		cell.accessibilityHint = nil
+	}
+
+	/// A scope the search offers: its symbol in the tint, its name, and its kind with its count.
+	static func configure(_ cell: UICollectionViewListCell, suggestion: ScopeSuggestion) {
+		var content = UIListContentConfiguration.subtitleCell()
+		content.image = UIImage(systemName: suggestion.symbol)
+		content.imageProperties.tintColor = .tintColor
+		content.text = suggestion.scope.name
+		content.secondaryText = "\(suggestion.kind) · "
+			+ DocumentFormatting.countText(suggestion.documents, singular: "document")
+		content.secondaryTextProperties.color = .secondaryLabel
+		cell.contentConfiguration = content
+		cell.accessories = []
+		cell.isAccessibilityElement = true
+		cell.accessibilityLabel = suggestion.scope.name
+		cell.accessibilityValue = content.secondaryText
+		cell.accessibilityHint = "Shows the documents of \(suggestion.scope.name)"
+		cell.accessibilityTraits = [.button]
+		cell.accessibilityIdentifier = "library.suggestion"
 	}
 
 	/// A connection that needs the person, with a disclosure indicator where a new token is the way out.
@@ -101,6 +122,7 @@ enum LibraryRowConfiguration {
 		cell.accessibilityValue = attention.detail
 		cell.accessibilityTraits = attention.replacesToken ? [.button] : [.staticText]
 		cell.accessibilityIdentifier = "library.attention"
+		cell.accessibilityHint = nil
 	}
 
 	static func configure(_ cell: UICollectionViewListCell, notice: UIContentUnavailableConfiguration?) {
@@ -110,5 +132,6 @@ enum LibraryRowConfiguration {
 		cell.accessibilityLabel = nil
 		cell.accessibilityValue = nil
 		cell.accessibilityIdentifier = nil
+		cell.accessibilityHint = nil
 	}
 }

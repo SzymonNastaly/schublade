@@ -1,16 +1,18 @@
 import ApplicationBindings
 import UIKit
 
-/// A scope the search field offers while the typed text begins its name.
+/// A scope the list offers above the results while the typed text begins its name.
 struct ScopeSuggestion: Equatable {
 	let scope: NamedScope
 	/// "Category", "Tag", or "Person".
 	let kind: String
 	let symbol: String
+	let documents: UInt64
 }
 
 /// The library's search field: the chosen scope as a token while a person searches, the scopes
-/// whose names begin with the typed text as suggestions, and the words of an excerpt that matched.
+/// whose names begin with the typed text, which the list offers above the results, and the words of
+/// an excerpt that matched.
 final class LibrarySearch: NSObject {
 	static let maximumSuggestions = 3
 
@@ -55,7 +57,12 @@ final class LibrarySearch: NSObject {
 			counts.filter { count in
 				count.scope.scope != chosen && begins(count.scope.name, with: typed)
 			}.map { count in
-				ScopeSuggestion(scope: count.scope, kind: kind, symbol: LibraryScopeMenu.symbol(of: count.scope.scope))
+				ScopeSuggestion(
+					scope: count.scope,
+					kind: kind,
+					symbol: LibraryScopeMenu.symbol(of: count.scope.scope),
+					documents: count.documents
+				)
 			}
 		}
 		return Array(offered.prefix(maximumSuggestions))
@@ -127,35 +134,7 @@ extension LibrarySearch: UISearchResultsUpdating, UISearchControllerDelegate {
 			tokenScope = nil
 			screen.choose(NamedScope(scope: .allDocuments, name: "All Documents"))
 		}
-		let text = searchController.searchBar.text ?? ""
-		searchController.searchSuggestions = Self.suggestions(
-			for: text,
-			facets: screen.facets,
-			chosen: screen.chosenScope.scope
-		).map { suggestion in
-			let item = UISearchSuggestionItem(
-				localizedSuggestion: suggestion.scope.name,
-				localizedDescription: suggestion.kind,
-				iconImage: UIImage(systemName: suggestion.symbol)
-			)
-			item.representedObject = suggestion.scope
-			return item
-		}
-		screen.searchTextChanged(text)
-	}
-
-	/// A chosen suggestion clears the text and becomes the scope and its token.
-	func updateSearchResults(
-		for searchController: UISearchController,
-		selecting searchSuggestion: any UISearchSuggestion
-	) {
-		guard let scope = searchSuggestion.representedObject as? NamedScope else {
-			return
-		}
-		searchController.searchBar.text = ""
-		searchController.searchSuggestions = []
-		screen?.choose(scope)
-		screen?.searchTextChanged("")
+		screen.searchTextChanged(searchController.searchBar.text ?? "")
 	}
 
 	/// Before iOS 26 the toolbar gives way to the keyboard. From iOS 26 the search field is in it.
@@ -174,7 +153,6 @@ extension LibrarySearch: UISearchResultsUpdating, UISearchControllerDelegate {
 	func willDismissSearchController(_ searchController: UISearchController) {
 		tokenScope = nil
 		searchController.searchBar.searchTextField.tokens = []
-		searchController.searchSuggestions = []
 		if #unavailable(iOS 26) {
 			screen?.navigationController?.setToolbarHidden(false, animated: true)
 		}

@@ -30,6 +30,8 @@ final class LibraryInteraction: NSObject, UICollectionViewDelegate {
 			screen?.open(document, title: title)
 		case .tokenReplacement?:
 			screen?.replaceToken()
+		case let .scope(scope)?:
+			screen?.chooseSuggested(scope)
 		case nil:
 			break
 		}

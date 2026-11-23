@@ -144,6 +144,8 @@ enum ConnectionAttention: Equatable {
 /// What the library's list shows.
 struct LibraryListContent: Equatable {
 	let attention: ConnectionAttention?
+	/// The scopes whose names begin the searched text, above the results.
+	let suggestions: [ScopeSuggestion]
 	let state: LibraryListState
 	let arrivals: [Arrival]
 	/// The text of a search, nil while a person browses.
@@ -152,6 +154,7 @@ struct LibraryListContent: Equatable {
 
 nonisolated enum LibrarySection: Hashable {
 	case attention
+	case suggestions
 	/// This iPhone's arrivals, then the listing's documents in ingestion that no arrival shows.
 	case arriving
 	case listed(ListingHeading?)
@@ -160,6 +163,7 @@ nonisolated enum LibrarySection: Hashable {
 
 nonisolated enum LibraryItem: Hashable {
 	case attention
+	case suggestion(LibraryScope)
 	case arrival(UUID)
 	case document(DocumentIdentifier)
 	case notice
