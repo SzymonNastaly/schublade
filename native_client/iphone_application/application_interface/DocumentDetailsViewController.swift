@@ -84,7 +84,7 @@ final class DocumentDetailsViewController: UIViewController, UICollectionViewDat
 
 	func show(_ detail: DocumentDetailPresentation) {
 		let shown = DocumentDetailSection.sections(of: detail)
-		guard shown.map(\.rows) != sections.map(\.rows) else {
+		guard shown != sections else {
 			return
 		}
 		sections = shown

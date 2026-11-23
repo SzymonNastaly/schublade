@@ -3,7 +3,7 @@ import LibraryPresentation
 import UIKit
 
 /// One section of the details sheet.
-struct DocumentDetailSection {
+struct DocumentDetailSection: Equatable {
 	let header: String?
 	let footer: String?
 	let rows: [DocumentDetailRow]
