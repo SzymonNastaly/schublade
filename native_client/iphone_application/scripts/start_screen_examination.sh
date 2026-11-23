@@ -6,8 +6,10 @@
 # three-page letter the archive does not hold, which stays in ingestion until a request names its
 # stage, and with `refused` a text file named as a PDF is sent beside it, which the archive does not
 # accept. With `token-refused`, the archive is seeded and accepts another token once the application
-# has connected and read it, as when its owner revokes this iPhone's token. Prints the simulator, the archive's address, and in those two the requests that move the
-# scan's document on:
+# has connected and read it, as when its owner revokes this iPhone's token. EXAMINATION_SIMULATOR,
+# EXAMINATION_TOKEN, and EXAMINATION_DIRECTORY replace the first iPhone simulator, the token, and the
+# working directory, so a second examination leaves this one's archive running. Prints the simulator,
+# the archive's address, and in `arriving` and `refused` the requests that move the scan's document on:
 #   curl -X POST <archive>/scripted/documents -d '{"content_sha256": "<digest>", "status": "recognizing_text"}'
 #   curl -X POST <archive>/scripted/documents -d @/tmp/schublade_iphone_screen_examination/filed.json
 #   scripts/execute_on_macintosh.sh native_client/iphone_application/scripts/start_screen_examination.sh [light|dark] [seeded|empty|arriving|refused|token-refused]
@@ -17,11 +19,11 @@ cd "$(dirname "$0")/.."
 
 appearance="${1:-light}"
 contents="${2:-seeded}"
-token="screen-examination-token"
+token="${EXAMINATION_TOKEN:-screen-examination-token}"
 documents="$(cd ../../test_fixtures/documents && pwd)"
-work="/tmp/schublade_iphone_screen_examination"
+work="${EXAMINATION_DIRECTORY:-/tmp/schublade_iphone_screen_examination}"
 application="build/Build/Products/Debug-iphonesimulator/Schublade Development.app"
-simulator="$(xcrun simctl list devices available | grep -m1 -E '^\s+iPhone' | grep -oE '[A-F0-9-]{36}')"
+simulator="${EXAMINATION_SIMULATOR:-$(xcrun simctl list devices available | grep -m1 -E '^\s+iPhone' | grep -oE '[A-F0-9-]{36}')}"
 
 (cd .. && cargo build --locked --quiet -p scripted_archive --bin scripted-archive-server)
 xcodegen generate --quiet
