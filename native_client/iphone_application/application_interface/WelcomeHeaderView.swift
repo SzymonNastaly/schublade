@@ -25,7 +25,11 @@ final class WelcomeHeaderView: UICollectionReusableView {
 		title.accessibilityTraits = .header
 		let sentence = UILabel()
 		sentence.text = "Schublade sends your letters to your own archive and keeps every document at hand, even offline."
-		sentence.font = .preferredFont(forTextStyle: .body)
+		// The sentence stops growing below the title's largest size, so the title still leads.
+		sentence.font = UIFontMetrics(forTextStyle: .body).scaledFont(
+			for: .preferredFont(forTextStyle: .body, compatibleWith: .init(preferredContentSizeCategory: .large)),
+			maximumPointSize: 34
+		)
 		sentence.adjustsFontForContentSizeCategory = true
 		sentence.textColor = .secondaryLabel
 		sentence.textAlignment = .center
