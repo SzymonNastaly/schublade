@@ -46,7 +46,8 @@ final class ShareViewController: UIViewController {
 	private var files: [ShareContents.SharedFile] = []
 	/// The copy of each file, made one after another as the sheet appears, which Send awaits.
 	private var copies: [Task<URL, any Error>] = []
-	/// Where the copies are made, which goes as a whole when the sheet ends without Send.
+	/// Where the copies are made, which goes as a whole once nothing needs it: when the sheet ends
+	/// without Send, and after Send once the queue has taken every copy it could read.
 	private let copiesDirectory = URL.temporaryDirectory.appending(
 		path: "imports/\(UUID().uuidString)",
 		directoryHint: .isDirectory
@@ -222,11 +223,18 @@ final class ShareViewController: UIViewController {
 		extensionContext?.cancelRequest(withError: CocoaError(.userCancelled))
 	}
 
-	/// Removes every copy at once, because the process may end right after the sheet. A copy still
-	/// being made finds its directory gone and makes none.
+	/// Removes every copy at once, because the process may end right after the sheet, and again once
+	/// every copy has ended, because one still being written can keep the directory from going. A copy
+	/// that starts later finds its directory gone and makes none.
 	private func discardCopies() {
 		copies.forEach { $0.cancel() }
 		try? FileManager.default.removeItem(at: copiesDirectory)
+		Task { [copies, copiesDirectory] in
+			for copy in copies {
+				_ = await copy.result
+			}
+			try? FileManager.default.removeItem(at: copiesDirectory)
+		}
 	}
 
 	/// Enqueues and starts each copy before the next, so a submission the application sees already
@@ -267,6 +275,9 @@ final class ShareViewController: UIViewController {
 					sheet.update(index) { $0.mark = .unread }
 				}
 			}
+			// Every copy has ended, and the queue moved each one it took, so what remains is empty
+			// directories and the copies it could not read.
+			try? FileManager.default.removeItem(at: copiesDirectory)
 			guard unreadNames.isEmpty else {
 				phase = .partlyUnread(unreadNames: unreadNames, sentCount: files.count - unreadNames.count)
 				show()
