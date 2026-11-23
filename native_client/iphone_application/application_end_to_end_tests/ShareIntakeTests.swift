@@ -45,12 +45,38 @@ final class ShareIntakeTests: XCTestCase {
 		XCTAssertEqual(Array(picture.prefix(3)), [0xFF, 0xD8, 0xFF])
 	}
 
-	private static func writePicture(to file: URL, type: UTType) throws {
+	/// A picture of the iPhone's 48-megapixel camera is about 190 MB decoded, above the 120 MB a share
+	/// extension may hold, so the conversion decodes at most 4,000 pixels on the longer side, more
+	/// than the 3,508 of an A4 page at 300 dots per inch.
+	func testALargeSharedPictureBecomesAJPEGOfAtMostFourThousandPixels() async throws {
+		let directory = URL.temporaryDirectory.appending(path: UUID().uuidString, directoryHint: .isDirectory)
+		try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+		let photograph = directory.appending(path: "IMG_0413.heic")
+		try Self.writePicture(to: photograph, type: .heic, size: CGSize(width: 3000, height: 6000))
+		let queue = SubmissionQueue(root: directory.appending(path: "queue", directoryHint: .isDirectory))
+
+		let entry = try await ShareIntake.receive(
+			ShareIntake.SharedFile(file: photograph, type: .heic, suggestedName: "Receipt"),
+			into: queue
+		)
+
+		let source = try XCTUnwrap(CGImageSourceCreateWithURL(XCTUnwrap(queue.documentFile(of: entry)) as CFURL, nil))
+		XCTAssertEqual(CGImageSourceGetType(source) as String?, UTType.jpeg.identifier)
+		let properties = try XCTUnwrap(CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any])
+		XCTAssertEqual(properties[kCGImagePropertyPixelWidth] as? Int, 2000)
+		XCTAssertEqual(properties[kCGImagePropertyPixelHeight] as? Int, 4000)
+	}
+
+	private static func writePicture(
+		to file: URL,
+		type: UTType,
+		size: CGSize = CGSize(width: 800, height: 1200)
+	) throws {
 		let format = UIGraphicsImageRendererFormat()
 		format.scale = 1
-		let picture = UIGraphicsImageRenderer(size: CGSize(width: 800, height: 1200), format: format).image { context in
+		let picture = UIGraphicsImageRenderer(size: size, format: format).image { context in
 			UIColor.white.setFill()
-			context.fill(CGRect(x: 0, y: 0, width: 800, height: 1200))
+			context.fill(CGRect(origin: .zero, size: size))
 			NSAttributedString(
 				string: "Bäckerei Schmidt 4,20 EUR",
 				attributes: [.font: UIFont.systemFont(ofSize: 48)]

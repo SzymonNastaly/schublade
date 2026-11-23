@@ -17,6 +17,9 @@ public enum DocumentImport {
 		case unreadable(String)
 	}
 
+	/// The longer side of a converted picture, above the 3,508 pixels of an A4 page at 300 dots per inch.
+	private static let convertedPixelLimit = 4000
+
 	private static let acceptedKinds: [(UTType, SubmissionFileKind)] = [
 		(.pdf, .pdf),
 		(.jpeg, .jpeg),
@@ -46,11 +49,18 @@ public enum DocumentImport {
 			throw .unacceptedKind(file.lastPathComponent)
 		}
 		let converted = file.deletingLastPathComponent().appending(path: "\(UUID().uuidString).jpg")
-		// The decoded picture is released before the next file, because a share extension is ended
-		// above about 120 MB.
+		// A share extension is ended above about 120 MB, and a picture of the 48-megapixel camera
+		// takes about 190 MB decoded. ImageIO therefore decodes it at most `convertedPixelLimit` on
+		// its longer side, upright, and the picture is released before the next file.
 		let written = autoreleasepool {
 			let hint = [kCGImageSourceTypeIdentifierHint: type.identifier] as CFDictionary
+			let decoding = [
+				kCGImageSourceCreateThumbnailFromImageAlways: true,
+				kCGImageSourceCreateThumbnailWithTransform: true,
+				kCGImageSourceThumbnailMaxPixelSize: convertedPixelLimit,
+			] as CFDictionary
 			guard let source = CGImageSourceCreateWithURL(file as CFURL, hint),
+			      let picture = CGImageSourceCreateThumbnailAtIndex(source, 0, decoding),
 			      let destination = CGImageDestinationCreateWithURL(
 			      	converted as CFURL,
 			      	UTType.jpeg.identifier as CFString,
@@ -61,7 +71,7 @@ public enum DocumentImport {
 				return false
 			}
 			let options = [kCGImageDestinationLossyCompressionQuality: 0.85] as CFDictionary
-			CGImageDestinationAddImageFromSource(destination, source, 0, options)
+			CGImageDestinationAddImage(destination, picture, options)
 			return CGImageDestinationFinalize(destination)
 		}
 		guard written else {
