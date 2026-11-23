@@ -1,5 +1,7 @@
 import ApplicationBindings
 import Foundation
+import LibraryPresentation
+import UIKit
 import XCTest
 @testable import ApplicationInterface
 
@@ -94,6 +96,68 @@ final class ApplicationEndToEndTests: XCTestCase {
 		gateway.synchronize()
 		_ = try await Self.awaitDocuments(filled.counts.documents + 1, in: gateway)
 		await gateway.shutdown()
+	}
+
+	/// A seeded document opened from the list as a person taps its row: the page reads the detail, the
+	/// original as a PDF of one page, and the extracted text.
+	@MainActor
+	func testADocumentOpensFromTheList() async throws {
+		let controller = ApplicationController(environment: .isolated())
+		controller.launch()
+		try await waitUntil("the core starts") { controller.situation != .starting }
+		let refusal = try await controller.connect(address: Self.archiveAddress(), token: Self.token)
+		XCTAssertNil(refusal)
+		let library = LibraryViewController(controller: controller)
+		let navigation = UINavigationController(rootViewController: library)
+		library.loadViewIfNeeded()
+		try await waitUntil("the seeded documents are listed") { Self.listedRows(library).count == 5 }
+		guard case let .documents(sections) = library.state else {
+			return XCTFail("The list shows \(library.state)")
+		}
+		XCTAssertEqual(
+			sections.map { $0.heading.map { DocumentFormatting.headingText($0, context: .current()) } },
+			["September 2026"]
+		)
+		let row = try XCTUnwrap(sections.first?.rows.first)
+		XCTAssertEqual(row.title, "Haftpflichtversicherung Rechnung 5")
+
+		let indexPath = try XCTUnwrap(library.list.indexPath(of: .document(row.document)))
+		library.collectionView(library.list.collectionView, didSelectItemAt: indexPath)
+		let page = try XCTUnwrap(navigation.topViewController as? DocumentPageViewController)
+		page.loadViewIfNeeded()
+		try await waitUntil("the detail is read") {
+			if case .loaded = page.detailState {
+				true
+			} else {
+				false
+			}
+		}
+		XCTAssertEqual(page.title, "Haftpflichtversicherung Rechnung 5")
+		try await waitUntil("the original shows as a PDF") {
+			if case let .portableDocument(document)? = page.original?.state {
+				document.pageCount == 1
+			} else {
+				false
+			}
+		}
+
+		page.select(.reader(.text))
+		try await waitUntil("the extracted text shows") {
+			if case let .text(text)? = page.text?.state {
+				text.contains("Rechnung Nummer 5 für Haftpflichtversicherung.")
+			} else {
+				false
+			}
+		}
+		await controller.gateway.shutdown()
+	}
+
+	@MainActor
+	private static func listedRows(_ library: LibraryViewController) -> [DocumentRow] {
+		guard case let .documents(sections) = library.state else {
+			return []
+		}
+		return sections.flatMap(\.rows)
 	}
 
 	private static func archiveAddress() throws -> String {
