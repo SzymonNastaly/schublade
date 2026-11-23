@@ -314,3 +314,4 @@ Unit D5 landed with these points settled:
 - After a review of units D1 to D5, a row whose token the archive refused offers Share as a row the archive did not accept does, because the iPhone still holds its file.
 - A review of units D1 to D5 found that Remove on a row still being written kept the row and sent the file once written. Remove now drops the row, and the written file is deleted instead of queued.
 - A second review found that an alert could follow Remove when the file of the removed row failed to be written or copied. Only a row that still shows raises one now.
+- The text view's link detector links another application's scheme as well: `NSDataDetector` on the Mac linked `shortcuts://run-shortcut?name=x` and `x-apple-health://y`. The text view's delegate therefore follows a tap or a long press only for http, https, mailto, and tel, whatever the detector found.

@@ -42,6 +42,7 @@ final class DocumentTextViewController: UIViewController {
 		textView.textContainer.lineFragmentPadding = 0
 		textView.backgroundColor = .systemBackground
 		textView.dataDetectorTypes = [.link, .phoneNumber]
+		textView.delegate = self
 		textView.accessibilityIdentifier = "document.text"
 		textView.frame = view.bounds
 		textView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
@@ -174,6 +175,10 @@ final class DocumentTextViewController: UIViewController {
 	/// link that opens another application's scheme stays plain text.
 	private static let linkSchemes: Set<String> = ["http", "https", "mailto", "tel"]
 
+	private static func follows(_ link: URL) -> Bool {
+		link.scheme.map { linkSchemes.contains($0.lowercased()) } ?? false
+	}
+
 	/// A line with its emphasis, code, and links read as Markdown, or as it stands when it is none.
 	private static func inlineText(_ line: String) -> NSAttributedString {
 		let options = AttributedString.MarkdownParsingOptions(interpretedSyntax: .inlineOnlyPreservingWhitespace)
@@ -198,12 +203,35 @@ final class DocumentTextViewController: UIViewController {
 					attributes[.font] = UIFont(descriptor: descriptor, size: 0)
 				}
 			}
-			if let link = run.link, let scheme = link.scheme?.lowercased(), Self.linkSchemes.contains(scheme) {
+			if let link = run.link, Self.follows(link) {
 				attributes[.link] = link
 			}
 			text.append(NSAttributedString(string: String(parsed[run.range].characters), attributes: attributes))
 		}
 		return text
+	}
+}
+
+/// The link detector links any address it finds in the text, another application's scheme as well,
+/// so a tap or a long press follows only the links the text keeps.
+extension DocumentTextViewController: UITextViewDelegate {
+	func textView(_: UITextView, primaryActionFor textItem: UITextItem, defaultAction: UIAction) -> UIAction? {
+		Self.follows(textItem) ? defaultAction : nil
+	}
+
+	func textView(
+		_: UITextView,
+		menuConfigurationFor textItem: UITextItem,
+		defaultMenu: UIMenu
+	) -> UITextItem.MenuConfiguration? {
+		Self.follows(textItem) ? UITextItem.MenuConfiguration(preview: .default, menu: defaultMenu) : nil
+	}
+
+	private static func follows(_ textItem: UITextItem) -> Bool {
+		guard case let .link(link) = textItem.content else {
+			return true
+		}
+		return follows(link)
 	}
 }
 
