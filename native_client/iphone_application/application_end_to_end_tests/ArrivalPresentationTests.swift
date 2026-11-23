@@ -160,6 +160,42 @@ final class ArrivalPresentationTests: XCTestCase {
 		)
 	}
 
+	func testATapOpensTheDocumentOnceTheArchiveNamedIt() {
+		let document = DocumentIdentifier(value: Self.document)
+		let title = "Frischemarkt Talbrück Receipt October 2026"
+		let waiting = resolve(answer: nil, sentFraction: nil)
+		let sent = resolve(answer: archived(alreadyHeld: false), sentFraction: nil)
+		let reading = resolve(
+			answer: archived(alreadyHeld: false),
+			sentFraction: nil,
+			document: detail(condition: .inIngestion(stage: .recognizingText), title: nil)
+		)
+		let filed = resolve(
+			answer: archived(alreadyHeld: false),
+			sentFraction: nil,
+			document: detail(condition: .archived, title: title)
+		)
+		let refused = resolve(answer: .refusedToken(answeredAt: Self.savedAt), sentFraction: nil)
+
+		XCTAssertNil(ArrivalPresentation.destination(waiting))
+		XCTAssertEqual(ArrivalPresentation.destination(sent), .document(document, title: nil, opening: .arrival))
+		XCTAssertEqual(ArrivalPresentation.destination(reading), .document(document, title: nil, opening: .listed))
+		XCTAssertEqual(ArrivalPresentation.destination(filed), .document(document, title: title, opening: .listed))
+		XCTAssertEqual(ArrivalPresentation.destination(refused), .tokenReplacement)
+	}
+
+	func testAnArrivalIsRemovedUntilArchivedAndItsFileSharedOnceRefused() {
+		let waiting = resolve(answer: nil, sentFraction: nil)
+		let rejected = resolve(answer: .rejected(reason: "Unreadable", answeredAt: Self.savedAt), sentFraction: nil)
+		let sent = resolve(answer: archived(alreadyHeld: false), sentFraction: nil)
+
+		XCTAssertEqual(
+			[waiting, rejected, sent]
+				.map { [ArrivalPresentation.removable($0), ArrivalPresentation.fileShareable($0)] },
+			[[true, false], [true, true], [false, false]]
+		)
+	}
+
 	func testAFileIsNamedWithoutItsExtensionAndMeasuredInBytes() {
 		let manifest = SubmissionManifest(
 			identifier: UUID(),

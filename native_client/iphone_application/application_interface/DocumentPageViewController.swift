@@ -5,7 +5,7 @@ import UIKit
 
 /// How a person reached a document's page, which decides what the page says while the copy lacks
 /// the document.
-enum DocumentOpening: Equatable {
+nonisolated enum DocumentOpening: Equatable {
 	/// From a row of the copy's listing, which held the document.
 	case listed
 	/// From an arrival the archive named, which the copy may not have read yet.

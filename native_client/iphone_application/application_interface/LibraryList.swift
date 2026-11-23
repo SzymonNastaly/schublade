@@ -3,15 +3,16 @@ import LibraryPresentation
 import SubmissionQueue
 import UIKit
 
-final class LibraryList {
-	enum Destination {
-		case document(DocumentIdentifier, title: String?, opening: DocumentOpening)
-		/// The form that replaces a token the archive refused.
-		case tokenReplacement
-		/// A scope the search offered.
-		case scope(NamedScope)
-	}
+/// Where a tap on a row of the library leads.
+nonisolated enum LibraryDestination: Equatable {
+	case document(DocumentIdentifier, title: String?, opening: DocumentOpening)
+	/// The form that replaces a token the archive refused.
+	case tokenReplacement
+	/// A scope the search offered.
+	case scope(NamedScope)
+}
 
+final class LibraryList {
 	/// Everything a snapshot is made of, so an unchanged input applies nothing.
 	private struct Shown: Equatable {
 		let content: LibraryListContent
@@ -128,7 +129,7 @@ final class LibraryList {
 		}
 	}
 
-	func destination(at indexPath: IndexPath) -> Destination? {
+	func destination(at indexPath: IndexPath) -> LibraryDestination? {
 		switch dataSource?.itemIdentifier(for: indexPath) {
 		case let .document(identifier)?:
 			let textMatched = dataSource?.sectionIdentifier(for: indexPath.section) == .listed(.textMatched)
@@ -139,23 +140,7 @@ final class LibraryList {
 			}
 			return .document(identifier, title: rows[identifier]?.title, opening: opening)
 		case let .arrival(identifier)?:
-			guard let arrival = arrivals[identifier] else {
-				return nil
-			}
-			if arrival.stage == .tokenRefused {
-				return .tokenReplacement
-			}
-			guard let document = arrival.document else {
-				return nil
-			}
-			switch arrival.stage {
-			case let .filed(row), let .alreadyHeld(row?):
-				return .document(document, title: row.title, opening: .listed)
-			case .sent, .alreadyHeld(nil):
-				return .document(document, title: nil, opening: .arrival)
-			default:
-				return .document(document, title: nil, opening: .listed)
-			}
+			return arrivals[identifier].flatMap(ArrivalPresentation.destination)
 		case .attention?:
 			return attention?.replacesToken == true ? .tokenReplacement : nil
 		case let .suggestion(scope)?:

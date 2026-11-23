@@ -82,9 +82,8 @@ nonisolated enum ArrivalPresentation {
 		case nil, .unavailable, .tokenReplaced:
 			if let sentFraction, sentFraction > 0 {
 				stage = .sending(fraction: min(sentFraction, 1))
-			} else if case let .unavailable(attempts, answeredAt)? = entry.answer {
-				let record = SubmissionAnswerRecord.unavailable(attempts: attempts, answeredAt: answeredAt)
-				stage = .retrying(nextAttempt: record.nextAttempt ?? answeredAt)
+			} else if case let .unavailable(_, answeredAt)? = entry.answer {
+				stage = .retrying(nextAttempt: entry.sendingDueAt ?? answeredAt)
 			} else {
 				stage = .waiting
 			}
@@ -169,6 +168,39 @@ nonisolated enum ArrivalPresentation {
 		case .sent, .reading: .done(filed: false)
 		case .filed: .done(filed: true)
 		case .notAccepted, .tokenRefused, .failed: .attention
+		}
+	}
+
+	/// Where a tap on the row leads: the form that replaces a refused token, or the document once the
+	/// archive named it. A document the copy may not have read yet opens awaiting it.
+	static func destination(_ arrival: Arrival) -> LibraryDestination? {
+		if arrival.stage == .tokenRefused {
+			return .tokenReplacement
+		}
+		guard let document = arrival.document else {
+			return nil
+		}
+		return switch arrival.stage {
+		case let .filed(row), let .alreadyHeld(row?):
+			.document(document, title: row.title, opening: .listed)
+		case .sent, .alreadyHeld(nil):
+			.document(document, title: nil, opening: .arrival)
+		default:
+			.document(document, title: nil, opening: .listed)
+		}
+	}
+
+	/// A person may remove an arrival until the archive has archived it.
+	static func removable(_ arrival: Arrival) -> Bool {
+		arrival.document == nil
+	}
+
+	/// The file of an arrival the archive did not accept, or whose token it refused, can be taken
+	/// elsewhere, because the iPhone still holds it.
+	static func fileShareable(_ arrival: Arrival) -> Bool {
+		switch arrival.stage {
+		case .notAccepted, .tokenRefused: true
+		default: false
 		}
 	}
 
