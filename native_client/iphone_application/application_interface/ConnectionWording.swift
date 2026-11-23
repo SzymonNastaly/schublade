@@ -1,6 +1,6 @@
 import ApplicationBindings
 
-/// The sentences of the connection form, as the Mac words them.
+/// The sentences of the welcome screen and the replace form, as the Mac words them.
 enum ConnectionWording {
 	static func refusalSentence(_ refusal: ConnectionRefusal) -> String {
 		switch refusal {

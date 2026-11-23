@@ -236,15 +236,12 @@ extension LibraryViewController {
 		choose(scope)
 	}
 
-	/// The form with the archive's address filled in, until Settings holds it. A token the archive
-	/// accepts takes the place of the refused one, and the form closes.
+	/// The replace form with the archive's address, which closes once the archive accepts a token.
 	func replaceToken() {
-		let form = ConnectionViewController(
+		let form = WelcomeViewController(
 			controller: controller,
-			replacingAt: controller.archiveOrigin
-		) { [weak self] in
-			self?.navigationController?.popToRootViewController(animated: true)
-		}
+			purpose: .tokenReplacement(origin: controller.archiveOrigin ?? "")
+		) { [weak self] in self?.navigationController?.popToRootViewController(animated: true) }
 		navigationController?.pushViewController(form, animated: true)
 	}
 

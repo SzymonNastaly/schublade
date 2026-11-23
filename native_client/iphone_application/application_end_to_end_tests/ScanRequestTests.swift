@@ -7,7 +7,7 @@ import XCTest
 /// A scan requested from outside the application, in the window of the application that hosts the
 /// tests, because its screen answers every request of the process.
 final class ScanRequestTests: XCTestCase {
-	/// A request made on the connection form is dropped, because a camera that opened once the person
+	/// A request made on the welcome screen is dropped, because a camera that opened once the person
 	/// had connected would answer a request made long before. The Scan Document control tapped again
 	/// while the camera shows, as a person may do, is taken at once, so closing the camera does not
 	/// open it again.
@@ -20,7 +20,7 @@ final class ScanRequestTests: XCTestCase {
 				.first
 		)
 		let address = try XCTUnwrap(ProcessInfo.processInfo.environment["SCHUBLADE_SCRIPTED_ARCHIVE"])
-		try await waitUntil("the connection form shows") {
+		try await waitUntil("the welcome screen shows") {
 			if case let .running(status) = controller.situation, case .notConfigured = status.archive {
 				true
 			} else {
@@ -29,7 +29,7 @@ final class ScanRequestTests: XCTestCase {
 		}
 
 		ScanRequestCenter.shared.request()
-		try await waitUntil("the request on the connection form is dropped") { !ScanRequestCenter.shared.isPending }
+		try await waitUntil("the request on the welcome screen is dropped") { !ScanRequestCenter.shared.isPending }
 		_ = await controller.connect(address: address, token: "scripted-end-to-end-token")
 		try await waitUntil("sending is permitted") { controller.sendingPermitted }
 		try await Task.sleep(for: .seconds(1))

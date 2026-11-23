@@ -7,7 +7,7 @@ final class RootViewController: UIViewController {
 	private enum Screen: Equatable {
 		case starting
 		case failure(String)
-		case connection
+		case welcome
 		case library
 	}
 
@@ -53,7 +53,7 @@ final class RootViewController: UIViewController {
 		switch screen {
 		case .starting?, nil:
 			break
-		case .failure?, .connection?:
+		case .failure?, .welcome?:
 			_ = ScanRequestCenter.shared.take()
 		case .library?:
 			library?.answerScanRequest()
@@ -72,7 +72,7 @@ final class RootViewController: UIViewController {
 			.failure("Schublade could not start: \(detail)")
 		case let .running(status):
 			if case .notConfigured = status.archive {
-				.connection
+				.welcome
 			} else {
 				.library
 			}
@@ -89,11 +89,11 @@ final class RootViewController: UIViewController {
 		let child: UIViewController
 		switch next {
 		case .starting:
-			child = MessageViewController(text: "")
+			child = StartingViewController()
 		case let .failure(text):
 			child = MessageViewController(text: text)
-		case .connection:
-			child = UINavigationController(rootViewController: ConnectionViewController(controller: controller))
+		case .welcome:
+			child = WelcomeViewController(controller: controller, purpose: .firstConnection)
 		case .library:
 			let screen = LibraryViewController(controller: controller)
 			library = screen
@@ -108,6 +108,21 @@ final class RootViewController: UIViewController {
 		view.addSubview(child.view)
 		child.didMove(toParent: self)
 		shown = child
+	}
+}
+
+/// The screen while the core starts: blank, because the start usually takes less than a person
+/// notices, and a spinner only once it has taken 400 ms.
+private final class StartingViewController: UIViewController {
+	private static let spinnerDelay = Duration.milliseconds(400)
+
+	override func viewDidLoad() {
+		super.viewDidLoad()
+		view.backgroundColor = .systemBackground
+		Task { [weak self] in
+			try? await Task.sleep(for: Self.spinnerDelay)
+			self?.contentUnavailableConfiguration = UIContentUnavailableConfiguration.loading()
+		}
 	}
 }
 
@@ -129,6 +144,6 @@ private final class MessageViewController: UIViewController {
 		super.viewDidLoad()
 		var content = UIContentUnavailableConfiguration.empty()
 		content.text = text
-		contentUnavailableConfiguration = text.isEmpty ? UIContentUnavailableConfiguration.loading() : content
+		contentUnavailableConfiguration = content
 	}
 }

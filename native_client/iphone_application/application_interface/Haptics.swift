@@ -22,6 +22,11 @@ enum Haptics {
 		UIImpactFeedbackGenerator(style: .light).impactOccurred()
 	}
 
+	/// The archive refused a connection, or its address or token was missing.
+	static func connectionRefused() {
+		UINotificationFeedbackGenerator().notificationOccurred(.error)
+	}
+
 	/// The share sheet has handed every file to its upload.
 	static func shareHandedOver() {
 		UINotificationFeedbackGenerator().notificationOccurred(.success)
