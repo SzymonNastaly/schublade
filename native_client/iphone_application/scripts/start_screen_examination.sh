@@ -98,7 +98,7 @@ def text_layer(path):
     "## Page N" heading before each page, as the archive writes it."""
     if not path.endswith(".pdf"):
         return ""
-    reading = subprocess.run(["pdftotext", "-layout", path, "-"], capture_output=True, text=True)
+    reading = subprocess.run(["pdftotext", path, "-"], capture_output=True, text=True)
     if reading.returncode != 0:
         return ""
     pages = [page.strip() for page in reading.stdout.split("\f")]
