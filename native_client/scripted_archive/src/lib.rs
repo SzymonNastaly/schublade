@@ -526,6 +526,19 @@ impl ScriptedArchive {
         archive.documents.insert(document.identifier.clone(), document);
     }
 
+    pub fn document(&self, identifier: &DocumentIdentifier) -> Option<DocumentRecord> {
+        self.archive().documents.get(identifier).cloned()
+    }
+
+    /// The document that holds this content, as the lookup names it.
+    pub fn document_holding(&self, digest: &ContentDigest) -> Option<DocumentRecord> {
+        let archive = self.archive();
+        match archive.contents.get(digest)? {
+            LookupAnswer::Present(document) => archive.documents.get(document).cloned(),
+            LookupAnswer::Absent | LookupAnswer::Deleted => None,
+        }
+    }
+
     /// Stores the extracted Markdown of a document, as the step before classification does. It
     /// writes no record, so the journal does not move.
     pub fn put_text(&self, document: &DocumentIdentifier, markdown: &str) {
@@ -657,7 +670,6 @@ impl ScriptedArchive {
             .push_back(answer);
     }
 
-    /// Whether the archive holds a document for this content.
     /// One file of `POST /api/documents/ingest`, as a person's upload: bytes of an unaccepted kind
     /// or above 25 MB are rejected, bytes a document holds answer that document, and any other
     /// bytes become a new document, even bytes whose document the owner deleted, because a person
@@ -680,6 +692,7 @@ impl ScriptedArchive {
         }
     }
 
+    /// Whether the archive holds a document for this content.
     pub fn holds(&self, digest: &ContentDigest) -> bool {
         matches!(self.archive().contents.get(digest), Some(LookupAnswer::Present(_)))
     }
