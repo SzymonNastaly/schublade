@@ -112,7 +112,7 @@ enum DocumentDetailRow: Equatable {
 		content.text = title
 		content.textProperties.font = UIFontMetrics(forTextStyle: .title3)
 			.scaledFont(for: .systemFont(ofSize: 20, weight: .semibold))
-		content.textProperties.numberOfLines = 4
+		content.textProperties.numberOfLines = 0
 		content.secondaryText = summary
 		content.secondaryTextProperties.font = .preferredFont(forTextStyle: .subheadline)
 		content.secondaryTextProperties.color = .secondaryLabel
