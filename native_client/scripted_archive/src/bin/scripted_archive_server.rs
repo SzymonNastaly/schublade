@@ -509,6 +509,14 @@ struct SeedDocumentRequest {
     summary: Option<String>,
     text: Option<String>,
     original_utf8: Option<String>,
+    /// A file on the server's machine whose bytes are the original, as a screen examination seeds
+    /// real PDFs and pictures.
+    original_file: Option<String>,
+    /// A picture on the server's machine that the thumbnail route serves.
+    thumbnail_file: Option<String>,
+    /// Extracted fields by key: a number, a date as `2026-10-20`, or text.
+    #[serde(default)]
+    fields: BTreeMap<String, serde_json::Value>,
 }
 
 fn deterministic_identifier(kind: u8, name: &str) -> String {
@@ -543,11 +551,50 @@ fn seed_document_endpoint(archive: &ScriptedArchive, body: &[u8]) -> Answer {
         category_id
     });
     let document_date = request.document_date.as_deref().and_then(CalendarDate::parse);
-    let original_bytes = request.original_utf8.map(String::into_bytes);
+    let original_bytes = match (request.original_utf8, request.original_file) {
+        (_, Some(path)) => match std::fs::read(&path) {
+            Ok(bytes) => Some(bytes),
+            Err(error) => return Answer::problem(400, &format!("Cannot read {path}: {error}")),
+        },
+        (text, None) => text.map(String::into_bytes),
+    };
     let byte_size = original_bytes
         .as_ref()
         .map_or(0, |bytes| u64::try_from(bytes.len()).unwrap_or(u64::MAX));
     let digest = original_bytes.as_deref().map(content_digest_of);
+    let thumbnail_bytes = match request
+        .thumbnail_file
+        .map(|path| std::fs::read(&path).map_err(|error| (path, error)))
+    {
+        Some(Ok(bytes)) => Some(bytes),
+        Some(Err((path, error))) => return Answer::problem(400, &format!("Cannot read {path}: {error}")),
+        None => None,
+    };
+    let media_type = original_bytes
+        .as_deref()
+        .and_then(identify_content_kind)
+        .map_or("application/pdf", |kind| kind.media_type())
+        .to_owned();
+    let fields = request
+        .fields
+        .into_iter()
+        .filter_map(|(key, value)| {
+            let value = match value {
+                serde_json::Value::Number(number) => FieldValue::Number(number.as_f64()?),
+                serde_json::Value::String(text) => {
+                    CalendarDate::parse(&text).map_or(FieldValue::Text(text), FieldValue::Date)
+                }
+                _ => return None,
+            };
+            Some((
+                key,
+                archive_replica::replica_records::ExtractedField {
+                    value,
+                    confidence: Some(0.95),
+                },
+            ))
+        })
+        .collect();
     archive.put_document(DocumentRecord {
         identifier: identifier.clone(),
         condition: DocumentCondition::Archived,
@@ -557,16 +604,19 @@ fn seed_document_endpoint(archive: &ScriptedArchive, body: &[u8]) -> Answer {
         category,
         person: PersonAssignment::Household,
         summary: request.summary,
-        media_type: "application/pdf".to_owned(),
+        media_type,
         byte_size,
         page_count: Some(1),
         original: digest,
         arrived_at: Timestamp(1_790_000_000_000),
         tags: BTreeSet::new(),
-        fields: BTreeMap::new(),
+        fields,
     });
     if let Some(bytes) = original_bytes {
         archive.put_original(&identifier, &bytes);
+    }
+    if let Some(bytes) = thumbnail_bytes {
+        archive.put_thumbnail(&identifier, &bytes);
     }
     if let Some(text) = request.text {
         archive.put_text(&identifier, &text);
