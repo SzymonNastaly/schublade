@@ -70,26 +70,15 @@ public struct SharedContainer: Sendable {
 		SubmissionQueue(root: root.appending(path: "submission_queue", directoryHint: .isDirectory))
 	}
 
-	private var connectedArchiveFile: URL {
+	/// The record of the connected archive. Only the application writes it, in ApplicationInterface,
+	/// which the share extension does not link.
+	public var connectedArchiveFile: URL {
 		root.appending(path: "connected_archive.json")
 	}
 
 	public func connectedArchive() -> ConnectedArchive? {
 		(try? Data(contentsOf: connectedArchiveFile))
 			.flatMap { try? JSONDecoder().decode(ConnectedArchive.self, from: $0) }
-	}
-
-	/// Writes the record to a temporary file and renames it, so the share extension never reads half
-	/// of one, or removes it for nil. The application is its only writer.
-	public func record(_ archive: ConnectedArchive?) throws {
-		guard let archive else {
-			if FileManager.default.fileExists(atPath: connectedArchiveFile.path(percentEncoded: false)) {
-				try FileManager.default.removeItem(at: connectedArchiveFile)
-			}
-			return
-		}
-		try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-		try JSONEncoder().encode(archive).write(to: connectedArchiveFile, options: .atomic)
 	}
 }
 

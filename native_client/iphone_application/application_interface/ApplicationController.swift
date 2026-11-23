@@ -116,16 +116,27 @@ final class ApplicationController {
 		}
 	}
 
+	/// The next status tries again after a failure, and until then the share extension reads the
+	/// previous record.
 	private func record(_ archive: ConnectedArchive?) {
-		guard archive != recordedArchive else {
+		guard archive != recordedArchive, (try? writeRecord(of: archive)) != nil else {
 			return
 		}
-		do {
-			try environment.sharedContainer.record(archive)
-			recordedArchive = archive
-		} catch {
-			// The next status tries again; until then the share extension reads the previous record.
+		recordedArchive = archive
+	}
+
+	/// Writes the record to a temporary file and renames it, so the share extension never reads half
+	/// of one, or removes it while no archive is connected.
+	private func writeRecord(of archive: ConnectedArchive?) throws {
+		let file = environment.sharedContainer.connectedArchiveFile
+		guard let archive else {
+			if FileManager.default.fileExists(atPath: file.path(percentEncoded: false)) {
+				try FileManager.default.removeItem(at: file)
+			}
+			return
 		}
+		try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
+		try JSONEncoder().encode(archive).write(to: file, options: .atomic)
 	}
 
 	#if DEBUG
