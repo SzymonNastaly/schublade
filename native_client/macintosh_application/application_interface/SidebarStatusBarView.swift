@@ -30,8 +30,7 @@ final class SidebarStatusBarView: NSView {
 		symbolView.contentTintColor = InterfacePalette.statusLineSymbol(presentation.tone)
 		statusLabel.stringValue = presentation.text
 		statusLabel.textColor = presentation.tone == .attention ? InterfacePalette.attention : .secondaryLabelColor
-		let acts = presentation.allowsSynchronize || presentation.allowsTokenReplacement
-		button.isEnabled = acts
+		button.isEnabled = presentation.allowsSynchronize || presentation.allowsTokenReplacement
 		button.toolTip = if presentation.allowsTokenReplacement {
 			"Replace Token…"
 		} else if presentation.allowsSynchronize {
@@ -39,12 +38,6 @@ final class SidebarStatusBarView: NSView {
 		} else {
 			nil
 		}
-		// The line speaks as its button while a click acts, and as its sentence otherwise. The symbol
-		// repeats what the sentence says.
-		button.setAccessibilityElement(acts)
-		button.setAccessibilityLabel(presentation.text)
-		button.setAccessibilityHelp(button.toolTip)
-		statusLabel.setAccessibilityElement(!acts)
 		announceAttention(presentation)
 
 		if let progress = presentation.progress {
@@ -53,6 +46,36 @@ final class SidebarStatusBarView: NSView {
 		} else {
 			progressIndicator.isHidden = true
 		}
+	}
+
+	/// The line speaks as one element: its sentence, the click's action as help, and the progress of a
+	/// first fill. The symbol only repeats the sentence.
+	override func isAccessibilityElement() -> Bool {
+		true
+	}
+
+	override func accessibilityRole() -> NSAccessibility.Role? {
+		button.isEnabled ? .button : .staticText
+	}
+
+	override func accessibilityLabel() -> String? {
+		statusLabel.stringValue
+	}
+
+	override func accessibilityHelp() -> String? {
+		button.toolTip
+	}
+
+	override func accessibilityChildren() -> [Any]? {
+		progressIndicator.isHidden ? [] : [progressIndicator]
+	}
+
+	override func accessibilityPerformPress() -> Bool {
+		guard button.isEnabled else {
+			return false
+		}
+		onPressHandler?()
+		return true
 	}
 
 	/// A refused token, an outdated archive, or a fault is announced once when it appears.
@@ -84,7 +107,6 @@ final class SidebarStatusBarView: NSView {
 		button.setAccessibilityIdentifier(InterfaceIdentifier.sidebarStatusButton)
 
 		symbolView.symbolConfiguration = NSImage.SymbolConfiguration(textStyle: .subheadline)
-		symbolView.setAccessibilityElement(false)
 		symbolView.setContentHuggingPriority(.required, for: .horizontal)
 		symbolView.setContentCompressionResistancePriority(.required, for: .horizontal)
 
