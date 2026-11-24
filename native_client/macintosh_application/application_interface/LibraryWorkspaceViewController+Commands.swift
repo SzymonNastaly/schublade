@@ -21,11 +21,10 @@ extension LibraryWorkspaceViewController: NSMenuItemValidation {
 			// The split view switches the title between Show Sidebar and Hide Sidebar.
 			return super.validateUserInterfaceItem(menuItem)
 		case #selector(showOriginalRepresentation(_:)):
-			// The same state and the same condition as the toolbar's Original and Text.
-			menuItem.state = latestNavigation.readerTab == .original ? .on : .off
+			menuItem.state = latestNavigation.shownReaderTab == .original ? .on : .off
 			return allowsDocuments && hasSelection
 		case #selector(showExtractedTextRepresentation(_:)):
-			menuItem.state = latestNavigation.readerTab == .text ? .on : .off
+			menuItem.state = latestNavigation.shownReaderTab == .text ? .on : .off
 			return allowsDocuments && hasSelection
 		case #selector(removeShownFolderAction(_:)):
 			guard case .folder? = latestWorkspace?.detailMode else {
@@ -185,18 +184,19 @@ extension LibraryWorkspaceViewController {
 		}
 	}
 
-	/// A person's choice of the original or the text.
+	/// A person's choice of the original or the text, which also ends a turn the reader made itself.
 	func setReaderTab(_ tab: ReaderTab) {
-		textTabChosenForMatch = nil
-		onNavigationChange? { $0.readerTab = tab }
+		onNavigationChange? { navigation in
+			navigation.readerTab = tab
+			navigation.textShownForMatch = nil
+		}
 	}
 
 	func showTextForMatch(in document: DocumentIdentifier) {
-		guard document == latestNavigation.selectedDocument, latestNavigation.readerTab == .original else {
+		guard document == latestNavigation.selectedDocument, latestNavigation.shownReaderTab == .original else {
 			return
 		}
-		textTabChosenForMatch = document
-		onNavigationChange? { $0.readerTab = .text }
+		onNavigationChange? { $0.textShownForMatch = document }
 	}
 
 	/// Shows the reader's next match, or its previous one for a negative step.

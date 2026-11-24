@@ -10,7 +10,11 @@ public struct LibraryNavigationState: Equatable, Sendable {
 	public var searchText: String
 	public var browseOrder: ListingOrder
 	public var selectedDocument: DocumentIdentifier?
+	/// The tab a person chose.
 	public var readerTab: ReaderTab
+	/// The document whose text the reader shows for a search's match that its original cannot mark.
+	/// The reader turned to it by itself, so `readerTab` keeps the person's choice.
+	public var textShownForMatch: DocumentIdentifier?
 	public var inspectorVisible: Bool
 	public var replacingTokenOrigin: String?
 
@@ -64,6 +68,15 @@ public struct LibraryNavigationState: Equatable, Sendable {
 			searchText: searchText,
 			browseOrder: browseOrder
 		).request
+	}
+
+	/// The tab the reader shows: the person's, or the text of the selected document while the search
+	/// matched only its text.
+	public var shownReaderTab: ReaderTab {
+		if let textShownForMatch, textShownForMatch == selectedDocument, !searchTerms.isEmpty {
+			return .text
+		}
+		return readerTab
 	}
 
 	public var searchTerms: [String] {

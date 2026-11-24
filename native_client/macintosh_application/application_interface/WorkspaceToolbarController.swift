@@ -139,7 +139,7 @@ final class WorkspaceToolbarController: NSObject {
 		}
 		shareItem.isEnabled = hasSelectedDocument
 		readerTabGroup.isEnabled = hasSelectedDocument
-		readerTabGroup.selectedIndex = Self.readerTabs.firstIndex(of: navigation.readerTab) ?? 0
+		readerTabGroup.selectedIndex = Self.readerTabs.firstIndex(of: navigation.shownReaderTab) ?? 0
 	}
 
 	func focusSearchField() {

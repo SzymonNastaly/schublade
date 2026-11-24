@@ -48,6 +48,20 @@ struct ReaderAndInspectorPresentationTests {
 		#expect(inspector.fileFacts.map(\.label) == ["Size", "Added"])
 	}
 
+	@Test func theTextShownForAMatchHoldsForItsDocumentDuringTheSearchAlone() {
+		let scan = DocumentIdentifier(value: "scan")
+		var navigation = LibraryNavigationState(searchText: "Rechnung", selectedDocument: scan)
+		navigation.textShownForMatch = scan
+		#expect(navigation.shownReaderTab == .text)
+		#expect(navigation.readerTab == .original)
+
+		navigation.selectedDocument = DocumentIdentifier(value: "letter")
+		#expect(navigation.shownReaderTab == .original)
+		navigation.selectedDocument = scan
+		navigation.search("")
+		#expect(navigation.shownReaderTab == .original)
+	}
+
 	@Test func anOriginalOffTheMacOffersToTryAgainAndARefusedTokenToReplaceIt() {
 		let offline = EmptyStatePresentation.originalRefusal(.ArchiveUnreachable, device: MacintoshDevice.wording)
 		#expect(offline.picture == .symbol("wifi.slash"))

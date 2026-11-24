@@ -5,14 +5,17 @@ import ApplicationBindings
 /// selected document's or nil, so an action never reaches the document selected before.
 final class SelectedDocumentDetailLoader {
 	private let queries: any LibraryQueries
-	private let onLoaded: (DocumentIdentifier, DocumentDetail) -> Void
+	private let onLoaded: (DocumentIdentifier, DocumentDetail?) -> Void
 	private(set) var detail: DocumentDetail?
+	/// The document of the last answer, its detail or that the copy holds none, or nil without a
+	/// selection.
+	private(set) var answeredDocument: DocumentIdentifier?
 	private var selectedDocument: DocumentIdentifier?
 	private var loadedDocument: DocumentIdentifier?
 	private var loadedRevision: UInt64 = 0
 	private var newestRequest: UInt64 = 0
 
-	init(queries: any LibraryQueries, onLoaded: @escaping (DocumentIdentifier, DocumentDetail) -> Void) {
+	init(queries: any LibraryQueries, onLoaded: @escaping (DocumentIdentifier, DocumentDetail?) -> Void) {
 		self.queries = queries
 		self.onLoaded = onLoaded
 	}
@@ -26,6 +29,7 @@ final class SelectedDocumentDetailLoader {
 		guard let document else {
 			newestRequest &+= 1
 			loadedDocument = nil
+			answeredDocument = nil
 			detail = nil
 			return
 		}
@@ -42,14 +46,13 @@ final class SelectedDocumentDetailLoader {
 		newestRequest &+= 1
 		let request = newestRequest
 		Task {
-			guard let answer = try? await queries.document(document),
-			      request == newestRequest,
-			      selectedDocument == document
-			else {
+			let answer = try? await queries.document(document)
+			guard request == newestRequest, selectedDocument == document else {
 				return
 			}
 			loadedDocument = document
 			loadedRevision = revision
+			answeredDocument = document
 			detail = answer
 			onLoaded(document, answer)
 		}

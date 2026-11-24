@@ -8,6 +8,8 @@ import LibraryPresentation
 /// in ingestion shows a spinner beside its title, and a failed one an orange mark.
 final class DocumentRowView: NSTableCellView {
 	private static let pictureSize = NSSize(width: 40, height: 52)
+	/// The picture's pixels per point, a Retina display's.
+	private static let pictureScale: CGFloat = 2
 	private static let verticalMargin: CGFloat = 8
 	private static let lineSpacing: CGFloat = 2
 	private static let statusSpacing: CGFloat = 6
@@ -183,24 +185,44 @@ final class DocumentRowView: NSTableCellView {
 	}
 
 	private func showPicture(_ image: NSImage?) {
-		pictureView.image = image.map(Self.topOfPage)
-		pictureView.isHidden = image == nil
-		fallbackGlyphView.isHidden = image != nil
+		pictureView.image = image.flatMap(Self.topOfPage)
+		pictureView.isHidden = pictureView.image == nil
+		fallbackGlyphView.isHidden = pictureView.image != nil
 		applyPictureFrameColors()
 	}
 
-	/// The page scaled to fill the frame and cut from its top edge, where a letter names itself.
-	private static func topOfPage(_ page: NSImage) -> NSImage {
-		NSImage(size: pictureSize, flipped: false) { rect in
-			guard page.size.width > 0, page.size.height > 0 else {
-				return false
-			}
-			let scale = max(rect.width / page.size.width, rect.height / page.size.height)
-			let size = NSSize(width: page.size.width * scale, height: page.size.height * scale)
-			let origin = NSPoint(x: rect.midX - size.width / 2, y: rect.maxY - size.height)
-			page.draw(in: NSRect(origin: origin, size: size))
-			return true
+	/// The page scaled to fill the frame and cut from its top edge, where a letter names itself. It is
+	/// drawn once, here on the main thread, because Quick Look may draw its transition picture on
+	/// another thread.
+	private static func topOfPage(_ page: NSImage) -> NSImage? {
+		guard page.size.width > 0, page.size.height > 0,
+		      let bitmap = NSBitmapImageRep(
+		      	bitmapDataPlanes: nil,
+		      	pixelsWide: Int(pictureSize.width * pictureScale),
+		      	pixelsHigh: Int(pictureSize.height * pictureScale),
+		      	bitsPerSample: 8,
+		      	samplesPerPixel: 4,
+		      	hasAlpha: true,
+		      	isPlanar: false,
+		      	colorSpaceName: .deviceRGB,
+		      	bytesPerRow: 0,
+		      	bitsPerPixel: 0
+		      ),
+		      let context = NSGraphicsContext(bitmapImageRep: bitmap)
+		else {
+			return nil
 		}
+		bitmap.size = pictureSize
+		let scale = max(pictureSize.width / page.size.width, pictureSize.height / page.size.height)
+		let size = NSSize(width: page.size.width * scale, height: page.size.height * scale)
+		let origin = NSPoint(x: (pictureSize.width - size.width) / 2, y: pictureSize.height - size.height)
+		NSGraphicsContext.saveGraphicsState()
+		NSGraphicsContext.current = context
+		page.draw(in: NSRect(origin: origin, size: size))
+		NSGraphicsContext.restoreGraphicsState()
+		let picture = NSImage(size: pictureSize)
+		picture.addRepresentation(bitmap)
+		return picture
 	}
 
 	private func applyPictureFrameColors() {
@@ -320,7 +342,6 @@ private extension DocumentRowView {
 		detailField.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
 		detailField.setAccessibilityIdentifier(InterfaceIdentifier.documentRowDetail)
 
-		// The row speaks as one element, so its parts do not speak again.
 		for part in [titleField, senderField, dateField, amountField, detailField, pictureFrame] as [NSView] {
 			part.setAccessibilityElement(false)
 		}
