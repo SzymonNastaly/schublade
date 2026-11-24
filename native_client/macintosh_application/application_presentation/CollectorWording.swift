@@ -10,14 +10,16 @@ public enum CollectorWording {
 		switch folder.unavailability {
 		case .missing:
 			return FolderStatePresentation(
+				mark: .symbol("questionmark.folder"),
 				label: "Missing",
-				tone: .failure,
+				tone: .attention,
 				detail: "The folder is not there. Collecting resumes when it is back."
 			)
 		case .accessDenied:
 			return FolderStatePresentation(
-				label: "No access",
-				tone: .failure,
+				mark: .symbol("questionmark.folder"),
+				label: "No Access",
+				tone: .attention,
 				detail: "Allow access in System Settings, Privacy & Security, Files & Folders."
 			)
 		case nil:
@@ -29,11 +31,21 @@ public enum CollectorWording {
 				? "Checking \(DocumentFormatting.countText(filesUnderExamination, singular: "file")). "
 				+ "Nothing uploads before you decide."
 				: "Looking through the folder. Nothing uploads before you decide."
-			return FolderStatePresentation(label: "Surveying", tone: .processing, detail: detail)
+			return FolderStatePresentation(mark: .progress, label: "Surveying", tone: .neutral, detail: detail)
 		case .awaitingDecision:
-			return FolderStatePresentation(label: "Awaiting your decision", tone: .attention, detail: nil)
+			return FolderStatePresentation(
+				mark: .symbol("exclamationmark.circle.fill"),
+				label: "Awaiting Your Decision",
+				tone: .attention,
+				detail: nil
+			)
 		case .collecting:
-			return FolderStatePresentation(label: "Collecting", tone: .success, detail: collectingDetail)
+			return FolderStatePresentation(
+				mark: .symbol("checkmark.circle.fill"),
+				label: "Collecting",
+				tone: .success,
+				detail: collectingDetail
+			)
 		}
 	}
 
@@ -46,35 +58,25 @@ public enum CollectorWording {
 			AttentionSentence(
 				text: "Schublade refused the token, so nothing uploads. "
 					+ "Issue a new API token in Schublade's Settings and paste it here.",
-				tone: .failure,
+				symbolName: "key",
+				group: .archive,
 				action: .replaceToken
 			)
 		case .credentialSuspended(.credentialInsufficient):
 			AttentionSentence(
 				text: "The token may not upload documents. "
 					+ "Issue an API token for the Schublade app in Schublade's Settings and paste it here.",
-				tone: .failure,
+				symbolName: "key",
+				group: .archive,
 				action: .replaceToken
 			)
-		case let .folderUnavailable(folder, .accessDenied):
-			AttentionSentence(
-				text: "Schublade may not read \(context.folderName(folder.root)). "
-					+ "Allow it in System Settings, Privacy & Security, Files & Folders.",
-				tone: .failure,
-				action: .openFolder(folder.identifier)
-			)
-		case let .folderUnavailable(folder, .missing):
-			AttentionSentence(
-				text: "\(context.folderName(folder.root)) is missing. "
-					+ "It may have been moved, renamed, or be on a disconnected drive. "
-					+ "Collecting resumes when it is back.",
-				tone: .failure,
-				action: .openFolder(folder.identifier)
-			)
+		case let .folderUnavailable(folder, unavailability):
+			folderUnavailableSentence(folderName: context.folderName(folder.root), folder: folder, unavailability)
 		case let .backlogAwaitsDecision(folder):
 			AttentionSentence(
 				text: "\(context.folderName(folder.root)) waits for your decision.",
-				tone: .attention,
+				symbolName: "folder",
+				group: .thisMac,
 				action: .decideBacklog(folder.identifier)
 			)
 		case let .contentRefused(fileName, reason):
@@ -83,10 +85,31 @@ public enum CollectorWording {
 			AttentionSentence(
 				text: "\(fileName) failed to upload \(DocumentFormatting.countText(UInt64(failures), singular: "time")). "
 					+ "The collector keeps trying.",
-				tone: .attention,
+				symbolName: "arrow.clockwise",
+				group: .thisMac,
 				action: nil
 			)
 		}
+	}
+
+	private static func folderUnavailableSentence(
+		folderName: String,
+		folder: FolderReference,
+		_ unavailability: FolderUnavailability
+	) -> AttentionSentence {
+		let text = switch unavailability {
+		case .accessDenied:
+			"Schublade may not read \(folderName). Allow it in System Settings, Privacy & Security, Files & Folders."
+		case .missing:
+			"\(folderName) is missing. It may have been moved, renamed, or be on a disconnected drive. "
+				+ "Collecting resumes when it is back."
+		}
+		return AttentionSentence(
+			text: text,
+			symbolName: "questionmark.folder",
+			group: .thisMac,
+			action: .openFolder(folder.identifier)
+		)
 	}
 
 	private static func contentRefusedSentence(fileName: String, reason: ContentRefusalReason) -> AttentionSentence {
@@ -96,7 +119,8 @@ public enum CollectorWording {
 		}
 		return AttentionSentence(
 			text: "Schublade refused \(fileName), because \(because).",
-			tone: .failure,
+			symbolName: "doc.questionmark",
+			group: .thisMac,
 			action: nil
 		)
 	}
@@ -179,11 +203,21 @@ public enum CollectorWording {
 	public static func receiptOutcome(_ outcome: DocumentOutcome) -> ReceiptOutcomePresentation {
 		switch outcome {
 		case .processing:
-			ReceiptOutcomePresentation(label: "Processing", tone: .processing)
+			ReceiptOutcomePresentation(mark: .progress, label: "Processing", tone: .neutral, showsLabel: true)
 		case .archived:
-			ReceiptOutcomePresentation(label: "Archived", tone: .success)
+			ReceiptOutcomePresentation(
+				mark: .symbol("checkmark.circle.fill"),
+				label: "Archived",
+				tone: .success,
+				showsLabel: false
+			)
 		case .failed:
-			ReceiptOutcomePresentation(label: "Failed", tone: .failure)
+			ReceiptOutcomePresentation(
+				mark: .symbol("exclamationmark.circle.fill"),
+				label: "Failed",
+				tone: .attention,
+				showsLabel: true
+			)
 		}
 	}
 

@@ -3,7 +3,8 @@ import ApplicationPresentation
 import Foundation
 
 /// The collector's pages as `InterfaceRenderer` draws them: a folder being surveyed, a folder
-/// awaiting its decision, a folder collecting with its latest uploads, and Needs Attention.
+/// awaiting its decision, a folder collecting with its latest uploads, a folder Schublade may not
+/// read, the library while the archive refuses the token, and Needs Attention.
 enum CollectorScenes {
 	struct Scene {
 		let name: String
@@ -34,6 +35,24 @@ enum CollectorScenes {
 				attention: [.backlogAwaitsDecision(folder: RendererFixtures.paperwork)]
 			)),
 			scene("folder_collecting", fixtures, downloads, RendererFixtures.makeCollectorStatus(receipts: receipts)),
+			scene("folder_unreadable", fixtures, paperwork, RendererFixtures.makeCollectorStatus(
+				paperworkUnavailability: .accessDenied,
+				attention: [.folderUnavailable(folder: RendererFixtures.paperwork, unavailability: .accessDenied)]
+			)),
+			Scene(
+				name: "library_token_refused",
+				statuses: fixtures.makeStatuses(
+					condition: .suspended(reason: .credentialRefused),
+					collector: RendererFixtures.makeCollectorStatus(
+						attention: [.credentialSuspended(reason: .credentialRefused)]
+					)
+				),
+				facets: RendererSampleCatalog.sampleFacets,
+				navigation: LibraryNavigationState(
+					destination: .library(.allDocuments, title: nil),
+					selectedDocument: fixtures.invoiceIdentifier
+				)
+			),
 			scene(
 				"needs_attention",
 				fixtures,

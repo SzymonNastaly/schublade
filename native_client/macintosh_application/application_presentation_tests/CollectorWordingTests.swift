@@ -79,28 +79,33 @@ struct CollectorWordingTests {
 			AttentionSentence(
 				text: "Schublade refused the token, so nothing uploads. "
 					+ "Issue a new API token in Schublade's Settings and paste it here.",
-				tone: .failure,
+				symbolName: "key",
+				group: .archive,
 				action: .replaceToken
 			),
 			AttentionSentence(
 				text: "Scans is missing. It may have been moved, renamed, or be on a disconnected drive. "
 					+ "Collecting resumes when it is back.",
-				tone: .failure,
+				symbolName: "questionmark.folder",
+				group: .thisMac,
 				action: .openFolder(FolderIdentifier(value: 2))
 			),
 			AttentionSentence(
 				text: "Downloads waits for your decision.",
-				tone: .attention,
+				symbolName: "folder",
+				group: .thisMac,
 				action: .decideBacklog(FolderIdentifier(value: 1))
 			),
 			AttentionSentence(
 				text: "Schublade refused Holiday video.pdf, because it is larger than the archive accepts.",
-				tone: .failure,
+				symbolName: "doc.questionmark",
+				group: .thisMac,
 				action: nil
 			),
 			AttentionSentence(
 				text: "Invoice.pdf failed to upload 4 times. The collector keeps trying.",
-				tone: .attention,
+				symbolName: "arrow.clockwise",
+				group: .thisMac,
 				action: nil
 			),
 		])
@@ -114,13 +119,15 @@ struct CollectorWordingTests {
 		)
 		#expect(CollectorWording.folderState(Self.collectingDownloads).label == "Collecting")
 		#expect(CollectorWording.folderState(Self.missingScans) == FolderStatePresentation(
+			mark: .symbol("questionmark.folder"),
 			label: "Missing",
-			tone: .failure,
+			tone: .attention,
 			detail: "The folder is not there. Collecting resumes when it is back."
 		))
 		#expect(CollectorWording.folderState(surveying) == FolderStatePresentation(
+			mark: .progress,
 			label: "Surveying",
-			tone: .processing,
+			tone: .neutral,
 			detail: "Checking 4 files. Nothing uploads before you decide."
 		))
 	}
@@ -211,7 +218,13 @@ struct CollectorWordingTests {
 			== "Today, 14:02")
 		#expect(CollectorWording.receiptTime(Date(timeIntervalSince1970: 1_786_526_100), context: context)
 			== "12 Aug, 9:15")
-		#expect(CollectorWording.receiptOutcome(.failed) == ReceiptOutcomePresentation(label: "Failed", tone: .failure))
+		#expect(CollectorWording.receiptOutcome(.failed) == ReceiptOutcomePresentation(
+			mark: .symbol("exclamationmark.circle.fill"),
+			label: "Failed",
+			tone: .attention,
+			showsLabel: true
+		))
+		#expect(!CollectorWording.receiptOutcome(.archived).showsLabel)
 	}
 
 	@Test func folderCommandRefusalsNameTheFolder() {

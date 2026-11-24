@@ -43,9 +43,10 @@ public struct BacklogConfirmationWording: Equatable, Sendable {
 			futureFiles: "From now on, every new \(acceptedKinds) in \(folderName) uploads to Schublade automatically. "
 				+ "You will not be asked again for this folder.",
 			uploadLabel: backlog.filesNew == 0
-				? "Start collecting"
-				: "Upload \(countOf(backlog.filesNew, "file")) and start collecting",
-			removeLabel: "Remove folder"
+				? "Start Collecting"
+				: "Upload \(DocumentFormatting.groupedNumber(backlog.filesNew)) "
+				+ "\(agree(backlog.filesNew, "File", "Files")) and Start Collecting",
+			removeLabel: "Remove Folder"
 		)
 	}
 

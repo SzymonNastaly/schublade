@@ -1,6 +1,7 @@
 import AppKit
 import ApplicationBindings
 import ApplicationPresentation
+import UniformTypeIdentifiers
 
 /// One folder on this Mac: its survey's progress, then the confirmation of what happens to the
 /// files already there, then the collecting page with the latest uploads. The confirmation is a
@@ -33,7 +34,7 @@ final class FolderPageViewController: NSViewController {
 	private var failure: String?
 	private var pending: PendingCommand?
 
-	private var commandPending: Bool {
+	var commandPending: Bool {
 		pending != nil && pending?.folder == folder?.folder.identifier
 	}
 
@@ -107,20 +108,20 @@ final class FolderPageViewController: NSViewController {
 		var views: [NSView] = [header(name: name, folder: folder), stateLine(CollectorWording.folderState(folder))]
 		switch folder.admission {
 		case .surveying:
-			break
+			views.append(PageText.secondary(Self.collectionNote))
 		case let .awaitingDecision(backlog):
 			views += confirmation(BacklogConfirmationWording.make(folderName: name, backlog: backlog))
 		case .collecting:
 			if !receipts.isEmpty {
 				views.append(recentUploads(context: context))
 			}
+			views.append(PageText.secondary(Self.collectionNote))
 		}
 		if let failure {
-			let label = PageText.body(failure, color: .systemRed)
+			let label = PageText.body(failure, color: InterfacePalette.attention)
 			label.setAccessibilityIdentifier(InterfaceIdentifier.folderPageFailure)
 			views.append(label)
 		}
-		views.append(PageText.secondary(Self.collectionNote))
 		page.show(views)
 	}
 
@@ -144,63 +145,92 @@ final class FolderPageViewController: NSViewController {
 		return structure
 	}
 
-	private static let collectionNote = "Schublade reads the PDF, JPEG, PNG, and WebP files in this folder and its "
+	static let collectionNote = "Schublade reads the PDF, JPEG, PNG, and WebP files in this folder and its "
 		+ "subfolders. It never changes, moves, or deletes your files, and removing the folder keeps what Schublade "
 		+ "received."
 }
 
-private extension FolderPageViewController {
+extension FolderPageViewController {
+	/// The folder as Finder shows it: its own icon, its name, a path to click, and a More menu.
 	func header(name: String, folder: FolderStatus) -> NSView {
-		let symbol =
-			NSImageView(image: NSImage(systemSymbolName: "folder.fill", accessibilityDescription: nil) ?? NSImage())
-		symbol.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 26, weight: .regular)
-		symbol.contentTintColor = InterfacePalette.collector
+		let icon = NSImageView(image: folderIcon(folder.folder.root))
+		icon.imageScaling = .scaleProportionallyUpOrDown
+		icon.widthAnchor.constraint(equalToConstant: 48).isActive = true
+		icon.heightAnchor.constraint(equalToConstant: 48).isActive = true
+
 		let title = PageText.title(name)
 		title.setAccessibilityIdentifier(InterfaceIdentifier.folderPageTitle)
-		let names = NSStackView(views: [title, PageText.secondary(folder.folder.root, selectable: true)])
+		let path = NSPathControl()
+		path.url = URL(fileURLWithPath: folder.folder.root, isDirectory: true)
+		path.pathStyle = .standard
+		path.isEditable = false
+		path.backgroundColor = .clear
+		path.font = NSFont.preferredFont(forTextStyle: .subheadline)
+		path.target = self
+		path.doubleAction = #selector(pathComponentChosen(_:))
+		path.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+		path.setAccessibilityIdentifier(InterfaceIdentifier.folderPagePath)
+		let names = NSStackView(views: [title, path])
 		names.orientation = .vertical
 		names.alignment = .leading
 		names.spacing = 2
-		var views: [NSView] = [symbol, names]
-		switch folder.admission {
-		case .awaitingDecision:
-			// The confirmation offers its own removal beside its upload.
-			break
-		case .surveying, .collecting:
-			let remove = NSButton(title: "Remove Folder…", target: self, action: #selector(removePressed))
-			remove.bezelStyle = .rounded
-			remove.isEnabled = !commandPending
-			remove.setAccessibilityIdentifier(InterfaceIdentifier.folderPageRemoveButton)
-			views.append(remove)
-		}
-		let row = NSStackView(views: views)
+		names.setContentHuggingPriority(.defaultLow, for: .horizontal)
+
+		let row = NSStackView(views: [icon, names, moreButton()])
 		row.distribution = .fill
 		row.alignment = .centerY
 		row.spacing = 12
-		names.setContentHuggingPriority(.defaultLow, for: .horizontal)
 		return row
 	}
 
-	func stateLine(_ state: FolderStatePresentation) -> NSView {
-		let badge = NSTextField(labelWithString: state.label)
-		badge.font = NSFont.systemFont(ofSize: NSFont.systemFontSize, weight: .semibold)
-		badge.textColor = PageText.color(of: state.tone)
-		badge.setAccessibilityIdentifier(InterfaceIdentifier.folderPageState)
-		var views: [NSView] = [badge]
-		if state.tone == .processing {
-			let spinner = NSProgressIndicator()
-			spinner.style = .spinning
-			spinner.controlSize = .small
-			spinner.startAnimation(nil)
-			views.insert(spinner, at: 0)
+	func folderIcon(_ root: String) -> NSImage {
+		// Offscreen the folder is a made-up path, which would draw as a blank document.
+		renderMode == .interactive
+			? NSWorkspace.shared.icon(forFile: root)
+			: NSWorkspace.shared.icon(for: .folder)
+	}
+
+	func moreButton() -> NSPopUpButton {
+		let more = NSPopUpButton(frame: .zero, pullsDown: true)
+		more.bezelStyle = .push
+		more.isBordered = false
+		(more.cell as? NSPopUpButtonCell)?.arrowPosition = .noArrow
+		let face = NSMenuItem(title: "", action: nil, keyEquivalent: "")
+		face.image = NSImage(systemSymbolName: "ellipsis.circle", accessibilityDescription: "More")?
+			.withSymbolConfiguration(NSImage.SymbolConfiguration(textStyle: .title2))
+		more.menu?.addItem(face)
+		for (title, symbol, action) in [
+			("Show in Finder", "folder", #selector(showInFinderPressed)),
+			("Remove Folder…", "minus.circle", #selector(removePressed)),
+		] {
+			let item = NSMenuItem(title: title, action: action, keyEquivalent: "")
+			item.target = self
+			item.image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil)
+			more.menu?.addItem(item)
 		}
-		let line = NSStackView(views: views)
+		more.isEnabled = !commandPending
+		more.toolTip = "More"
+		more.setAccessibilityLabel("More")
+		more.setContentHuggingPriority(.required, for: .horizontal)
+		more.setAccessibilityIdentifier(InterfaceIdentifier.folderPageMoreButton)
+		return more
+	}
+
+	func stateLine(_ state: FolderStatePresentation) -> NSView {
+		let label = NSTextField(labelWithString: state.label)
+		label.font = NSFont.systemFont(
+			ofSize: NSFont.preferredFont(forTextStyle: .body).pointSize,
+			weight: .semibold
+		)
+		label.textColor = PageText.color(of: state.tone)
+		label.setAccessibilityIdentifier(InterfaceIdentifier.folderPageState)
+		let line = NSStackView(views: [PageText.mark(state.mark, tone: state.tone, description: state.label), label])
 		line.spacing = 6
 		guard let detail = state.detail else {
 			stateDetail = nil
 			return line
 		}
-		let detailLabel = PageText.body(detail, color: .secondaryLabelColor)
+		let detailLabel = PageText.body(detail)
 		stateDetail = detailLabel
 		var rows: [NSView] = [line, detailLabel]
 		if folder?.unavailability == .accessDenied {
@@ -209,7 +239,7 @@ private extension FolderPageViewController {
 				target: self,
 				action: #selector(openPrivacySettings)
 			)
-			settings.bezelStyle = .rounded
+			settings.bezelStyle = .push
 			rows.append(settings)
 		}
 		let block = NSStackView(views: rows)
@@ -219,77 +249,37 @@ private extension FolderPageViewController {
 		return block
 	}
 
-	func confirmation(_ wording: BacklogConfirmationWording) -> [NSView] {
-		let existing = PageSectionView(title: wording.existingFilesHeading, symbolName: "doc.on.doc")
-		for sentence in wording.existingFiles {
-			existing.append(PageText.body(sentence))
-		}
-		if let summary = wording.skippedSummary {
-			existing.append(PageText.body(summary))
-			existing.append(skippedGrid(wording.skippedGroups))
-		}
-		if let note = wording.examinationNote {
-			existing.append(PageText.secondary(note))
-		}
-		let future = PageSectionView(
-			title: wording.futureFilesHeading,
-			symbolName: "arrow.triangle.2.circlepath",
-			symbolColor: InterfacePalette.archive
-		)
-		future.append(PageText.body(wording.futureFiles))
-
-		let remove = NSButton(title: wording.removeLabel, target: self, action: #selector(removePressed))
-		remove.bezelStyle = .rounded
-		let upload = NSButton(title: wording.uploadLabel, target: self, action: #selector(uploadPressed))
-		upload.bezelStyle = .rounded
-		upload.setAccessibilityIdentifier(InterfaceIdentifier.folderPageUploadButton)
-		for button in [remove, upload] {
-			button.isEnabled = !commandPending
-		}
-		let buttons = NSStackView(views: [NSView(), remove, upload])
-		buttons.spacing = 8
-		return [PageText.heading(wording.heading), existing, future, buttons]
-	}
-
-	func skippedGrid(_ groups: [SkippedGroup]) -> NSView {
-		let grid = NSGridView(views: groups.map { group in
-			let count = PageText.secondary(group.count)
-			count.alignment = .right
-			return [PageText.secondary(group.reason), count]
-		})
-		grid.columnSpacing = 24
-		grid.rowSpacing = 3
-		grid.column(at: 1).xPlacement = .trailing
-		return grid
-	}
-
 	func recentUploads(context: ApplicationWordingContext) -> NSView {
-		let section = PageSectionView(
-			title: "Recently Uploaded from This Mac",
-			symbolName: "arrow.up.doc",
-			symbolColor: InterfacePalette.collector
-		)
+		let group = PageRowGroupView(heading: "Recently Uploaded from This Mac")
 		for receipt in receipts.prefix(8) {
-			section.append(receiptRow(receipt, context: context))
+			group.appendRow(receiptRow(receipt, context: context))
 		}
-		return section
+		return group
 	}
 
+	/// The outcome's mark, the file's name, and at the trailing edge the outcome where the mark
+	/// does not say it, and the time.
 	func receiptRow(_ receipt: Receipt, context: ApplicationWordingContext) -> NSView {
+		let outcome = CollectorWording.receiptOutcome(receipt.outcome)
+		let mark = PageText.mark(outcome.mark, tone: outcome.tone, description: outcome.label)
+		mark.widthAnchor.constraint(equalToConstant: 18).isActive = true
 		let name = NSButton(title: receipt.fileName, target: self, action: #selector(receiptPressed(_:)))
 		name.isBordered = false
+		name.alignment = .left
+		name.font = NSFont.preferredFont(forTextStyle: .body)
 		name.contentTintColor = .labelColor
 		name.lineBreakMode = .byTruncatingMiddle
 		name.identifier = NSUserInterfaceItemIdentifier(receipt.documentIdentifier)
+		name.setContentHuggingPriority(.defaultLow, for: .horizontal)
 		name.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-		let outcome = CollectorWording.receiptOutcome(receipt.outcome)
-		let label = NSTextField(labelWithString: outcome.label)
-		label.font = NSFont.systemFont(ofSize: NSFont.smallSystemFontSize, weight: .medium)
-		label.textColor = PageText.color(of: outcome.tone)
-		let time = PageText.secondary(CollectorWording.receiptTime(receipt.receivedAt, context: context))
-		time.setContentHuggingPriority(.required, for: .horizontal)
-		let row = NSStackView(views: [name, NSView(), label, time])
-		row.spacing = 10
+		var views: [NSView] = [mark, name]
+		if outcome.showsLabel {
+			views.append(PageText.figure(outcome.label, color: PageText.color(of: outcome.tone)))
+		}
+		views.append(PageText.figure(CollectorWording.receiptTime(receipt.receivedAt, context: context)))
+		let row = NSStackView(views: views)
+		row.distribution = .fill
+		row.spacing = 8
 		return row
 	}
 
@@ -369,6 +359,19 @@ private extension FolderPageViewController {
 				}
 			}
 			rebuild()
+		}
+	}
+
+	@objc func showInFinderPressed() {
+		guard let folder else {
+			return
+		}
+		NSWorkspace.shared.activateFileViewerSelecting([URL(fileURLWithPath: folder.folder.root, isDirectory: true)])
+	}
+
+	@objc func pathComponentChosen(_ sender: NSPathControl) {
+		if let url = sender.clickedPathItem?.url {
+			NSWorkspace.shared.activateFileViewerSelecting([url])
 		}
 	}
 

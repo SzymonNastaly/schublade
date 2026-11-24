@@ -3,9 +3,10 @@ import ApplicationBindings
 import ApplicationPresentation
 import LibraryPresentation
 
-/// Needs Attention: what only a person can settle on this Mac, such as a folder awaiting its
-/// decision, a folder that cannot be read, a refused token, or refused files, each with the action
-/// that settles it, and below them the documents whose ingestion failed.
+/// Needs Attention: what only a person can settle, as rows in two groups like a pane of System
+/// Settings. On this Mac a folder awaiting its decision, a folder that cannot be read, and refused
+/// files; in the archive a refused token and the documents whose ingestion failed. Each row has at
+/// most one button, the one that settles it. The window's title names the page, so it has no heading.
 final class NeedsAttentionViewController: NSViewController {
 	private struct Shown: Equatable {
 		let sentences: [AttentionSentence]
@@ -41,67 +42,77 @@ final class NeedsAttentionViewController: NSViewController {
 		}
 		shown = next
 		actions = []
-		var views: [NSView] = [PageText.title("Needs Attention")]
-		if sentences.isEmpty, failedDocuments == 0 {
-			views.append(PageText.body("Nothing needs attention right now.", color: .secondaryLabelColor))
-		}
-		if !sentences.isEmpty {
-			let section = PageSectionView(
-				title: "On This Mac",
-				symbolName: "exclamationmark.circle.fill",
-				symbolColor: InterfacePalette.attention
-			)
-			for sentence in sentences {
-				section.append(row(for: sentence))
+		var views: [NSView] = []
+		let onThisMac = sentences.filter { $0.group == .thisMac }
+		if !onThisMac.isEmpty {
+			let group = PageRowGroupView(heading: "On This Mac")
+			for sentence in onThisMac {
+				group.appendRow(row(
+					sentence.text,
+					symbolName: sentence.symbolName,
+					button: button(for: sentence.action)
+				))
 			}
-			views.append(section)
+			views.append(group)
 		}
-		if failedDocuments > 0 {
-			views.append(failedDocumentsSection(count: failedDocuments))
+		let inTheArchive = sentences.filter { $0.group == .archive }
+		if !inTheArchive.isEmpty || failedDocuments > 0 {
+			let group = PageRowGroupView(heading: "In the Archive")
+			for sentence in inTheArchive {
+				group.appendRow(row(
+					sentence.text,
+					symbolName: sentence.symbolName,
+					button: button(for: sentence.action)
+				))
+			}
+			if failedDocuments > 0 {
+				let show = NSButton(title: "Show Failed Documents", target: self, action: #selector(showFailedPressed))
+				show.bezelStyle = .push
+				group.appendRow(row(Self.failedSentence(failedDocuments), symbolName: "doc.text", button: show))
+				group.appendNote("Each one can be retried or deleted in the browser.")
+			}
+			views.append(group)
+		}
+		if views.isEmpty {
+			views.append(PageText.body("Nothing needs attention right now.", color: .secondaryLabelColor))
 		}
 		page.show(views)
 	}
 
-	private func row(for sentence: AttentionSentence) -> NSView {
-		let mark =
-			NSImageView(image: NSImage(systemSymbolName: "circle.fill", accessibilityDescription: nil) ?? NSImage())
-		mark.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 7, weight: .regular)
-		mark.contentTintColor = PageText.color(of: sentence.tone)
-		let text = PageText.body(sentence.text)
-		text.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-		var views: [NSView] = [mark, text]
-		if let action = sentence.action {
-			let button = NSButton(title: Self.title(of: action), target: self, action: #selector(actionPressed(_:)))
-			button.bezelStyle = .rounded
-			button.controlSize = .small
-			button.tag = actions.count
-			actions.append(action)
-			views.append(button)
-		}
-		let row = NSStackView(views: views)
-		row.alignment = .firstBaseline
-		row.spacing = 12
+	/// A symbol in the one colour of this page, the sentence, and at most one button.
+	private func row(_ text: String, symbolName: String, button: NSButton?) -> NSView {
+		let symbol =
+			NSImageView(image: NSImage(systemSymbolName: symbolName, accessibilityDescription: nil) ?? NSImage())
+		symbol.symbolConfiguration = NSImage.SymbolConfiguration(textStyle: .body)
+		symbol.contentTintColor = InterfacePalette.attention
+		symbol.widthAnchor.constraint(equalToConstant: 20).isActive = true
+		let sentence = PageText.body(text)
+		sentence.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+		sentence.setContentHuggingPriority(.defaultLow, for: .horizontal)
+		let row = NSStackView(views: [symbol, sentence] + (button.map { [$0] } ?? []))
+		row.distribution = .fill
+		row.alignment = .centerY
+		row.spacing = 10
 		return row
 	}
 
-	private func failedDocumentsSection(count: UInt64) -> NSView {
-		let section = PageSectionView(
-			title: "In the Archive",
-			symbolName: "doc.badge.ellipsis",
-			symbolColor: .systemRed
-		)
-		let sentence = count == 1
+	private func button(for action: AttentionAction?) -> NSButton? {
+		guard let action else {
+			return nil
+		}
+		let button = NSButton(title: Self.title(of: action), target: self, action: #selector(actionPressed(_:)))
+		button.bezelStyle = .push
+		button.tag = actions.count
+		button.setContentHuggingPriority(.required, for: .horizontal)
+		button.setContentCompressionResistancePriority(.required, for: .horizontal)
+		actions.append(action)
+		return button
+	}
+
+	private static func failedSentence(_ count: UInt64) -> String {
+		count == 1
 			? "The archive could not read 1 document."
 			: "The archive could not read \(DocumentFormatting.groupedNumber(count)) documents."
-		let show = NSButton(title: "Show Failed Documents", target: self, action: #selector(showFailedPressed))
-		show.bezelStyle = .rounded
-		show.controlSize = .small
-		let row = NSStackView(views: [PageText.body(sentence), show])
-		row.alignment = .firstBaseline
-		row.spacing = 12
-		section.append(row)
-		section.append(PageText.secondary("Each one can be retried or deleted in the browser."))
-		return section
 	}
 
 	private static func title(of action: AttentionAction) -> String {

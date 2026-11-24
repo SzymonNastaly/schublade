@@ -46,5 +46,7 @@ public enum InterfaceIdentifier {
 	public static let folderPageState = "schublade.folderPage.state"
 	public static let folderPageUploadButton = "schublade.folderPage.uploadButton"
 	public static let folderPageRemoveButton = "schublade.folderPage.removeButton"
+	public static let folderPageMoreButton = "schublade.folderPage.moreButton"
+	public static let folderPagePath = "schublade.folderPage.path"
 	public static let folderPageFailure = "schublade.folderPage.failure"
 }

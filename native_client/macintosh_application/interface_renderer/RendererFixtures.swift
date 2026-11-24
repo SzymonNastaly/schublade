@@ -142,9 +142,10 @@ final class RendererFixtures {
 		return ApplicationStatuses(library: library, collector: collector)
 	}
 
-	/// Downloads collecting, and Paperwork in the admission a scene shows.
+	/// Downloads collecting, and Paperwork in the admission and availability a scene shows.
 	static func makeCollectorStatus(
 		paperworkAdmission: FolderAdmission = .collecting,
+		paperworkUnavailability: FolderUnavailability? = nil,
 		attention: [AttentionItem] = [],
 		activities: [Activity] = [],
 		receipts: [Receipt] = []
@@ -153,7 +154,7 @@ final class RendererFixtures {
 			revision: 4,
 			folders: [
 				FolderStatus(folder: downloads, admission: .collecting, unavailability: nil),
-				FolderStatus(folder: paperwork, admission: paperworkAdmission, unavailability: nil),
+				FolderStatus(folder: paperwork, admission: paperworkAdmission, unavailability: paperworkUnavailability),
 			],
 			progress: CollectionProgress(
 				documentsInArchive: 98,

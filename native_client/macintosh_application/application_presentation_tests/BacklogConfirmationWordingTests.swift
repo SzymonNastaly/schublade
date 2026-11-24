@@ -48,8 +48,8 @@ struct BacklogConfirmationWordingTests {
 		#expect(wording.futureFilesHeading == "From now on")
 		#expect(wording.futureFiles == "From now on, every new PDF, JPEG, PNG, or WebP file in Downloads uploads "
 			+ "to Schublade automatically. You will not be asked again for this folder.")
-		#expect(wording.uploadLabel == "Upload 930 files and start collecting")
-		#expect(wording.removeLabel == "Remove folder")
+		#expect(wording.uploadLabel == "Upload 930 Files and Start Collecting")
+		#expect(wording.removeLabel == "Remove Folder")
 		#expect(wording.examinationNote == nil)
 	}
 
@@ -73,7 +73,7 @@ struct BacklogConfirmationWordingTests {
 		#expect(wording.skippedSummary == "1 file is skipped:")
 		#expect(wording.skippedGroups == [SkippedGroup(reason: "Could not be read", count: "1 file")])
 		#expect(wording.examinationNote == "Still checking 3 files. The counts update as they finish.")
-		#expect(wording.uploadLabel == "Upload 1 file and start collecting")
+		#expect(wording.uploadLabel == "Upload 1 File and Start Collecting")
 	}
 
 	@Test func namesSymbolicLinksAndStartsCollectingWithoutAnUploadWhenNothingIsNew() {
@@ -86,6 +86,6 @@ struct BacklogConfirmationWordingTests {
 		#expect(wording.existingFiles.first == "Nothing new to upload now.")
 		#expect(wording.skippedSummary == "2 items are skipped:")
 		#expect(wording.skippedGroups == [SkippedGroup(reason: "Symbolic links", count: "2 items")])
-		#expect(wording.uploadLabel == "Start collecting")
+		#expect(wording.uploadLabel == "Start Collecting")
 	}
 }
