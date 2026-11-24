@@ -94,7 +94,11 @@ struct DocumentPresentationTests {
 		)
 		#expect(arriving.thirdLineText == "Classifying document")
 
-		let searched = DocumentRowPresentation.from(Self.listedRow(.archived), placement: .searching, context: context)
+		let searched = DocumentRowPresentation.from(
+			Self.listedRow(.archived),
+			placement: .searching(text: "Haftpflichtversicherung"),
+			context: context
+		)
 		#expect(searched.thirdLineText == "Annual electricity statement for 2026.")
 	}
 

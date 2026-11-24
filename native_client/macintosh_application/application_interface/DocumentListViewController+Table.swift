@@ -11,8 +11,8 @@ extension DocumentListViewController {
 
 	/// A search shows passages; a browsed row under a month's heading leaves the year to the heading.
 	func placement(ofRow row: Int) -> DocumentRowPlacement {
-		if case .search? = activeRequest {
-			return .searching
+		if case let .search(_, text)? = activeRequest {
+			return .searching(text: text)
 		}
 		if case .period? = model.heading(above: row) {
 			return .browsing(underMonth: true)

@@ -111,8 +111,13 @@ final class DocumentRowView: NSTableCellView {
 		amountField.stringValue = presentation.amountText ?? ""
 		amountField.isHidden = presentation.amountText == nil
 		senderLine.isHidden = presentation.sender.isEmpty && date.isEmpty && presentation.amountText == nil
-		detailField.stringValue = presentation.thirdLineText
-		detailField.textColor = color(for: presentation.thirdLineTone)
+		if case let .searching(searchText) = placement, case .excerpt = row.passage, case .archived = row.condition {
+			detailField.attributedStringValue = Self.markedExcerpt(presentation.thirdLineText, searchText: searchText)
+		} else {
+			detailField.font = Self.detailFont
+			detailField.stringValue = presentation.thirdLineText
+			detailField.textColor = color(for: presentation.thirdLineTone)
+		}
 		detailField.isHidden = !presentation.showsThirdLine
 		showCondition(row.condition)
 		updateTitleWrapWidth()
@@ -204,6 +209,26 @@ final class DocumentRowView: NSTableCellView {
 			let fill: NSColor = pictureView.isHidden ? .quaternarySystemFill : .textBackgroundColor
 			pictureFrame.layer?.backgroundColor = fill.cgColor
 		}
+	}
+
+	/// A passage of the text in the third line's colour, with each word that matched in the label's
+	/// colour at semibold.
+	private static func markedExcerpt(_ excerpt: String, searchText: String) -> NSAttributedString {
+		let paragraph = NSMutableParagraphStyle()
+		paragraph.lineBreakMode = .byTruncatingTail
+		let marked = NSMutableAttributedString(string: excerpt, attributes: [
+			.font: detailFont,
+			.foregroundColor: NSColor.secondaryLabelColor,
+			.paragraphStyle: paragraph,
+		])
+		let semibold = NSFont.systemFont(ofSize: detailFont.pointSize, weight: .semibold)
+		for range in SearchTextMarking.matchedRanges(in: excerpt, searchText: searchText) {
+			marked.addAttributes(
+				[.font: semibold, .foregroundColor: NSColor.labelColor],
+				range: NSRange(range, in: excerpt)
+			)
+		}
+		return marked
 	}
 
 	private func color(for tone: DocumentRowThirdLineTone) -> NSColor {

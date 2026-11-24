@@ -4,8 +4,8 @@ import ApplicationBindings
 public enum DocumentRowPlacement: Equatable, Sendable {
 	/// A listing a person browses, under a month's heading when `underMonth`, which holds the year.
 	case browsing(underMonth: Bool)
-	/// The results of a search, whose third line is the passage that matched.
-	case searching
+	/// The results of a search for `text`, whose third line is the passage that matched.
+	case searching(text: String)
 }
 
 public extension DocumentRowPresentation {
