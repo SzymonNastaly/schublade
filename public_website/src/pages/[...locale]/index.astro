@@ -1,0 +1,101 @@
+---
+import AvailabilityBadge from "../../components/availability_badge.astro"
+import PageLayout from "../../components/page_layout.astro"
+import ScreenshotPicture from "../../components/screenshot_picture.astro"
+import { INTERFACE_TEXT } from "../../localization/interface_text.ts"
+import { localeParameters, localizedPath, type Locale } from "../../localization/locales.ts"
+import { DEPLOYMENT_GUIDE_URL, PLATFORM_ORDER, PLATFORMS, REPOSITORY_URL } from "../../site_configuration.ts"
+import { softwareApplication, webSite } from "../../structured_data.ts"
+
+export function getStaticPaths() {
+	return localeParameters()
+}
+
+interface Props {
+	locale: Locale
+}
+
+const { locale } = Astro.props
+const text = INTERFACE_TEXT[locale]
+const landing = text.landing
+---
+
+<PageLayout
+	locale={locale}
+	title={landing.title}
+	description={landing.description}
+	pagePath=""
+	structuredData={[
+		webSite(locale, landing.description),
+		softwareApplication(locale, "", landing.description, PLATFORM_ORDER),
+	]}
+>
+	<section class="hero">
+		<div class="hero__text">
+			<h1>{landing.headline}</h1>
+			<p class="lead">{landing.subheadline}</p>
+			<div class="actions">
+				<a class="button button--primary" href={DEPLOYMENT_GUIDE_URL}>{landing.deployAction}</a>
+				<a class="button button--secondary" href="#platforms">{landing.platformsAction}</a>
+			</div>
+		</div>
+		<div class="hero__showcase">
+			<ScreenshotPicture
+				locale={locale}
+				name="mac_library_reader"
+				displayWidth={1040}
+				sizes="(min-width: 1120px) 1040px, (min-width: 720px) calc(100vw - 64px), 170vw"
+				priority
+				class="hero__mac"
+			/>
+			<ScreenshotPicture
+				locale={locale}
+				name="iphone_library_arriving"
+				displayWidth={230}
+				sizes="(min-width: 1120px) 230px, (min-width: 720px) 23vw, 44vw"
+				priority
+				class="hero__iphone"
+			/>
+		</div>
+	</section>
+
+	<section id="platforms" class="section">
+		<h2>{landing.platformsHeading}</h2>
+		<ul class="platform-cards">
+			{
+				PLATFORM_ORDER.map((platform) => (
+					<li class="platform-card">
+						<div class="platform-card__head">
+							<h3>{PLATFORMS[platform].label}</h3>
+							<AvailabilityBadge locale={locale} availability={PLATFORMS[platform].availability} />
+						</div>
+						<p>{text.platformPages[platform].landingSummary}</p>
+						<a class="arrow-link" href={localizedPath(locale, PLATFORMS[platform].path)}>
+							{text.platformPages[platform].linkLabel}
+						</a>
+					</li>
+				))
+			}
+		</ul>
+	</section>
+
+	<section class="section">
+		<h2>{landing.stepsHeading}</h2>
+		<ol class="steps">
+			{
+				landing.steps.map((step) => (
+					<li class="step">
+						<h3>{step.title}</h3>
+						<p>{step.text}</p>
+					</li>
+				))
+			}
+		</ol>
+	</section>
+
+	<section class="section ownership">
+		<h2>{landing.ownershipHeading}</h2>
+		{landing.ownershipParagraphs.map((paragraph) => <p>{paragraph}</p>)}
+		<a class="arrow-link" href={REPOSITORY_URL}>{landing.sourceAction}</a>
+	</section>
+</PageLayout>

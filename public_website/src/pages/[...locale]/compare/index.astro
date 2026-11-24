@@ -1,0 +1,41 @@
+---
+import PageLayout from "../../../components/page_layout.astro"
+import { readComparisons } from "../../../content_entries.ts"
+import { INTERFACE_TEXT } from "../../../localization/interface_text.ts"
+import { localeParameters, localizedPath, type Locale } from "../../../localization/locales.ts"
+
+export function getStaticPaths() {
+	return localeParameters()
+}
+
+interface Props {
+	locale: Locale
+}
+
+const { locale } = Astro.props
+const text = INTERFACE_TEXT[locale].comparisonIndex
+const comparisons = (await readComparisons()).filter((comparison) => comparison.locale === locale)
+---
+
+<PageLayout locale={locale} title={text.title} description={text.description} pagePath="compare/">
+	<header class="page-header">
+		<h1>{text.heading}</h1>
+		<p class="lead">{text.introduction}</p>
+	</header>
+	{
+		comparisons.length === 0 ? (
+			<p class="empty-note">{text.empty}</p>
+		) : (
+			<ul class="comparison-cards">
+				{comparisons.map((comparison) => (
+					<li class="comparison-card">
+						<h2>
+							<a href={localizedPath(locale, comparison.pagePath)}>{comparison.entry.data.title}</a>
+						</h2>
+						<p>{comparison.entry.data.summary}</p>
+					</li>
+				))}
+			</ul>
+		)
+	}
+</PageLayout>

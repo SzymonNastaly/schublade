@@ -3,7 +3,8 @@ name: Check
 on:
   push:
     branches: [main]
-    paths-ignore: ["**/*.md"]
+    # Markdown outside the website changes no checked code; the website validates its posts at build.
+    paths: ["**", "!**/*.md", "public_website/**"]
 
 concurrency:
   group: check-${{ github.ref }}
@@ -23,3 +24,7 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm check
+      # The website is a package of its own, not a workspace member: cf refuses to build a workspace root.
+      - run: pnpm --dir public_website install --frozen-lockfile --ignore-workspace
+      # Kept out of pnpm check, which must stay fast before every push.
+      - run: pnpm website:check

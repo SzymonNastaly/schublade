@@ -1,0 +1,139 @@
+---
+import AvailabilityBadge from "../../components/availability_badge.astro"
+import PageLayout from "../../components/page_layout.astro"
+import PostList from "../../components/post_list.astro"
+import ScreenshotPicture from "../../components/screenshot_picture.astro"
+import { readBlogPosts, readComparisons } from "../../content_entries.ts"
+import { INTERFACE_TEXT } from "../../localization/interface_text.ts"
+import { localeParameters, localizedPath, type Locale } from "../../localization/locales.ts"
+import { PLATFORM_SECTIONS } from "../../platform_presentation.ts"
+import { SCREENSHOTS, type ScreenshotName } from "../../screenshots.ts"
+import { DEPLOYMENT_GUIDE_URL, PLATFORM_ORDER, PLATFORMS, REPOSITORY_URL, type Platform } from "../../site_configuration.ts"
+import { softwareApplication } from "../../structured_data.ts"
+
+export function getStaticPaths() {
+	return localeParameters().flatMap(({ params, props }) =>
+		PLATFORM_ORDER.map((platform) => ({
+			params: { ...params, platform: PLATFORMS[platform].path.replace(/\/$/, "") },
+			props: { ...props, platform },
+		})),
+	)
+}
+
+interface Props {
+	locale: Locale
+	platform: Platform
+}
+
+const RELATED_POST_COUNT = 3
+
+const { locale, platform } = Astro.props
+const text = INTERFACE_TEXT[locale]
+const pageText = text.platformPages[platform]
+const sectionTexts: Record<string, { heading: string; paragraphs: ReadonlyArray<string>; command?: string }> =
+	pageText.sections
+const sections = PLATFORM_SECTIONS[platform].map((section) => ({
+	...sectionTexts[section.section]!,
+	screenshot: "screenshot" in section ? (section.screenshot as ScreenshotName) : undefined,
+}))
+const { availability, path: pagePath, label } = PLATFORMS[platform]
+
+const postsOfLocale = (await readBlogPosts()).filter((post) => post.locale === locale)
+const isAboutPlatform = (tags: ReadonlyArray<string>) =>
+	tags.some((tag) => tag.toLowerCase() === label.toLowerCase())
+const relatedPosts = [
+	...postsOfLocale.filter((post) => isAboutPlatform(post.entry.data.tags)),
+	...postsOfLocale.filter((post) => !isAboutPlatform(post.entry.data.tags)),
+].slice(0, RELATED_POST_COUNT)
+const comparisons = (await readComparisons()).filter((comparison) => comparison.locale === locale)
+---
+
+<PageLayout
+	locale={locale}
+	title={pageText.title}
+	description={pageText.description}
+	pagePath={pagePath}
+	structuredData={[softwareApplication(locale, pagePath, pageText.description, [platform])]}
+>
+	<header class="page-header">
+		<AvailabilityBadge locale={locale} availability={availability} />
+		<h1>{pageText.heading}</h1>
+		<p class="lead">{pageText.introduction}</p>
+		<p class="availability-note">{pageText.availabilityNote}</p>
+		<div class="actions">
+			{
+				availability === "available" ? (
+					<a class="button button--primary" href={DEPLOYMENT_GUIDE_URL}>
+						{text.platformPage.deployAction}
+					</a>
+				) : (
+					<a class="button button--secondary" href={REPOSITORY_URL}>
+						{text.landing.sourceAction}
+					</a>
+				)
+			}
+		</div>
+	</header>
+
+	<div class:list={["feature-list", sections.every((section) => !section.screenshot) && "feature-list--text"]}>
+		{
+			sections.map((section) => (
+				<section
+					class:list={[
+						"feature",
+						section.screenshot && `feature--${SCREENSHOTS[section.screenshot].device}`,
+					]}
+				>
+					<div class="feature__text">
+						<h2>{section.heading}</h2>
+						{section.paragraphs.map((paragraph) => <p>{paragraph}</p>)}
+						{section.command && (
+							<pre class="command"><code>{section.command}</code></pre>
+						)}
+					</div>
+					{section.screenshot &&
+						(SCREENSHOTS[section.screenshot].device === "mac" ? (
+							<ScreenshotPicture
+								locale={locale}
+								name={section.screenshot}
+								displayWidth={1040}
+								sizes="(min-width: 1120px) 1040px, calc(100vw - 32px)"
+							/>
+						) : (
+							<ScreenshotPicture
+								locale={locale}
+								name={section.screenshot}
+								displayWidth={300}
+								sizes="(min-width: 720px) 300px, 70vw"
+							/>
+						))}
+				</section>
+			))
+		}
+	</div>
+
+	{
+		(relatedPosts.length > 0 || comparisons.length > 0) && (
+			<aside class="related">
+				{relatedPosts.length > 0 && (
+					<section>
+						<h2>{text.platformPage.relatedPostsHeading}</h2>
+						<PostList locale={locale} posts={relatedPosts} headingLevel="h3" />
+					</section>
+				)}
+				{comparisons.length > 0 && (
+					<section>
+						<h2>{text.platformPage.comparisonsHeading}</h2>
+						<ul class="link-list">
+							{comparisons.map((comparison) => (
+								<li>
+									<a href={localizedPath(locale, comparison.pagePath)}>{comparison.entry.data.title}</a>
+								</li>
+							))}
+						</ul>
+					</section>
+				)}
+			</aside>
+		)
+	}
+</PageLayout>

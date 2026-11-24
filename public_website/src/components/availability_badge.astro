@@ -1,0 +1,16 @@
+---
+import { INTERFACE_TEXT } from "../localization/interface_text.ts"
+import type { Locale } from "../localization/locales.ts"
+import type { PlatformAvailability } from "../site_configuration.ts"
+
+interface Props {
+	locale: Locale
+	availability: PlatformAvailability
+}
+
+const { locale, availability } = Astro.props
+---
+
+<span class:list={["availability-badge", `availability-badge--${availability}`]}>
+	{INTERFACE_TEXT[locale].availability[availability]}
+</span>

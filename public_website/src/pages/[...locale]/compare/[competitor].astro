@@ -1,0 +1,93 @@
+---
+import { render } from "astro:content"
+import BreadcrumbTrail from "../../../components/breadcrumb_trail.astro"
+import PageLayout from "../../../components/page_layout.astro"
+import { readComparisons, type Comparison } from "../../../content_entries.ts"
+import { INTERFACE_TEXT } from "../../../localization/interface_text.ts"
+import { formatDate, LOCALES, localizedPath } from "../../../localization/locales.ts"
+import { breadcrumbList } from "../../../structured_data.ts"
+
+export async function getStaticPaths() {
+	const comparisons = await readComparisons()
+	return comparisons.map((comparison) => ({
+		params: { locale: LOCALES[comparison.locale].pathPrefix || undefined, competitor: comparison.competitorSlug },
+		props: {
+			comparison,
+			alternates: comparisons
+				.filter((candidate) => candidate.competitorSlug === comparison.competitorSlug)
+				.map((candidate) => ({ locale: candidate.locale, path: localizedPath(candidate.locale, candidate.pagePath) })),
+		},
+	}))
+}
+
+interface Props {
+	comparison: Comparison
+	alternates: Array<{ locale: Comparison["locale"]; path: string }>
+}
+
+const { comparison, alternates } = Astro.props
+const { locale, pagePath } = comparison
+const data = comparison.entry.data
+const text = INTERFACE_TEXT[locale]
+const { Content } = await render(comparison.entry)
+const breadcrumbs = [
+	{ name: text.breadcrumbHome, path: localizedPath(locale, "") },
+	{ name: text.comparisonIndex.heading, path: localizedPath(locale, "compare/") },
+	{ name: data.title, path: localizedPath(locale, pagePath) },
+]
+---
+
+<PageLayout
+	locale={locale}
+	title={data.title}
+	description={data.description}
+	pagePath={pagePath}
+	alternates={alternates}
+	structuredData={[breadcrumbList(breadcrumbs)]}
+>
+	<article class="article">
+		<BreadcrumbTrail label={text.navigation.breadcrumbLabel} items={breadcrumbs} />
+		<h1>{data.title}</h1>
+		<p class="lead">{data.summary}</p>
+		<div class="table-frame">
+			<table class="comparison-table">
+				<thead>
+					<tr>
+						<th scope="col">{text.comparison.aspectColumn}</th>
+						<th scope="col">{text.comparison.schubladeColumn}</th>
+						<th scope="col"><a href={data.competitorUrl}>{data.competitor}</a></th>
+					</tr>
+				</thead>
+				<tbody>
+					{
+						data.aspects.map((aspect) => (
+							<tr>
+								<th scope="row">{aspect.aspect}</th>
+								<td>{aspect.schublade}</td>
+								<td>{aspect.competitor}</td>
+							</tr>
+						))
+					}
+				</tbody>
+			</table>
+		</div>
+		<div class="prose">
+			<Content />
+		</div>
+		<section class="sources">
+			<h2>{text.comparison.sourcesHeading}</h2>
+			<ul>
+				{
+					data.sources.map((source) => (
+						<li>
+							<a href={source.url}>{source.title}</a>
+						</li>
+					))
+				}
+			</ul>
+			<p class="checked-on">
+				<time datetime={data.verifiedOn.toISOString().slice(0, 10)}>{text.comparison.checkedOn(formatDate(locale, data.verifiedOn))}</time>
+			</p>
+		</section>
+	</article>
+</PageLayout>

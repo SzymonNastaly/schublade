@@ -1,0 +1,110 @@
+---
+import { render } from "astro:content"
+import BreadcrumbTrail from "../../../components/breadcrumb_trail.astro"
+import PageLayout from "../../../components/page_layout.astro"
+import PostList from "../../../components/post_list.astro"
+import { readBlogPosts, readingMinutes, translationsOf, type BlogPost } from "../../../content_entries.ts"
+import { INTERFACE_TEXT } from "../../../localization/interface_text.ts"
+import { formatDate, LOCALES, localizedPath } from "../../../localization/locales.ts"
+import { blogPosting, breadcrumbList } from "../../../structured_data.ts"
+
+export async function getStaticPaths() {
+	const morePostCount = 3
+	const posts = await readBlogPosts()
+	return posts.map((post) => ({
+		params: { locale: LOCALES[post.locale].pathPrefix || undefined, slug: post.slug },
+		props: {
+			post,
+			translations: translationsOf(posts, post),
+			morePosts: posts
+				.filter((candidate) => candidate.locale === post.locale && candidate !== post)
+				.slice(0, morePostCount),
+		},
+	}))
+}
+
+interface Props {
+	post: BlogPost
+	translations: Array<BlogPost>
+	morePosts: Array<BlogPost>
+}
+
+const { post, translations, morePosts } = Astro.props
+const { locale, pagePath } = post
+const data = post.entry.data
+const text = INTERFACE_TEXT[locale]
+const { Content } = await render(post.entry)
+const otherVersions = translations.filter((translation) => translation.locale !== locale)
+const breadcrumbs = [
+	{ name: text.breadcrumbHome, path: localizedPath(locale, "") },
+	{ name: text.blogIndex.heading, path: localizedPath(locale, "blog/") },
+	{ name: data.title, path: localizedPath(locale, pagePath) },
+]
+const isoDate = (date: Date) => date.toISOString().slice(0, 10)
+---
+
+<PageLayout
+	locale={locale}
+	title={data.title}
+	description={data.description}
+	pagePath={pagePath}
+	alternates={translations.map((translation) => ({
+		locale: translation.locale,
+		path: localizedPath(translation.locale, translation.pagePath),
+	}))}
+	openGraphType="article"
+	structuredData={[blogPosting(locale, pagePath, data), breadcrumbList(breadcrumbs)]}
+>
+	<article class="article">
+		<BreadcrumbTrail label={text.navigation.breadcrumbLabel} items={breadcrumbs} />
+		<h1>{data.title}</h1>
+		<p class="article-meta">
+			<time datetime={isoDate(data.publishedOn)}>{formatDate(locale, data.publishedOn)}</time>
+			{
+				data.updatedOn && (
+					<>
+						<span aria-hidden="true">·</span>
+						<time datetime={isoDate(data.updatedOn)}>{text.blogPost.updatedOn(formatDate(locale, data.updatedOn))}</time>
+					</>
+				)
+			}
+			<span aria-hidden="true">·</span>
+			<span>{text.blogPost.readingTime(readingMinutes(post))}</span>
+		</p>
+		{
+			data.tags.length > 0 && (
+				<ul class="tag-list" aria-label={text.blogPost.tagsLabel}>
+					{data.tags.map((tag) => (
+						<li>{tag}</li>
+					))}
+				</ul>
+			)
+		}
+		{
+			otherVersions.map((version) => (
+				<p class="other-language">
+					<a
+						href={localizedPath(version.locale, version.pagePath)}
+						hreflang={LOCALES[version.locale].languageTag}
+						lang={LOCALES[version.locale].languageTag}
+					>
+						{INTERFACE_TEXT[version.locale].blogPost.readInThisLanguage}
+					</a>
+				</p>
+			))
+		}
+		<div class="prose">
+			<Content />
+		</div>
+	</article>
+	{
+		morePosts.length > 0 && (
+			<aside class="related">
+				<section>
+					<h2>{text.blogPost.morePostsHeading}</h2>
+					<PostList locale={locale} posts={morePosts} headingLevel="h3" />
+				</section>
+			</aside>
+		)
+	}
+</PageLayout>

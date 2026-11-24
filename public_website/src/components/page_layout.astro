@@ -1,0 +1,213 @@
+---
+import "@fontsource-variable/source-sans-3/wght.css"
+import "../styles/website.css"
+import { INTERFACE_TEXT } from "../localization/interface_text.ts"
+import {
+	absoluteUrl,
+	alternatesOf,
+	DEFAULT_LOCALE,
+	LOCALE_CODES,
+	LOCALES,
+	localizedPath,
+	type Locale,
+	type PageAlternate,
+	type PagePath,
+} from "../localization/locales.ts"
+import { PLATFORM_ORDER, PLATFORMS, REPOSITORY_URL } from "../site_configuration.ts"
+import { readInformationPages } from "../content_entries.ts"
+import { serializeStructuredData, SOCIAL_IMAGE, type StructuredData } from "../structured_data.ts"
+import SiteLogo from "./site_logo.astro"
+
+interface Props {
+	locale: Locale
+	title: string
+	description: string
+	/** The page's path inside its locale, or null for a page that search engines must not index. */
+	pagePath: PagePath | null
+	/** The versions of this page, its own included; by default the same path in every locale. */
+	alternates?: ReadonlyArray<PageAlternate>
+	structuredData?: ReadonlyArray<StructuredData>
+	openGraphType?: "website" | "article"
+}
+
+const { locale, title, description, pagePath, structuredData = [], openGraphType = "website" } = Astro.props
+const alternates = Astro.props.alternates ?? (pagePath === null ? [] : alternatesOf(pagePath))
+const text = INTERFACE_TEXT[locale]
+
+if (pagePath !== null && (title.length > 65 || description.length < 120 || description.length > 160)) {
+	throw new Error(
+		`${localizedPath(locale, pagePath)}: the title has ${title.length} characters (at most 65) and the description ${description.length} (120 to 160).`,
+	)
+}
+
+const documentTitle = title.includes("Schublade") ? title : `${title} | Schublade`
+const canonicalUrl = pagePath === null ? null : absoluteUrl(localizedPath(locale, pagePath))
+const defaultAlternate = alternates.find((alternate) => alternate.locale === DEFAULT_LOCALE)
+const languageLinks = LOCALE_CODES.map((candidate) => ({
+	locale: candidate,
+	isCurrent: candidate === locale,
+	path:
+		alternates.find((alternate) => alternate.locale === candidate)?.path ??
+		localizedPath(candidate, candidate === locale ? (pagePath ?? "") : ""),
+}))
+const otherLocales = languageLinks.filter((link) => !link.isCurrent)
+const currentSection = pagePath?.split("/")[0] ?? ""
+const navigationLinks = [
+	...PLATFORM_ORDER.map((platform) => ({
+		section: platform as string,
+		label: PLATFORMS[platform].label,
+		pagePath: PLATFORMS[platform].path,
+	})),
+	{ section: "compare", label: text.navigation.comparisons, pagePath: "compare/" },
+	{ section: "blog", label: text.navigation.blog, pagePath: "blog/" },
+]
+const socialImageUrl = absoluteUrl(SOCIAL_IMAGE.path)
+const informationPages = (await readInformationPages()).filter((page) => page.locale === locale)
+---
+
+<!doctype html>
+<html lang={LOCALES[locale].languageTag}>
+	<head>
+		<meta charset="utf-8" />
+		<meta name="viewport" content="width=device-width, initial-scale=1" />
+		<title>{documentTitle}</title>
+		<meta name="description" content={description} />
+		{canonicalUrl === null && <meta name="robots" content="noindex" />}
+		{canonicalUrl !== null && <link rel="canonical" href={canonicalUrl} />}
+		{
+			canonicalUrl !== null &&
+				alternates.map((alternate) => (
+					<link rel="alternate" hreflang={LOCALES[alternate.locale].languageTag} href={absoluteUrl(alternate.path)} />
+				))
+		}
+		{
+			canonicalUrl !== null && defaultAlternate && (
+				<link rel="alternate" hreflang="x-default" href={absoluteUrl(defaultAlternate.path)} />
+			)
+		}
+		<link
+			rel="alternate"
+			type="application/rss+xml"
+			title={`Schublade ${text.navigation.blog}`}
+			href={absoluteUrl(localizedPath(locale, "blog/rss.xml"))}
+		/>
+		<meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)" />
+		<meta name="theme-color" content="#0f1724" media="(prefers-color-scheme: dark)" />
+		<meta name="color-scheme" content="light dark" />
+		<link rel="icon" href="/application_icon.svg" type="image/svg+xml" />
+		<link rel="icon" href="/application_icon_192.png" type="image/png" sizes="192x192" />
+		<link rel="apple-touch-icon" href="/apple_touch_icon.png" />
+		<meta property="og:site_name" content="Schublade" />
+		<meta property="og:type" content={openGraphType} />
+		<meta property="og:title" content={documentTitle} />
+		<meta property="og:description" content={description} />
+		{canonicalUrl !== null && <meta property="og:url" content={canonicalUrl} />}
+		<meta property="og:locale" content={LOCALES[locale].openGraphLocale} />
+		{
+			otherLocales.map((other) => (
+				<meta property="og:locale:alternate" content={LOCALES[other.locale].openGraphLocale} />
+			))
+		}
+		<meta property="og:image" content={socialImageUrl} />
+		<meta property="og:image:width" content={String(SOCIAL_IMAGE.width)} />
+		<meta property="og:image:height" content={String(SOCIAL_IMAGE.height)} />
+		<meta property="og:image:alt" content="Schublade" />
+		<meta name="twitter:card" content="summary_large_image" />
+		<meta name="twitter:title" content={documentTitle} />
+		<meta name="twitter:description" content={description} />
+		<meta name="twitter:image" content={socialImageUrl} />
+		{structuredData.map((data) => <script type="application/ld+json" set:html={serializeStructuredData(data)} />)}
+	</head>
+	<body>
+		<a class="skip-link" href="#content">{text.navigation.skipToContent}</a>
+		<header class="site-header">
+			<div class="site-header__inner">
+				<SiteLogo href={localizedPath(locale, "")} label={text.navigation.homeLabel} />
+				<nav class="site-navigation" aria-label={text.navigation.primaryLabel}>
+					{
+						navigationLinks.map((link) => (
+							<a
+								href={localizedPath(locale, link.pagePath)}
+								aria-current={currentSection === link.section ? "page" : undefined}
+							>
+								{link.label}
+							</a>
+						))
+					}
+				</nav>
+				<nav class="language-switch" aria-label={text.navigation.languageLabel}>
+					{
+						otherLocales.map((other) => (
+							<a href={other.path} hreflang={LOCALES[other.locale].languageTag} lang={LOCALES[other.locale].languageTag}>
+								{LOCALES[other.locale].label}
+							</a>
+						))
+					}
+				</nav>
+			</div>
+		</header>
+		<main id="content">
+			<slot />
+		</main>
+		<footer class="site-footer">
+			<div class="site-footer__inner">
+				<div class="site-footer__brand">
+					<SiteLogo href={localizedPath(locale, "")} label={text.navigation.homeLabel} />
+					<p>{text.footer.summary}</p>
+				</div>
+				<nav aria-label={text.footer.productHeading}>
+					<h2>{text.footer.productHeading}</h2>
+					<ul>
+						{
+							PLATFORM_ORDER.map((platform) => (
+								<li>
+									<a href={localizedPath(locale, PLATFORMS[platform].path)}>{PLATFORMS[platform].label}</a>
+								</li>
+							))
+						}
+						<li><a href={localizedPath(locale, "compare/")}>{text.navigation.comparisons}</a></li>
+					</ul>
+				</nav>
+				<nav aria-label={text.footer.resourcesHeading}>
+					<h2>{text.footer.resourcesHeading}</h2>
+					<ul>
+						<li><a href={localizedPath(locale, "blog/")}>{text.navigation.blog}</a></li>
+						<li><a href={localizedPath(locale, "blog/rss.xml")}>{text.footer.feed}</a></li>
+						<li><a href={REPOSITORY_URL}>{text.footer.sourceCode}</a></li>
+					</ul>
+				</nav>
+				<nav aria-label={text.footer.informationHeading}>
+					<h2>{text.footer.informationHeading}</h2>
+					<ul>
+						{
+							informationPages.map((page) => (
+								<li>
+									<a href={localizedPath(locale, page.pagePath)}>{page.entry.data.title}</a>
+								</li>
+							))
+						}
+					</ul>
+				</nav>
+				<nav aria-label={text.navigation.languageLabel}>
+					<h2>{text.navigation.languageLabel}</h2>
+					<ul>
+						{
+							languageLinks.map((link) => (
+								<li>
+									<a
+										href={link.path}
+										hreflang={LOCALES[link.locale].languageTag}
+										lang={LOCALES[link.locale].languageTag}
+										aria-current={link.isCurrent ? "page" : undefined}
+									>
+										{LOCALES[link.locale].label}
+									</a>
+								</li>
+							))
+						}
+					</ul>
+				</nav>
+			</div>
+		</footer>
+	</body>
+</html>

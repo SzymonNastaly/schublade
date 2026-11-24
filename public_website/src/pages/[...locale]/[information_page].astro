@@ -1,0 +1,38 @@
+---
+import { render } from "astro:content"
+import PageLayout from "../../components/page_layout.astro"
+import { readInformationPages, type InformationPageEntry } from "../../content_entries.ts"
+import { INTERFACE_TEXT } from "../../localization/interface_text.ts"
+import { formatDate, LOCALES } from "../../localization/locales.ts"
+
+export async function getStaticPaths() {
+	const pages = await readInformationPages()
+	return pages.map((page) => ({
+		params: { locale: LOCALES[page.locale].pathPrefix || undefined, information_page: page.page },
+		props: { page },
+	}))
+}
+
+interface Props {
+	page: InformationPageEntry
+}
+
+const { page } = Astro.props
+const { locale, pagePath } = page
+const data = page.entry.data
+const { Content } = await render(page.entry)
+---
+
+<PageLayout locale={locale} title={data.title} description={data.description} pagePath={pagePath}>
+	<article class="article">
+		<h1>{data.title}</h1>
+		<p class="article-meta">
+			<time datetime={data.updatedOn.toISOString().slice(0, 10)}>
+				{INTERFACE_TEXT[locale].blogPost.updatedOn(formatDate(locale, data.updatedOn))}
+			</time>
+		</p>
+		<div class="prose">
+			<Content />
+		</div>
+	</article>
+</PageLayout>

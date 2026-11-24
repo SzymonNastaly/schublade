@@ -1,0 +1,24 @@
+---
+interface Props {
+	label: string
+	/** From the home page to the current page, which is the last item. */
+	items: ReadonlyArray<{ name: string; path: string }>
+}
+
+const { label, items } = Astro.props
+const ancestors = items.slice(0, -1)
+const current = items.at(-1)
+---
+
+<nav class="breadcrumb-trail" aria-label={label}>
+	<ol>
+		{
+			ancestors.map((item) => (
+				<li>
+					<a href={item.path}>{item.name}</a>
+				</li>
+			))
+		}
+		{current && <li aria-current="page">{current.name}</li>}
+	</ol>
+</nav>

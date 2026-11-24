@@ -1,0 +1,17 @@
+---
+import { DRAWER_EMBLEM_MARKUP, DRAWER_EMBLEM_VIEW_BOX, WORDMARK_OUTLINE, WORDMARK_VIEW_BOX } from "../brand_drawings.ts"
+
+interface Props {
+	href: string
+	label: string
+}
+
+const { href, label } = Astro.props
+---
+
+<a class="site-logo" href={href} aria-label={label}>
+	<svg class="site-logo__emblem" aria-hidden="true" viewBox={DRAWER_EMBLEM_VIEW_BOX} set:html={DRAWER_EMBLEM_MARKUP} />
+	<svg class="site-logo__wordmark" aria-hidden="true" viewBox={WORDMARK_VIEW_BOX} fill="currentColor">
+		<path d={WORDMARK_OUTLINE}></path>
+	</svg>
+</a>

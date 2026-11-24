@@ -1,0 +1,32 @@
+---
+import type { BlogPost } from "../content_entries.ts"
+import { formatDate, localizedPath, type Locale } from "../localization/locales.ts"
+
+interface Props {
+	locale: Locale
+	posts: ReadonlyArray<BlogPost>
+	headingLevel: "h2" | "h3"
+}
+
+const { locale, posts, headingLevel: Heading } = Astro.props
+---
+
+<ul class="post-list">
+	{
+		posts.map((post) => (
+			<li>
+				<article>
+					<Heading class="post-list__title">
+						<a href={localizedPath(locale, post.pagePath)}>{post.entry.data.title}</a>
+					</Heading>
+					<p class="post-list__date">
+						<time datetime={post.entry.data.publishedOn.toISOString().slice(0, 10)}>
+							{formatDate(locale, post.entry.data.publishedOn)}
+						</time>
+					</p>
+					<p>{post.entry.data.description}</p>
+				</article>
+			</li>
+		))
+	}
+</ul>

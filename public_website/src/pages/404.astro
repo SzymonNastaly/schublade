@@ -1,0 +1,26 @@
+---
+import PageLayout from "../components/page_layout.astro"
+import { INTERFACE_TEXT } from "../localization/interface_text.ts"
+import { DEFAULT_LOCALE, LOCALE_CODES, LOCALES, localizedPath } from "../localization/locales.ts"
+
+const defaultText = INTERFACE_TEXT[DEFAULT_LOCALE].notFound
+---
+
+<PageLayout locale={DEFAULT_LOCALE} title={defaultText.title} description={defaultText.text} pagePath={null}>
+	<div class="not-found">
+		{
+			LOCALE_CODES.map((locale, index) => {
+				const Heading = index === 0 ? "h1" : "h2"
+				return (
+				<section lang={LOCALES[locale].languageTag}>
+					<Heading>{INTERFACE_TEXT[locale].notFound.heading}</Heading>
+					<p>{INTERFACE_TEXT[locale].notFound.text}</p>
+					<a class="button button--primary" href={localizedPath(locale, "")}>
+						{INTERFACE_TEXT[locale].notFound.homeAction}
+					</a>
+				</section>
+				)
+			})
+		}
+	</div>
+</PageLayout>

@@ -3,6 +3,8 @@ decisions.tsv
 .audit/
 .cloudflare/
 dist/
+public_website/dist/
+.astro/
 .wrangler/
 .dev.vars
 schublade.deploy.json

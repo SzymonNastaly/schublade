@@ -1,0 +1,28 @@
+---
+import PageLayout from "../../../components/page_layout.astro"
+import PostList from "../../../components/post_list.astro"
+import { readBlogPosts } from "../../../content_entries.ts"
+import { INTERFACE_TEXT } from "../../../localization/interface_text.ts"
+import { localeParameters, localizedPath, type Locale } from "../../../localization/locales.ts"
+
+export function getStaticPaths() {
+	return localeParameters()
+}
+
+interface Props {
+	locale: Locale
+}
+
+const { locale } = Astro.props
+const text = INTERFACE_TEXT[locale].blogIndex
+const posts = (await readBlogPosts()).filter((post) => post.locale === locale)
+---
+
+<PageLayout locale={locale} title={text.title} description={text.description} pagePath="blog/">
+	<header class="page-header">
+		<h1>{text.heading}</h1>
+		<p class="lead">{text.introduction}</p>
+		<a class="arrow-link" href={localizedPath(locale, "blog/rss.xml")}>{text.feedLabel}</a>
+	</header>
+	{posts.length === 0 ? <p class="empty-note">{text.empty}</p> : <PostList locale={locale} posts={posts} headingLevel="h2" />}
+</PageLayout>

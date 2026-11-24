@@ -1,0 +1,33 @@
+---
+import { Picture } from "astro:assets"
+import { INTERFACE_TEXT } from "../localization/interface_text.ts"
+import type { Locale } from "../localization/locales.ts"
+import { SCREENSHOTS, type ScreenshotName } from "../screenshots.ts"
+
+interface Props {
+	locale: Locale
+	name: ScreenshotName
+	/** The rendered width in CSS pixels at the largest layout, which picks the candidate widths. */
+	displayWidth: number
+	sizes: string
+	priority?: boolean
+	class?: string
+}
+
+const { locale, name, displayWidth, sizes, priority = false, class: className } = Astro.props
+const { image, device } = SCREENSHOTS[name]
+const widths = [displayWidth, displayWidth * 2].filter((width) => width <= image.width)
+---
+
+<Picture
+	src={image}
+	alt={INTERFACE_TEXT[locale].screenshotDescriptions[name]}
+	formats={["avif"]}
+	fallbackFormat="webp"
+	widths={widths}
+	sizes={sizes}
+	loading={priority ? "eager" : "lazy"}
+	fetchpriority={priority ? "high" : "auto"}
+	decoding="async"
+	class:list={["screenshot", `screenshot--${device}`, className]}
+/>

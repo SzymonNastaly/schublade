@@ -22,7 +22,8 @@
 		"knip": "knip",
 		"check": "pnpm typecheck && pnpm lint && pnpm format:check && pnpm knip && pnpm test",
 		"prepare": "simple-git-hooks",
-		"test": "vitest run"
+		"test": "vitest run",
+		"website:check": "pnpm --dir public_website run check"
 	},
 	"dependencies": {
 		"@base-ui/react": "^1.9.0",

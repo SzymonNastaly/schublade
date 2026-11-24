@@ -1,6 +1,6 @@
 {
 	"include": ["**/*.ts", "**/*.tsx", "eslint.config.js", ".cloudflare/types/**/*.d.ts"],
-	"exclude": ["node_modules", "dist", ".cloudflare/output", "native_client"],
+	"exclude": ["node_modules", "dist", ".cloudflare/output", "native_client", "public_website"],
 	"compilerOptions": {
 		"target": "ES2022",
 		"module": "ESNext",
