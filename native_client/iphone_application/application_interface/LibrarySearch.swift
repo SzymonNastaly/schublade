@@ -1,4 +1,5 @@
 import ApplicationBindings
+import LibraryPresentation
 import UIKit
 
 /// A scope the list offers above the results while the typed text begins its name.
@@ -77,33 +78,6 @@ final class LibrarySearch: NSObject {
 		return Array(offered.prefix(maximumSuggestions))
 	}
 
-	/// Each occurrence of a word of `searchText` in `excerpt`, ignoring case and diacritics, in order
-	/// and without overlaps.
-	static func matchedRanges(in excerpt: String, searchText: String) -> [Range<String.Index>] {
-		let terms = searchText.split(whereSeparator: \.isWhitespace).map(String.init)
-		var found: [Range<String.Index>] = []
-		for term in terms {
-			var start = excerpt.startIndex
-			while let range = excerpt.range(
-				of: term,
-				options: [.caseInsensitive, .diacriticInsensitive],
-				range: start ..< excerpt.endIndex
-			) {
-				found.append(range)
-				start = range.upperBound
-			}
-		}
-		var merged: [Range<String.Index>] = []
-		for range in found.sorted(by: { $0.lowerBound < $1.lowerBound }) {
-			if let last = merged.last, range.lowerBound <= last.upperBound {
-				merged[merged.count - 1] = last.lowerBound ..< max(last.upperBound, range.upperBound)
-			} else {
-				merged.append(range)
-			}
-		}
-		return merged
-	}
-
 	/// The excerpt in the third line's colour, with what matched in the label's colour at semibold.
 	static func markedExcerpt(_ excerpt: String, searchText: String) -> NSAttributedString {
 		let font = UIFont.preferredFont(forTextStyle: .footnote)
@@ -116,7 +90,7 @@ final class LibrarySearch: NSObject {
 				forTextStyle: .footnote,
 				compatibleWith: UITraitCollection(preferredContentSizeCategory: .large)
 			).pointSize, weight: .semibold))
-		for range in matchedRanges(in: excerpt, searchText: searchText) {
+		for range in SearchTextMarking.matchedRanges(in: excerpt, searchText: searchText) {
 			marked.addAttributes([.font: semibold, .foregroundColor: UIColor.label], range: NSRange(range, in: excerpt))
 		}
 		return marked

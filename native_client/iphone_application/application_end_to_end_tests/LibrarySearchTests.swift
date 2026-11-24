@@ -2,7 +2,7 @@ import ApplicationBindings
 import XCTest
 @testable import ApplicationInterface
 
-/// What the search field offers for a typed text, and what an excerpt marks.
+/// What the search field offers for a typed text.
 final class LibrarySearchTests: XCTestCase {
 	@MainActor
 	private static func count(_ scope: LibraryScope, _ name: String) -> ScopeCount {
@@ -44,16 +44,5 @@ final class LibrarySearchTests: XCTestCase {
 		XCTAssertEqual(offered("becker", .allDocuments), ["Lena Becker Person"])
 		XCTAssertEqual(offered(" ", .allDocuments), [])
 		XCTAssertEqual(offered("statement", .allDocuments), [])
-	}
-
-	/// Every occurrence of each word, whatever the case and the diacritics, and overlapping matches as one.
-	@MainActor
-	func testAnExcerptMarksEachOccurrenceOfTheSearchedWords() {
-		let excerpt = "Prämie der Haftpflicht: die PRAMIE für Haftpflichtversicherung"
-
-		let marked = LibrarySearch.matchedRanges(in: excerpt, searchText: "pramie  haftpflicht pflicht")
-			.map { String(excerpt[$0]) }
-
-		XCTAssertEqual(marked, ["Prämie", "Haftpflicht", "PRAMIE", "Haftpflicht"])
 	}
 }
