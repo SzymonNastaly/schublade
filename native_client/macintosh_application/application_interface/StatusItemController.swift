@@ -3,8 +3,8 @@ import ApplicationBindings
 import ApplicationPresentation
 
 /// The menu bar item: the drawer glyph of the application's state, the upload animation, and a
-/// menu with the status line, the upload in flight, what needs attention, the five newest
-/// documents, Open Schublade, Add Folder…, and Quit.
+/// menu with the status line, one line for the uploads, what needs attention, the five newest
+/// documents with their senders, Open Schublade, Add Folder…, Settings…, and Quit.
 public final class StatusItemController: NSObject, NSMenuDelegate {
 	private static let newestDocumentCount = 5
 	private static let frameInterval: TimeInterval = 0.11
@@ -134,9 +134,9 @@ public final class StatusItemController: NSObject, NSMenuDelegate {
 		rebuildPending = false
 		menu.removeAllItems()
 		attentionActions = []
-		menu.addItem(disabledItem(presentation.statusSentence))
+		menu.addItem(disabledItem(presentation.statusSentence, symbolName: presentation.statusSymbolName))
 		if let upload = presentation.uploadSentence {
-			menu.addItem(disabledItem(upload))
+			menu.addItem(disabledItem(upload, symbolName: "arrow.up.circle"))
 		}
 		if !presentation.attention.isEmpty {
 			menu.addItem(.separator())
@@ -146,55 +146,81 @@ public final class StatusItemController: NSObject, NSMenuDelegate {
 		}
 		if !newestDocuments.isEmpty {
 			menu.addItem(.separator())
-			menu.addItem(disabledItem("Recently Added"))
+			menu.addItem(.sectionHeader(title: "Recently Added"))
 			for document in newestDocuments {
-				let entry = actionItem(document.title ?? "Untitled Document", #selector(documentChosen(_:)))
-				entry.representedObject = document.document.value
-				entry.indentationLevel = 1
-				menu.addItem(entry)
+				menu.addItem(documentItem(document))
 			}
 		}
 		menu.addItem(.separator())
-		menu.addItem(actionItem("Open Schublade", #selector(openWindow)))
+		menu.addItem(actionItem("Open Schublade", symbolName: "macwindow", #selector(openWindow)))
 		if presentation.offersAddFolder {
-			menu.addItem(actionItem("Add Folder…", #selector(addFolder)))
+			menu.addItem(actionItem("Add Folder…", symbolName: "folder.badge.plus", #selector(addFolder)))
 		}
-		menu.addItem(actionItem("Settings…", #selector(openSettings)))
+		// The system draws its own symbols beside Settings… and Quit.
+		menu.addItem(actionItem("Settings…", symbolName: nil, #selector(openSettings)))
 		menu.addItem(.separator())
 		menu.addItem(NSMenuItem(
 			title: "Quit Schublade",
 			action: #selector(NSApplication.terminate(_:)),
 			keyEquivalent: "q"
 		))
+		item.button?.setAccessibilityTitle("Schublade, \(presentation.statusSentence)")
+	}
+
+	private func documentItem(_ document: DocumentRow) -> NSMenuItem {
+		let entry = actionItem(
+			document.title ?? "Untitled Document",
+			symbolName: "doc.text",
+			#selector(documentChosen(_:))
+		)
+		entry.representedObject = document.document.value
+		if #available(macOS 14.4, *) {
+			entry.subtitle = StatusItemPresentation.documentSubtitle(document, context: .current())
+		}
+		return entry
 	}
 
 	private func attentionItem(_ sentence: AttentionSentence) -> NSMenuItem {
+		let symbolName = "exclamationmark.triangle.fill"
 		guard let action = sentence.action else {
-			return disabledItem(sentence.text)
+			return disabledItem(sentence.text, symbolName: symbolName)
 		}
-		let entry = actionItem(sentence.text, #selector(attentionChosen(_:)))
+		let entry = actionItem(sentence.text, symbolName: symbolName, #selector(attentionChosen(_:)))
 		entry.tag = attentionActions.count
 		attentionActions.append(action)
 		return entry
 	}
 
-	private func disabledItem(_ title: String) -> NSMenuItem {
+	private func disabledItem(_ title: String, symbolName: String) -> NSMenuItem {
 		let entry = NSMenuItem(title: title, action: nil, keyEquivalent: "")
+		entry.image = NSImage(systemSymbolName: symbolName, accessibilityDescription: nil)
 		entry.isEnabled = false
 		return entry
 	}
 
-	private func actionItem(_ title: String, _ action: Selector) -> NSMenuItem {
+	private func actionItem(_ title: String, symbolName: String?, _ action: Selector) -> NSMenuItem {
 		let entry = NSMenuItem(title: title, action: action, keyEquivalent: "")
 		entry.target = self
+		entry.image = symbolName.flatMap { NSImage(systemSymbolName: $0, accessibilityDescription: nil) }
 		return entry
 	}
 
-	/// The rows of the menu as text, for the renderer's files and for tests.
+	/// The rows of the menu as text, for the renderer's files and for tests: a section header in
+	/// capitals, "[symbol]" before a row that shows one, and a subtitle on the next line.
 	public var menuTitles: [String] {
 		menu.items.map { entry in
-			entry.isSeparatorItem ? "──────────────" : String(repeating: "\t", count: entry.indentationLevel) + entry
-				.title
+			if entry.isSeparatorItem {
+				return "──────────────"
+			}
+			if entry.isSectionHeader {
+				return entry.title.uppercased()
+			}
+			let symbol = entry.image == nil ? "" : "[symbol] "
+			var line = symbol + entry.title
+			if #available(macOS 14.4, *), let subtitle = entry.subtitle {
+				line += "\n" + String(repeating: " ", count: symbol.count) + subtitle
+			}
+			return line
 		}
 	}
 

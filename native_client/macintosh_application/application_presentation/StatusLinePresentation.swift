@@ -2,14 +2,20 @@ import ApplicationBindings
 import LibraryPresentation
 
 public extension StatusLinePresentation {
-	static func resolve(statuses: ApplicationStatuses, context: ApplicationWordingContext) -> StatusLinePresentation {
+	/// The sidebar's line, which says that files upload. The menu bar's menu says that on a line of
+	/// its own, so it passes `includesUploads: false`.
+	static func resolve(
+		statuses: ApplicationStatuses,
+		context: ApplicationWordingContext,
+		includesUploads: Bool = true
+	) -> StatusLinePresentation {
 		if readsCollectorOnly(statuses) {
 			return collectorOnlyPresentation
 		}
 		return resolve(
 			library: statuses.library,
 			fault: statuses.libraryFault ?? statuses.collectorFault,
-			uploadingFiles: uploadingCount(collector: statuses.collector),
+			uploadingFiles: includesUploads ? uploadingCount(collector: statuses.collector) : 0,
 			context: context.library
 		)
 	}
@@ -40,7 +46,8 @@ public extension StatusLinePresentation {
 		}
 	}
 
-	private static func uploadingCount(collector: CollectorStatus?) -> UInt64 {
+	/// The files in flight, or every file awaiting its upload once each folder collects.
+	internal static func uploadingCount(collector: CollectorStatus?) -> UInt64 {
 		guard let collector else {
 			return 0
 		}

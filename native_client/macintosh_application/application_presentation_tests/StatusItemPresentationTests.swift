@@ -86,6 +86,38 @@ struct StatusItemPresentationTests {
 		#expect(StatusItemPresentation.resolve(situation: .starting, context: Self.context()).glyph == .starting)
 	}
 
+	@Test func theMenuSaysTheUploadOnceAndNamesEachNewDocumentsSender() {
+		let uploading: [Activity] = [
+			.submitting(fileName: "Tax assessment 2025.pdf", byteSize: 120_000),
+			.submitting(fileName: "Invoice.pdf", byteSize: 80000),
+		]
+		let busy = StatusItemPresentation.resolve(
+			situation: .running(Self.statuses(activities: uploading)),
+			context: Self.context()
+		)
+		#expect(busy.statusSentence.hasPrefix("Up to date · "))
+		#expect(busy.uploadSentence == "Uploading 2 files")
+
+		var row = DocumentRow(
+			document: DocumentIdentifier(value: "doc-electricity"),
+			condition: .archived,
+			title: "Electricity Annual Statement 2026",
+			senderName: "Stadtwerke Talbrück GmbH",
+			documentDate: CalendarDate(year: 2026, month: 9, day: 22),
+			arrivedAt: Date(timeIntervalSince1970: 1_790_000_000),
+			amount: nil,
+			passage: nil,
+			contentKnown: true,
+			suggestedFileName: "document.pdf"
+		)
+		#expect(StatusItemPresentation.documentSubtitle(row, context: Self.context())
+			== "Stadtwerke Talbrück GmbH · 22 Sep")
+		row.senderName = nil
+		#expect(StatusItemPresentation.documentSubtitle(row, context: Self.context()) == "22 Sep")
+		row.documentDate = nil
+		#expect(StatusItemPresentation.documentSubtitle(row, context: Self.context()) == nil)
+	}
+
 	@Test func anUploadFinishesTheCycleItBeganAndReduceMotionHoldsOneFrame() {
 		var animation = StatusItemAnimation()
 		animation.follow(.submitting, reduceMotion: false)
