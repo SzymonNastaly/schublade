@@ -8,7 +8,7 @@
 		"preview": "astro preview",
 		"check": "ASTRO_TELEMETRY_DISABLED=1 astro check && ASTRO_TELEMETRY_DISABLED=1 astro build",
 		"compose:social-image": "node scripts/compose_social_image.ts",
-		"deploy": "ASTRO_TELEMETRY_DISABLED=1 astro build && cf deploy ./dist"
+		"deploy": "ASTRO_TELEMETRY_DISABLED=1 astro build && node scripts/deploy_website.ts"
 	},
 	"dependencies": {
 		"@astrojs/rss": "4.0.19",

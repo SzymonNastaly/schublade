@@ -18,3 +18,10 @@ export const PLATFORM_ORDER: ReadonlyArray<Platform> = ["web", "iphone", "mac"]
 export const INFORMATION_PAGES = ["support", "privacy", "impressum"] as const
 
 export type InformationPage = (typeof INFORMATION_PAGES)[number]
+
+/**
+ * IndexNow proves ownership of the host by fetching this key from INDEXNOW_KEY_PATH.
+ * The key is public by design; changing it only requires a deploy before the next notification.
+ */
+export const INDEXNOW_KEY = "bf3c5ce5e1daaf0869810092f65e88bb"
+export const INDEXNOW_KEY_PATH = "/indexnow-key.txt"
