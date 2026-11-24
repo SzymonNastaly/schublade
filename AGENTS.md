@@ -284,7 +284,7 @@ native_client/                           The native client's Cargo workspace apa
 		scripts/install_application_on_device.sh  Builds Release signed with those profiles and installs it on the paired iPhone
 		scripts/render_application_icon.sh   Renders the icon's drawings into AppIcon and ApplicationIconPicture with Quick Look, without an alpha channel
 		scripts/capture_store_screenshots.sh  The App Store screenshots: each scene a function in one table, in light and dark on a 6.9-inch simulator of its own named "Schublade Store Screenshots", written to build/store_screenshots
-		scripts/compose_store_images.swift   The App Store images: five of those screenshots, each in a device frame on the icon's blue under a headline and a sentence from one table, written to build/store_images
+		scripts/compose_store_images.swift   The App Store images: five of those screenshots in Apple's iPhone 17 Pro Max bezel on the icon's blue, each under a headline and a sentence with one accent (a letter and a PDF, an enlarged part of the screen, a pill, or symbols) from one table, written to build/store_images; the bezel comes from Apple's Design Resources into ~/apple_design_resources on the Mac, never into the repository
 		configuration/signing.xcconfig       Ad hoc signing for the simulator, and the local_signing.xcconfig that git ignores and provision_device_signing.rb writes, which names the team and the profile of each target for a device build
 test_fixtures/
 	documents/                             Synthetic test documents and expected_extraction.json
