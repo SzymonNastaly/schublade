@@ -2,7 +2,8 @@ import AppKit
 import ApplicationPresentation
 import LibraryPresentation
 
-/// Clickable status bar at the bottom of the sidebar showing connection state and sync progress.
+/// The sidebar's status line: the connection's state and the copy's progress in one line. A click
+/// synchronizes, or opens the replace form while the archive refuses the token.
 final class SidebarStatusBarView: NSView {
 	private let button = NSButton()
 	private let symbolView = NSImageView()
@@ -28,6 +29,13 @@ final class SidebarStatusBarView: NSView {
 		statusLabel.stringValue = presentation.text
 		statusLabel.textColor = presentation.tone == .attention ? InterfacePalette.attention : .secondaryLabelColor
 		button.isEnabled = presentation.allowsSynchronize || presentation.allowsTokenReplacement
+		button.toolTip = if presentation.allowsTokenReplacement {
+			"Replace Token…"
+		} else if presentation.allowsSynchronize {
+			"Synchronize Now"
+		} else {
+			nil
+		}
 
 		if let progress = presentation.progress {
 			progressIndicator.doubleValue = progress
@@ -45,11 +53,11 @@ final class SidebarStatusBarView: NSView {
 		button.translatesAutoresizingMaskIntoConstraints = false
 		button.setAccessibilityIdentifier(InterfaceIdentifier.sidebarStatusButton)
 
-		symbolView.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 12, weight: .medium)
+		symbolView.symbolConfiguration = NSImage.SymbolConfiguration(textStyle: .subheadline)
 		symbolView.setContentHuggingPriority(.required, for: .horizontal)
 		symbolView.setContentCompressionResistancePriority(.required, for: .horizontal)
 
-		statusLabel.font = NSFont.systemFont(ofSize: NSFont.smallSystemFontSize)
+		statusLabel.font = NSFont.preferredFont(forTextStyle: .subheadline)
 		statusLabel.lineBreakMode = .byTruncatingTail
 		statusLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
 		statusLabel.setAccessibilityIdentifier(InterfaceIdentifier.sidebarStatusLabel)

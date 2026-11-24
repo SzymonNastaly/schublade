@@ -182,6 +182,51 @@ struct WindowContentAndSidebarTests {
 		#expect(folderItems.map(\.title) == ["Dokumente", "Add Folder…"])
 	}
 
+	@Test func aFolderShowsOnlyWhatIsUnusualAboutIt() throws {
+		func folder(
+			_ value: Int64,
+			_ admission: FolderAdmission,
+			_ unavailability: FolderUnavailability? = nil
+		) -> FolderStatus {
+			FolderStatus(
+				folder: FolderReference(
+					identifier: FolderIdentifier(value: value),
+					root: "/Users/owner/Folder \(value)"
+				),
+				admission: admission,
+				unavailability: unavailability
+			)
+		}
+		let backlog = BacklogSummary(
+			filesNew: 3,
+			newContents: 3,
+			filesAlreadyArchived: 0,
+			filesDeletedFromArchive: 0,
+			filesRefusedByArchive: 0,
+			skipped: [],
+			filesUnderExamination: 0
+		)
+		var statuses = Self.makeStatuses()
+		statuses.collector?.folders = [
+			folder(1, .collecting),
+			folder(2, .surveying(filesUnderExamination: 4)),
+			folder(3, .awaitingDecision(backlog: backlog)),
+			folder(4, .collecting, .missing),
+			folder(5, .collecting, .accessDenied),
+		]
+		let sidebar = SidebarPresentation.resolve(statuses: statuses, facets: nil, context: Self.fixedContext())
+
+		let folderItems = try #require(sidebar.sections.first { $0.id == "folders" }?.items)
+		#expect(folderItems.map(\.accessory) == [
+			.none,
+			.inProgress(description: "Surveying"),
+			.attention(symbolName: "exclamationmark.circle.fill", description: "Awaits your decision"),
+			.attention(symbolName: "questionmark.folder", description: "Missing"),
+			.attention(symbolName: "questionmark.folder", description: "Cannot be read"),
+			.none,
+		])
+	}
+
 	@Test func aSearchTypedOnAPageMovesToAllDocuments() {
 		var navigation = LibraryNavigationState(destination: .folder(FolderIdentifier(value: 2)))
 		navigation.search("  ")

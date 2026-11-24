@@ -122,6 +122,11 @@ public final class LibraryWorkspaceViewController: NSSplitViewController {
 		sidebarItem.canCollapse = true
 		// The sidebar keeps its width while the list collapses for a page and the window resizes.
 		sidebarItem.holdingPriority = NSLayoutConstraint.Priority(280)
+		if #available(macOS 26.0, *), Self.statusLineIsAccessory(renderMode: renderMode) {
+			let accessory = NSSplitViewItemAccessoryViewController()
+			accessory.view = sidebarController.statusBarView
+			sidebarItem.addBottomAlignedAccessoryViewController(accessory)
+		}
 
 		let listItem = interactive
 			? NSSplitViewItem(contentListWithViewController: listController)
@@ -252,7 +257,10 @@ private extension LibraryWorkspaceViewController {
 			persistsCollapsedState: persistsState,
 			onSelectDestination: { target()?.selectSidebarDestination($0) },
 			onRequestAddFolder: { target()?.enrollFolderAction(nil) },
-			onStatusLineAction: { target()?.handleStatusLinePress($0) }
+			pinsStatusLine: !statusLineIsAccessory(renderMode: renderMode),
+			onStatusLineAction: { target()?.handleStatusLinePress($0) },
+			onShowFolderInFinder: { target()?.showFolderInFinder($0) },
+			onRequestFolderRemoval: { target()?.requestRemoval(of: $0) }
 		)
 	}
 
@@ -315,24 +323,6 @@ private extension LibraryWorkspaceViewController {
 			inspectorItem.animator().isCollapsed = !visible
 		} else {
 			inspectorItem.isCollapsed = !visible
-		}
-	}
-
-	/// Moves to a destination from a page, such as a folder's upload or Show Failed Documents.
-	func navigate(to destination: NavigationDestination, selecting document: DocumentIdentifier?) {
-		onNavigationChange? { navigation in
-			navigation.previousDestination = nil
-			navigation.destination = destination
-			navigation.searchText = ""
-			navigation.selectedDocument = document
-		}
-	}
-
-	func selectSidebarDestination(_ destination: NavigationDestination) {
-		onNavigationChange? { navigation in
-			navigation.previousDestination = nil
-			navigation.destination = destination
-			navigation.selectedDocument = nil
 		}
 	}
 

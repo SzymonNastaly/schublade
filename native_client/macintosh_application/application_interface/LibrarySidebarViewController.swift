@@ -1,8 +1,10 @@
 import AppKit
+import ApplicationBindings
 import ApplicationPresentation
 import LibraryPresentation
 
-/// Sidebar navigation source list and bottom status line.
+/// Sidebar navigation source list and its status line, which stands pinned under the list or, from
+/// macOS 26, in the sidebar item's bottom accessory, where the list scrolls under it.
 final class LibrarySidebarViewController: NSViewController {
 	private static let collapsedSectionsKey = "org.schublade.sidebarCollapsedSections"
 	private static let sectionCellIdentifier = NSUserInterfaceItemIdentifier("sidebarSectionCell")
@@ -11,13 +13,17 @@ final class LibrarySidebarViewController: NSViewController {
 	private let renderMode: InterfaceRenderMode
 	private let persistsCollapsedState: Bool
 	private let onSelectDestination: (NavigationDestination) -> Void
-	private let onRequestAddFolder: () -> Void
+	let onRequestAddFolder: () -> Void
 	private let onStatusLineAction: (StatusLinePresentation) -> Void
+	let onShowFolderInFinder: (FolderIdentifier) -> Void
+	let onRequestFolderRemoval: (FolderIdentifier) -> Void
+	private let pinsStatusLine: Bool
 
-	private let outlineView = NSOutlineView()
+	let outlineView = NSOutlineView()
 	private let scrollView = NSScrollView()
 	private let bottomSeparator = NSBox()
-	private let statusBarView = SidebarStatusBarView()
+	private let contextMenu = NSMenu()
+	let statusBarView = SidebarStatusBarView()
 
 	private var currentPresentation: SidebarPresentation?
 	private var currentStatusLine: StatusLinePresentation?
@@ -37,13 +43,19 @@ final class LibrarySidebarViewController: NSViewController {
 		persistsCollapsedState: Bool = true,
 		onSelectDestination: @escaping (NavigationDestination) -> Void,
 		onRequestAddFolder: @escaping () -> Void,
-		onStatusLineAction: @escaping (StatusLinePresentation) -> Void
+		pinsStatusLine: Bool,
+		onStatusLineAction: @escaping (StatusLinePresentation) -> Void,
+		onShowFolderInFinder: @escaping (FolderIdentifier) -> Void,
+		onRequestFolderRemoval: @escaping (FolderIdentifier) -> Void
 	) {
 		self.renderMode = renderMode
 		self.persistsCollapsedState = persistsCollapsedState
 		self.onSelectDestination = onSelectDestination
 		self.onRequestAddFolder = onRequestAddFolder
 		self.onStatusLineAction = onStatusLineAction
+		self.onShowFolderInFinder = onShowFolderInFinder
+		self.onRequestFolderRemoval = onRequestFolderRemoval
+		self.pinsStatusLine = pinsStatusLine
 		collapsedSectionIds = persistsCollapsedState
 			? Set(UserDefaults.standard.stringArray(forKey: Self.collapsedSectionsKey) ?? [])
 			: []
@@ -115,6 +127,8 @@ final class LibrarySidebarViewController: NSViewController {
 		outlineView.dataSource = self
 		outlineView.delegate = self
 		outlineView.setAccessibilityIdentifier(InterfaceIdentifier.sidebarOutline)
+		contextMenu.delegate = self
+		outlineView.menu = contextMenu
 
 		scrollView.documentView = outlineView
 		scrollView.hasVerticalScroller = true
@@ -128,6 +142,15 @@ final class LibrarySidebarViewController: NSViewController {
 
 	private func configureLayout() {
 		view.addSubview(scrollView)
+		guard pinsStatusLine else {
+			NSLayoutConstraint.activate([
+				scrollView.topAnchor.constraint(equalTo: view.topAnchor),
+				scrollView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+				scrollView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+				scrollView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+			])
+			return
+		}
 		view.addSubview(bottomSeparator)
 		view.addSubview(statusBarView)
 

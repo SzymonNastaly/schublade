@@ -3,6 +3,9 @@ import LibraryPresentation
 
 /// The sidebar sections and status line derived from the latest application statuses and facets.
 public struct SidebarPresentation: Equatable, Sendable {
+	/// The section of the folders on this Mac, whose heading offers Add Folder….
+	public static let foldersSectionIdentifier = "folders"
+
 	public let sections: [SidebarSectionPresentation]
 	public let statusLine: StatusLinePresentation
 
@@ -183,20 +186,30 @@ public struct SidebarPresentation: Equatable, Sendable {
 			accessory: .none,
 			kind: .addFolder
 		))
-		return SidebarSectionPresentation(identifier: "folders", title: "Folders on This Mac", items: items)
+		return SidebarSectionPresentation(
+			identifier: foldersSectionIdentifier,
+			title: "Folders on This Mac",
+			items: items
+		)
 	}
 
+	/// A collecting folder is the usual case and shows nothing; only what differs is marked.
 	private static func folderAccessory(_ folderStatus: FolderStatus) -> SidebarRowAccessory {
-		if folderStatus.unavailability != nil {
-			return .symbol(name: "exclamationmark.triangle.fill", tone: .attention)
+		switch folderStatus.unavailability {
+		case .missing:
+			return .attention(symbolName: "questionmark.folder", description: "Missing")
+		case .accessDenied:
+			return .attention(symbolName: "questionmark.folder", description: "Cannot be read")
+		case nil:
+			break
 		}
 		switch folderStatus.admission {
 		case .surveying:
-			return .symbol(name: "hourglass", tone: .active)
+			return .inProgress(description: "Surveying")
 		case .awaitingDecision:
-			return .symbol(name: "exclamationmark.circle.fill", tone: .attention)
+			return .attention(symbolName: "exclamationmark.circle.fill", description: "Awaits your decision")
 		case .collecting:
-			return .symbol(name: "checkmark", tone: .normal)
+			return .none
 		}
 	}
 }
