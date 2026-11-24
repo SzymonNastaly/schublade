@@ -156,7 +156,6 @@ public final class StatusItemController: NSObject, NSMenuDelegate {
 		if presentation.offersAddFolder {
 			menu.addItem(actionItem("Add Folder…", symbolName: "folder.badge.plus", #selector(addFolder)))
 		}
-		// The system draws its own symbols beside Settings… and Quit.
 		menu.addItem(actionItem("Settings…", symbolName: nil, #selector(openSettings)))
 		menu.addItem(.separator())
 		menu.addItem(NSMenuItem(

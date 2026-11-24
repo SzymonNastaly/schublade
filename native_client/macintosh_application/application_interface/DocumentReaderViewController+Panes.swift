@@ -26,8 +26,7 @@ extension DocumentReaderViewController {
 			pane.addGestureRecognizer(doubleClick)
 		}
 
-		// The panes run from the window's top edge, so the page and the text pass under the toolbar,
-		// whose height their scroll views keep clear at the top of the content.
+		// The panes run under the toolbar; their scroll views keep its height clear.
 		for pane in [pdfView, renderedPdfView, imageReaderView, textScrollView, placeholderView] {
 			pane.translatesAutoresizingMaskIntoConstraints = false
 			pane.isHidden = true

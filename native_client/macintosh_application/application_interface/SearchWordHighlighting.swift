@@ -5,7 +5,8 @@ import PDFKit
 /// Finds the words of a search in a PDF's text layer and in an extracted text, so the reader can
 /// mark them and step through them.
 enum SearchWordHighlighting {
-	/// The most matches marked, so a common word does not walk a long document on the main actor.
+	/// The most matches marked and sorted. A term's own search still reads the whole document; only
+	/// the terms after the limit are not searched.
 	private static let largestMatchCount = 120
 	private static let options: String.CompareOptions = [.caseInsensitive, .diacriticInsensitive]
 
@@ -27,7 +28,7 @@ enum SearchWordHighlighting {
 			guard firstPage == secondPage, let page = first.pages.first else {
 				return firstPage < secondPage
 			}
-			// A page's coordinates rise upwards, so the higher bound comes first.
+			// PDF y rises upward.
 			return first.bounds(for: page).maxY > second.bounds(for: page).maxY
 		}
 	}

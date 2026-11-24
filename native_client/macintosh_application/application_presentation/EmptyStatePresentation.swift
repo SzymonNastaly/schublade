@@ -100,8 +100,6 @@ public struct EmptyStatePresentation: Equatable, Sendable {
 			libraryFault: libraryFault,
 			listingFault: listingFault
 		) else {
-			// The window shows the empty archive as a page once the copy is complete, so the list
-			// meets this only before the copy began or for the moment before the page replaces it.
 			if case .complete = libraryStatus?.copy {
 				return emptyArchive(offersFolders: hasCollector)
 			}

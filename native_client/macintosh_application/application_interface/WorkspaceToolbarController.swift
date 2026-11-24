@@ -129,7 +129,7 @@ final class WorkspaceToolbarController: NSObject {
 		))
 		sortItem.isEnabled = workspace.allowsSortSelection
 		for item in sortMenu.items {
-			if let order = Self.order(forTag: item.tag) {
+			if let order = SortOrderMenu.order(forTag: item.tag) {
 				item.state = order == workspace.effectiveOrder ? .on : .off
 			}
 		}
@@ -138,7 +138,7 @@ final class WorkspaceToolbarController: NSObject {
 			searchItem.searchField.stringValue = navigation.searchText
 		}
 		shareItem.isEnabled = hasSelectedDocument
-		readerTabGroup.isEnabled = hasSelectedDocument
+		readerTabGroup.isEnabled = workspace.offersReaderTabs(for: navigation)
 		readerTabGroup.selectedIndex = Self.readerTabs.firstIndex(of: navigation.shownReaderTab) ?? 0
 	}
 
@@ -172,15 +172,9 @@ final class WorkspaceToolbarController: NSObject {
 	}
 
 	private func configureSortMenu() {
-		let entries: [(String, ListingOrder)] = [
-			("Date on Document", .documentDate),
-			("Date Added", .addition),
-			("Title", .title),
-			("Sender", .sender),
-		]
-		for (index, entry) in entries.enumerated() {
+		for (index, entry) in SortOrderMenu.entries.enumerated() {
 			let menuItem = NSMenuItem(
-				title: entry.0,
+				title: entry.title,
 				action: #selector(sortMenuItemChosen(_:)),
 				keyEquivalent: ""
 			)
@@ -222,22 +216,12 @@ final class WorkspaceToolbarController: NSObject {
 		}
 	}
 
-	private static func order(forTag tag: Int) -> ListingOrder? {
-		switch tag {
-		case 0: .documentDate
-		case 1: .addition
-		case 2: .title
-		case 3: .sender
-		default: nil
-		}
-	}
-
 	@objc private func backPressed() {
 		onNavigateBack()
 	}
 
 	@objc private func sortMenuItemChosen(_ sender: NSMenuItem) {
-		guard let order = Self.order(forTag: sender.tag) else {
+		guard let order = SortOrderMenu.order(forTag: sender.tag) else {
 			return
 		}
 		onSelectOrder(order)

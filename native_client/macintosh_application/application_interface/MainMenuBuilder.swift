@@ -1,4 +1,5 @@
 import AppKit
+import ApplicationPresentation
 
 /// Builds the main menu. Every command of the window is here under the name it has elsewhere, the
 /// application's own items carry a symbol as the system's do, and the Help menu lets a person
@@ -164,7 +165,6 @@ enum MainMenuBuilder {
 		menu.addItem(.separator())
 		menu.addItem(makeSortMenuItem())
 		menu.addItem(.separator())
-		// The split view names these Show or Hide as the sidebar and the inspector stand.
 		menu.addItem(item(
 			"Hide Sidebar",
 			#selector(NSSplitViewController.toggleSidebar(_:)),
@@ -197,15 +197,9 @@ enum MainMenuBuilder {
 	private static func makeSortMenuItem() -> NSMenuItem {
 		let sortItem = NSMenuItem(title: "Sort By", action: nil, keyEquivalent: "")
 		let sortMenu = NSMenu(title: "Sort By")
-		let entries: [(String, Int)] = [
-			("Date on Document", 0),
-			("Date Added", 1),
-			("Title", 2),
-			("Sender", 3),
-		]
-		for (title, tag) in entries {
+		for (tag, choice) in SortOrderMenu.entries.enumerated() {
 			let entry = NSMenuItem(
-				title: title,
+				title: choice.title,
 				action: #selector(LibraryWorkspaceViewController.selectSortOrder(_:)),
 				keyEquivalent: ""
 			)

@@ -18,14 +18,13 @@ extension LibraryWorkspaceViewController: NSMenuItemValidation {
 		case #selector(toggleInspector(_:)):
 			return allowsDocuments && super.validateUserInterfaceItem(menuItem)
 		case #selector(toggleSidebar(_:)):
-			// The split view switches the title between Show Sidebar and Hide Sidebar.
 			return super.validateUserInterfaceItem(menuItem)
 		case #selector(showOriginalRepresentation(_:)):
 			menuItem.state = latestNavigation.shownReaderTab == .original ? .on : .off
-			return allowsDocuments && hasSelection
+			return latestWorkspace?.offersReaderTabs(for: latestNavigation) ?? false
 		case #selector(showExtractedTextRepresentation(_:)):
 			menuItem.state = latestNavigation.shownReaderTab == .text ? .on : .off
-			return allowsDocuments && hasSelection
+			return latestWorkspace?.offersReaderTabs(for: latestNavigation) ?? false
 		case #selector(removeShownFolderAction(_:)):
 			guard case .folder? = latestWorkspace?.detailMode else {
 				return false
@@ -33,7 +32,7 @@ extension LibraryWorkspaceViewController: NSMenuItemValidation {
 			return true
 		case #selector(selectSortOrder(_:)):
 			if let effective = latestWorkspace?.effectiveOrder {
-				menuItem.state = Self.sortOrders.firstIndex(of: effective) == menuItem.tag ? .on : .off
+				menuItem.state = SortOrderMenu.tag(of: effective) == menuItem.tag ? .on : .off
 			}
 			return latestWorkspace?.allowsSortSelection ?? false
 		case #selector(enrollFolderAction(_:)):
@@ -132,10 +131,9 @@ extension LibraryWorkspaceViewController {
 	}
 
 	@objc func selectSortOrder(_ sender: NSMenuItem) {
-		guard Self.sortOrders.indices.contains(sender.tag) else {
+		guard let selected = SortOrderMenu.order(forTag: sender.tag) else {
 			return
 		}
-		let selected = Self.sortOrders[sender.tag]
 		onNavigationChange? { $0.browseOrder = selected }
 	}
 
@@ -159,7 +157,6 @@ extension LibraryWorkspaceViewController {
 		case .openOriginal:
 			openDocument(document)
 		case .quickLook:
-			// The panel follows the selection, and grows out of the selected row's picture.
 			onNavigationChange? { $0.selectedDocument = document }
 			actions.toggleQuickLook(for: document, title: row.title, window: view.window)
 		case .share:

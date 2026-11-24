@@ -9,7 +9,6 @@ final class ScreenRenderer {
 	struct Scene {
 		let controller: NSViewController
 		var alignChrome: () -> Void = {}
-		/// What the window's delegate does before the window narrows.
 		var accommodate: (CGFloat) -> Void = { _ in }
 		/// What the scene shows once it has settled, such as a row under the pointer.
 		var afterSettling: () -> Void = {}

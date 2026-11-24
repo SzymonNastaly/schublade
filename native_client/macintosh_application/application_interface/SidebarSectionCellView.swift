@@ -6,7 +6,10 @@ final class SidebarSectionCellView: NSTableCellView {
 
 	override init(frame frameRect: NSRect) {
 		super.init(frame: frameRect)
-		headingField.font = NSFont.systemFont(ofSize: NSFont.smallSystemFontSize, weight: .semibold)
+		headingField.font = NSFont.systemFont(
+			ofSize: NSFont.preferredFont(forTextStyle: .subheadline).pointSize,
+			weight: .semibold
+		)
 		headingField.textColor = .secondaryLabelColor
 		headingField.lineBreakMode = .byTruncatingTail
 		headingField.translatesAutoresizingMaskIntoConstraints = false

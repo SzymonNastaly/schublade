@@ -1,20 +1,17 @@
 import AppKit
+import ApplicationPresentation
 import LibraryPresentation
 
 /// The colours Schublade brings from its website into an otherwise native window: blue for the
-/// archive, orange for what needs attention, and green for the folders on this Mac. Each has a
-/// dark variant, because the website has none. The three are used as text and small symbols, so
-/// each passes 4.5:1 on white, the sidebar, and the selection fill, in both appearances, and is
-/// darker than the website's fill of the same name.
+/// archive, orange for what needs attention, and green for the folders on this Mac, each with a
+/// dark variant, because the website has none. Their values are `PaletteColors`, whose test holds
+/// them to 4.5:1 as text.
 enum InterfacePalette {
-	/// The documents section of the website, for the library's symbols and arriving documents.
-	static let archive = dynamic(light: 0x0B57B0, dark: 0x7DB8FF)
-	/// The failed documents section of the website, for Needs Attention.
-	static let attention = dynamic(light: 0x9A5200, dark: 0xF5A03C)
-	/// The settings section of the website, for the folders the collector watches.
-	static let collector = dynamic(light: 0x3F7000, dark: 0x9DCB45)
+	static let archive = dynamic(PaletteColors.archive)
+	static let attention = dynamic(PaletteColors.attention)
+	static let collector = dynamic(PaletteColors.collector)
 	/// The fill of a selected document row; its edge is `selectionEdge`.
-	static let selectionFill = dynamic(light: 0xD6E7FB, dark: 0x1F3A5C)
+	static let selectionFill = dynamic(PaletteColors.selectionFill)
 	static let selectionEdge = dynamic(light: 0x0B5CBF, dark: 0x4A97E3)
 	/// A selected row in a list that does not have the keyboard.
 	static let inactiveSelectionFill = dynamic(light: 0xE4E9F0, dark: 0x34383E)
@@ -31,6 +28,10 @@ enum InterfacePalette {
 		case .active: archive
 		case .attention: attention
 		}
+	}
+
+	private static func dynamic(_ palette: PaletteColor) -> NSColor {
+		dynamic(light: palette.light, dark: palette.dark)
 	}
 
 	private static func dynamic(light: UInt32, dark: UInt32) -> NSColor {

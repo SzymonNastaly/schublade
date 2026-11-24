@@ -226,8 +226,8 @@ final class InspectorFieldRowView: NSButton {
 	}
 
 	private func configureAccessibility() {
-		let slug = label.lowercased().replacingOccurrences(of: " ", with: "_")
-		setAccessibilityIdentifier("inspector.field.\(slug)")
+		let labelIdentifier = label.lowercased().replacingOccurrences(of: " ", with: "_")
+		setAccessibilityIdentifier("inspector.field.\(labelIdentifier)")
 		for view in [labelField, valueField, trailingSymbol] {
 			view.setAccessibilityElement(false)
 		}

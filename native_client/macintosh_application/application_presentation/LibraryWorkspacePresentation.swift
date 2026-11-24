@@ -17,6 +17,12 @@ public struct LibraryWorkspacePresentation: Equatable, Sendable {
 	/// typed there looks through All Documents.
 	public let searchPlaceholder: String
 
+	/// Whether Original and Text apply, in the toolbar and in View alike: a document of the list is
+	/// selected.
+	public func offersReaderTabs(for navigation: LibraryNavigationState) -> Bool {
+		detailMode == .documents && navigation.selectedDocument != nil
+	}
+
 	public init(
 		windowTitle: String,
 		countsShownDocuments: Bool,

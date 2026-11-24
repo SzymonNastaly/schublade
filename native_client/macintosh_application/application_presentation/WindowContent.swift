@@ -50,8 +50,8 @@ public enum WindowContent: Equatable, Sendable {
 			if let replacingOrigin = navigation.replacingTokenOrigin {
 				return .connectionForm(.replaceToken(origin: replacingOrigin, reason: reason, cancellable: true))
 			}
-			// Without a collector, a token that only adds documents leaves the Mac nothing to do.
-			if permission == .collectOnly, statuses.collector == nil {
+			let leavesNothingToDo = permission == .collectOnly && statuses.collector == nil
+			if leavesNothingToDo {
 				return .connectionForm(.replaceToken(origin: origin, reason: reason, cancellable: false))
 			}
 			let workspace = buildWorkspace(

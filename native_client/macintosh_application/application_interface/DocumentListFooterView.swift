@@ -48,7 +48,7 @@ final class DocumentListFooterView: NSView {
 		searchAllButton.isHidden = true
 		searchAllButton.setAccessibilityIdentifier(InterfaceIdentifier.documentListFooterSearchAll)
 
-		indexingLabel.font = NSFont.systemFont(ofSize: NSFont.smallSystemFontSize)
+		indexingLabel.font = NSFont.preferredFont(forTextStyle: .subheadline)
 		indexingLabel.textColor = .secondaryLabelColor
 		indexingLabel.alignment = .center
 		indexingLabel.isHidden = true

@@ -66,7 +66,6 @@ public final class ConnectionFormViewController: NSViewController, NSTextFieldDe
 
 	override public func viewDidAppear() {
 		super.viewDidAppear()
-		// The replace form knows the address, so the token is what a person types first.
 		view.window?.makeFirstResponder(purpose.address == nil ? addressField : tokenField)
 	}
 
@@ -236,8 +235,7 @@ private extension ConnectionFormViewController {
 
 		tokenField.placeholderString = "Required"
 		tokenField.delegate = self
-		// A secure field without a content type reads as a password, and AutoFill offers to fill and
-		// save one. A token is pasted once from the archive's Settings, as a one-time code is.
+		// `.oneTimeCode` keeps AutoFill from offering to save the token as a password.
 		tokenField.contentType = .oneTimeCode
 		tokenField.setAccessibilityIdentifier(InterfaceIdentifier.connectionTokenField)
 
@@ -265,8 +263,7 @@ private extension ConnectionFormViewController {
 		noteLabel.font = noteFont
 		noteLabel.textColor = .secondaryLabelColor
 
-		// The system's red measures 3.55:1 as text on white, so the symbol carries it and the
-		// sentence stays in the label colour.
+		// The system's red measures 3.55:1 as text on white, so only the symbol carries it.
 		refusalSymbol.image = NSImage(systemSymbolName: "exclamationmark.circle.fill", accessibilityDescription: nil)
 		refusalSymbol.symbolConfiguration = NSImage.SymbolConfiguration(textStyle: .subheadline)
 		refusalSymbol.contentTintColor = .systemRed

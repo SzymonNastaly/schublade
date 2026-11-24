@@ -48,7 +48,7 @@ final class PageSectionView: NSBox {
 
 	private static func heading(_ title: String, symbolName: String?, symbolColor: NSColor) -> NSView {
 		let label = NSTextField(labelWithString: title)
-		label.font = NSFont.systemFont(ofSize: NSFont.systemFontSize, weight: .semibold)
+		label.font = NSFont.systemFont(ofSize: NSFont.preferredFont(forTextStyle: .body).pointSize, weight: .semibold)
 		guard let symbolName, let image = NSImage(systemSymbolName: symbolName, accessibilityDescription: nil) else {
 			return label
 		}

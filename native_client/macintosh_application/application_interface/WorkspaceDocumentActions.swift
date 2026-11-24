@@ -196,7 +196,11 @@ final class WorkspaceDocumentActions {
 			let folder = try await collectorCommands.enrollFolder(root: url.path(percentEncoded: false))
 			onEnrolled(folder)
 		} catch {
-			presentAlert(title: "Could Not Add Folder", message: String(describing: error), in: window)
+			presentAlert(
+				title: "Could Not Add Folder",
+				message: CollectorRefusalWording.enrollmentRefusalSentence(error, context: .current()),
+				in: window
+			)
 		}
 	}
 

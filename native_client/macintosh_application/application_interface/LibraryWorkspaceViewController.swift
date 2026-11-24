@@ -7,8 +7,6 @@ import LibraryPresentation
 /// one split view, so the toolbar knows every divider. A page, such as a folder or Needs Attention,
 /// takes the reader's place while the list and the inspector collapse.
 public final class LibraryWorkspaceViewController: NSSplitViewController {
-	/// The orders of View > Sort By, in the order of their menu items' tags.
-	static let sortOrders: [ListingOrder] = [.documentDate, .addition, .title, .sender]
 	/// The system's sidebar holds the window a few points above the sum of the parts' minimums, 1,073
 	/// against 1,067, so a width within this of the sum counts as too narrow for the inspector.
 	private static let heldWidthAllowance: CGFloat = 8

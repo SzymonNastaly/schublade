@@ -360,7 +360,6 @@ private extension DocumentListViewController {
 			emptyView.isHidden = false
 		}
 		footerView.render(
-			// An empty list offers the same button in its middle.
 			showsSearchAllDocuments: searchAllDocumentsAvailable && model.rowCount > 0,
 			indexingNotice: textIndexingNotice,
 			onSearchAllDocuments: onRequestSearchAllDocuments

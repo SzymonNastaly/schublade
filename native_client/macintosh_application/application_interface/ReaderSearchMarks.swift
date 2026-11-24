@@ -6,6 +6,9 @@ import PDFKit
 /// stepped to with Find Next or Find Previous. Each surface is marked once for each document and
 /// search, so a render that changes neither keeps the person's place.
 final class ReaderSearchMarks {
+	/// How far below the toolbar a match the reader goes to stands, in points.
+	private static let matchClearance: CGFloat = 48
+
 	enum Surface {
 		case page
 		case text
@@ -112,9 +115,8 @@ final class ReaderSearchMarks {
 			guard let page = match.pages.first else {
 				return
 			}
-			// `go(to:)` puts a selection at the view's top edge, under the toolbar, so the match goes
-			// to a point above it by the toolbar's height and a little more, in the page's units.
-			let margin = (pdfView.safeAreaInsets.top + 48) / max(pdfView.scaleFactor, 0.01)
+			// `go(to:)` puts the point at the view's top edge, under the toolbar.
+			let margin = (pdfView.safeAreaInsets.top + Self.matchClearance) / max(pdfView.scaleFactor, 0.01)
 			let bounds = match.bounds(for: page)
 			pdfView.go(to: PDFDestination(
 				page: page,
