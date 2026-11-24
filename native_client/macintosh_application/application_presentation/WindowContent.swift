@@ -3,12 +3,10 @@ import LibraryPresentation
 
 /// The complete screen the main window renders for the current situation and navigation state.
 public enum WindowContent: Equatable, Sendable {
-	case starting(message: String)
-	case failedToStart(StartFailureWording)
-	case fault(message: String)
-	case connectionForm(initialAddress: String?, instruction: String?, cancellable: Bool)
+	/// Starting, a start failure, a library fault, or stopped.
+	case status(EmptyStatePresentation)
+	case connectionForm(ConnectionFormPurpose)
 	case libraryWorkspace(LibraryWorkspacePresentation)
-	case stopped(message: String)
 
 	public static func resolve(
 		situation: ApplicationSituation,
@@ -18,15 +16,12 @@ public enum WindowContent: Equatable, Sendable {
 	) -> WindowContent {
 		switch situation {
 		case .starting:
-			return .starting(message: "Starting Schublade…")
+			return .status(.starting)
 		case let .failedToStart(failure):
-			return .failedToStart(ApplicationFailureWording.startFailureWording(failure))
+			return .status(.startFailure(failure))
 		case let .running(statuses):
 			guard let library = statuses.library else {
-				if let fault = statuses.libraryFault {
-					return .fault(message: LibraryFailureWording.faultSentence(fault))
-				}
-				return .starting(message: "Starting Schublade…")
+				return .status(statuses.libraryFault.map(EmptyStatePresentation.libraryFault) ?? .starting)
 			}
 			return resolveRunning(
 				statuses: statuses,
@@ -36,7 +31,7 @@ public enum WindowContent: Equatable, Sendable {
 				context: context
 			)
 		case .stopped:
-			return .stopped(message: "Schublade stopped.")
+			return .status(.stopped)
 		}
 	}
 
@@ -49,16 +44,15 @@ public enum WindowContent: Equatable, Sendable {
 	) -> WindowContent {
 		switch library.archive {
 		case .notConfigured:
-			return .connectionForm(initialAddress: nil, instruction: nil, cancellable: false)
+			return .connectionForm(.welcome)
 		case let .configured(origin, _, condition, permission, _):
+			let reason = tokenReplacementReason(condition: condition, permission: permission)
 			if let replacingOrigin = navigation.replacingTokenOrigin {
-				let instruction = tokenReplacementInstruction(condition: condition, permission: permission)
-				return .connectionForm(initialAddress: replacingOrigin, instruction: instruction, cancellable: true)
+				return .connectionForm(.replaceToken(origin: replacingOrigin, reason: reason, cancellable: true))
 			}
+			// Without a collector, a token that only adds documents leaves the Mac nothing to do.
 			if permission == .collectOnly, statuses.collector == nil {
-				let guidance = "This token can only add documents and cannot read the archive. "
-					+ "Paste a token with read permission from Settings."
-				return .connectionForm(initialAddress: origin, instruction: guidance, cancellable: false)
+				return .connectionForm(.replaceToken(origin: origin, reason: reason, cancellable: false))
 			}
 			let workspace = buildWorkspace(
 				statuses: statuses,
@@ -70,18 +64,20 @@ public enum WindowContent: Equatable, Sendable {
 		}
 	}
 
-	private static func tokenReplacementInstruction(
+	private static func tokenReplacementReason(
 		condition: ConnectionCondition,
 		permission: ArchivePermission
-	) -> String {
+	) -> String? {
+		if case let .suspended(reason) = condition {
+			return switch reason {
+			case .credentialRefused: "The archive refused the current token. It may have been revoked."
+			case .credentialInsufficient: "The current token no longer permits what this Mac does."
+			}
+		}
 		if permission == .collectOnly {
-			return "This token can only add documents and cannot read the archive. "
-				+ "Paste a token with read permission from Settings."
+			return "The current token adds documents but cannot read the archive."
 		}
-		if case .suspended = condition {
-			return "Schublade refused the current token. Paste a new API token from Settings."
-		}
-		return "Paste a new API token from Settings."
+		return nil
 	}
 
 	private static func buildWorkspace(

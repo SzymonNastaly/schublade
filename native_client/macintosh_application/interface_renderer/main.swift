@@ -27,6 +27,15 @@ defer {
 
 let application = NSApplication.shared
 application.setActivationPolicy(.prohibited)
+/// The welcome shows the application's icon, which a command-line tool lacks, so the renderer takes
+/// the icon of the application built beside it.
+let builtApplication = try FileManager.default.contentsOfDirectory(
+	at: URL(filePath: CommandLine.arguments[0]).deletingLastPathComponent(),
+	includingPropertiesForKeys: nil
+).first { $0.pathExtension == "app" && $0.lastPathComponent.hasPrefix("Schublade") }
+if let builtApplication {
+	application.applicationIconImage = NSWorkspace.shared.icon(forFile: builtApplication.path)
+}
 
 let fixtures = RendererFixtures(fixturesDirectory: fixturesURL, temporaryDirectory: temporaryURL)
 let renderer = ScreenRenderer(outputDirectory: outputURL, fixtures: fixtures)

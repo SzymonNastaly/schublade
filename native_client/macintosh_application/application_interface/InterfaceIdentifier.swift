@@ -3,8 +3,6 @@ import AppKit
 /// Stable accessibility and item identifiers shared between view controllers, renderer, and tests.
 public enum InterfaceIdentifier {
 	public static let mainWindow = NSUserInterfaceItemIdentifier("schublade.mainWindow")
-	public static let startFailureMessage = "schublade.startFailure.message"
-	public static let statusMessage = "schublade.status.message"
 	public static let connectionAddressField = "schublade.connection.addressField"
 	public static let connectionTokenField = "schublade.connection.tokenField"
 	public static let connectionSubmitButton = "schublade.connection.submitButton"

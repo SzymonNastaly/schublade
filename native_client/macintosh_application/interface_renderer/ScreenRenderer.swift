@@ -6,7 +6,7 @@ import ApplicationPresentation
 /// Captures offscreen `NSViewController` hierarchies in light and dark appearances to PNG files.
 final class ScreenRenderer {
 	/// A scene's controller, and what lines its painted chrome up with the laid-out content.
-	private struct Scene {
+	struct Scene {
 		let controller: NSViewController
 		var alignChrome: () -> Void = {}
 		/// What the window's delegate does before the window narrows.
@@ -45,9 +45,7 @@ final class ScreenRenderer {
 	}
 
 	private func renderConnectionAndEmptyScreens() async throws {
-		try await renderAppearances(name: "connection_form", queries: nil) {
-			Scene(controller: ConnectionFormViewController(commands: RendererApplicationCommands()))
-		}
+		try await renderFirstRunScenes()
 
 		try await renderWorkspaceScene(
 			name: "library_empty",
@@ -144,7 +142,7 @@ final class ScreenRenderer {
 		}
 	}
 
-	private func renderAppearances(
+	func renderAppearances(
 		name: String,
 		size: NSSize = ScreenRenderer.windowSize,
 		queries: RendererLibraryQueries?,

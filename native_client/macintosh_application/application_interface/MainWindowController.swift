@@ -6,12 +6,10 @@ import ApplicationPresentation
 /// controller so the frame stays intact, manages toolbar & facets, and reports library attendance.
 final class MainWindowController: NSWindowController, NSWindowDelegate {
 	private enum Screen: Equatable {
-		case starting
-		case failedToStart(StartFailureWording)
-		case fault(String)
-		case connectionForm(initialAddress: String?, instruction: String?, cancellable: Bool)
+		case status(EmptyStatePresentation)
+		/// A form stays while only the reason it states changes, as it does while a new token connects.
+		case connectionForm(address: String?, cancellable: Bool)
 		case libraryWorkspace
-		case stopped(String)
 	}
 
 	private static let windowAutosaveName = "org.schublade.mainWindow"
@@ -103,7 +101,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate {
 	func render(_ situation: ApplicationSituation) {
 		latestSituation = situation
 		if case let .running(statuses) = situation, let library = statuses.library {
-			if !Self.allowsReplacingToken(library.archive) {
+			if library.archive == .notConfigured {
 				navigation.replacingTokenOrigin = nil
 			}
 			let copyRevision = library.contentRevision
@@ -125,7 +123,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate {
 		let desired = screen(for: resolved)
 		if desired != activeScreen {
 			activeScreen = desired
-			displayScreen(desired)
+			display(resolved)
 			recomputeAttendance()
 		}
 		updateWorkspacePresentation(from: resolved, situation: situation)
@@ -167,42 +165,29 @@ final class MainWindowController: NSWindowController, NSWindowDelegate {
 
 	private func screen(for content: WindowContent) -> Screen {
 		switch content {
-		case .starting:
-			.starting
-		case let .failedToStart(wording):
-			.failedToStart(wording)
-		case let .fault(message):
-			.fault(message)
-		case let .connectionForm(initialAddress, instruction, cancellable):
-			.connectionForm(initialAddress: initialAddress, instruction: instruction, cancellable: cancellable)
+		case let .status(presentation):
+			.status(presentation)
+		case let .connectionForm(purpose):
+			.connectionForm(address: purpose.address, cancellable: purpose.cancellable)
 		case .libraryWorkspace:
 			.libraryWorkspace
-		case let .stopped(message):
-			.stopped(message)
 		}
 	}
 
-	private func displayScreen(_ screen: Screen) {
-		switch screen {
-		case .starting:
-			showStatus("Starting Schublade…", detail: nil, identifier: InterfaceIdentifier.statusMessage)
-		case let .failedToStart(wording):
-			showStatus(wording.explanation, detail: wording.remedy, identifier: InterfaceIdentifier.startFailureMessage)
-		case let .fault(message):
-			showStatus(message, detail: nil, identifier: InterfaceIdentifier.statusMessage)
-		case let .connectionForm(initialAddress, instruction, cancellable):
-			workspaceController = nil
-			window?.toolbar = nil
-			let cancelHandler: (() -> Void)? = cancellable ? { [weak self] in
-				self?.cancelTokenReplacement()
-			} : nil
-			containerController.display(ConnectionFormViewController(
+	private func display(_ content: WindowContent) {
+		switch content {
+		case let .status(presentation):
+			showWithoutChrome(StatusMessageViewController(presentation: presentation))
+		case let .connectionForm(purpose):
+			showWithoutChrome(ConnectionFormViewController(
 				commands: applicationCommands,
-				initialAddress: initialAddress,
-				instruction: instruction,
-				onCancel: cancelHandler
+				purpose: purpose,
+				onConnected: { [weak self] in self?.endTokenReplacement() },
+				onCancel: { [weak self] in self?.endTokenReplacement() }
 			))
 		case .libraryWorkspace:
+			window?.titleVisibility = .visible
+			window?.titlebarAppearsTransparent = false
 			let workspace = buildWorkspaceController()
 			workspaceController = workspace
 			workspace.listController.onShownDocumentsChanged = { [weak self] shown in
@@ -216,8 +201,6 @@ final class MainWindowController: NSWindowController, NSWindowDelegate {
 			window?.toolbar = toolbarController?.toolbar
 			workspace.wireKeyViewLoop()
 			window?.makeFirstResponder(workspace.listController.focusTargetView)
-		case let .stopped(message):
-			showStatus(message, detail: nil, identifier: InterfaceIdentifier.statusMessage)
 		}
 	}
 
@@ -257,8 +240,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate {
 
 	func beginTokenReplacement() {
 		guard case let .running(statuses) = latestSituation,
-		      case let .configured(origin, _, _, _, _)? = statuses.library?.archive,
-		      Self.allowsReplacingToken(statuses.library?.archive)
+		      case let .configured(origin, _, _, _, _)? = statuses.library?.archive
 		else {
 			return
 		}
@@ -297,14 +279,14 @@ private extension MainWindowController {
 		)
 	}
 
-	func showStatus(_ message: String, detail: String?, identifier: String) {
+	/// The pages before the library stand on the bare window, as a welcome does: no toolbar, no
+	/// title, and a title bar that lets the page show through.
+	func showWithoutChrome(_ page: NSViewController) {
 		workspaceController = nil
 		window?.toolbar = nil
-		containerController.display(StatusMessageViewController(
-			message: message,
-			detail: detail,
-			identifier: identifier
-		))
+		window?.titleVisibility = .hidden
+		window?.titlebarAppearsTransparent = true
+		containerController.display(page)
 	}
 
 	func updateWorkspacePresentation(from content: WindowContent, situation: ApplicationSituation) {
@@ -338,7 +320,10 @@ private extension MainWindowController {
 		return Self.libraryReadable(library.archive) ? library : nil
 	}
 
-	func cancelTokenReplacement() {
+	func endTokenReplacement() {
+		guard navigation.replacingTokenOrigin != nil else {
+			return
+		}
 		navigation.replacingTokenOrigin = nil
 		render(latestSituation)
 	}
@@ -364,18 +349,5 @@ private extension MainWindowController {
 			return false
 		}
 		return permission != .collectOnly
-	}
-
-	static func allowsReplacingToken(_ archive: ArchiveConnection?) -> Bool {
-		guard case let .configured(_, _, condition, permission, _) = archive else {
-			return false
-		}
-		if permission == .collectOnly {
-			return true
-		}
-		if case .suspended = condition {
-			return true
-		}
-		return false
 	}
 }

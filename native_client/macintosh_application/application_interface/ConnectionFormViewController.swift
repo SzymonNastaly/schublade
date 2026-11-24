@@ -2,33 +2,39 @@ import AppKit
 import ApplicationBindings
 import ApplicationPresentation
 
-/// Pure AppKit connection form shown until a readable archive is configured or while replacing a
-/// refused token.
+/// The welcome, which connects the first archive under the application's icon, and the replace
+/// form, the same form for a new token of the connected archive.
 public final class ConnectionFormViewController: NSViewController, NSTextFieldDelegate {
+	private static let formWidth: CGFloat = 420
+	private static let iconSize: CGFloat = 96
+
 	private let commands: any ApplicationCommands
-	private let initialAddress: String?
-	private let instructionText: String
-	private let onCancel: (() -> Void)?
+	private let purpose: ConnectionFormPurpose
+	private let onConnected: () -> Void
+	private let onCancel: () -> Void
 
 	private let addressField = NSTextField()
 	private let tokenField = NSSecureTextField()
 	private let submitButton = NSButton()
 	private let cancelButton = NSButton()
 	private let progressIndicator = NSProgressIndicator()
+	private let noteLabel = NSTextField(wrappingLabelWithString: ConnectionFormPurpose.tokenNote)
+	private let refusalSymbol = NSImageView()
 	private let refusalLabel = NSTextField(wrappingLabelWithString: "")
+	private lazy var refusalRow = NSStackView(views: [refusalSymbol, refusalLabel])
 	private var isConnecting = false
 	private var hasConnected = false
+	private var columnTop: NSLayoutConstraint?
 
 	public init(
 		commands: any ApplicationCommands,
-		initialAddress: String? = nil,
-		instruction: String? = nil,
-		onCancel: (() -> Void)? = nil
+		purpose: ConnectionFormPurpose,
+		onConnected: @escaping () -> Void = {},
+		onCancel: @escaping () -> Void = {}
 	) {
 		self.commands = commands
-		self.initialAddress = initialAddress
-		instructionText = instruction
-			?? "Enter the address of your Schublade archive and an API token from Settings."
+		self.purpose = purpose
+		self.onConnected = onConnected
 		self.onCancel = onCancel
 		super.init(nibName: nil, bundle: nil)
 	}
@@ -48,11 +54,32 @@ public final class ConnectionFormViewController: NSViewController, NSTextFieldDe
 		configureLayout()
 	}
 
-	public func controlTextDidChange(_: Notification) {
-		if !refusalLabel.isHidden {
-			refusalLabel.stringValue = ""
-			refusalLabel.isHidden = true
+	/// The column hangs from a top placed once, from its height with the note, so a refusal longer
+	/// than the note grows it downward and nothing above it moves.
+	override public func viewDidLayout() {
+		super.viewDidLayout()
+		guard let columnTop, columnTop.constant == 0, let column = columnTop.firstItem as? NSView else {
+			return
 		}
+		columnTop.constant = -(column.frame.height / 2).rounded() - 16
+	}
+
+	override public func viewDidAppear() {
+		super.viewDidAppear()
+		// The replace form knows the address, so the token is what a person types first.
+		view.window?.makeFirstResponder(purpose.address == nil ? addressField : tokenField)
+	}
+
+	/// Shows a refusal without connecting, for the offscreen renderer.
+	public func exhibitRefusal(address: String, refusal: ConnectionRefusal) {
+		loadViewIfNeeded()
+		addressField.stringValue = address
+		tokenField.stringValue = "exhibited-token"
+		showRefusal(ApplicationFailureWording.connectionRefusalSentence(refusal))
+	}
+
+	public func controlTextDidChange(_: Notification) {
+		showRefusal(nil)
 	}
 
 	public func control(
@@ -67,104 +94,51 @@ public final class ConnectionFormViewController: NSViewController, NSTextFieldDe
 		return false
 	}
 
-	private func configureControls() {
-		addressField.placeholderString = "https://archive.example.org"
-		if let initialAddress {
-			addressField.stringValue = initialAddress
-		}
-		addressField.delegate = self
-		addressField.setAccessibilityIdentifier(InterfaceIdentifier.connectionAddressField)
-
-		tokenField.placeholderString = "API token"
-		tokenField.delegate = self
-		tokenField.setAccessibilityIdentifier(InterfaceIdentifier.connectionTokenField)
-
-		submitButton.title = "Connect"
-		submitButton.bezelStyle = .rounded
-		submitButton.keyEquivalent = "\r"
-		submitButton.target = self
-		submitButton.action = #selector(submitConnection)
-		submitButton.setAccessibilityIdentifier(InterfaceIdentifier.connectionSubmitButton)
-
-		cancelButton.title = "Cancel"
-		cancelButton.bezelStyle = .rounded
-		cancelButton.keyEquivalent = "\u{1b}"
-		cancelButton.target = self
-		cancelButton.action = #selector(cancelConnection)
-		cancelButton.isHidden = onCancel == nil
-		cancelButton.setAccessibilityIdentifier(InterfaceIdentifier.connectionCancelButton)
-
-		progressIndicator.style = .spinning
-		progressIndicator.controlSize = .small
-		progressIndicator.isDisplayedWhenStopped = false
-
-		refusalLabel.textColor = .systemRed
-		refusalLabel.isHidden = true
-		refusalLabel.isSelectable = true
-		refusalLabel.setAccessibilityIdentifier(InterfaceIdentifier.connectionRefusalLabel)
-
-		addressField.nextKeyView = tokenField
-		tokenField.nextKeyView = submitButton
-	}
-
 	private func configureLayout() {
-		let titleLabel = NSTextField(labelWithString: "Connect to Schublade")
-		titleLabel.font = NSFont.boldSystemFont(ofSize: NSFont.systemFontSize(for: .regular) + 6)
+		let column = NSStackView()
+		column.orientation = .vertical
+		column.alignment = .centerX
+		column.spacing = 0
 
-		let instructionLabel = NSTextField(wrappingLabelWithString: instructionText)
-		instructionLabel.textColor = .secondaryLabelColor
-
-		let addressCaption = NSTextField(labelWithString: "Archive Address")
-		addressCaption.font = NSFont.systemFont(ofSize: NSFont.smallSystemFontSize, weight: .medium)
-
-		let tokenCaption = NSTextField(labelWithString: "API Token")
-		tokenCaption.font = NSFont.systemFont(ofSize: NSFont.smallSystemFontSize, weight: .medium)
-
-		var actionViews: [NSView] = [submitButton]
-		if onCancel != nil {
-			actionViews.append(cancelButton)
+		if purpose == .welcome {
+			let iconView = NSImageView(image: NSApp.applicationIconImage)
+			iconView.imageScaling = .scaleProportionallyUpOrDown
+			iconView.setAccessibilityElement(false)
+			NSLayoutConstraint.activate([
+				iconView.widthAnchor.constraint(equalToConstant: Self.iconSize),
+				iconView.heightAnchor.constraint(equalToConstant: Self.iconSize),
+			])
+			column.addArrangedSubview(iconView)
+			column.setCustomSpacing(16, after: iconView)
 		}
-		actionViews.append(progressIndicator)
-		let actionRow = NSStackView(views: actionViews)
-		actionRow.orientation = .horizontal
-		actionRow.alignment = .centerY
-		actionRow.spacing = 10
 
-		let formStack = NSStackView(views: [
-			titleLabel,
-			instructionLabel,
-			addressCaption,
-			addressField,
-			tokenCaption,
-			tokenField,
-			actionRow,
-			refusalLabel,
-		])
-		formStack.orientation = .vertical
-		formStack.alignment = .leading
-		formStack.spacing = 8
-		formStack.setCustomSpacing(4, after: titleLabel)
-		formStack.setCustomSpacing(16, after: instructionLabel)
-		formStack.setCustomSpacing(4, after: addressCaption)
-		formStack.setCustomSpacing(12, after: addressField)
-		formStack.setCustomSpacing(4, after: tokenCaption)
-		formStack.setCustomSpacing(14, after: tokenField)
-		formStack.setCustomSpacing(10, after: actionRow)
-		formStack.translatesAutoresizingMaskIntoConstraints = false
-		view.addSubview(formStack)
-		activateFormConstraints(formStack: formStack, instructionLabel: instructionLabel)
-	}
+		let titleLabel = NSTextField(labelWithString: purpose.title)
+		titleLabel.font = NSFont.boldSystemFont(ofSize: NSFont.preferredFont(forTextStyle: .title1).pointSize)
+		column.addArrangedSubview(titleLabel)
+		column.setCustomSpacing(24, after: titleLabel)
 
-	private func activateFormConstraints(formStack: NSStackView, instructionLabel: NSTextField) {
+		if let sentence = purpose.sentence {
+			let sentenceLabel = NSTextField(wrappingLabelWithString: sentence)
+			sentenceLabel.font = NSFont.preferredFont(forTextStyle: .body)
+			sentenceLabel.textColor = .secondaryLabelColor
+			sentenceLabel.alignment = .center
+			column.setCustomSpacing(8, after: titleLabel)
+			column.addArrangedSubview(sentenceLabel)
+			column.setCustomSpacing(24, after: sentenceLabel)
+			sentenceLabel.widthAnchor.constraint(equalToConstant: Self.formWidth + 20).isActive = true
+		}
+
+		let grid = makeFormGrid()
+		column.addArrangedSubview(grid)
+		column.translatesAutoresizingMaskIntoConstraints = false
+		view.addSubview(column)
+
+		let top = column.topAnchor.constraint(equalTo: view.centerYAnchor)
+		columnTop = top
 		NSLayoutConstraint.activate([
-			formStack.centerXAnchor.constraint(equalTo: view.centerXAnchor),
-			// A fixed width and top, so a refusal that appears below grows the form downward only.
-			formStack.topAnchor.constraint(equalTo: view.centerYAnchor, constant: -150),
-			formStack.widthAnchor.constraint(equalToConstant: 400),
-			addressField.widthAnchor.constraint(equalTo: formStack.widthAnchor),
-			tokenField.widthAnchor.constraint(equalTo: formStack.widthAnchor),
-			instructionLabel.widthAnchor.constraint(equalTo: formStack.widthAnchor),
-			refusalLabel.widthAnchor.constraint(equalTo: formStack.widthAnchor),
+			column.centerXAnchor.constraint(equalTo: view.centerXAnchor),
+			top,
+			grid.widthAnchor.constraint(equalToConstant: Self.formWidth),
 		])
 	}
 
@@ -172,7 +146,7 @@ public final class ConnectionFormViewController: NSViewController, NSTextFieldDe
 		guard !isConnecting, !hasConnected else {
 			return
 		}
-		onCancel?()
+		onCancel()
 	}
 
 	@objc private func submitConnection() {
@@ -188,7 +162,7 @@ public final class ConnectionFormViewController: NSViewController, NSTextFieldDe
 			return
 		}
 		if token.isEmpty {
-			showRefusal("Paste an API token from your archive's Settings.")
+			showRefusal("Paste a token from your archive's Settings.")
 			return
 		}
 
@@ -207,6 +181,7 @@ public final class ConnectionFormViewController: NSViewController, NSTextFieldDe
 			tokenField.stringValue = ""
 			isConnecting = false
 			updateControlsForConnectionState()
+			onConnected()
 		} catch {
 			isConnecting = false
 			updateControlsForConnectionState()
@@ -221,16 +196,129 @@ public final class ConnectionFormViewController: NSViewController, NSTextFieldDe
 		submitButton.isEnabled = controlsEnabled
 		cancelButton.isEnabled = controlsEnabled
 		if isConnecting {
-			refusalLabel.stringValue = ""
-			refusalLabel.isHidden = true
+			showRefusal(nil)
 			progressIndicator.startAnimation(nil)
 		} else {
 			progressIndicator.stopAnimation(nil)
 		}
 	}
 
-	private func showRefusal(_ message: String) {
-		refusalLabel.stringValue = message
-		refusalLabel.isHidden = false
+	/// A refusal takes the place of the note under the token field, and VoiceOver reads it out.
+	private func showRefusal(_ sentence: String?) {
+		let refused = sentence != nil
+		guard refused || !refusalLabel.isHidden else {
+			return
+		}
+		refusalLabel.stringValue = sentence ?? ""
+		refusalLabel.isHidden = !refused
+		refusalRow.isHidden = !refused
+		noteLabel.isHidden = refused
+		if let sentence {
+			NSAccessibility.post(
+				element: refusalLabel,
+				notification: .announcementRequested,
+				userInfo: [
+					.announcement: sentence,
+					.priority: NSAccessibilityPriorityLevel.high.rawValue,
+				]
+			)
+		}
+	}
+}
+
+private extension ConnectionFormViewController {
+	func configureControls() {
+		addressField.placeholderString = "https://archive.example.org"
+		addressField.stringValue = purpose.address ?? ""
+		addressField.delegate = self
+		addressField.setAccessibilityIdentifier(InterfaceIdentifier.connectionAddressField)
+
+		tokenField.placeholderString = "Required"
+		tokenField.delegate = self
+		tokenField.setAccessibilityIdentifier(InterfaceIdentifier.connectionTokenField)
+
+		submitButton.title = "Connect"
+		submitButton.bezelStyle = .push
+		submitButton.controlSize = .large
+		submitButton.keyEquivalent = "\r"
+		submitButton.target = self
+		submitButton.action = #selector(submitConnection)
+		submitButton.setAccessibilityIdentifier(InterfaceIdentifier.connectionSubmitButton)
+
+		cancelButton.title = "Cancel"
+		cancelButton.bezelStyle = .push
+		cancelButton.controlSize = .large
+		cancelButton.keyEquivalent = "\u{1b}"
+		cancelButton.target = self
+		cancelButton.action = #selector(cancelConnection)
+		cancelButton.setAccessibilityIdentifier(InterfaceIdentifier.connectionCancelButton)
+
+		progressIndicator.style = .spinning
+		progressIndicator.controlSize = .small
+		progressIndicator.isDisplayedWhenStopped = false
+
+		let noteFont = NSFont.preferredFont(forTextStyle: .subheadline)
+		noteLabel.font = noteFont
+		noteLabel.textColor = .secondaryLabelColor
+
+		// The system's red measures 3.55:1 as text on white, so the symbol carries it and the
+		// sentence stays in the label colour.
+		refusalSymbol.image = NSImage(systemSymbolName: "exclamationmark.circle.fill", accessibilityDescription: nil)
+		refusalSymbol.symbolConfiguration = NSImage.SymbolConfiguration(textStyle: .subheadline)
+		refusalSymbol.contentTintColor = .systemRed
+		refusalSymbol.setContentHuggingPriority(.required, for: .horizontal)
+		refusalLabel.font = noteFont
+		refusalLabel.textColor = .labelColor
+		refusalLabel.isSelectable = true
+		refusalLabel.setAccessibilityIdentifier(InterfaceIdentifier.connectionRefusalLabel)
+		showRefusal(nil)
+
+		addressField.nextKeyView = tokenField
+		tokenField.nextKeyView = purpose.cancellable ? cancelButton : submitButton
+		cancelButton.nextKeyView = submitButton
+	}
+
+	/// The Mac's form: labels at the trailing edge of the first column, the fields in the second,
+	/// and the note, then the buttons, under the fields.
+	func makeFormGrid() -> NSGridView {
+		let addressLabel = NSTextField(labelWithString: "Address:")
+		let tokenLabel = NSTextField(labelWithString: "Token:")
+		refusalRow.orientation = .horizontal
+		refusalRow.alignment = .top
+		refusalRow.spacing = 5
+		let notes = NSStackView(views: [noteLabel, refusalRow])
+		notes.orientation = .vertical
+		notes.alignment = .leading
+		notes.spacing = 0
+		notes.detachesHiddenViews = true
+
+		var buttons: [NSView] = [progressIndicator]
+		if purpose.cancellable {
+			buttons.append(cancelButton)
+		}
+		buttons.append(submitButton)
+		let buttonRow = NSStackView(views: buttons)
+		buttonRow.orientation = .horizontal
+		buttonRow.spacing = 12
+		if purpose.cancellable {
+			buttonRow.setCustomSpacing(8, after: cancelButton)
+		}
+
+		let grid = NSGridView(views: [
+			[addressLabel, addressField],
+			[tokenLabel, tokenField],
+			[NSGridCell.emptyContentView, notes],
+			[NSGridCell.emptyContentView, buttonRow],
+		])
+		grid.rowSpacing = 10
+		grid.columnSpacing = 8
+		grid.rowAlignment = .firstBaseline
+		grid.column(at: 0).xPlacement = .trailing
+		grid.column(at: 1).xPlacement = .fill
+		grid.row(at: 2).topPadding = -4
+		grid.row(at: 3).topPadding = 10
+		grid.cell(for: buttonRow)?.xPlacement = .trailing
+		grid.cell(for: notes)?.rowAlignment = .none
+		return grid
 	}
 }

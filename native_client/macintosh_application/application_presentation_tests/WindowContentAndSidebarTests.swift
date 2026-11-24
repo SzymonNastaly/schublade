@@ -246,12 +246,11 @@ struct WindowContentAndSidebarTests {
 			facets: nil,
 			context: Self.fixedContext()
 		)
-		guard case let .connectionForm(address, _, cancellable) = replacing else {
-			Issue.record("Expected cancellable connection form while replacing token")
-			return
-		}
-		#expect(address == "https://archive.example.org")
-		#expect(cancellable)
+		#expect(replacing == .connectionForm(.replaceToken(
+			origin: "https://archive.example.org",
+			reason: "The archive refused the current token. It may have been revoked.",
+			cancellable: true
+		)))
 
 		var arriving = LibraryNavigationState()
 		arriving.destination = .library(.inIngestion, title: nil)
