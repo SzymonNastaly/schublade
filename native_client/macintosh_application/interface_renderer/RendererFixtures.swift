@@ -102,17 +102,34 @@ final class RendererFixtures {
 		)
 	}
 
+	/// The invoice's text as the archive writes it: a page mark before each page, a heading, a table,
+	/// and paragraphs.
 	private static let sampleInvoiceText = """
+	## Page 1
+
 	# Stadtwerke Talbrück GmbH — Jahresabrechnung Strom 2026
 
 	Rechnungsnummer: RE-2026-44109
 	Vertragskonto: 88120419
-	Zahlungsbetrag: 1,234.50 EUR (fällig am 06.10.2026)
+	Zahlungsbetrag: **1.234,50 EUR**, fällig am 06.10.2026
 	IBAN: DE89 3704 0044 0532 0130 00
+
+	| Zeitraum                | Verbrauch | Arbeitspreis    | Betrag       |
+	|-------------------------|----------:|----------------:|-------------:|
+	| 01.09.2025 – 28.02.2026 | 1.904 kWh | 0,3184 EUR/kWh  |   606,23 EUR |
+	| 01.03.2026 – 31.08.2026 | 1.508 kWh | 0,3241 EUR/kWh  |   488,74 EUR |
+	| Grundpreis, 12 Monate   |           | 11,63 EUR/Monat |   139,53 EUR |
+	| Summe                   | 3.412 kWh |                 | 1.234,50 EUR |
+
+	## Page 2
 
 	Sehr geehrter Herr Becker,
 
 	vielen Dank für Ihre Treue. Die Haftpflichtversicherung und Abschlagszahlung wurden verrechnet.
+	Ihr neuer monatlicher Abschlag beträgt ab Oktober 105,00 EUR.
+
+	Mit freundlichen Grüßen
+	Ihre Stadtwerke Talbrück
 	"""
 
 	func makeStatuses(

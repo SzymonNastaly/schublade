@@ -17,7 +17,7 @@ final class ReaderSearchMarks {
 	}
 
 	private let pdfView: PDFView
-	private let textView: NSTextView
+	private let textView: ExtractedTextView
 	private let showsFindIndicator: Bool
 	private var pageMatches: [PDFSelection] = []
 	private var pagePlacement: Placement?
@@ -25,7 +25,7 @@ final class ReaderSearchMarks {
 	private var textPlacement: Placement?
 	private var position = 0
 
-	init(pdfView: PDFView, textView: NSTextView, showsFindIndicator: Bool) {
+	init(pdfView: PDFView, textView: ExtractedTextView, showsFindIndicator: Bool) {
 		self.pdfView = pdfView
 		self.textView = textView
 		self.showsFindIndicator = showsFindIndicator
@@ -37,6 +37,7 @@ final class ReaderSearchMarks {
 		textMatches = []
 		textPlacement = nil
 		textView.string = ""
+		textView.widestTableRow = 0
 	}
 
 	func count(on surface: Surface) -> Int {
@@ -72,14 +73,17 @@ final class ReaderSearchMarks {
 		}
 	}
 
-	/// Shows the text with the search's words on the find colour and scrolls to the first.
-	func mark(_ text: String, as placement: Placement) {
+	/// Shows the text as a page to read with the search's words on the find colour, and scrolls to
+	/// the first.
+	func mark(_ markdown: String, as placement: Placement) {
 		guard textPlacement != placement else {
 			return
 		}
 		textPlacement = placement
-		textMatches = SearchWordHighlighting.ranges(in: text, terms: placement.terms)
-		textView.textStorage?.setAttributedString(Self.markedText(text, matches: textMatches))
+		let composition = ExtractedTextComposition(markdown: markdown)
+		textMatches = SearchWordHighlighting.ranges(in: composition.text.string, terms: placement.terms)
+		textView.widestTableRow = composition.widestTableRow
+		textView.textStorage?.setAttributedString(Self.markedText(composition.text, matches: textMatches))
 		position = 0
 		if textMatches.isEmpty {
 			textView.scrollToBeginningOfDocument(nil)
@@ -130,13 +134,10 @@ final class ReaderSearchMarks {
 		}
 	}
 
-	/// The text in the body style with each match on the find colour, which is yellow in both
-	/// appearances, so a match's letters stay dark on it.
-	private static func markedText(_ text: String, matches: [NSRange]) -> NSAttributedString {
-		let marked = NSMutableAttributedString(string: text, attributes: [
-			.font: NSFont.preferredFont(forTextStyle: .body),
-			.foregroundColor: NSColor.labelColor,
-		])
+	/// The text with each match on the find colour, which is yellow in both appearances, so a
+	/// match's letters stay dark on it.
+	private static func markedText(_ text: NSAttributedString, matches: [NSRange]) -> NSAttributedString {
+		let marked = NSMutableAttributedString(attributedString: text)
 		for range in matches {
 			marked.addAttributes(
 				[.backgroundColor: NSColor.findHighlightColor, .foregroundColor: NSColor.black],

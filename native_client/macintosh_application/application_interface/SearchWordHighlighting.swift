@@ -1,4 +1,5 @@
 import AppKit
+import LibraryPresentation
 import PDFKit
 
 /// Finds the words of a search in a PDF's text layer and in an extracted text, so the reader can
@@ -31,20 +32,11 @@ enum SearchWordHighlighting {
 		}
 	}
 
-	/// The ranges of every term in a text, in the order of the text.
+	/// The ranges of every term in a text, in the order of the text, as a row's excerpt marks them.
 	static func ranges(in text: String, terms: [String]) -> [NSRange] {
-		var matches: [NSRange] = []
-		for term in searchableTerms(terms) {
-			var searched = text.startIndex ..< text.endIndex
-			while matches.count < largestMatchCount {
-				guard let found = text.range(of: term, options: options, range: searched) else {
-					break
-				}
-				matches.append(NSRange(found, in: text))
-				searched = found.upperBound ..< text.endIndex
-			}
-		}
-		return matches.sorted { $0.location < $1.location }
+		SearchTextMarking.matchedRanges(in: text, searchText: searchableTerms(terms).joined(separator: " "))
+			.prefix(largestMatchCount)
+			.map { NSRange($0, in: text) }
 	}
 
 	private static func searchableTerms(_ terms: [String]) -> [String] {

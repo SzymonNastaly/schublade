@@ -26,7 +26,7 @@ final class DocumentReaderViewController: NSViewController {
 	let renderedPdfView = RenderedPortableDocumentView()
 	let imageReaderView = ImageReaderView()
 	let textScrollView = NSScrollView()
-	let textView = NSTextView()
+	let textView = ExtractedTextView()
 	private(set) lazy var placeholderView = EmptyStateView { [weak self] action in
 		switch action {
 		case .replaceToken: self?.onReplaceToken()

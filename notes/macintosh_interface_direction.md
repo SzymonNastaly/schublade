@@ -660,6 +660,8 @@ It touches iPhone files, so it waits until the session that edits them has lande
 2. `native_client/iphone_application/application_interface/LibrarySearch.swift`: `matchedRanges(in:searchText:)` and its folding move to `native_client/library_presentation/SearchTextMarking.swift`.
 3. Their tests move from `DocumentTextTests` and `LibrarySearchTests` to `native_client/library_presentation_tests/`, so the Mac's check runs them too.
 
+As built, the files are `TextParagraph.swift` and `SearchTextMarking.swift`, because SwiftLint's `file_name` rule requires a file to be named after a type it declares.
+
 Check: both applications' `check_application.sh`. The iPhone's behaviour does not change.
 
 ### Unit M1: the window's frame

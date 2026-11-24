@@ -2,8 +2,8 @@ import AppKit
 import ApplicationBindings
 import ApplicationPresentation
 
-/// The scenes of one selected document: its original, a picture, a search's text, and the
-/// inspector at its edges.
+/// The scenes of one selected document: its original, a picture, its text with and without a
+/// search, and the inspector at its edges.
 extension ScreenRenderer {
 	func renderLibraryDocumentScreens() async throws {
 		try await renderWorkspaceScene(
@@ -42,7 +42,11 @@ extension ScreenRenderer {
 			),
 			queries: fixtures.queries.scene(listing: fixtures.sampleListing)
 		)
+	}
 
+	/// The extracted text with a search's match marked, and without a search beside no inspector, so
+	/// the column's limit shows.
+	func renderExtractedTextScreens() async throws {
 		try await renderWorkspaceScene(
 			name: "library_search_text",
 			statuses: fixtures.makeStatuses(),
@@ -54,6 +58,18 @@ extension ScreenRenderer {
 				inspectorVisible: true
 			),
 			queries: fixtures.queries.scene(listing: fixtures.searchListing)
+		)
+
+		try await renderWorkspaceScene(
+			name: "library_document_text",
+			statuses: fixtures.makeStatuses(),
+			navigation: LibraryNavigationState(
+				destination: .library(.allDocuments, title: nil),
+				selectedDocument: fixtures.invoiceIdentifier,
+				readerTab: .text,
+				inspectorVisible: false
+			),
+			queries: fixtures.queries.scene(listing: fixtures.sampleListing)
 		)
 	}
 

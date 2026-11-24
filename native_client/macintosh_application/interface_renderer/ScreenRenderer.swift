@@ -31,6 +31,7 @@ final class ScreenRenderer {
 		try await renderConnectionAndEmptyScreens()
 		try await renderListStateScreens()
 		try await renderLibraryDocumentScreens()
+		try await renderExtractedTextScreens()
 		try await renderReaderAndInspectorScreens()
 		try await renderLibraryStatusScreens()
 		for scene in CollectorScenes.all(fixtures: fixtures) {

@@ -12,9 +12,8 @@ extension DocumentReaderViewController {
 
 		textView.isEditable = false
 		textView.isRichText = false
-		textView.font = NSFont.preferredFont(forTextStyle: .body)
-		textView.textContainerInset = NSSize(width: 24, height: 20)
 		textView.autoresizingMask = [.width]
+		textView.configureColumn()
 		textView.setAccessibilityIdentifier(InterfaceIdentifier.readerTextView)
 
 		textScrollView.documentView = textView
