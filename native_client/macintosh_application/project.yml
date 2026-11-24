@@ -12,6 +12,9 @@ settings:
   base:
     # Every name a person sees derives from this name and the two bundle identifiers below.
     APPLICATION_DISPLAY_NAME: Schublade
+    # The version the About panel shows, in the scheme of the iPhone application.
+    MARKETING_VERSION: "1.0"
+    CURRENT_PROJECT_VERSION: "1"
     ARCHS: arm64
     SWIFT_VERSION: "6.0"
     SWIFT_STRICT_CONCURRENCY: complete
@@ -92,7 +95,9 @@ targets:
     type: application
     platform: macOS
     sources:
-      # The drawings are the sources of the icon and the menu bar glyph, not resources of the bundle.
+      # The drawings are sources, not resources of the bundle. AppIcon.icon, the Icon Composer
+      # document of the icon's three layers, is one resource that the asset catalogue compiler turns
+      # into the icon of macOS 26 and the flattened icon of macOS 14 and 15.
       - path: application
         excludes: ["*.svg"]
     dependencies:
@@ -104,6 +109,8 @@ targets:
       path: application/Info.plist
       properties:
         CFBundleDisplayName: $(PRODUCT_NAME)
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         LSUIElement: true
         LSMultipleInstancesProhibited: true
         NSPrincipalClass: NSApplication
@@ -120,6 +127,7 @@ targets:
         PRODUCT_MODULE_NAME: Schublade
         # The website's blue tints native controls while the system accent is Multicolor.
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         SWIFT_DEFAULT_ACTOR_ISOLATION: MainActor
         LIBRARY_SEARCH_PATHS: $(SRCROOT)/../target/aarch64-apple-darwin/$(CARGO_PROFILE_DIRECTORY)
         # Security for the Keychain store, CoreServices for FSEvents. A linker warning fails the

@@ -1,0 +1,81 @@
+{
+  "fill": {
+    "linear-gradient": [
+      "srgb:0.17255,0.40784,0.76863,1.00000",
+      "srgb:0.07059,0.24706,0.54902,1.00000"
+    ]
+  },
+  "fill-specializations": [
+    {
+      "appearance": "dark",
+      "value": {
+        "linear-gradient": [
+          "srgb:0.04314,0.14118,0.27843,1.00000",
+          "srgb:0.00000,0.00000,0.00000,1.00000"
+        ]
+      }
+    }
+  ],
+  "groups": [
+    {
+      "name": "Drawer Front",
+      "layers": [
+        {
+          "name": "Drawer Front",
+          "image-name": "drawer_front.svg",
+          "glass": false
+        }
+      ],
+      "shadow": {
+        "kind": "neutral",
+        "opacity": 0.5
+      },
+      "translucency": {
+        "enabled": false,
+        "value": 0
+      },
+      "specular": true
+    },
+    {
+      "name": "Sheets",
+      "layers": [
+        {
+          "name": "Sheets",
+          "image-name": "sheets.svg",
+          "glass": false
+        }
+      ],
+      "shadow": {
+        "kind": "neutral",
+        "opacity": 0.5
+      },
+      "translucency": {
+        "enabled": false,
+        "value": 0
+      },
+      "specular": true
+    },
+    {
+      "name": "Drawer Back",
+      "layers": [
+        {
+          "name": "Drawer Back",
+          "image-name": "drawer_back.svg",
+          "glass": false
+        }
+      ],
+      "shadow": {
+        "kind": "neutral",
+        "opacity": 0.5
+      },
+      "translucency": {
+        "enabled": false,
+        "value": 0
+      },
+      "specular": true
+    }
+  ],
+  "supported-platforms": {
+    "squares": "shared"
+  }
+}
