@@ -11,3 +11,7 @@ schublade.deploy.json
 .tanstack/
 .claude/worktrees/
 native_client/target/
+
+# Local credentials; the Mac runner copies everything that .gitignore does not name.
+.env
+.env.*
