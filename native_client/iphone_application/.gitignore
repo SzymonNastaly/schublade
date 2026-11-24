@@ -3,5 +3,6 @@ build/
 generated_bindings/
 application/Info.plist
 configuration/local_signing.xcconfig
+configuration/app_store_export_options.plist
 share_extension/Info.plist
 control_extension/Info.plist

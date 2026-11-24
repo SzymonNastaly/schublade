@@ -1,10 +1,12 @@
-# Provisions the iPhone application for the devices registered to the team, through the App Store
-# Connect API, and writes configuration/local_signing.xcconfig to sign with what it provisioned.
-#   ruby native_client/iphone_application/scripts/provision_device_signing.rb
+# Provisions the iPhone application through the App Store Connect API: a development profile of each
+# target for the devices registered to the team, and an App Store profile of each target. It writes
+# configuration/local_signing.xcconfig, with which a Release build signs for those devices, and
+# configuration/app_store_export_options.plist, with which an archive is exported for App Store Connect.
+#   ruby native_client/iphone_application/scripts/provision_application_signing.rb
 #
-# Runs in the Mac's build account, which holds the Apple Development identity and the team key in
-# ASC_KEY_ID, ASC_ISSUER_ID, and ASC_PRIVATE_KEY_PATH. Xcode's automatic signing refuses a key below
-# the Admin role, and the API cannot create an App Group, so the owner creates
+# Runs in the Mac's build account, which holds the Apple Development and Apple Distribution identities
+# and the team key in ASC_KEY_ID, ASC_ISSUER_ID, and ASC_PRIVATE_KEY_PATH. Xcode's automatic signing
+# refuses a key below the Admin role, and the API cannot create an App Group, so the owner creates
 # group.org.schublade.iphone and assigns it to the application and the share extension in the
 # developer portal once. Running it again replaces the profiles, so a newly registered device or an
 # expired profile needs nothing else. It provisions the Release identifiers only: a Debug build runs
@@ -24,6 +26,15 @@ TARGETS = [
   { bundle: "org.schublade.iphone.controls", name: "Schublade controls", group: false,
     setting: "CONTROL_EXTENSION_PROVISIONING_PROFILE" },
 ].freeze
+# A development profile names the team's iPhones; an App Store profile names no device.
+DEVELOPMENT_SIGNING = {
+  profile_suffix: "development", profile_type: "IOS_APP_DEVELOPMENT",
+  certificate_type: "DEVELOPMENT", identity: "Apple Development",
+}.freeze
+APP_STORE_SIGNING = {
+  profile_suffix: "App Store", profile_type: "IOS_APP_STORE",
+  certificate_type: "DISTRIBUTION", identity: "Apple Distribution",
+}.freeze
 PROFILE_DIRECTORIES = [
   File.expand_path("~/Library/Developer/Xcode/UserData/Provisioning Profiles"),
   File.expand_path("~/Library/MobileDevice/Provisioning Profiles"),
@@ -82,14 +93,14 @@ def bundle_identifier(target)
   created
 end
 
-# The development certificate whose private key this account's keychain holds.
-def development_certificate
-  pem = `security find-certificate -c "Apple Development:" -p`
-  abort "The keychain holds no Apple Development certificate." if pem.empty?
+# The certificate of `signing` whose private key this account's keychain holds.
+def team_certificate(signing)
+  pem = `security find-certificate -c "#{signing[:identity]}:" -p`
+  abort "The keychain holds no #{signing[:identity]} certificate." if pem.empty?
   serial = OpenSSL::X509::Certificate.new(pem).serial.to_s(16).upcase
-  found = request(:get, query("/v1/certificates", "filter[certificateType]" => "DEVELOPMENT", "limit" => "200"))["data"]
+  found = request(:get, query("/v1/certificates", "filter[certificateType]" => signing[:certificate_type], "limit" => "200"))["data"]
     .find { |record| record["attributes"]["serialNumber"].upcase.sub(/\A0+/, "") == serial.sub(/\A0+/, "") }
-  abort "The keychain's Apple Development certificate #{serial} is not the team's." unless found
+  abort "The keychain's #{signing[:identity]} certificate #{serial} is not the team's." unless found
   found["id"]
 end
 
@@ -122,23 +133,21 @@ def remove_installed_profiles(name)
   end
 end
 
-certificate = development_certificate
-devices = iphone_devices
-puts "Devices: #{devices.map { |record| record["attributes"]["name"] }.join(", ")}"
-settings = TARGETS.map do |target|
-  name = "#{target[:name]} development"
-  bundle = bundle_identifier(target)
+# Replaces the profile of `target` for `signing`, installs it, and returns its name.
+def provision_profile(target, bundle, signing, certificate, devices)
+  name = "#{target[:name]} #{signing[:profile_suffix]}"
   request(:get, query("/v1/profiles", "filter[name]" => name))["data"].each do |record|
     request(:delete, "/v1/profiles/#{record["id"]}")
   end
+  relationships = {
+    bundleId: { data: { type: "bundleIds", id: bundle } },
+    certificates: { data: [{ type: "certificates", id: certificate }] },
+  }
+  relationships[:devices] = { data: devices.map { |record| { type: "devices", id: record["id"] } } } unless devices.empty?
   created = request(:post, "/v1/profiles", data: {
     type: "profiles",
-    attributes: { name: name, profileType: "IOS_APP_DEVELOPMENT" },
-    relationships: {
-      bundleId: { data: { type: "bundleIds", id: bundle } },
-      certificates: { data: [{ type: "certificates", id: certificate }] },
-      devices: { data: devices.map { |record| { type: "devices", id: record["id"] } } },
-    },
+    attributes: { name: name, profileType: signing[:profile_type] },
+    relationships: relationships,
   })["data"]["attributes"]
   content = Base64.decode64(created["profileContent"])
   groups = Array(JSON.parse(profile_value(content, "Entitlements", "json"))["com.apple.security.application-groups"])
@@ -151,14 +160,42 @@ settings = TARGETS.map do |target|
     File.binwrite(File.join(directory, "#{created["uuid"]}.mobileprovision"), content)
   end
   puts "#{name}: #{created["uuid"]}, until #{created["expirationDate"]}"
-  "#{target[:setting]}[sdk=iphoneos*] = #{name}"
+  name
 end
 
-File.write(File.expand_path("../configuration/local_signing.xcconfig", __dir__), <<~XCCONFIG)
-  // Written by scripts/provision_device_signing.rb. A build for a device signs with the team's Apple
-  // Development identity and the profiles it provisioned; the simulator keeps ad hoc signing.
+development_certificate = team_certificate(DEVELOPMENT_SIGNING)
+app_store_certificate = team_certificate(APP_STORE_SIGNING)
+devices = iphone_devices
+puts "Devices: #{devices.map { |record| record["attributes"]["name"] }.join(", ")}"
+development_settings = []
+app_store_profiles = {}
+TARGETS.each do |target|
+  bundle = bundle_identifier(target)
+  development = provision_profile(target, bundle, DEVELOPMENT_SIGNING, development_certificate, devices)
+  development_settings << "#{target[:setting]}[sdk=iphoneos*] = #{development}"
+  app_store_profiles[target[:bundle]] = provision_profile(target, bundle, APP_STORE_SIGNING, app_store_certificate, [])
+end
+
+configuration = File.expand_path("../configuration", __dir__)
+File.write(File.join(configuration, "local_signing.xcconfig"), <<~XCCONFIG)
+  // Written by scripts/provision_application_signing.rb. A build for a device signs with the team's
+  // Apple Development identity and the profiles it provisioned; the simulator keeps ad hoc signing.
   DEVELOPMENT_TEAM = #{TEAM_IDENTIFIER}
-  CODE_SIGN_IDENTITY[sdk=iphoneos*] = Apple Development
-  #{settings.join("\n")}
+  CODE_SIGN_IDENTITY[sdk=iphoneos*] = #{DEVELOPMENT_SIGNING[:identity]}
+  #{development_settings.join("\n")}
 XCCONFIG
 puts "Wrote configuration/local_signing.xcconfig"
+
+# The export signs the archive again with the Apple Distribution identity and the App Store profiles.
+export_options = File.join(configuration, "app_store_export_options.plist")
+File.write(export_options, JSON.generate(
+  method: "app-store-connect",
+  destination: "export",
+  signingStyle: "manual",
+  teamID: TEAM_IDENTIFIER,
+  signingCertificate: APP_STORE_SIGNING[:identity],
+  provisioningProfiles: app_store_profiles,
+  uploadSymbols: true,
+))
+system("plutil", "-convert", "xml1", export_options, exception: true)
+puts "Wrote configuration/app_store_export_options.plist"

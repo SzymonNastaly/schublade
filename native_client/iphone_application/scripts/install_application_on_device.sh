@@ -2,13 +2,13 @@
 # Builds the Release application signed for the team's devices and installs it on the iPhone that is
 # paired with this Mac, or on the device named by its identifier.
 #   native_client/iphone_application/scripts/install_application_on_device.sh [device identifier]
-# Needs configuration/local_signing.xcconfig from scripts/provision_device_signing.rb.
+# Needs configuration/local_signing.xcconfig from scripts/provision_application_signing.rb.
 set -euo pipefail
 export PATH="/opt/homebrew/bin:$HOME/.cargo/bin:$PATH"
 cd "$(dirname "$0")/.."
 
 if ! grep -q "PROVISIONING_PROFILE" configuration/local_signing.xcconfig 2>/dev/null; then
-	echo "error: run scripts/provision_device_signing.rb first; configuration/local_signing.xcconfig names no profile." >&2
+	echo "error: run scripts/provision_application_signing.rb first; configuration/local_signing.xcconfig names no profile." >&2
 	exit 1
 fi
 

@@ -1,5 +1,5 @@
 // The simulator runs with ad hoc signing. A build for a device signs manually with the team's
-// development profiles, which scripts/provision_device_signing.rb creates in the Mac's build account
+// development profiles, which scripts/provision_application_signing.rb creates in the Mac's build account
 // together with local_signing.xcconfig beside this file, which git ignores. Xcode's automatic signing
 // refuses the build account's App Manager key.
 CODE_SIGN_STYLE = Manual
