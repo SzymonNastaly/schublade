@@ -62,6 +62,15 @@ final class DocumentInspectorViewController: NSViewController {
 		populate(from: presentation)
 	}
 
+	/// The rows, tags, and Open in Browser, in the order Tab reaches them.
+	var keyViews: [NSView] {
+		Self.buttons(in: stackView)
+	}
+
+	private static func buttons(in view: NSView) -> [NSView] {
+		view.subviews.flatMap { $0 is NSButton ? [$0] : buttons(in: $0) }
+	}
+
 	/// Shows one row as it stands under the pointer and another as just copied, so the renderer can
 	/// draw both states without a pointer or the pasteboard.
 	func exhibitRows(underPointer hovered: String?, copied: String?) {

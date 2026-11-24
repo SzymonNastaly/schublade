@@ -31,9 +31,7 @@ final class DocumentListViewController: NSViewController {
 	private var textIndexingNotice: String?
 	private var newestRequestNumber: UInt64 = 0
 	private(set) var isApplyingTableUpdates = false
-	/// Set when the selection came from outside the list, such as a launch or the menu bar, so the
-	/// list scrolls to it once its listing holds it.
-	private var revealsSelection = true
+	private var pendingScroll = PendingScroll.selection
 	private(set) var incrementalUpdateCount = 0
 
 	let tableView = DocumentListTableView()
@@ -113,15 +111,15 @@ final class DocumentListViewController: NSViewController {
 		searchAllDocumentsAvailable = workspace.searchAllDocumentsAvailable
 		textIndexingNotice = workspace.textIndexingNotice
 		if requestChanged {
+			pendingScroll = PendingScroll.after(activeRequest, changedTo: nextRequest)
 			activeRequest = nextRequest
-			revealsSelection = true
 			if nextRequest == nil {
 				newestRequestNumber &+= 1
 			} else {
 				refresh()
 			}
 		} else if previousSelection != navigation.selectedDocument {
-			revealsSelection = navigation.selectedDocument != selectedDocumentIdentifier()
+			pendingScroll = navigation.selectedDocument != selectedDocumentIdentifier() ? .selection : .unchanged
 			restoreSelection(to: navigation.selectedDocument, notifyIfMissing: false)
 		}
 		updateEmptyAndFooterViews()
@@ -140,6 +138,17 @@ final class DocumentListViewController: NSViewController {
 
 	func selectedDocumentIdentifier() -> DocumentIdentifier? {
 		tableView.selectedRow >= 0 ? model.documentIdentifier(at: tableView.selectedRow) : nil
+	}
+
+	/// Selects the first document while nothing is selected, as a search's Down or Return does.
+	func selectFirstDocumentIfNoneSelected() {
+		guard tableView.selectedRow < 0,
+		      let first = (0 ..< model.rowCount).first(where: { model.documentIdentifier(at: $0) != nil })
+		else {
+			return
+		}
+		tableView.selectRowIndexes(IndexSet(integer: first), byExtendingSelection: false)
+		tableView.scrollRowToVisible(first)
 	}
 
 	@objc func copy(_: Any?) {
@@ -286,6 +295,12 @@ private extension DocumentListViewController {
 			}
 		}
 		isApplyingTableUpdates = false
+		if pendingScroll == .top {
+			pendingScroll = .unchanged
+			if model.rowCount > 0 {
+				tableView.scrollRowToVisible(0)
+			}
+		}
 		restoreSelection(to: preservedSelection, notifyIfMissing: true)
 	}
 
@@ -319,8 +334,8 @@ private extension DocumentListViewController {
 			if tableView.selectedRow != position {
 				tableView.selectRowIndexes(IndexSet(integer: position), byExtendingSelection: false)
 			}
-			if revealsSelection {
-				revealsSelection = false
+			if pendingScroll == .selection {
+				pendingScroll = .unchanged
 				tableView.scrollRowToVisible(position)
 			}
 			return
@@ -350,5 +365,25 @@ private extension DocumentListViewController {
 			indexingNotice: textIndexingNotice,
 			onSearchAllDocuments: onRequestSearchAllDocuments
 		)
+	}
+}
+
+/// Where the list scrolls once its next listing arrives.
+private enum PendingScroll {
+	case unchanged
+	/// To the selected document, which came from outside the list: a launch, the menu bar, or a sort.
+	case selection
+	/// To the first result of a new search or scope, above any document still selected.
+	case top
+
+	static func after(_ previous: ListingRequest?, changedTo next: ListingRequest?) -> PendingScroll {
+		switch (previous, next) {
+		case (nil, _):
+			.selection
+		case let (.browse(previousScope, _)?, .browse(nextScope, _)?) where previousScope == nextScope:
+			.selection
+		default:
+			.top
+		}
 	}
 }

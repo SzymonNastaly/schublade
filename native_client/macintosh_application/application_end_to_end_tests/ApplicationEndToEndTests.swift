@@ -200,9 +200,7 @@ private extension ApplicationEndToEndTests {
 			"Kontoauszug Oktober 2026"
 		)
 
-		searchField.stringValue = ""
-		searchField.sendAction(searchField.action, to: searchField.target)
-		try await waitForCondition("clearing search restores full list") { tableView.numberOfRows == 8 }
+		try await verifySearchFieldHandsTheKeyboardToTheList(searchField, tableView: tableView, in: window)
 		try await verifySenderListAndBack(in: window, tableView: tableView)
 	}
 

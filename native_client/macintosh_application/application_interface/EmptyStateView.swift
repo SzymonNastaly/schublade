@@ -15,6 +15,10 @@ final class EmptyStateView: NSView {
 	private var onAction: ((EmptyStateAction) -> Void)?
 	private var shownAction: EmptyStateAction?
 
+	var actionControl: NSView {
+		actionButton
+	}
+
 	init(onAction: @escaping (EmptyStateAction) -> Void) {
 		self.onAction = onAction
 		super.init(frame: .zero)

@@ -39,6 +39,12 @@ extension ApplicationEndToEndTests {
 		) { $0.enclosingScrollView?.isHidden == false && $0.string.contains("Rechnung Nummer 5") }
 		XCTAssertTrue(textView.string.contains("Rechnung Nummer 5 für Haftpflichtversicherung."))
 		XCTAssertEqual(group.selectedIndex, 1)
+		let tableView = try XCTUnwrap(findView(
+			in: window.contentView,
+			identifier: InterfaceIdentifier.documentListTable,
+			as: NSTableView.self
+		))
+		try verifyTabReaches(textView, from: tableView)
 		try await verifyFindNextSelectsTheMatch(in: textView)
 
 		let workspace = try XCTUnwrap(
@@ -56,6 +62,7 @@ extension ApplicationEndToEndTests {
 		try await waitForCondition("Command-1 shows the original and the group follows") {
 			pdfView(in: window)?.isHidden == false && group.selectedIndex == 0
 		}
+		try verifyTabReaches(XCTUnwrap(pdfView(in: window)), from: tableView)
 	}
 
 	/// A search marks its word in the text, and Find Next and Find Previous select it.

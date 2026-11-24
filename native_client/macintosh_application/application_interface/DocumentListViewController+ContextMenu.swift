@@ -3,9 +3,10 @@ import ApplicationBindings
 import ApplicationPresentation
 
 extension DocumentListViewController: NSMenuDelegate {
-	/// The menu of the row a person Control-clicked, which need not be the selected one.
+	/// The menu of the row a person Control-clicked, which need not be the selected one, or of the
+	/// selected row for a menu opened from the keyboard or VoiceOver.
 	func menuNeedsUpdate(_ menu: NSMenu) {
-		fill(menu, forRow: tableView.clickedRow)
+		fill(menu, forRow: tableView.clickedRow >= 0 ? tableView.clickedRow : tableView.selectedRow)
 	}
 
 	/// Fills a menu with the commands of a document's row, and leaves it empty for a heading.

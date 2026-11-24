@@ -46,9 +46,27 @@ extension LibraryWorkspaceViewController: NSMenuItemValidation {
 }
 
 extension LibraryWorkspaceViewController {
+	/// Tab runs from the sidebar to the list, the reader, and the inspector's controls, and back to the
+	/// sidebar. A hidden pane or a collapsed inspector cannot take the keyboard, so Tab passes over it.
 	func wireKeyViewLoop() {
-		sidebarController.focusTargetView.nextKeyView = listController.focusTargetView
-		listController.focusTargetView.nextKeyView = readerController.focusTargetView
+		let loop = [sidebarController.focusTargetView, listController.focusTargetView]
+			+ readerController.keyViews
+			+ inspectorController.keyViews
+		for (view, next) in zip(loop, loop.dropFirst() + loop.prefix(1)) {
+			view.nextKeyView = next
+		}
+	}
+
+	/// Gives the list the keyboard, and with `selectingFirstDocument` selects the first result while
+	/// nothing is selected.
+	func moveFocusToList(selectingFirstDocument: Bool) {
+		guard latestWorkspace?.detailMode == .documents else {
+			return
+		}
+		view.window?.makeFirstResponder(listController.focusTargetView)
+		if selectingFirstDocument {
+			listController.selectFirstDocumentIfNoneSelected()
+		}
 	}
 
 	/// What Share hands over: a copy of the selected document's original under its suggested name,

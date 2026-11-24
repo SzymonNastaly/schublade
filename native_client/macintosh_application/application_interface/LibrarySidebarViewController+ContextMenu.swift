@@ -7,7 +7,7 @@ extension LibrarySidebarViewController: NSMenuDelegate {
 	/// and every other row has no menu.
 	func menuNeedsUpdate(_ menu: NSMenu) {
 		menu.removeAllItems()
-		let row = outlineView.clickedRow
+		let row = outlineView.clickedRow >= 0 ? outlineView.clickedRow : outlineView.selectedRow
 		guard row >= 0 else {
 			return
 		}

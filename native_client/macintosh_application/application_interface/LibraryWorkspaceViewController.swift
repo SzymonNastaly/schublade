@@ -157,6 +157,7 @@ public final class LibraryWorkspaceViewController: NSSplitViewController {
 		self.inspectorItem = inspectorItem
 		showingPage = false
 		readerContainerController.display(readerController)
+		wireKeyViewLoop()
 	}
 
 	override public func viewDidAppear() {
@@ -374,6 +375,7 @@ private extension LibraryWorkspaceViewController {
 			searchTerms: navigation.searchTerms
 		)
 		inspectorController.render(detail.map { InspectorPresentation.from($0, context: context) })
+		wireKeyViewLoop()
 	}
 
 	func copyDocument(_ document: DocumentIdentifier) {

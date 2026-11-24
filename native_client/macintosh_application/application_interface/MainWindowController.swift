@@ -199,7 +199,6 @@ final class MainWindowController: NSWindowController, NSWindowDelegate {
 			containerController.display(workspace)
 			toolbarController?.track(workspace.splitView)
 			window?.toolbar = toolbarController?.toolbar
-			workspace.wireKeyViewLoop()
 			window?.makeFirstResponder(workspace.listController.focusTargetView)
 		}
 	}
@@ -256,6 +255,9 @@ private extension MainWindowController {
 			onSelectOrder: { [weak self] order in self?.setBrowseOrder(order) },
 			onSelectReaderTab: { [weak self] tab in self?.workspaceController?.setReaderTab(tab) },
 			onSearchTextChanged: { [weak self] query in self?.setSearchText(query) },
+			onMoveFocusToList: { [weak self] selectsFirstDocument in
+				self?.workspaceController?.moveFocusToList(selectingFirstDocument: selectsFirstDocument)
+			},
 			shareableItems: { [weak self] in self?.workspaceController?.shareableItems() ?? [] }
 		)
 	}

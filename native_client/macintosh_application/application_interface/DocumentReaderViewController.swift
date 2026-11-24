@@ -61,13 +61,9 @@ final class DocumentReaderViewController: NSViewController {
 	/// The document and search for which the reader already chose the tab that shows the matches.
 	private var tabChosenForMatches: ReaderSearchMarks.Placement?
 
-	var focusTargetView: NSView {
-		switch activeTab {
-		case .original:
-			renderMode == .offscreenSnapshot ? renderedPdfView : pdfView
-		case .text:
-			textView
-		}
+	/// The views that take the keyboard in the order Tab reaches them; only the shown one can.
+	var keyViews: [NSView] {
+		[pdfView, textView, placeholderView.actionControl]
 	}
 
 	init(

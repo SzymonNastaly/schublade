@@ -65,6 +65,7 @@ final class WorkspaceToolbarController: NSObject {
 	private let onSelectOrder: (ListingOrder) -> Void
 	private let onSelectReaderTab: (ReaderTab) -> Void
 	private let onSearchTextChanged: (String) -> Void
+	private let onMoveFocusToList: (_ selectsFirstDocument: Bool) -> Void
 	private let shareableItems: () -> [Any]
 
 	init(
@@ -72,12 +73,14 @@ final class WorkspaceToolbarController: NSObject {
 		onSelectOrder: @escaping (ListingOrder) -> Void,
 		onSelectReaderTab: @escaping (ReaderTab) -> Void,
 		onSearchTextChanged: @escaping (String) -> Void,
+		onMoveFocusToList: @escaping (_ selectsFirstDocument: Bool) -> Void,
 		shareableItems: @escaping () -> [Any]
 	) {
 		self.onNavigateBack = onNavigateBack
 		self.onSelectOrder = onSelectOrder
 		self.onSelectReaderTab = onSelectReaderTab
 		self.onSearchTextChanged = onSearchTextChanged
+		self.onMoveFocusToList = onMoveFocusToList
 		self.shareableItems = shareableItems
 		shownPlaces = Self.places(showsBackButton: false, showsDocuments: true)
 		super.init()
@@ -142,7 +145,6 @@ final class WorkspaceToolbarController: NSObject {
 		searchItem.searchField.target = self
 		searchItem.searchField.action = #selector(searchFieldSubmitted)
 		searchItem.preferredWidthForSearchField = 240
-		searchItem.resignsFirstResponderWithCancel = true
 		searchItem.searchField.setAccessibilityIdentifier(InterfaceIdentifier.toolbarSearchField)
 
 		readerTabGroup.label = "View"
@@ -278,6 +280,28 @@ extension WorkspaceToolbarController: NSToolbarDelegate, NSSearchFieldDelegate {
 			return
 		}
 		onSearchTextChanged(field.stringValue)
+	}
+
+	/// Down and Return take the keyboard to the results, as Mail does, and Escape clears the search
+	/// and leaves the keyboard with the list, so the workspace's commands stay in the responder chain.
+	func control(_ control: NSControl, textView _: NSTextView, doCommandBy selector: Selector) -> Bool {
+		guard control === searchItem.searchField else {
+			return false
+		}
+		switch selector {
+		case #selector(NSResponder.moveDown(_:)), #selector(NSResponder.insertNewline(_:)):
+			onSearchTextChanged(searchItem.searchField.stringValue)
+			onMoveFocusToList(true)
+			return true
+		case #selector(NSResponder.cancelOperation(_:)):
+			searchItem.searchField.stringValue = ""
+			onSearchTextChanged("")
+			searchItem.endSearchInteraction()
+			onMoveFocusToList(false)
+			return true
+		default:
+			return false
+		}
 	}
 }
 
