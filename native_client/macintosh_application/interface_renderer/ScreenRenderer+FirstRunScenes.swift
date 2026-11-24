@@ -55,7 +55,9 @@ extension ScreenRenderer {
 			sizingPane.loadViewIfNeeded()
 			try await renderAppearances(name: name, size: sizingPane.preferredContentSize, queries: nil) {
 				let pane = makePane()
-				// An offscreen window never appears, so the pane reads its state as it would.
+				// An offscreen window never appears, so the pane reads its state as it would, once its
+				// view is loaded as a window would load it first.
+				pane.loadViewIfNeeded()
 				pane.viewWillAppear()
 				return Scene(controller: pane)
 			}

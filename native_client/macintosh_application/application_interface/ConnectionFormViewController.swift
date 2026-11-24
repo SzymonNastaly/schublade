@@ -231,10 +231,14 @@ private extension ConnectionFormViewController {
 		addressField.placeholderString = "https://archive.example.org"
 		addressField.stringValue = purpose.address ?? ""
 		addressField.delegate = self
+		addressField.contentType = .URL
 		addressField.setAccessibilityIdentifier(InterfaceIdentifier.connectionAddressField)
 
 		tokenField.placeholderString = "Required"
 		tokenField.delegate = self
+		// A secure field without a content type reads as a password, and AutoFill offers to fill and
+		// save one. A token is pasted once from the archive's Settings, as a one-time code is.
+		tokenField.contentType = .oneTimeCode
 		tokenField.setAccessibilityIdentifier(InterfaceIdentifier.connectionTokenField)
 
 		submitButton.title = "Connect"
