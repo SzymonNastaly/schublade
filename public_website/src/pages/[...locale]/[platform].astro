@@ -81,7 +81,7 @@ const comparisons = (await readComparisons()).filter((comparison) => comparison.
 				<section
 					class:list={[
 						"feature",
-						section.screenshot && `feature--${SCREENSHOTS[section.screenshot].device}`,
+						section.screenshot && `feature--${SCREENSHOTS[section.screenshot].frame}`,
 					]}
 				>
 					<div class="feature__text">
@@ -92,7 +92,7 @@ const comparisons = (await readComparisons()).filter((comparison) => comparison.
 						)}
 					</div>
 					{section.screenshot &&
-						(SCREENSHOTS[section.screenshot].device === "mac" ? (
+						(SCREENSHOTS[section.screenshot].frame === "window" ? (
 							<ScreenshotPicture
 								locale={locale}
 								name={section.screenshot}

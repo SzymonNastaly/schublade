@@ -288,6 +288,12 @@ const english: InterfaceText = {
 			"The Mac library: a sidebar with people, categories, tags, and folders, a list of documents, an electricity statement in the reader, and its details in the inspector.",
 		mac_text_search:
 			"A search on the Mac for an insurance word, with the match highlighted in the document's extracted text.",
+		web_document_reading:
+			"A bank statement in the web app: its title and summary, the original PDF, and the details Schublade read, such as the date, amount, and IBAN.",
+		web_archive_filter:
+			"The archive in the browser with the Category filter open, listing each category with its number of documents.",
+		web_phone_archive:
+			"The archive in a phone's browser: documents with their sender, date, and amount, and the Upload button at the bottom.",
 	},
 	comparisonIndex: {
 		title: "Schublade compared with other document archives",
@@ -545,6 +551,12 @@ const german: InterfaceText = {
 			"Die Mac-Bibliothek: Seitenleiste mit Personen, Kategorien, Schlagworten und Ordnern, eine Dokumentliste, eine Stromabrechnung in der Leseansicht und ihre Details daneben.",
 		mac_text_search:
 			"Eine Suche auf dem Mac nach einem Versicherungswort, mit dem Treffer markiert im erkannten Text des Dokuments.",
+		web_document_reading:
+			"Ein Kontoauszug in der Web-App: Titel und Zusammenfassung, das Original-PDF und die Angaben, die Schublade gelesen hat, etwa Datum, Betrag und IBAN.",
+		web_archive_filter:
+			"Das Archiv im Browser mit geöffnetem Kategorie-Filter, der jede Kategorie mit der Zahl ihrer Dokumente zeigt.",
+		web_phone_archive:
+			"Das Archiv im Browser eines Handys: Dokumente mit Absender, Datum und Betrag, unten die Schaltfläche zum Hochladen.",
 	},
 	comparisonIndex: {
 		title: "Schublade im Vergleich mit anderen Dokumentenarchiven",

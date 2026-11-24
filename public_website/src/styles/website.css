@@ -401,13 +401,13 @@ main {
 	color: var(--color-coming-soon-text);
 }
 
-.screenshot--mac {
+.screenshot--window {
 	width: 100%;
 	border-radius: 10px;
 	box-shadow: var(--shadow-window);
 }
 
-.screenshot--iphone {
+.screenshot--phone {
 	border: 6px solid var(--color-bezel);
 	border-radius: 36px;
 	background: var(--color-bezel);
@@ -650,33 +650,33 @@ main {
 	margin-top: 12px;
 }
 
-.feature--iphone {
+.feature--phone {
 	display: grid;
 	gap: 32px;
 	justify-items: center;
 }
 
-.feature--iphone .screenshot--iphone {
+.feature--phone .screenshot--phone {
 	width: min(300px, 72vw);
 }
 
 @media (min-width: 720px) {
-	.feature--iphone {
+	.feature--phone {
 		grid-template-columns: 1fr 300px;
 		align-items: center;
 		gap: 64px;
 	}
 
-	.feature--iphone:nth-child(even) {
+	.feature--phone:nth-child(even) {
 		grid-template-columns: 300px 1fr;
 	}
 
-	.feature--iphone:nth-child(even) .feature__text {
+	.feature--phone:nth-child(even) .feature__text {
 		order: 2;
 	}
 }
 
-.feature--mac {
+.feature--window {
 	display: grid;
 	gap: 32px;
 }

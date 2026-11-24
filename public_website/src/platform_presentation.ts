@@ -3,9 +3,9 @@ import type { Platform } from "./site_configuration.ts"
 
 export const PLATFORM_SECTIONS = {
 	web: [
-		{ section: "arrival" },
-		{ section: "reading" },
-		{ section: "search" },
+		{ section: "arrival", screenshot: "web_phone_archive" },
+		{ section: "reading", screenshot: "web_document_reading" },
+		{ section: "search", screenshot: "web_archive_filter" },
 		{ section: "identity" },
 		{ section: "access" },
 		{ section: "requirements" },

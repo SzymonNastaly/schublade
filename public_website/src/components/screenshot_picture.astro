@@ -15,7 +15,7 @@ interface Props {
 }
 
 const { locale, name, displayWidth, sizes, priority = false, class: className } = Astro.props
-const { image, device } = SCREENSHOTS[name]
+const { image, frame } = SCREENSHOTS[name]
 const widths = [displayWidth, displayWidth * 2].filter((width) => width <= image.width)
 ---
 
@@ -29,5 +29,5 @@ const widths = [displayWidth, displayWidth * 2].filter((width) => width <= image
 	loading={priority ? "eager" : "lazy"}
 	fetchpriority={priority ? "high" : "auto"}
 	decoding="async"
-	class:list={["screenshot", `screenshot--${device}`, className]}
+	class:list={["screenshot", `screenshot--${frame}`, className]}
 />
