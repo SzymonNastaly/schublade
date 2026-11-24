@@ -110,11 +110,12 @@ final class ApplicationController {
 		guard let settingsWindowController else {
 			return
 		}
-		if case let .running(statuses) = situation {
-			settingsWindowController.render(statuses.library?.archive)
+		let statuses: ApplicationStatuses? = if case let .running(statuses) = situation {
+			statuses
 		} else {
-			settingsWindowController.render(nil)
+			nil
 		}
+		settingsWindowController.render(statuses, context: ApplicationWordingContext.current())
 	}
 
 	/// The application came to the front, so the library asks the archive at once.

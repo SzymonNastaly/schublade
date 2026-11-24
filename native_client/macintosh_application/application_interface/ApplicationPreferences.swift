@@ -5,7 +5,7 @@ import Foundation
 /// established, the quit alert's "do not ask again", and the scope and document the window showed
 /// last. The isolated environment keeps them in a suite of its own, emptied as it opens, so a test
 /// never reads an installed application's preferences or what an earlier test left.
-final class ApplicationPreferences {
+public final class ApplicationPreferences {
 	private static let loginItemEstablishedKey = "loginItemEstablished"
 	private static let quitAlertSuppressedKey = "quitAlertSuppressed"
 	private static let originalStorageLimitKey = "originalStorageLimit"
@@ -15,7 +15,7 @@ final class ApplicationPreferences {
 
 	private let defaults: UserDefaults
 
-	init(isolated: Bool) {
+	public init(isolated: Bool) {
 		let isolatedSuite = "org.schublade.isolated.\(ProcessInfo.processInfo.processIdentifier)"
 		guard isolated, let suite = UserDefaults(suiteName: isolatedSuite) else {
 			defaults = .standard

@@ -3,12 +3,12 @@ import ServiceManagement
 
 /// Opening Schublade at login, through the system's `SMAppService.mainApp`. The system holds the
 /// state, so it is read on each use; the isolated environment has an inert login item.
-final class LoginItem {
+public final class LoginItem {
 	private static let log = Logger(subsystem: "org.schublade.application", category: "login item")
 	private let isInert: Bool
 
 	/// A Debug build is inert too, so a development copy never starts at every login.
-	init(isInert: Bool) {
+	public init(isInert: Bool) {
 		#if DEBUG
 		self.isInert = true
 		#else

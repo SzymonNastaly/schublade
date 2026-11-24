@@ -28,4 +28,37 @@ extension ScreenRenderer {
 			Scene(controller: StatusMessageViewController(presentation: .startFailure(.DatabaseInUse)))
 		}
 	}
+
+	/// Each Settings pane at the size the window takes for it, without the window's tabs.
+	func renderSettingsScenes() async throws {
+		let panes: [(String, () -> NSViewController)] = [
+			("settings_general", {
+				GeneralSettingsViewController(
+					loginItem: LoginItem(isInert: true),
+					statusItem: RendererStatusItemVisibility()
+				)
+			}),
+			("settings_archive", { [fixtures] in
+				let archive = ArchiveSettingsViewController(onReplaceToken: {})
+				archive.render(fixtures.makeStatuses(), context: fixtures.context)
+				return archive
+			}),
+			("settings_storage", {
+				StorageSettingsViewController(
+					commands: RendererStorageCommands(),
+					preferences: ApplicationPreferences(isolated: true)
+				)
+			}),
+		]
+		for (name, makePane) in panes {
+			let sizingPane = makePane()
+			sizingPane.loadViewIfNeeded()
+			try await renderAppearances(name: name, size: sizingPane.preferredContentSize, queries: nil) {
+				let pane = makePane()
+				// An offscreen window never appears, so the pane reads its state as it would.
+				pane.viewWillAppear()
+				return Scene(controller: pane)
+			}
+		}
+	}
 }

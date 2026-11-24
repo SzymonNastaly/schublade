@@ -25,7 +25,7 @@ final class SidebarStatusBarView: NSView {
 	func render(_ presentation: StatusLinePresentation, onPress: @escaping () -> Void) {
 		onPressHandler = onPress
 		symbolView.image = NSImage(systemSymbolName: presentation.symbolName, accessibilityDescription: nil)
-		symbolView.contentTintColor = color(for: presentation.tone)
+		symbolView.contentTintColor = InterfacePalette.statusLineSymbol(presentation.tone)
 		statusLabel.stringValue = presentation.text
 		statusLabel.textColor = presentation.tone == .attention ? InterfacePalette.attention : .secondaryLabelColor
 		button.isEnabled = presentation.allowsSynchronize || presentation.allowsTokenReplacement
@@ -102,16 +102,5 @@ final class SidebarStatusBarView: NSView {
 
 	@objc private func statusBarPressed() {
 		onPressHandler?()
-	}
-
-	private func color(for tone: StatusLineTone) -> NSColor {
-		switch tone {
-		case .normal:
-			.secondaryLabelColor
-		case .active:
-			InterfacePalette.archive
-		case .attention:
-			InterfacePalette.attention
-		}
 	}
 }

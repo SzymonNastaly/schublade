@@ -1,18 +1,23 @@
 import AppKit
 import ApplicationBindings
 import ApplicationPresentation
+import LibraryPresentation
 
-/// Settings > Archive: the connected host and what its token permits, Replace Token…, and Open
-/// Archive in Browser. Revising documents and issuing tokens stay in the browser.
-final class ArchiveSettingsViewController: NSViewController {
+/// Settings > Archive: the connected host, whether the copy is current, what the token permits,
+/// Replace Token…, and Open Archive in Browser. Revising documents and issuing tokens stay in the
+/// browser.
+public final class ArchiveSettingsViewController: NSViewController {
 	private let onReplaceToken: () -> Void
 	private let hostLabel = NSTextField(labelWithString: "")
+	private let statusSymbol = NSImageView()
+	private let statusLabel = NSTextField(labelWithString: "")
+	private lazy var statusRow = NSStackView(views: [statusSymbol, statusLabel])
 	private let permissionLabel = NSTextField(wrappingLabelWithString: "")
 	private let replaceToken = NSButton(title: "Replace Token…", target: nil, action: nil)
 	private let openInBrowser = NSButton(title: "Open Archive in Browser", target: nil, action: nil)
 	private var origin: URL?
 
-	init(onReplaceToken: @escaping () -> Void) {
+	public init(onReplaceToken: @escaping () -> Void) {
 		self.onReplaceToken = onReplaceToken
 		super.init(nibName: nil, bundle: nil)
 		title = "Archive"
@@ -23,45 +28,58 @@ final class ArchiveSettingsViewController: NSViewController {
 		fatalError("Interface Builder is not used")
 	}
 
-	override func loadView() {
-		hostLabel.font = NSFont.systemFont(ofSize: NSFont.systemFontSize, weight: .semibold)
-		permissionLabel.textColor = .secondaryLabelColor
+	override public func loadView() {
+		hostLabel.font = NSFont.preferredFont(forTextStyle: .headline)
+		hostLabel.lineBreakMode = .byTruncatingMiddle
+		statusSymbol.symbolConfiguration = NSImage.SymbolConfiguration(textStyle: .subheadline)
+		statusLabel.font = NSFont.preferredFont(forTextStyle: .subheadline)
+		statusRow.orientation = .horizontal
+		statusRow.spacing = 4
+		statusRow.detachesHiddenViews = true
+		permissionLabel.font = NSFont.preferredFont(forTextStyle: .body)
 		for button in [replaceToken, openInBrowser] {
-			button.bezelStyle = .rounded
+			button.bezelStyle = .push
 			button.target = self
 		}
 		replaceToken.action = #selector(replaceTokenPressed)
 		openInBrowser.action = #selector(openInBrowserPressed)
 		let buttons = NSStackView(views: [replaceToken, openInBrowser])
 		buttons.spacing = 8
-		let stack = NSStackView(views: [hostLabel, permissionLabel, buttons])
-		stack.orientation = .vertical
-		stack.alignment = .leading
-		stack.spacing = 6
-		stack.setCustomSpacing(16, after: permissionLabel)
-		stack.edgeInsets = NSEdgeInsets(top: 24, left: 32, bottom: 24, right: 32)
-		permissionLabel.widthAnchor.constraint(equalToConstant: 360).isActive = true
-		view = stack
-		// A Settings window takes the size of its tab's content.
-		preferredContentSize = NSSize(width: 440, height: stack.fittingSize.height)
+		view = SettingsPaneLayout.pane([
+			.init(label: "Archive:", content: hostLabel),
+			.init(label: nil, content: statusRow),
+			.init(label: "Token:", content: permissionLabel, spacingAbove: 8),
+			.init(label: nil, content: buttons, spacingAbove: 4),
+		])
 	}
 
-	func render(_ archive: ArchiveConnection?) {
+	/// The status line is the sidebar's, without the uploads, which are no fact of the archive.
+	public func render(_ statuses: ApplicationStatuses?, context: ApplicationWordingContext) {
 		loadViewIfNeeded()
-		switch archive {
+		switch statuses?.library?.archive {
 		case let .configured(origin, host, _, permission, restricted):
 			self.origin = URL(string: origin)
 			hostLabel.stringValue = host
 			permissionLabel.stringValue = Self.sentence(permission, restricted: restricted)
 			replaceToken.isEnabled = true
 			openInBrowser.isEnabled = self.origin != nil
+			if let statuses {
+				let line = StatusLinePresentation.resolve(statuses: statuses, context: context, includesUploads: false)
+				statusSymbol.image = NSImage(systemSymbolName: line.symbolName, accessibilityDescription: nil)
+				statusSymbol.contentTintColor = InterfacePalette.statusLineSymbol(line.tone)
+				statusLabel.stringValue = line.text
+				statusLabel.textColor = line.tone == .attention ? InterfacePalette.attention : .secondaryLabelColor
+			}
+			statusRow.isHidden = false
 		case .notConfigured, nil:
 			origin = nil
 			hostLabel.stringValue = "No archive connected"
 			permissionLabel.stringValue = "Connect an archive in the Schublade window."
+			statusRow.isHidden = true
 			replaceToken.isEnabled = false
 			openInBrowser.isEnabled = false
 		}
+		preferredContentSize = view.fittingSize
 	}
 
 	private static func sentence(_ permission: ArchivePermission, restricted: Bool) -> String {

@@ -5,9 +5,22 @@ import AppKit
 final class SettingsTabViewController: NSTabViewController {
 	override func tabView(_ tabView: NSTabView, didSelect item: NSTabViewItem?) {
 		super.tabView(tabView, didSelect: item)
-		guard let window = view.window, let size = item?.viewController?.preferredContentSize,
-		      size.height > 0
-		else {
+		if let controller = item?.viewController {
+			fitWindow(to: controller)
+		}
+	}
+
+	/// The Archive tab grows by a line when the token's sentence does.
+	override func preferredContentSizeDidChange(for viewController: NSViewController) {
+		super.preferredContentSizeDidChange(for: viewController)
+		if tabView.selectedTabViewItem?.viewController === viewController {
+			fitWindow(to: viewController)
+		}
+	}
+
+	private func fitWindow(to controller: NSViewController) {
+		let size = controller.preferredContentSize
+		guard let window = view.window, size.height > 0 else {
 			return
 		}
 		let frame = window.frameRect(forContentRect: NSRect(origin: .zero, size: size))

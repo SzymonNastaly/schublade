@@ -1,4 +1,5 @@
 import AppKit
+import LibraryPresentation
 
 /// The colours Schublade brings from its website into an otherwise native window: blue for the
 /// archive, orange for what needs attention, and green for the folders on this Mac. Each has a
@@ -21,6 +22,15 @@ enum InterfacePalette {
 	/// Behind a page in the reader: the website's viewer grey, and the system's own in the dark.
 	static let readerBackdrop = NSColor(name: "readerBackdrop") { appearance in
 		isDark(appearance) ? .underPageBackgroundColor : color(0xDDE3EC)
+	}
+
+	/// The symbol of a status line in its tone.
+	static func statusLineSymbol(_ tone: StatusLineTone) -> NSColor {
+		switch tone {
+		case .normal: .secondaryLabelColor
+		case .active: archive
+		case .attention: attention
+		}
 	}
 
 	private static func dynamic(light: UInt32, dark: UInt32) -> NSColor {

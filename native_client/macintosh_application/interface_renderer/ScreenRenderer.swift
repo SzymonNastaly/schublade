@@ -46,6 +46,7 @@ final class ScreenRenderer {
 
 	private func renderConnectionAndEmptyScreens() async throws {
 		try await renderFirstRunScenes()
+		try await renderSettingsScenes()
 
 		try await renderWorkspaceScene(
 			name: "library_empty",

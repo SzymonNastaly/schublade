@@ -1,14 +1,22 @@
 import AppKit
 
+/// What Settings > General turns on and off of the menu bar item; `NSStatusItem` keeps its own
+/// visibility under its autosave name.
+public protocol StatusItemVisibility: AnyObject {
+	var isVisible: Bool { get set }
+}
+
+extension NSStatusItem: StatusItemVisibility {}
+
 /// Settings > General: Open at Login, read from the system each time the tab appears, and Show in
-/// Menu Bar, which AppKit keeps for the status item under its autosave name.
-final class GeneralSettingsViewController: NSViewController {
+/// Menu Bar.
+public final class GeneralSettingsViewController: NSViewController {
 	private let loginItem: LoginItem
-	private let statusItem: NSStatusItem
+	private let statusItem: any StatusItemVisibility
 	private let openAtLogin = NSButton(checkboxWithTitle: "Open Schublade at login", target: nil, action: nil)
 	private let showInMenuBar = NSButton(checkboxWithTitle: "Show Schublade in the menu bar", target: nil, action: nil)
 
-	init(loginItem: LoginItem, statusItem: NSStatusItem) {
+	public init(loginItem: LoginItem, statusItem: any StatusItemVisibility) {
 		self.loginItem = loginItem
 		self.statusItem = statusItem
 		super.init(nibName: nil, bundle: nil)
@@ -20,28 +28,25 @@ final class GeneralSettingsViewController: NSViewController {
 		fatalError("Interface Builder is not used")
 	}
 
-	override func loadView() {
+	override public func loadView() {
 		openAtLogin.target = self
 		openAtLogin.action = #selector(openAtLoginChanged)
 		showInMenuBar.target = self
 		showInMenuBar.action = #selector(showInMenuBarChanged)
-		let note = NSTextField(wrappingLabelWithString: "Folders on this Mac are collected while Schublade is open, "
-			+ "also with its window closed.")
+		let note = NSTextField(wrappingLabelWithString: "Schublade collects the folders on this Mac while it is "
+			+ "open, also with its window closed.")
+		note.font = NSFont.preferredFont(forTextStyle: .subheadline)
 		note.textColor = .secondaryLabelColor
-		note.font = NSFont.systemFont(ofSize: NSFont.smallSystemFontSize)
-		let stack = NSStackView(views: [openAtLogin, note, showInMenuBar])
-		stack.orientation = .vertical
-		stack.alignment = .leading
-		stack.spacing = 8
-		stack.setCustomSpacing(16, after: note)
-		stack.edgeInsets = NSEdgeInsets(top: 24, left: 32, bottom: 24, right: 32)
-		note.widthAnchor.constraint(equalToConstant: 360).isActive = true
-		view = stack
+		view = SettingsPaneLayout.pane([
+			.init(label: "Startup:", content: openAtLogin),
+			.init(label: nil, content: note),
+			.init(label: "Menu bar:", content: showInMenuBar, spacingAbove: 8),
+		])
 		// A Settings window takes the size of its tab's content.
-		preferredContentSize = NSSize(width: 440, height: stack.fittingSize.height)
+		preferredContentSize = view.fittingSize
 	}
 
-	override func viewWillAppear() {
+	override public func viewWillAppear() {
 		super.viewWillAppear()
 		openAtLogin.state = loginItem.isEnabled ? .on : .off
 		showInMenuBar.state = statusItem.isVisible ? .on : .off

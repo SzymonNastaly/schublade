@@ -1,5 +1,5 @@
 import AppKit
-import ApplicationBindings
+import ApplicationPresentation
 
 /// The Settings window: toolbar tabs as every Mac application has them, opened with Command-Comma.
 final class SettingsWindowController: NSWindowController, NSWindowDelegate {
@@ -43,8 +43,8 @@ final class SettingsWindowController: NSWindowController, NSWindowDelegate {
 		ActivationPolicy.becomeAccessoryUnlessAnotherWindowShows(besides: window)
 	}
 
-	func render(_ archiveConnection: ArchiveConnection?) {
-		archive.render(archiveConnection)
+	func render(_ statuses: ApplicationStatuses?, context: ApplicationWordingContext) {
+		archive.render(statuses, context: context)
 	}
 
 	func present() {

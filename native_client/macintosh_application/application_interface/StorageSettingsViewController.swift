@@ -3,16 +3,16 @@ import ApplicationBindings
 import ApplicationPresentation
 import LibraryPresentation
 
-/// Settings > Storage: the most room for downloaded originals, the room they take, and Remove
+/// Settings > Storage: the room the downloaded originals take, the most they may take, and Remove
 /// Downloaded Originals. An original is downloaded again when it is next opened.
-final class StorageSettingsViewController: NSViewController {
+public final class StorageSettingsViewController: NSViewController {
 	private let commands: any StorageCommands
 	private let preferences: ApplicationPreferences
 	private let limit = NSPopUpButton()
-	private let held = NSTextField(labelWithString: "")
+	private let held = NSTextField(wrappingLabelWithString: "")
 	private let remove = NSButton(title: "Remove Downloaded Originals", target: nil, action: nil)
 
-	init(commands: any StorageCommands, preferences: ApplicationPreferences) {
+	public init(commands: any StorageCommands, preferences: ApplicationPreferences) {
 		self.commands = commands
 		self.preferences = preferences
 		super.init(nibName: nil, bundle: nil)
@@ -24,33 +24,29 @@ final class StorageSettingsViewController: NSViewController {
 		fatalError("Interface Builder is not used")
 	}
 
-	override func loadView() {
+	override public func loadView() {
 		limit.addItems(withTitles: MacintoshDevice.wording.storageLimitChoices.map(StorageWording.limitTitle))
 		limit.target = self
 		limit.action = #selector(limitChosen)
-		remove.bezelStyle = .rounded
+		remove.bezelStyle = .push
 		remove.target = self
 		remove.action = #selector(removePressed)
-		held.textColor = .secondaryLabelColor
-		let limitRow = NSStackView(views: [NSTextField(labelWithString: "Keep downloaded originals up to:"), limit])
-		limitRow.spacing = 8
+		held.font = NSFont.preferredFont(forTextStyle: .body)
 		let note = NSTextField(wrappingLabelWithString: "Originals read longest ago go first. Each is downloaded "
 			+ "again when it is next opened.")
+		note.font = NSFont.preferredFont(forTextStyle: .subheadline)
 		note.textColor = .secondaryLabelColor
-		note.font = NSFont.systemFont(ofSize: NSFont.smallSystemFontSize)
-		let stack = NSStackView(views: [limitRow, note, held, remove])
-		stack.orientation = .vertical
-		stack.alignment = .leading
-		stack.spacing = 8
-		stack.setCustomSpacing(16, after: note)
-		stack.edgeInsets = NSEdgeInsets(top: 24, left: 32, bottom: 24, right: 32)
-		note.widthAnchor.constraint(equalToConstant: 360).isActive = true
-		view = stack
+		view = SettingsPaneLayout.pane([
+			.init(label: "Originals:", content: held),
+			.init(label: "Keep up to:", content: limit, spacingAbove: 8),
+			.init(label: nil, content: note),
+			.init(label: nil, content: remove, spacingAbove: 8),
+		])
 		// A Settings window takes the size of its tab's content.
-		preferredContentSize = NSSize(width: 440, height: stack.fittingSize.height)
+		preferredContentSize = view.fittingSize
 	}
 
-	override func viewWillAppear() {
+	override public func viewWillAppear() {
 		super.viewWillAppear()
 		let chosen = MacintoshDevice.wording.storageLimitChoices.firstIndex(of: preferences.originalStorageLimit)
 		limit.selectItem(at: chosen ?? 1)
