@@ -8,7 +8,6 @@ import LibraryPresentation
 /// in ingestion shows a spinner beside its title, and a failed one an orange mark.
 final class DocumentRowView: NSTableCellView {
 	private static let pictureSize = NSSize(width: 40, height: 52)
-	/// The picture's pixels per point, a Retina display's.
 	private static let pictureScale: CGFloat = 2
 	private static let verticalMargin: CGFloat = 8
 	private static let lineSpacing: CGFloat = 2
@@ -191,9 +190,8 @@ final class DocumentRowView: NSTableCellView {
 		applyPictureFrameColors()
 	}
 
-	/// The page scaled to fill the frame and cut from its top edge, where a letter names itself. It is
-	/// drawn once, here on the main thread, because Quick Look may draw its transition picture on
-	/// another thread.
+	/// The page scaled to fill the frame and cut from its top edge, drawn once into a bitmap sized
+	/// before its context, because Quick Look may draw its transition picture on another thread.
 	private static func topOfPage(_ page: NSImage) -> NSImage? {
 		guard page.size.width > 0, page.size.height > 0,
 		      let bitmap = NSBitmapImageRep(
@@ -207,12 +205,14 @@ final class DocumentRowView: NSTableCellView {
 		      	colorSpaceName: .deviceRGB,
 		      	bytesPerRow: 0,
 		      	bitsPerPixel: 0
-		      ),
-		      let context = NSGraphicsContext(bitmapImageRep: bitmap)
+		      )
 		else {
 			return nil
 		}
 		bitmap.size = pictureSize
+		guard let context = NSGraphicsContext(bitmapImageRep: bitmap) else {
+			return nil
+		}
 		let scale = max(pictureSize.width / page.size.width, pictureSize.height / page.size.height)
 		let size = NSSize(width: page.size.width * scale, height: page.size.height * scale)
 		let origin = NSPoint(x: (pictureSize.width - size.width) / 2, y: pictureSize.height - size.height)
