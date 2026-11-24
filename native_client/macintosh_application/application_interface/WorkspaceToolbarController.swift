@@ -15,6 +15,12 @@ final class WorkspaceToolbarController: NSObject {
 	private static let searchIdentifier = NSToolbarItem.Identifier("schublade.search")
 	private static let shareIdentifier = NSToolbarItem.Identifier("schublade.share")
 	private static let readerTabIdentifier = NSToolbarItem.Identifier("schublade.readerTab")
+	/// The divider each tracking separator ends its section at.
+	private static let trackedDividers: [NSToolbarItem.Identifier: Int] = [
+		.sidebarTrackingSeparator: 0,
+		listSeparatorIdentifier: 1,
+		.inspectorTrackingSeparator: 2,
+	]
 	/// The tabs of Original and Text, in the order of the group's items.
 	private static let readerTabs: [ReaderTab] = [.original, .text]
 
@@ -59,7 +65,7 @@ final class WorkspaceToolbarController: NSObject {
 	private let sortMenu = NSMenu()
 	/// The places in `arrangement` of the items the toolbar shows now.
 	private var shownPlaces: [Int]
-	private weak var listSplitView: NSSplitView?
+	private weak var trackedSplitView: NSSplitView?
 
 	private let onNavigateBack: () -> Void
 	private let onSelectOrder: (ListingOrder) -> Void
@@ -90,16 +96,25 @@ final class WorkspaceToolbarController: NSObject {
 		toolbar.allowsUserCustomization = false
 	}
 
-	/// The split view whose second divider, between the list and the reader, Sort's section ends at.
+	/// The split view whose dividers the toolbar's sections end at.
 	func track(_ splitView: NSSplitView) {
-		guard splitView !== listSplitView else {
+		guard splitView !== trackedSplitView else {
 			return
 		}
-		listSplitView = splitView
-		// The separator takes its split view when the toolbar asks for it, so it is asked again.
-		if let index = toolbar.items.firstIndex(where: { $0.itemIdentifier == Self.listSeparatorIdentifier }) {
+		trackedSplitView = splitView
+		recreateTrackingSeparators()
+	}
+
+	/// A tracking separator keeps the split view it was created with, even one the system made, so a
+	/// new split view, as after Replace Token…, gets new separators before the toolbar returns to its
+	/// window.
+	private func recreateTrackingSeparators() {
+		for identifier in Self.trackedDividers.keys {
+			guard let index = toolbar.items.firstIndex(where: { $0.itemIdentifier == identifier }) else {
+				continue
+			}
 			toolbar.removeItem(at: index)
-			toolbar.insertItem(withItemIdentifier: Self.listSeparatorIdentifier, at: index)
+			toolbar.insertItem(withItemIdentifier: identifier, at: index)
 		}
 	}
 
@@ -260,9 +275,13 @@ extension WorkspaceToolbarController: NSToolbarDelegate, NSSearchFieldDelegate {
 			backItem
 		case Self.sortIdentifier:
 			sortItem
-		case Self.listSeparatorIdentifier:
-			listSplitView.map { splitView in
-				NSTrackingSeparatorToolbarItem(identifier: itemIdentifier, splitView: splitView, dividerIndex: 1)
+		case .sidebarTrackingSeparator, Self.listSeparatorIdentifier, .inspectorTrackingSeparator:
+			trackedSplitView.map { splitView in
+				NSTrackingSeparatorToolbarItem(
+					identifier: itemIdentifier,
+					splitView: splitView,
+					dividerIndex: Self.trackedDividers[itemIdentifier] ?? 0
+				)
 			}
 		case Self.searchIdentifier:
 			searchItem

@@ -2,14 +2,16 @@ import ApplicationPresentation
 import Foundation
 
 /// What the application remembers about a person's choices: whether the login item was ever
-/// established, the quit alert's "do not ask again", and the scope and document the window showed
-/// last. The isolated environment keeps them in a suite of its own, emptied as it opens, so a test
-/// never reads an installed application's preferences or what an earlier test left.
+/// established, the quit alert's "do not ask again", the scope and document the window showed
+/// last, and whether the inspector shows. The isolated environment keeps them in a suite of its
+/// own, emptied as it opens, so a test never reads an installed application's preferences or what
+/// an earlier test left.
 public final class ApplicationPreferences {
 	private static let loginItemEstablishedKey = "loginItemEstablished"
 	private static let quitAlertSuppressedKey = "quitAlertSuppressed"
 	private static let originalStorageLimitKey = "originalStorageLimit"
 	private static let libraryPlaceKey = "libraryPlace"
+	private static let inspectorVisibleKey = "inspectorVisible"
 	/// Two gigabytes, the design's default room for downloaded originals.
 	static let defaultOriginalStorageLimit: UInt64 = 2_000_000_000
 
@@ -49,6 +51,12 @@ public final class ApplicationPreferences {
 				.flatMap(RememberedLibraryPlace.init(storedValues:))
 		}
 		set { defaults.set(newValue?.storedValues, forKey: Self.libraryPlaceKey) }
+	}
+
+	/// Whether the person last showed the inspector, which shows until they hide it.
+	var inspectorVisible: Bool {
+		get { defaults.object(forKey: Self.inspectorVisibleKey) as? Bool ?? true }
+		set { defaults.set(newValue, forKey: Self.inspectorVisibleKey) }
 	}
 
 	var quitAlertSuppressed: Bool {

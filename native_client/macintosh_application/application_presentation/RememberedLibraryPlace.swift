@@ -26,16 +26,15 @@ public struct RememberedLibraryPlace: Equatable, Sendable {
 		}
 	}
 
-	/// Whether the copy still holds the member, category, or tag the scope names.
-	public func isHeld(by facets: LibraryFacets) -> Bool {
-		let named: [ScopeCount]
-		switch scope {
-		case .member: named = facets.members
-		case .category: named = facets.categories
-		case .tag: named = facets.tags
-		case .allDocuments, .recentlyAdded, .inIngestion, .failed, .household, .sender: return true
-		}
-		return named.contains { $0.scope.scope == scope }
+	/// The sidebar's destination for the place's scope under the title the sidebar shows now, or nil
+	/// once the sidebar no longer lists the scope.
+	public func listedDestination(in sidebar: SidebarPresentation) -> NavigationDestination? {
+		sidebar.sections.lazy.flatMap(\.items).compactMap { item -> NavigationDestination? in
+			guard case let .destination(.library(listedScope, title)) = item.kind, listedScope == scope else {
+				return nil
+			}
+			return .library(listedScope, title: title)
+		}.first
 	}
 
 	/// Shows the place in a navigation that has not moved yet.

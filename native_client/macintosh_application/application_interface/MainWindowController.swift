@@ -21,7 +21,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate {
 	let preferences: ApplicationPreferences
 	/// The place restored at launch, until the first facets show whether the copy still holds it.
 	var restoredPlace: RememberedLibraryPlace?
-	private let wordingContextProvider: () -> ApplicationWordingContext
+	let wordingContextProvider: () -> ApplicationWordingContext
 	private let onAttendanceChanged: (Bool) -> Void
 
 	private let containerController = WindowContainerViewController()
@@ -60,8 +60,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate {
 			backing: .buffered,
 			defer: false
 		)
-		// The content fills the frame under the toolbar, so its minimum is the frame's; a frame minimum
-		// of 560 points became a content minimum of 580.
+		// A frame's minimum counts the toolbar, which the content runs under.
 		mainWindow.contentMinSize = NSSize(width: 900, height: 560)
 		mainWindow.title = "Schublade"
 		mainWindow.toolbarStyle = .unified
@@ -77,7 +76,7 @@ final class MainWindowController: NSWindowController, NSWindowDelegate {
 
 		super.init(window: mainWindow)
 		mainWindow.delegate = self
-		navigation.inspectorVisible = mainWindow.frame.width >= 1280
+		navigation.inspectorVisible = preferences.inspectorVisible
 		restoredPlace = preferences.libraryPlace
 		restoredPlace?.restore(into: &navigation)
 		configureToolbar()

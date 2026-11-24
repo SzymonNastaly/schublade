@@ -65,25 +65,37 @@ struct LibraryListPresentationTests {
 		#expect(folderWorkspace.searchPlaceholder == "Search All Documents")
 	}
 
-	@Test func theRememberedPlaceSurvivesItsStoredValuesAndFallsBackWhenItsScopeIsGone() throws {
+	@Test func theRememberedPlaceSurvivesItsStoredValuesAndReturnsOnlyAsTheSidebarListsIt() throws {
 		let invoice = CategoryIdentifier(value: "c1")
 		let reading = LibraryNavigationState(
-			destination: .library(.category(category: invoice), title: "Invoice"),
+			destination: .library(.category(category: invoice), title: "Invoices Before Renaming"),
 			selectedDocument: DocumentIdentifier(value: "d7")
 		)
 		let place = try #require(RememberedLibraryPlace(reading))
 		let restored = try #require(RememberedLibraryPlace(storedValues: place.storedValues))
 		var navigation = LibraryNavigationState()
 		restored.restore(into: &navigation)
-		#expect(navigation.destination == .library(.category(category: invoice), title: "Invoice"))
+		#expect(navigation.destination == .library(.category(category: invoice), title: "Invoices Before Renaming"))
 		#expect(navigation.selectedDocument == DocumentIdentifier(value: "d7"))
-		#expect(restored.isHeld(by: WindowContentAndSidebarTests.makeFacets()))
-		#expect(!RememberedLibraryPlace(
-			scope: .category(category: CategoryIdentifier(value: "gone")),
-			scopeName: "Gone",
-			document: nil
-		)
-		.isHeld(by: WindowContentAndSidebarTests.makeFacets()))
+
+		func sidebar(inIngestion: UInt64) -> SidebarPresentation {
+			SidebarPresentation.resolve(
+				statuses: WindowContentAndSidebarTests.makeStatuses(),
+				facets: WindowContentAndSidebarTests.makeFacets(inIngestion: inIngestion),
+				context: WindowContentAndSidebarTests.fixedContext()
+			)
+		}
+		func rememberedPlace(_ scope: LibraryScope) -> RememberedLibraryPlace {
+			RememberedLibraryPlace(scope: scope, scopeName: nil, document: nil)
+		}
+		#expect(restored.listedDestination(in: sidebar(inIngestion: 0))
+			== .library(.category(category: invoice), title: "Invoice"))
+		let removedCategory = rememberedPlace(.category(category: CategoryIdentifier(value: "gone")))
+		#expect(removedCategory.listedDestination(in: sidebar(inIngestion: 0)) == nil)
+		let arriving = rememberedPlace(.inIngestion)
+		#expect(arriving.listedDestination(in: sidebar(inIngestion: 0)) == nil)
+		#expect(arriving.listedDestination(in: sidebar(inIngestion: 2)) == .library(.inIngestion, title: nil))
+		#expect(rememberedPlace(.failed).listedDestination(in: sidebar(inIngestion: 2)) == nil)
 
 		let sender = LibraryNavigationState(
 			destination: .library(.sender(sender: SenderIdentifier(value: "s1")), title: "Nordbank AG"),

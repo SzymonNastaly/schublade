@@ -6,6 +6,9 @@ extension MainWindowController {
 	func updateNavigation(_ mutate: (inout LibraryNavigationState) -> Void) {
 		mutate(&navigation)
 		rememberPlace()
+		if preferences.inspectorVisible != navigation.inspectorVisible {
+			preferences.inspectorVisible = navigation.inspectorVisible
+		}
 		render(latestSituation)
 	}
 
@@ -34,15 +37,18 @@ extension MainWindowController {
 		}
 	}
 
-	/// A member, category, or tag removed since the last launch leaves All Documents in its place.
+	/// The restored place takes the title the sidebar shows now, and a place the sidebar no longer
+	/// lists, such as a removed category or Arriving with nothing arriving, leaves All Documents.
 	func checkRestoredPlace(against facets: LibraryFacets) {
-		guard let place = restoredPlace else {
+		guard let place = restoredPlace, case let .running(statuses) = latestSituation else {
 			return
 		}
 		restoredPlace = nil
-		if !place.isHeld(by: facets), navigation.destination == .library(place.scope, title: place.scopeName) {
-			navigation.destination = .library(.allDocuments, title: nil)
-			rememberPlace()
+		guard navigation.destination == .library(place.scope, title: place.scopeName) else {
+			return
 		}
+		let sidebar = SidebarPresentation.resolve(statuses: statuses, facets: facets, context: wordingContextProvider())
+		navigation.destination = place.listedDestination(in: sidebar) ?? .library(.allDocuments, title: nil)
+		rememberPlace()
 	}
 }

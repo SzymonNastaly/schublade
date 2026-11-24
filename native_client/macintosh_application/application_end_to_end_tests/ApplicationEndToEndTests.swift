@@ -35,6 +35,7 @@ final class ApplicationEndToEndTests: XCTestCase, InterfaceProbing {
 		)
 		try await verifyCollectedDocumentArrives(in: window, tableView: tableView, controller: controller)
 		verifyWindowReopen(window: window, tableView: tableView, controller: controller)
+		try await verifyToolbarFollowsANewSplitView(in: window, controller: controller)
 	}
 }
 
@@ -258,6 +259,7 @@ private extension ApplicationEndToEndTests {
 		)
 		try verifyDividersSurvivePages(enrolled, in: window, controller: controller)
 		try await verifyInspectorMenuItem(controller: controller)
+		try await verifyInspectorGivesWayAndReturns(in: window, controller: controller)
 	}
 
 	/// View > Hide Inspector hides the inspector and then reads Show Inspector.
