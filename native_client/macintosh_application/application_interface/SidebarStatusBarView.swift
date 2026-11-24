@@ -10,6 +10,8 @@ final class SidebarStatusBarView: NSView {
 	private let statusLabel = NSTextField(labelWithString: "")
 	private let progressIndicator = NSProgressIndicator()
 	private var onPressHandler: (() -> Void)?
+	/// The attention sentence VoiceOver last announced, so each change is announced once.
+	private var announcedAttention: String?
 
 	override init(frame frameRect: NSRect) {
 		super.init(frame: frameRect)
@@ -28,7 +30,8 @@ final class SidebarStatusBarView: NSView {
 		symbolView.contentTintColor = InterfacePalette.statusLineSymbol(presentation.tone)
 		statusLabel.stringValue = presentation.text
 		statusLabel.textColor = presentation.tone == .attention ? InterfacePalette.attention : .secondaryLabelColor
-		button.isEnabled = presentation.allowsSynchronize || presentation.allowsTokenReplacement
+		let acts = presentation.allowsSynchronize || presentation.allowsTokenReplacement
+		button.isEnabled = acts
 		button.toolTip = if presentation.allowsTokenReplacement {
 			"Replace Token…"
 		} else if presentation.allowsSynchronize {
@@ -36,6 +39,13 @@ final class SidebarStatusBarView: NSView {
 		} else {
 			nil
 		}
+		// The line speaks as its button while a click acts, and as its sentence otherwise. The symbol
+		// repeats what the sentence says.
+		button.setAccessibilityElement(acts)
+		button.setAccessibilityLabel(presentation.text)
+		button.setAccessibilityHelp(button.toolTip)
+		statusLabel.setAccessibilityElement(!acts)
+		announceAttention(presentation)
 
 		if let progress = presentation.progress {
 			progressIndicator.doubleValue = progress
@@ -43,6 +53,26 @@ final class SidebarStatusBarView: NSView {
 		} else {
 			progressIndicator.isHidden = true
 		}
+	}
+
+	/// A refused token, an outdated archive, or a fault is announced once when it appears.
+	private func announceAttention(_ presentation: StatusLinePresentation) {
+		guard presentation.tone == .attention else {
+			announcedAttention = nil
+			return
+		}
+		guard presentation.text != announcedAttention else {
+			return
+		}
+		announcedAttention = presentation.text
+		NSAccessibility.post(
+			element: self,
+			notification: .announcementRequested,
+			userInfo: [
+				.announcement: presentation.text,
+				.priority: NSAccessibilityPriorityLevel.high.rawValue,
+			]
+		)
 	}
 
 	private func configureControls() {
@@ -54,6 +84,7 @@ final class SidebarStatusBarView: NSView {
 		button.setAccessibilityIdentifier(InterfaceIdentifier.sidebarStatusButton)
 
 		symbolView.symbolConfiguration = NSImage.SymbolConfiguration(textStyle: .subheadline)
+		symbolView.setAccessibilityElement(false)
 		symbolView.setContentHuggingPriority(.required, for: .horizontal)
 		symbolView.setContentCompressionResistancePriority(.required, for: .horizontal)
 

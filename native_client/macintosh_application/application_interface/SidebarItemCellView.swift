@@ -10,6 +10,17 @@ final class SidebarItemCellView: NSTableCellView {
 	private let countField = NSTextField(labelWithString: "")
 	private let spinner = NSProgressIndicator()
 	private let accessorySymbolView = NSImageView()
+	private var sectionColor = NSColor.secondaryLabelColor
+	private var titleColor = NSColor.labelColor
+
+	/// An emphasized selection, the accent fill of a sidebar that has the keyboard, takes every part
+	/// in the selected text colour, as the system's sidebars do, because the section colours measure
+	/// about 1.1:1 on the light accent fill.
+	override var backgroundStyle: NSView.BackgroundStyle {
+		didSet {
+			applyColors()
+		}
+	}
 
 	override init(frame frameRect: NSRect) {
 		super.init(frame: frameRect)
@@ -24,9 +35,10 @@ final class SidebarItemCellView: NSTableCellView {
 
 	func configure(with presentation: SidebarItemPresentation) {
 		symbolView.image = NSImage(systemSymbolName: presentation.symbolName, accessibilityDescription: nil)
-		symbolView.contentTintColor = Self.symbolColor(of: presentation.kind)
+		sectionColor = Self.symbolColor(of: presentation.kind)
 		titleField.stringValue = presentation.title
-		titleField.textColor = presentation.kind == .addFolder ? .secondaryLabelColor : .labelColor
+		titleColor = presentation.kind == .addFolder ? .secondaryLabelColor : .labelColor
+		applyColors()
 		setAccessibilityIdentifier("sidebarItem.\(presentation.id)")
 
 		countField.isHidden = true
@@ -51,6 +63,15 @@ final class SidebarItemCellView: NSTableCellView {
 		}
 	}
 
+	private func applyColors() {
+		let emphasized = backgroundStyle == .emphasized
+		let selectedText = NSColor.alternateSelectedControlTextColor
+		symbolView.contentTintColor = emphasized ? selectedText : sectionColor
+		accessorySymbolView.contentTintColor = emphasized ? selectedText : InterfacePalette.attention
+		titleField.textColor = emphasized ? selectedText : titleColor
+		countField.textColor = emphasized ? selectedText : .secondaryLabelColor
+	}
+
 	private func configureViews() {
 		symbolView.symbolConfiguration = NSImage.SymbolConfiguration(textStyle: .body)
 		symbolView.setContentHuggingPriority(.required, for: .horizontal)
@@ -58,13 +79,11 @@ final class SidebarItemCellView: NSTableCellView {
 
 		titleField.font = NSFont.preferredFont(forTextStyle: .body)
 		titleField.lineBreakMode = .byTruncatingTail
-		// The title takes the row's free width, so every accessory stands at the trailing edge.
 		titleField.setContentHuggingPriority(.defaultLow, for: .horizontal)
 		titleField.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
 
 		let subheadline = NSFont.preferredFont(forTextStyle: .subheadline)
 		countField.font = NSFont.monospacedDigitSystemFont(ofSize: subheadline.pointSize, weight: .regular)
-		countField.textColor = .secondaryLabelColor
 		countField.alignment = .right
 		countField.setContentHuggingPriority(.required, for: .horizontal)
 		countField.setContentCompressionResistancePriority(.required, for: .horizontal)
@@ -75,7 +94,6 @@ final class SidebarItemCellView: NSTableCellView {
 		spinner.setContentHuggingPriority(.required, for: .horizontal)
 
 		accessorySymbolView.symbolConfiguration = NSImage.SymbolConfiguration(textStyle: .body)
-		accessorySymbolView.contentTintColor = InterfacePalette.attention
 		accessorySymbolView.setContentHuggingPriority(.required, for: .horizontal)
 		accessorySymbolView.setContentCompressionResistancePriority(.required, for: .horizontal)
 	}
