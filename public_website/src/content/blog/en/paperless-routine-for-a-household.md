@@ -2,6 +2,7 @@
 title: "A paperless routine for a household that lasts"
 description: "A simple weekly routine for going paperless at home. One tray, scanning on the phone, forwarding emails, no filing by hand, and what to keep on paper."
 publishedOn: 2026-11-24
+updatedOn: 2026-11-25
 translationKey: paperless-routine
 tags: ["paperless", "household"]
 ---
@@ -33,7 +34,7 @@ A flatbed scanner is no longer needed for household paper. A phone camera reads 
 - Fit the whole page in the frame, and hold the phone parallel to the paper.
 - Keep pages of one letter together as one document.
 
-A document scanner app finds the page edges, straightens the perspective, and saves all pages as one PDF. With Schublade, the [iPhone app](/iphone/) does this with the system's document camera and sends the PDF straight to your archive. It is coming soon. Until then, the [web app](/web/) works from the phone's home screen and takes photos with the camera.
+A document scanner app finds the page edges, straightens the perspective, and saves all pages as one PDF. With Schublade, the [iPhone app](/iphone/) does this with the system's document camera and sends the PDF straight to your archive. Without an iPhone, the [web app](/web/) works from the phone's home screen and takes photos with the camera.
 
 You do not need to worry about which way up the phone was. Schublade applies the photo's rotation tag, and it reads a sideways page at all four rotations when the first reading fails. [How Schublade reads a photographed receipt](/blog/how-schublade-reads-a-photographed-receipt/) explains the details.
 

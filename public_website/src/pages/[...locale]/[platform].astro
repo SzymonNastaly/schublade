@@ -7,8 +7,15 @@ import { readBlogPosts, readComparisons } from "../../content_entries.ts"
 import { INTERFACE_TEXT } from "../../localization/interface_text.ts"
 import { localeParameters, localizedPath, type Locale } from "../../localization/locales.ts"
 import { PLATFORM_SECTIONS } from "../../platform_presentation.ts"
-import { SCREENSHOTS, type ScreenshotName } from "../../screenshots.ts"
-import { DEPLOYMENT_GUIDE_URL, PLATFORM_ORDER, PLATFORMS, REPOSITORY_URL, type Platform } from "../../site_configuration.ts"
+import { screenshotShape, type ScreenshotName } from "../../screenshots.ts"
+import {
+	APP_STORE_URL,
+	DEPLOYMENT_GUIDE_URL,
+	PLATFORM_ORDER,
+	PLATFORMS,
+	REPOSITORY_URL,
+	type Platform,
+} from "../../site_configuration.ts"
 import { softwareApplication } from "../../structured_data.ts"
 
 export function getStaticPaths() {
@@ -62,7 +69,16 @@ const comparisons = (await readComparisons()).filter((comparison) => comparison.
 		<p class="availability-note">{pageText.availabilityNote}</p>
 		<div class="actions">
 			{
-				availability === "available" ? (
+				platform === "iphone" ? (
+					<>
+						<a class="app-store-badge" href={APP_STORE_URL}>
+							<img src="/app_store_badge.svg" alt={text.platformPage.appStoreAction} width="150" height="50" />
+						</a>
+						<a class="button button--secondary" href={DEPLOYMENT_GUIDE_URL}>
+							{text.platformPage.deployArchiveAction}
+						</a>
+					</>
+				) : availability === "available" ? (
 					<a class="button button--primary" href={DEPLOYMENT_GUIDE_URL}>
 						{text.platformPage.deployAction}
 					</a>
@@ -81,7 +97,7 @@ const comparisons = (await readComparisons()).filter((comparison) => comparison.
 				<section
 					class:list={[
 						"feature",
-						section.screenshot && `feature--${SCREENSHOTS[section.screenshot].frame}`,
+						section.screenshot && `feature--${screenshotShape(section.screenshot)}`,
 					]}
 				>
 					<div class="feature__text">
@@ -92,7 +108,7 @@ const comparisons = (await readComparisons()).filter((comparison) => comparison.
 						)}
 					</div>
 					{section.screenshot &&
-						(SCREENSHOTS[section.screenshot].frame === "window" ? (
+						(screenshotShape(section.screenshot) === "wide" ? (
 							<ScreenshotPicture
 								locale={locale}
 								name={section.screenshot}
@@ -104,7 +120,7 @@ const comparisons = (await readComparisons()).filter((comparison) => comparison.
 								locale={locale}
 								name={section.screenshot}
 								displayWidth={300}
-								sizes="(min-width: 720px) 300px, 70vw"
+								sizes="(min-width: 720px) 300px, 72vw"
 							/>
 						))}
 				</section>

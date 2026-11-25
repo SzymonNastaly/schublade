@@ -1,12 +1,14 @@
 export const WEBSITE_ORIGIN = "https://schublade.org"
 export const REPOSITORY_URL = "https://github.com/SzymonNastaly/schublade"
 export const DEPLOYMENT_GUIDE_URL = `${REPOSITORY_URL}#deploy`
+export const LICENSE_URL = `${REPOSITORY_URL}/blob/main/LICENSE`
+export const APP_STORE_URL = "https://apps.apple.com/app/id6838529522"
 
 export type PlatformAvailability = "available" | "coming_soon"
 
 export const PLATFORMS = {
 	web: { label: "Web", availability: "available", path: "web/" },
-	iphone: { label: "iPhone", availability: "coming_soon", path: "iphone/" },
+	iphone: { label: "iPhone", availability: "available", path: "iphone/" },
 	mac: { label: "Mac", availability: "coming_soon", path: "mac/" },
 } as const satisfies Record<string, { label: string; availability: PlatformAvailability; path: string }>
 

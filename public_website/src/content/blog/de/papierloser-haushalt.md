@@ -2,6 +2,7 @@
 title: "Papierloser Haushalt mit einer Routine, die hält"
 description: "So digitalisierst du Rechnungen, Kontoauszüge und Verträge im Alltag. Ein Ablagekorb, Scannen mit dem Handy, Mails weiterleiten und nichts mehr benennen."
 publishedOn: 2026-11-24
+updatedOn: 2026-11-25
 translationKey: paperless-routine
 tags: ["papierlos", "Haushalt"]
 ---
@@ -33,7 +34,7 @@ Für die Unterlagen eines Haushalts brauchst du keinen Flachbettscanner mehr. Ei
 - Bring die ganze Seite ins Bild und halt das Handy parallel zum Papier.
 - Halte die Seiten eines Briefs als ein Dokument zusammen.
 
-Eine Scanner-App findet die Kanten der Seite, richtet die Perspektive gerade und speichert alle Seiten als ein PDF. Bei Schublade erledigt das die [iPhone-App](/de/iphone/) mit der Dokumentenkamera des Systems und schickt das PDF direkt in dein Archiv. Sie kommt bald. Bis dahin funktioniert die [Web-App](/de/web/) vom Home-Bildschirm des Handys aus und macht Fotos mit der Kamera.
+Eine Scanner-App findet die Kanten der Seite, richtet die Perspektive gerade und speichert alle Seiten als ein PDF. Bei Schublade erledigt das die [iPhone-App](/de/iphone/) mit der Dokumentenkamera des Systems und schickt das PDF direkt in dein Archiv. Ohne iPhone funktioniert die [Web-App](/de/web/) vom Home-Bildschirm des Handys aus und macht Fotos mit der Kamera.
 
 Wie herum du das Handy gehalten hast, ist egal. Schublade wendet die Drehung aus dem Foto an und liest eine quer liegende Seite in allen vier Drehungen, wenn der erste Versuch scheitert. Mehr dazu steht in [Wie Schublade einen fotografierten Beleg liest](/de/blog/wie-schublade-einen-fotografierten-beleg-liest/).
 

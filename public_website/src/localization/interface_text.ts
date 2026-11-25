@@ -43,13 +43,20 @@ export interface InterfaceText {
 		platformsHeading: string
 		stepsHeading: string
 		steps: ReadonlyArray<{ title: string; text: string }>
+		/** Short facts under the hero's actions that say who runs the archive. */
+		principles: ReadonlyArray<string>
 		ownershipHeading: string
-		ownershipParagraphs: ReadonlyArray<string>
+		ownershipLead: string
+		ownershipItems: ReadonlyArray<{ title: string; text: string }>
+		ownershipCosts: string
 		sourceAction: string
+		licenseAction: string
 	}
 	platformPages: { [P in Platform]: PlatformPageText<P> }
 	platformPage: {
 		deployAction: string
+		appStoreAction: string
+		deployArchiveAction: string
 		relatedPostsHeading: string
 		comparisonsHeading: string
 	}
@@ -99,7 +106,7 @@ const english: InterfaceText = {
 			"Schublade reads, names, and files your letters, invoices, and receipts on your own Cloudflare account. Scan, upload, or forward mail, then search everything.",
 		headline: "Your paperwork, read, filed, and easy to find.",
 		subheadline:
-			"Send Schublade a letter, an invoice, or a photo of a receipt. It names and files the document on your own Cloudflare account, and you find it again with a search.",
+			"Schublade is open-source software that you run on your own Cloudflare account. Send it a letter, an invoice, or a photo of a receipt. It names and files the document, and you find it again with a search.",
 		deployAction: "Deploy it",
 		platformsAction: "Web, iPhone, and Mac",
 		platformsHeading: "One archive, three ways to use it",
@@ -118,12 +125,32 @@ const english: InterfaceText = {
 				text: "Search by keyword or by meaning, across languages. Each file is kept once, however often it arrives.",
 			},
 		],
-		ownershipHeading: "Your files stay on your account",
-		ownershipParagraphs: [
-			"Schublade runs as one Cloudflare Worker on your own Cloudflare account. The original files, the extracted text, and the models that read them all stay there. You need no third-party model provider and no API key.",
-			"You need a Cloudflare account on the Workers Paid plan. Classifying a document costs about 0.0023 USD, and reading a scanned page or a photo about 0.0008 USD. A PDF with a readable text layer skips text recognition.",
+		principles: ["Open source (AGPL-3.0)", "Runs on your own Cloudflare account", "Your documents never reach us"],
+		ownershipHeading: "Open source. Self-hosted. Bring your own everything.",
+		ownershipLead:
+			"Schublade is software, not a service. There is no Schublade account and no Schublade server. You deploy the archive to your own Cloudflare account, and every app talks only to that archive. Your documents never reach us.",
+		ownershipItems: [
+			{
+				title: "Your Cloudflare account",
+				text: "The Worker, the database, the file storage, and the search index are created on your account, and Cloudflare bills you directly.",
+			},
+			{
+				title: "Your AI",
+				text: "Workers AI on your account reads and classifies each document. You need no third-party model provider and no API key.",
+			},
+			{
+				title: "Your address and sign-in",
+				text: "The archive answers at your address, behind Cloudflare Access, for the email addresses you allow.",
+			},
+			{
+				title: "Your copy of the code",
+				text: "The source code is on GitHub under the AGPL-3.0. Read it, change it, and deploy your own version.",
+			},
 		],
+		ownershipCosts:
+			"You need a Cloudflare account on the Workers Paid plan. Classifying a document costs about 0.0023 USD, and reading a scanned page or a photo about 0.0008 USD. A PDF with a readable text layer skips text recognition.",
 		sourceAction: "Source code on GitHub",
+		licenseAction: "AGPL-3.0 license",
 	},
 	platformPages: {
 		web: {
@@ -134,7 +161,7 @@ const english: InterfaceText = {
 			heading: "Your archive in the browser",
 			introduction:
 				"The web app is the archive itself. You deploy it to your own Cloudflare account, and everyone in your household signs in to the same documents.",
-			availabilityNote: "You deploy it yourself, from the source code on GitHub.",
+			availabilityNote: "Open source. You deploy it yourself, from the source code on GitHub.",
 			landingSummary: "The full archive in your browser. Upload files, forward email, or post them from a script.",
 			sections: {
 				arrival: {
@@ -192,7 +219,8 @@ const english: InterfaceText = {
 			heading: "Scan paper where it arrives",
 			introduction:
 				"Paper reaches you on the kitchen table, not at a desk. The iPhone app turns a letter into an archived document in one step and carries your whole archive with you.",
-			availabilityNote: "The app works with your archive today. It is not on the App Store yet.",
+			availabilityNote:
+				"Free on the App Store. The app connects to an archive you deployed yourself, and it has no account or server of its own.",
 			landingSummary: "Scan paper with the camera, share files from any app, and read your archive offline.",
 			sections: {
 				scan: {
@@ -272,6 +300,8 @@ const english: InterfaceText = {
 	},
 	platformPage: {
 		deployAction: "Deploy it",
+		appStoreAction: "Download on the App Store",
+		deployArchiveAction: "Deploy your archive",
 		relatedPostsHeading: "From the blog",
 		comparisonsHeading: "Compare Schublade",
 	},
@@ -328,7 +358,8 @@ const english: InterfaceText = {
 	},
 	breadcrumbHome: "Home",
 	footer: {
-		summary: "A self-hosted document archive on your own Cloudflare account.",
+		summary:
+			"An open-source document archive that you host on your own Cloudflare account. We never see your documents.",
 		productHeading: "Product",
 		resourcesHeading: "Resources",
 		informationHeading: "Help and legal",
@@ -360,7 +391,7 @@ const german: InterfaceText = {
 			"Schublade liest, benennt und sortiert Briefe, Rechnungen und Belege auf deinem eigenen Cloudflare-Konto. Scannen, hochladen oder mailen, dann alles finden.",
 		headline: "Dein Papierkram, gelesen, abgelegt und schnell gefunden.",
 		subheadline:
-			"Schick Schublade einen Brief, eine Rechnung oder ein Foto vom Kassenbon. Schublade benennt das Dokument, legt es auf deinem eigenen Cloudflare-Konto ab, und du findest es mit einer Suche wieder.",
+			"Schublade ist Open-Source-Software, die du auf deinem eigenen Cloudflare-Konto betreibst. Schick Schublade einen Brief, eine Rechnung oder ein Foto vom Kassenbon. Schublade benennt und ordnet das Dokument ein, und du findest es mit einer Suche wieder.",
 		deployAction: "Selbst einrichten",
 		platformsAction: "Web, iPhone und Mac",
 		platformsHeading: "Ein Archiv, drei Wege dorthin",
@@ -379,12 +410,36 @@ const german: InterfaceText = {
 				text: "Such nach Stichwort oder Bedeutung, auch über Sprachen hinweg. Jede Datei liegt nur einmal im Archiv, egal wie oft sie ankommt.",
 			},
 		],
-		ownershipHeading: "Deine Dateien bleiben auf deinem Konto",
-		ownershipParagraphs: [
-			"Schublade läuft als ein Cloudflare Worker auf deinem eigenen Cloudflare-Konto. Die Originaldateien, der erkannte Text und die Modelle, die ihn lesen, bleiben dort. Du brauchst keinen fremden KI-Anbieter und keinen API-Schlüssel.",
-			"Du brauchst ein Cloudflare-Konto mit dem Workers-Paid-Tarif. Das Einordnen eines Dokuments kostet etwa 0,0023 USD, das Lesen einer gescannten Seite oder eines Fotos etwa 0,0008 USD. Ein PDF mit lesbarer Textebene braucht keine Texterkennung.",
+		principles: [
+			"Open Source (AGPL-3.0)",
+			"Läuft auf deinem eigenen Cloudflare-Konto",
+			"Deine Dokumente erreichen uns nie",
 		],
+		ownershipHeading: "Open Source. Selbst gehostet. Alles bringst du selbst mit.",
+		ownershipLead:
+			"Schublade ist Software, kein Dienst. Es gibt kein Schublade-Konto und keinen Schublade-Server. Du richtest das Archiv auf deinem eigenen Cloudflare-Konto ein, und jede App spricht nur mit diesem Archiv. Deine Dokumente erreichen uns nie.",
+		ownershipItems: [
+			{
+				title: "Dein Cloudflare-Konto",
+				text: "Worker, Datenbank, Dateispeicher und Suchindex entstehen auf deinem Konto, und Cloudflare rechnet direkt mit dir ab.",
+			},
+			{
+				title: "Deine KI",
+				text: "Workers AI auf deinem Konto liest jedes Dokument und ordnet es ein. Du brauchst keinen fremden KI-Anbieter und keinen API-Schlüssel.",
+			},
+			{
+				title: "Deine Adresse und Anmeldung",
+				text: "Das Archiv antwortet unter deiner Adresse, hinter Cloudflare Access, für die E-Mail-Adressen, die du erlaubst.",
+			},
+			{
+				title: "Deine Kopie des Codes",
+				text: "Der Quellcode liegt unter der AGPL-3.0 auf GitHub. Lies ihn, ändere ihn und richte deine eigene Version ein.",
+			},
+		],
+		ownershipCosts:
+			"Du brauchst ein Cloudflare-Konto mit dem Workers-Paid-Tarif. Das Einordnen eines Dokuments kostet etwa 0,0023 USD, das Lesen einer gescannten Seite oder eines Fotos etwa 0,0008 USD. Ein PDF mit lesbarer Textebene braucht keine Texterkennung.",
 		sourceAction: "Quellcode auf GitHub",
+		licenseAction: "Lizenz AGPL-3.0",
 	},
 	platformPages: {
 		web: {
@@ -395,7 +450,7 @@ const german: InterfaceText = {
 			heading: "Dein Archiv im Browser",
 			introduction:
 				"Die Web-App ist das Archiv selbst. Du richtest sie auf deinem eigenen Cloudflare-Konto ein, und alle in deinem Haushalt melden sich bei denselben Dokumenten an.",
-			availabilityNote: "Du richtest es selbst ein, mit dem Quellcode von GitHub.",
+			availabilityNote: "Open Source. Du richtest es selbst ein, mit dem Quellcode von GitHub.",
 			landingSummary:
 				"Das ganze Archiv im Browser. Lade Dateien hoch, leite E-Mails weiter oder schick sie per Skript.",
 			sections: {
@@ -454,7 +509,8 @@ const german: InterfaceText = {
 			heading: "Scanne Papier dort, wo es ankommt",
 			introduction:
 				"Post landet auf dem Küchentisch, nicht am Schreibtisch. Die iPhone-App macht aus einem Brief in einem Schritt ein archiviertes Dokument und hat dein ganzes Archiv dabei.",
-			availabilityNote: "Die App funktioniert schon mit deinem Archiv. Sie ist noch nicht im App Store.",
+			availabilityNote:
+				"Kostenlos im App Store. Die App verbindet sich mit einem Archiv, das du selbst eingerichtet hast, und hat kein eigenes Konto und keinen eigenen Server.",
 			landingSummary: "Scanne Papier mit der Kamera, teile Dateien aus jeder App und lies dein Archiv auch offline.",
 			sections: {
 				scan: {
@@ -535,6 +591,8 @@ const german: InterfaceText = {
 	},
 	platformPage: {
 		deployAction: "Selbst einrichten",
+		appStoreAction: "Laden im App Store",
+		deployArchiveAction: "Archiv einrichten",
 		relatedPostsHeading: "Aus dem Blog",
 		comparisonsHeading: "Schublade im Vergleich",
 	},
@@ -591,7 +649,8 @@ const german: InterfaceText = {
 	},
 	breadcrumbHome: "Start",
 	footer: {
-		summary: "Ein selbst gehostetes Dokumentenarchiv auf deinem eigenen Cloudflare-Konto.",
+		summary:
+			"Ein Open-Source-Dokumentenarchiv, das du auf deinem eigenen Cloudflare-Konto betreibst. Deine Dokumente sehen wir nie.",
 		productHeading: "Produkt",
 		resourcesHeading: "Mehr",
 		informationHeading: "Hilfe und Rechtliches",

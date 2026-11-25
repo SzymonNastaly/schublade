@@ -2,6 +2,7 @@
 title: "Schublade vorgestellt, dein selbst gehostetes Dokumentenarchiv"
 description: "Schublade legt Rechnungen, Belege und Briefe deines Haushalts in deinem eigenen Cloudflare-Konto ab. Was es kann, für wen es passt und was es kostet."
 publishedOn: 2026-11-20
+updatedOn: 2026-11-25
 translationKey: introducing-schublade
 tags: ["Ankündigung", "Selbst hosten"]
 ---
@@ -42,7 +43,7 @@ Die [Web-App](/de/web/) gibt es jetzt. Du richtest sie mit einem Befehl in deine
 
 ### Die iPhone-App
 
-Die [iPhone-App](/de/iphone/) kommt bald. Sie funktioniert schon, ist aber noch nicht im App Store. Sie ersetzt eine eigene Scanner-App. Du tippst auf Scan, die Dokumentenkamera des Systems findet die Seite und richtet sie gerade, und Save schickt alle Seiten als ein PDF ans Archiv. Du benennst den Scan nicht und wählst keinen Ordner, das erledigt das Archiv. Schublade taucht außerdem im Teilen-Menü von Mail, Dateien, Safari und Fotos auf. Uploads laufen im Hintergrund weiter. Ein Scan aus dem Keller ohne Netz kommt also später an.
+Die [iPhone-App](/de/iphone/) ist kostenlos im App Store und verbindet sich mit dem Archiv, das du eingerichtet hast. Sie ersetzt eine eigene Scanner-App. Du tippst auf Scan, die Dokumentenkamera des Systems findet die Seite und richtet sie gerade, und Save schickt alle Seiten als ein PDF ans Archiv. Du benennst den Scan nicht und wählst keinen Ordner, das erledigt das Archiv. Schublade taucht außerdem im Teilen-Menü von Mail, Dateien, Safari und Fotos auf. Uploads laufen im Hintergrund weiter. Ein Scan aus dem Keller ohne Netz kommt also später an.
 
 Die App hält eine Kopie der Archivdaten auf dem iPhone. Du blätterst, suchst und liest darin, auch offline.
 

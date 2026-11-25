@@ -4,7 +4,7 @@ import PageLayout from "../../components/page_layout.astro"
 import ScreenshotPicture from "../../components/screenshot_picture.astro"
 import { INTERFACE_TEXT } from "../../localization/interface_text.ts"
 import { localeParameters, localizedPath, type Locale } from "../../localization/locales.ts"
-import { DEPLOYMENT_GUIDE_URL, PLATFORM_ORDER, PLATFORMS, REPOSITORY_URL } from "../../site_configuration.ts"
+import { DEPLOYMENT_GUIDE_URL, LICENSE_URL, PLATFORM_ORDER, PLATFORMS, REPOSITORY_URL } from "../../site_configuration.ts"
 import { softwareApplication, webSite } from "../../structured_data.ts"
 
 export function getStaticPaths() {
@@ -38,6 +38,9 @@ const landing = text.landing
 				<a class="button button--primary" href={DEPLOYMENT_GUIDE_URL}>{landing.deployAction}</a>
 				<a class="button button--secondary" href="#platforms">{landing.platformsAction}</a>
 			</div>
+			<ul class="principles">
+				{landing.principles.map((principle) => <li>{principle}</li>)}
+			</ul>
 		</div>
 		<div class="hero__showcase">
 			<ScreenshotPicture
@@ -56,6 +59,26 @@ const landing = text.landing
 				priority
 				class="hero__iphone"
 			/>
+		</div>
+	</section>
+
+	<section class="section ownership">
+		<h2>{landing.ownershipHeading}</h2>
+		<p class="ownership__lead">{landing.ownershipLead}</p>
+		<ul class="ownership__items">
+			{
+				landing.ownershipItems.map((item) => (
+					<li>
+						<h3>{item.title}</h3>
+						<p>{item.text}</p>
+					</li>
+				))
+			}
+		</ul>
+		<p>{landing.ownershipCosts}</p>
+		<div class="ownership__links">
+			<a class="arrow-link" href={REPOSITORY_URL}>{landing.sourceAction}</a>
+			<a class="arrow-link" href={LICENSE_URL}>{landing.licenseAction}</a>
 		</div>
 	</section>
 
@@ -93,9 +116,4 @@ const landing = text.landing
 		</ol>
 	</section>
 
-	<section class="section ownership">
-		<h2>{landing.ownershipHeading}</h2>
-		{landing.ownershipParagraphs.map((paragraph) => <p>{paragraph}</p>)}
-		<a class="arrow-link" href={REPOSITORY_URL}>{landing.sourceAction}</a>
-	</section>
 </PageLayout>

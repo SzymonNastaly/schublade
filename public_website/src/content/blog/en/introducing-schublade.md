@@ -2,6 +2,7 @@
 title: "Introducing Schublade, a document archive you host yourself"
 description: "Schublade files and indexes a household's letters, receipts, and PDFs on your own Cloudflare account. What it does, who it suits, and what it costs."
 publishedOn: 2026-11-20
+updatedOn: 2026-11-25
 translationKey: introducing-schublade
 tags: ["announcement", "self-hosting"]
 ---
@@ -42,7 +43,7 @@ The [web app](/web/) is available now. You deploy it to your own Cloudflare acco
 
 ### The iPhone app
 
-The [iPhone app](/iphone/) is coming soon. It works today, and it is not yet in the App Store. It replaces a separate scanner app. You tap Scan, the system's document camera finds the page and straightens it, and Save sends the pages to the archive as one PDF. You do not name the scan or choose a folder, because the archive does that. Schublade also appears in the share sheet of Mail, Files, Safari, and Photos. Uploads continue in the background, so a scan taken without a network reaches the archive later.
+The [iPhone app](/iphone/) is free on the App Store and connects to the archive you deployed. It replaces a separate scanner app. You tap Scan, the system's document camera finds the page and straightens it, and Save sends the pages to the archive as one PDF. You do not name the scan or choose a folder, because the archive does that. Schublade also appears in the share sheet of Mail, Files, Safari, and Photos. Uploads continue in the background, so a scan taken without a network reaches the archive later.
 
 The app keeps a copy of the archive's records on the phone. You browse, search, and read documents from that copy, also offline.
 

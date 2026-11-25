@@ -14,20 +14,71 @@ interface Props {
 	class?: string
 }
 
+/** A host under the example domain, standing for the address a household gives its own deployment. */
+const ARCHIVE_ADDRESS = "schublade.example.com"
+
 const { locale, name, displayWidth, sizes, priority = false, class: className } = Astro.props
 const { image, frame } = SCREENSHOTS[name]
 const widths = [displayWidth, displayWidth * 2].filter((width) => width <= image.width)
+const isBrowser = frame === "browser_window" || frame === "browser_phone"
 ---
 
-<Picture
-	src={image}
-	alt={INTERFACE_TEXT[locale].screenshotDescriptions[name]}
-	formats={["avif"]}
-	fallbackFormat="webp"
-	widths={widths}
-	sizes={sizes}
-	loading={priority ? "eager" : "lazy"}
-	fetchpriority={priority ? "high" : "auto"}
-	decoding="async"
-	class:list={["screenshot", `screenshot--${frame}`, className]}
-/>
+{
+	isBrowser ? (
+		<figure class:list={["browser-frame", `browser-frame--${frame}`, className]}>
+			<div class="browser-frame__chrome" aria-hidden="true">
+				{frame === "browser_phone" ? (
+					<div class="browser-frame__status">
+						<span>9:41</span>
+						<span class="browser-frame__camera" />
+						<svg viewBox="0 0 34 12" class="browser-frame__indicators">
+							<rect x="0" y="8" width="3" height="4" rx="1" />
+							<rect x="4.5" y="5.5" width="3" height="6.5" rx="1" />
+							<rect x="9" y="3" width="3" height="9" rx="1" />
+							<rect x="20" y="1" width="12" height="10" rx="3" fill="none" stroke="currentColor" />
+							<rect x="22" y="3" width="8" height="6" rx="1.5" />
+						</svg>
+					</div>
+				) : (
+					<span class="browser-frame__lights">
+						<i />
+						<i />
+						<i />
+					</span>
+				)}
+				<span class="browser-frame__address">
+					<svg viewBox="0 0 10 12" class="browser-frame__lock">
+						<rect x="1" y="5" width="8" height="7" rx="1.5" />
+						<path d="M3 5V3.5a2 2 0 0 1 4 0V5" fill="none" stroke="currentColor" stroke-width="1.4" />
+					</svg>
+					{ARCHIVE_ADDRESS}
+				</span>
+			</div>
+			<Picture
+				src={image}
+				alt={INTERFACE_TEXT[locale].screenshotDescriptions[name]}
+				formats={["avif"]}
+				fallbackFormat="webp"
+				widths={widths}
+				sizes={sizes}
+				loading={priority ? "eager" : "lazy"}
+				fetchpriority={priority ? "high" : "auto"}
+				decoding="async"
+				class="browser-frame__page"
+			/>
+		</figure>
+	) : (
+		<Picture
+			src={image}
+			alt={INTERFACE_TEXT[locale].screenshotDescriptions[name]}
+			formats={["avif"]}
+			fallbackFormat="webp"
+			widths={widths}
+			sizes={sizes}
+			loading={priority ? "eager" : "lazy"}
+			fetchpriority={priority ? "high" : "auto"}
+			decoding="async"
+			class:list={["device-mockup", `device-mockup--${frame}`, className]}
+		/>
+	)
+}
