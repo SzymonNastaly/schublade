@@ -1,7 +1,8 @@
 #!/bin/bash
 # Archives the Release application, exports it for App Store Connect signed with the team's App Store
 # profiles, and uploads it to the application's record as its next build. It submits nothing for
-# review and changes no metadata.
+# review. The one setting it changes is the release type of a version still in preparation, which it
+# makes automatic, so an approved version goes on sale without a manual release.
 #   native_client/iphone_application/scripts/upload_application_to_app_store.sh
 # Needs configuration/local_signing.xcconfig and configuration/app_store_export_options.plist from
 # scripts/provision_application_signing.rb, and asc signed in with the team key.
@@ -33,3 +34,14 @@ xcodebuild -quiet -project Schublade.xcodeproj -scheme Schublade -configuration 
 PATH="/usr/bin:$PATH" xcodebuild -quiet -exportArchive -archivePath "$archive" \
 	-exportOptionsPlist "$export_options" -exportPath "$exported"
 asc builds upload --app "$application_record" --ipa "$exported/Schublade.ipa" --verify-timeout 2m
+
+# The release type belongs to each version, so every version that App Store Connect still lets this
+# script edit takes AFTER_APPROVAL. A version created after this upload needs the same setting, which a
+# later upload or `asc versions update --release-type AFTER_APPROVAL` gives it.
+editable_states=PREPARE_FOR_SUBMISSION,DEVELOPER_REJECTED,REJECTED,METADATA_REJECTED,INVALID_BINARY
+asc versions list --app "$application_record" --platform IOS --state "$editable_states" |
+	jq -r '.data[] | select(.attributes.releaseType != "AFTER_APPROVAL") | .id' |
+	while read -r version; do
+		asc versions update --version-id "$version" --release-type AFTER_APPROVAL >/dev/null
+		echo "Version $version now goes on sale once approved."
+	done
