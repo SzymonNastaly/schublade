@@ -44,11 +44,19 @@ export function authorizationServerOptions(origin: string): OAuthProviderOptions
 	}
 }
 
+// The provider keeps no request state, so each origin's provider serves every request of the isolate.
+const providersByOrigin = new Map<string, OAuthProvider<ModelContextEnvironment>>()
+
 export function serveAuthorizationServer(
 	request: Request,
 	environment: ModelContextEnvironment,
 	context: ExecutionContext,
 ): Promise<Response> {
 	const { origin } = new URL(request.url)
-	return new OAuthProvider(authorizationServerOptions(origin)).fetch(request, environment, context)
+	let provider = providersByOrigin.get(origin)
+	if (provider === undefined) {
+		provider = new OAuthProvider(authorizationServerOptions(origin))
+		providersByOrigin.set(origin, provider)
+	}
+	return provider.fetch(request, environment, context)
 }

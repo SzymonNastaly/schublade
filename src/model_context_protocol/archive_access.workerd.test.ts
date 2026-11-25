@@ -2,7 +2,7 @@ import { applyD1Migrations, createExecutionContext, env, reset } from "cloudflar
 import { eq } from "drizzle-orm"
 import { expect, inject, test } from "vitest"
 import { connectDatabase } from "../database/client"
-import { categories, documentTags, documents, tags } from "../database/schema"
+import { categories, documentTags, documents, extractedFields, tags } from "../database/schema"
 import { contentObjectKey } from "../ingestion/source_file"
 import { createRequestDispatcher } from "../request_dispatch"
 import { listAuthorizedClients, recordAuthorizationGrant, revokeAuthorizedClient } from "./authorization_grants"
@@ -216,6 +216,53 @@ test("a client granted one category reads nothing else through search, listing, 
 		markdown: "# Werkhof invoice text",
 		refusedReading: { isError: true, text: `There is no document ${medicalLetter}` },
 		adding: [401, 401],
+	})
+})
+
+test("list_documents reads the listing 50 documents at a time, each page with its documents' tags and fields", async () => {
+	const database = await prepareArchive()
+	const added = Array.from(
+		{ length: 51 },
+		(_, index) => `e3000000-0000-4000-8000-${String(index + 1).padStart(12, "0")}`,
+	)
+	await database.batch([
+		database.insert(documentTags).values({ documentId: invoice, tagId: privateTag }),
+		database
+			.insert(extractedFields)
+			.values({ documentId: invoice, fieldKey: "amount", fieldType: "number", valueNumber: 12.5 }),
+		...added.map((id) =>
+			database.insert(documents).values({
+				id,
+				storageObjectKey: `documents/${id}/original.pdf`,
+				mimeType: "application/pdf",
+				byteSize: 1024,
+				status: "archived",
+			}),
+		),
+	])
+	const { accessToken } = await authorizeClient([["access", "everything"]])
+
+	type Listing = {
+		totalDocuments: number
+		nextOffset?: number
+		documents: Array<{ id: string; tags: Array<string>; fields: Record<string, unknown> }>
+	}
+	const first = await parsedText<Listing>(accessToken, "list_documents")
+	const last = await parsedText<Listing>(accessToken, "list_documents", { offset: first.nextOffset })
+
+	expect({
+		first: { totalDocuments: first.totalDocuments, listed: first.documents.length, nextOffset: first.nextOffset },
+		last,
+	}).toEqual({
+		first: { totalDocuments: 53, listed: 50, nextOffset: 50 },
+		last: {
+			totalDocuments: 53,
+			documents: [
+				expect.objectContaining({ id: added[0], tags: [], fields: {} }),
+				expect.objectContaining({ id: medicalLetter, tags: [], fields: {} }),
+				expect.objectContaining({ id: invoice, tags: ["private"], fields: { amount: 12.5 } }),
+			],
+		},
 	})
 })
 

@@ -53,13 +53,13 @@ function isListed(column: Column, identifiers: Array<string>): SQL {
 }
 
 /**
- * A merge deletes the tag it folds away and moves that tag's links to another tag in one batch.
- * Asking in the statement that reads the documents means no merge can slip in between and end the
- * denial without anyone deciding that, so such a scope admits nothing.
+ * Whether every tag of a JSON array of tag identifiers exists. A merge deletes the tag it folds
+ * away and moves that tag's links to another tag in one batch. Asking in the statement that reads
+ * the documents means no merge can slip in between and end the denial without anyone deciding
+ * that, so such a scope admits nothing.
  */
-function everyTagExists(tagIds: Array<string>): SQL {
-	const distinctTagIds = [...new Set(tagIds)]
-	return sql`(SELECT count(*) FROM ${tags} WHERE ${isListed(tags.id, distinctTagIds)}) = ${distinctTagIds.length}`
+export function everyTagExists(tagIdentifiers: SQL): SQL {
+	return sql`(SELECT count(*) FROM ${tags} WHERE ${tags.id} IN (SELECT value FROM json_each(${tagIdentifiers}))) = (SELECT count(DISTINCT value) FROM json_each(${tagIdentifiers}))`
 }
 
 /**
@@ -94,7 +94,7 @@ export function scopeAdmission(database: ArchiveDatabase, scope: AuthorizationSc
 		scope.allowedTags === undefined ? undefined : exists(linksToTags(scope.allowedTags)),
 		scope.deniedTags === undefined
 			? undefined
-			: and(everyTagExists(scope.deniedTags), notExists(linksToTags(scope.deniedTags))),
+			: and(everyTagExists(sql`${JSON.stringify(scope.deniedTags)}`), notExists(linksToTags(scope.deniedTags))),
 	)
 }
 
@@ -147,39 +147,62 @@ function listingConditions(database: ArchiveDatabase, criteria: ListingCriteria)
 	]
 }
 
-export async function queryDocumentListing(
-	database: ArchiveDatabase,
-	criteria: ListingCriteria = {},
-): Promise<Array<ListedDocument>> {
-	const [rows, fieldRows, tagRows] = await Promise.all([
-		database
-			.select({
-				id: documents.id,
-				status: documents.status,
-				title: documents.title,
-				documentDate: documents.documentDate,
-				senderName: senders.name,
-				categoryName: categories.name,
-				personMemberId: documents.personMemberId,
-				personName: householdMembers.displayName,
-				summary: documents.summary,
-				mimeType: documents.mimeType,
-				pageCount: documents.pageCount,
-			})
-			.from(documents)
-			.leftJoin(senders, eq(documents.senderId, senders.id))
-			.leftJoin(categories, eq(documents.categoryId, categories.id))
-			.leftJoin(householdMembers, eq(documents.personMemberId, householdMembers.id))
-			.where(and(...listingConditions(database, criteria)))
-			// A document still in ingestion has no date yet, so it stays on top. An archived document
-			// without a date takes the day it arrived.
-			.orderBy(
-				desc(ne(documents.status, "archived")),
-				desc(sql`coalesce(${documents.documentDate}, date(${documents.createdAt}, 'unixepoch'))`),
-				desc(documents.createdAt),
-				desc(documents.id),
-			),
-		database
+// A document still in ingestion has no date yet, so it stays on top. An archived document without a
+// date takes the day it arrived.
+const listingOrder = [
+	desc(ne(documents.status, "archived")),
+	desc(sql`coalesce(${documents.documentDate}, date(${documents.createdAt}, 'unixepoch'))`),
+	desc(documents.createdAt),
+	desc(documents.id),
+]
+
+/** A run of the listing in its order. */
+export interface ListingPage {
+	offset: number
+	limit: number
+}
+
+/**
+ * The statements of one listing, sent as one D1 batch. The fields and tags are read only for the
+ * documents the listing holds, or for those on its page.
+ */
+function listingStatements(database: ArchiveDatabase, criteria: ListingCriteria, page?: ListingPage) {
+	const conditions = and(...listingConditions(database, criteria))
+	const listedIdentifiers = () => {
+		const matching = database.select({ id: documents.id }).from(documents).where(conditions).$dynamic()
+		return page === undefined
+			? matching
+			: matching
+					.orderBy(...listingOrder)
+					.limit(page.limit)
+					.offset(page.offset)
+	}
+	const rows = database
+		.select({
+			id: documents.id,
+			status: documents.status,
+			title: documents.title,
+			documentDate: documents.documentDate,
+			// Drizzle reads a batch's rows by column name, so two columns named name would shift every later value.
+			senderName: sql<string | null>`${senders.name}`.as("sender_name"),
+			categoryName: sql<string | null>`${categories.name}`.as("category_name"),
+			personMemberId: documents.personMemberId,
+			personName: householdMembers.displayName,
+			summary: documents.summary,
+			mimeType: documents.mimeType,
+			pageCount: documents.pageCount,
+		})
+		.from(documents)
+		.leftJoin(senders, eq(documents.senderId, senders.id))
+		.leftJoin(categories, eq(documents.categoryId, categories.id))
+		.leftJoin(householdMembers, eq(documents.personMemberId, householdMembers.id))
+		.where(conditions)
+		.orderBy(...listingOrder)
+		.$dynamic()
+	return {
+		total: database.select({ total: count() }).from(documents).where(conditions),
+		rows: page === undefined ? rows : rows.limit(page.limit).offset(page.offset),
+		fields: database
 			.select({
 				documentId: extractedFields.documentId,
 				fieldKey: extractedFields.fieldKey,
@@ -188,30 +211,70 @@ export async function queryDocumentListing(
 				confidence: extractedFields.confidenceScore,
 			})
 			.from(extractedFields)
-			.where(criteria.documentIds === undefined ? undefined : inArray(extractedFields.documentId, criteria.documentIds))
+			.where(inArray(extractedFields.documentId, listedIdentifiers()))
 			.orderBy(asc(extractedFields.fieldKey)),
-		database
+		tags: database
 			.select({ documentId: documentTags.documentId, name: tags.name })
 			.from(documentTags)
 			.innerJoin(tags, eq(documentTags.tagId, tags.id))
-			.where(criteria.documentIds === undefined ? undefined : inArray(documentTags.documentId, criteria.documentIds))
+			.where(inArray(documentTags.documentId, listedIdentifiers()))
 			.orderBy(asc(tags.name)),
-	])
-	const fieldsByDocument = new Map<string, Array<ListedField>>()
-	for (const field of fieldRows) {
-		const listedFields = fieldsByDocument.get(field.documentId) ?? []
-		listedFields.push({
+	}
+}
+
+type ListingStatements = ReturnType<typeof listingStatements>
+
+function groupByDocument<TRow extends { documentId: string }>(rows: Array<TRow>): Map<string, Array<TRow>> {
+	const groups = new Map<string, Array<TRow>>()
+	for (const row of rows) {
+		const group = groups.get(row.documentId)
+		if (group === undefined) groups.set(row.documentId, [row])
+		else group.push(row)
+	}
+	return groups
+}
+
+function assembleListing(
+	rows: Awaited<ListingStatements["rows"]>,
+	fieldRows: Awaited<ListingStatements["fields"]>,
+	tagRows: Awaited<ListingStatements["tags"]>,
+): Array<ListedDocument> {
+	const fieldsByDocument = groupByDocument(fieldRows)
+	const tagsByDocument = groupByDocument(tagRows)
+	return rows.map((row) => ({
+		...row,
+		tagNames: (tagsByDocument.get(row.id) ?? []).map((tag) => tag.name),
+		fields: (fieldsByDocument.get(row.id) ?? []).map((field) => ({
 			fieldKey: field.fieldKey,
 			value: field.valueNumber ?? field.valueText,
 			confidence: field.confidence,
-		})
-		fieldsByDocument.set(field.documentId, listedFields)
-	}
-	return rows.map((row) => ({
-		...row,
-		tagNames: tagRows.filter((tag) => tag.documentId === row.id).map((tag) => tag.name),
-		fields: fieldsByDocument.get(row.id) ?? [],
+		})),
 	}))
+}
+
+export async function queryDocumentListing(
+	database: ArchiveDatabase,
+	criteria: ListingCriteria = {},
+): Promise<Array<ListedDocument>> {
+	const statements = listingStatements(database, criteria)
+	const [rows, fieldRows, tagRows] = await database.batch([statements.rows, statements.fields, statements.tags])
+	return assembleListing(rows, fieldRows, tagRows)
+}
+
+/** One page of the listing, with the number of documents the whole listing holds. */
+export async function queryDocumentPage(
+	database: ArchiveDatabase,
+	criteria: ListingCriteria,
+	page: ListingPage,
+): Promise<{ totalDocuments: number; documents: Array<ListedDocument> }> {
+	const statements = listingStatements(database, criteria, page)
+	const [[total], rows, fieldRows, tagRows] = await database.batch([
+		statements.total,
+		statements.rows,
+		statements.fields,
+		statements.tags,
+	])
+	return { totalDocuments: total?.total ?? 0, documents: assembleListing(rows, fieldRows, tagRows) }
 }
 
 export interface DocumentStatusRecord {
@@ -260,14 +323,17 @@ export async function queryArchiveFacets(
 ): Promise<ArchiveFacets> {
 	const isArchived = and(eq(documents.status, "archived"), scopeAdmission(database, authorizationScope))
 	const documentCount = count(documents.id)
-	const [memberRows, householdDocumentCount, senderRows, categoryRows, tagRows] = await Promise.all([
+	const [memberRows, [household], senderRows, categoryRows, tagRows] = await database.batch([
 		database
 			.select({ id: householdMembers.id, name: householdMembers.displayName, documentCount })
 			.from(householdMembers)
 			.leftJoin(documents, and(eq(documents.personMemberId, householdMembers.id), isArchived))
 			.groupBy(householdMembers.id)
 			.orderBy(asc(householdMembers.displayName)),
-		database.$count(documents, and(isArchived, isNull(documents.personMemberId))),
+		database
+			.select({ documentCount })
+			.from(documents)
+			.where(and(isArchived, isNull(documents.personMemberId))),
 		database
 			.select({ id: senders.id, name: senders.name, documentCount })
 			.from(senders)
@@ -295,7 +361,7 @@ export async function queryArchiveFacets(
 	])
 	return {
 		members: memberRows,
-		householdDocumentCount,
+		householdDocumentCount: household?.documentCount ?? 0,
 		senders: senderRows,
 		categories: categoryRows,
 		tags: tagRows,

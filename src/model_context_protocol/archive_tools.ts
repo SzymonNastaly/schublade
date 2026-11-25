@@ -2,13 +2,13 @@ import { HttpTransport } from "@tmcp/transport-http"
 import { McpServer } from "tmcp"
 import { JsonSchemaAdapter } from "tmcp/adapter"
 import { z } from "zod"
-import { deniedTagsAllExist, queryArchiveFacets, queryDocumentListing } from "../archive/document_listing"
+import { queryArchiveFacets, queryDocumentListing, queryDocumentPage } from "../archive/document_listing"
 import { permits } from "../authorization/caller_authorization"
 import { connectDatabase } from "../database/client"
 import { contentObjectKey } from "../ingestion/source_file"
 import { searchDocuments } from "../search/document_search"
 import { searchCriteriaSchema } from "../search/search_criteria"
-import { readGrantedScope } from "./authorization_grants"
+import { readStandingGrant } from "./authorization_grants"
 import { MODEL_CONTEXT_PROTOCOL_PATH } from "./authorization_server_paths"
 import type { FacetOption, ListedDocument } from "../archive/document_listing"
 import type { AuthorizationScope } from "../authorization/caller_authorization"
@@ -133,12 +133,16 @@ archiveServer.tool(
 	},
 	async ({ offset = 0, ...filters }) => {
 		const { database, authorizationScope, origin } = requestContext()
-		const listing = await queryDocumentListing(database, { ...filters, authorizationScope })
+		const { totalDocuments, documents } = await queryDocumentPage(
+			database,
+			{ ...filters, authorizationScope },
+			{ offset, limit: LISTING_PAGE_SIZE },
+		)
 		const nextOffset = offset + LISTING_PAGE_SIZE
 		return jsonResult({
-			totalDocuments: listing.length,
-			documents: listing.slice(offset, nextOffset).map((document) => presentDocument(document, origin)),
-			...(nextOffset < listing.length && { nextOffset }),
+			totalDocuments,
+			documents: documents.map((document) => presentDocument(document, origin)),
+			...(nextOffset < totalDocuments && { nextOffset }),
 		})
 	},
 )
@@ -187,7 +191,13 @@ archiveServer.tool(
 // The server keeps nothing between requests, so a GET for a stream of server messages answers 405.
 const archiveTransport = new HttpTransport(archiveServer, { path: null, disableSse: true })
 
-const grantPropertiesSchema = z.object({ authorizationGrantId: z.uuid() })
+const GRANT_IDENTIFIER_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+/** The props the consent page stored with the token. A zod schema here took a fresh isolate about 3 ms (2026-11-25). */
+function holdsGrantProperties(props: unknown): props is { authorizationGrantId: string } {
+	if (typeof props !== "object" || props === null || !("authorizationGrantId" in props)) return false
+	return typeof props.authorizationGrantId === "string" && GRANT_IDENTIFIER_PATTERN.test(props.authorizationGrantId)
+}
 
 const refusal = (error: string) => Response.json({ error }, { status: 403 })
 
@@ -212,15 +222,15 @@ export async function serveArchiveTools(
 ): Promise<Response> {
 	const { origin } = new URL(request.url)
 	const database = connectDatabase(environment.DATABASE)
-	const grant = grantPropertiesSchema.safeParse(context.props)
-	const authorizationScope = grant.success
-		? await readGrantedScope(database, grant.data.authorizationGrantId)
+	const grant = holdsGrantProperties(context.props)
+		? await readStandingGrant(database, context.props.authorizationGrantId)
 		: undefined
-	if (authorizationScope === undefined) return disconnected(origin)
+	if (grant === undefined) return disconnected(origin)
+	const { authorizationScope } = grant
 	if (!permits({ kind: "oauth_grant", scope: authorizationScope }, "read")) {
 		return refusal("This grant does not permit reading the archive")
 	}
-	if (!(await deniedTagsAllExist(database, authorizationScope.deniedTags))) {
+	if (!grant.deniedTagsAllExist) {
 		return refusal("A tag this grant excludes no longer exists. Authorize the client again.")
 	}
 	const response = await archiveTransport.respond(request, { database, environment, authorizationScope, origin })

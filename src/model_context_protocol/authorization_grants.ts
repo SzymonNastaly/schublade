@@ -1,5 +1,5 @@
-import { and, desc, eq, gt, isNull } from "drizzle-orm"
-import { queryArchiveFacets } from "../archive/document_listing"
+import { and, desc, eq, gt, isNull, sql } from "drizzle-orm"
+import { everyTagExists, queryArchiveFacets } from "../archive/document_listing"
 import { authorizationGrants } from "../database/schema"
 import { describeAuthorizationScope } from "./grant_selection"
 import type { AuthorizationScope } from "../authorization/caller_authorization"
@@ -31,19 +31,25 @@ export async function recordAuthorizationGrant(
 }
 
 /**
- * The scope of a grant that still stands. D1 decides this, not OAUTH_KV: KV is eventually
- * consistent and has no compare-and-set, so a refresh served by a location that still caches a
- * deleted grant would write it back.
+ * The scope of a grant that still stands, and whether every tag it denies still exists, in one
+ * statement. D1 decides this, not OAUTH_KV: KV is eventually consistent and has no
+ * compare-and-set, so a refresh served by a location that still caches a deleted grant would
+ * write it back.
  */
-export async function readGrantedScope(
+export async function readStandingGrant(
 	database: ArchiveDatabase,
 	grantId: string,
-): Promise<AuthorizationScope | undefined> {
+): Promise<{ authorizationScope: AuthorizationScope; deniedTagsAllExist: boolean } | undefined> {
 	const [grant] = await database
-		.select({ authorizationScope: authorizationGrants.authorizationScope })
+		.select({
+			authorizationScope: authorizationGrants.authorizationScope,
+			deniedTagsAllExist: everyTagExists(
+				sql`json_extract(${authorizationGrants.authorizationScope}, '$.deniedTags')`,
+			).mapWith(Boolean),
+		})
 		.from(authorizationGrants)
 		.where(and(eq(authorizationGrants.id, grantId), isNull(authorizationGrants.revokedAt)))
-	return grant?.authorizationScope
+	return grant
 }
 
 export async function listAuthorizedClients(
