@@ -76,13 +76,6 @@ function printableHeader(email: Email): string {
 	return `<div style="font:12px/1.5 sans-serif;color:#000;margin-bottom:16px;padding-bottom:8px;border-bottom:1px solid #999">${printedRows.join("")}</div>`
 }
 
-/** The words of the header above a printed message, which the message itself did not say. */
-export function printedHeaderText(email: Email): string {
-	return printedHeaderRows(email)
-		.map(({ label, value }) => `${label}: ${value}`)
-		.join("\n")
-}
-
 /**
  * The page that Browser Run prints: the subject, sender, and date above the body, so the PDF
  * records where it came from. Parse the message with base64 attachments. Returns undefined for a

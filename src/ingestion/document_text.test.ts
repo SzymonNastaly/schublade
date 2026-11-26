@@ -1,10 +1,5 @@
 import { expect, test } from "vitest"
-import {
-	assembleDocumentMarkdown,
-	recognitionLimitViolation,
-	selectPageTextSources,
-	selectPrintedMailTextSources,
-} from "./document_text"
+import { assembleDocumentMarkdown, recognitionLimitViolation, selectPageTextSources } from "./document_text"
 
 test("recognitionLimitViolation transcribes up to 50 pages and refuses a 51st, counting only transcribed pages", () => {
 	const pages = (recognizedPageCount: number) => [
@@ -59,30 +54,6 @@ test("selectPageTextSources reads a page from its text layer when its converted 
 	).toEqual([
 		{ kind: "text_layer", pageIndex: 0, text: printedHeader + receiptBody },
 		{ kind: "converted", pageIndex: 1 },
-	])
-})
-
-test("selectPrintedMailTextSources reads every page from the text layer unless the message adds under 40 letters or digits", () => {
-	const printedHeader = "Subject: Your receipt from Paperlark\nFrom: mira@example.com\nDate: 2026-11-08T16:50:51.000Z"
-	const body = "Paperlark GmbH, order 4821, total 12,99 EUR"
-	expect([
-		selectPrintedMailTextSources(
-			[
-				{ pageIndex: 0, textCharacterCount: 132, text: `${printedHeader}\n${body}` },
-				{ pageIndex: 1, textCharacterCount: 6, text: "Thanks" },
-			],
-			printedHeader,
-		),
-		selectPrintedMailTextSources(
-			[{ pageIndex: 0, textCharacterCount: 96, text: `${printedHeader}\nHallo` }],
-			printedHeader,
-		),
-	]).toEqual([
-		[
-			{ kind: "text_layer", pageIndex: 0, text: `${printedHeader}\n${body}` },
-			{ kind: "text_layer", pageIndex: 1, text: "Thanks" },
-		],
-		[{ kind: "recognition", pageIndex: 0 }],
 	])
 })
 

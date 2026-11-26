@@ -2,15 +2,16 @@ import { applyD1Migrations, env, reset } from "cloudflare:test"
 import { eq } from "drizzle-orm"
 import { expect, inject, test, vi } from "vitest"
 import scannedInvoice from "../../test_fixtures/documents/electricity_invoice_scanned.pdf"
-import digitalInvoice from "../../test_fixtures/documents/telecommunication_invoice_digital.pdf"
 import expectedExtraction from "../../test_fixtures/documents/expected_extraction.json"
 import recording from "../../test_fixtures/inference_recordings/electricity_invoice_scanned.json"
+import mailRendering from "../../test_fixtures/inference_recordings/receipt_email.json"
+import printedReceipt from "../../test_fixtures/inference_recordings/receipt_email.pdf"
 import { connectToArchiveChanges } from "../archive/archive_changes"
 import { queryDocumentListing } from "../archive/document_listing"
 import { connectDatabase } from "../database/client"
 import { categories, contents, documents, extractedFields, householdMembers, senders, tags } from "../database/schema"
 import { ingestDocument, retryDocumentIngestion, startWaitingMailRendering } from "./document_ingestion"
-import { contentObjectKey } from "./source_file"
+import { contentObjectKey, submittedThumbnailObjectKey } from "./source_file"
 import type { WorkflowStep } from "cloudflare:workers"
 import type { SearchIndex } from "../search/document_indexing"
 
@@ -42,17 +43,31 @@ const recordingSearchIndex: SearchIndex = {
 
 const browserRenderings: Array<{ action: string; html: string; scripts: boolean }> = []
 
+// Browser Run's answers to the receipt below, recorded under pnpm dev.
+const recordedBrowserAnswers: Record<string, () => Response> = {
+	pdf: () => new Response(printedReceipt, { headers: { "Content-Type": "application/pdf" } }),
+	scrape: () => Response.json(mailRendering.scrapeAnswer),
+	screenshot: () =>
+		new Response(
+			Uint8Array.from(atob(mailRendering.thumbnailBase64), (character) => character.charCodeAt(0)),
+			{
+				headers: { "Content-Type": "image/jpeg" },
+			},
+		),
+}
+
 const recordedEnvironment = {
 	...env,
 	AI_RUNTIME: recordedRuntime as unknown as Ai,
 	CLASSIFICATION_MODEL: "@cf/cloudflare/clairic-flash",
 	PERSON_ASSIGNMENT_MODEL: "@cf/cloudflare/clef-flash",
 	SEARCH_INDEX: recordingSearchIndex,
-	// Browser Run bills per request, so the test answers with a stored PDF.
+	// Browser Run bills for its time, so the test answers with recorded answers.
 	BROWSER_RENDERER: {
 		quickAction: (action: string, options: { html: string; setJavaScriptEnabled: boolean }) => {
 			browserRenderings.push({ action, html: options.html, scripts: options.setJavaScriptEnabled })
-			return Promise.resolve(new Response(scannedInvoice, { headers: { "Content-Type": "application/pdf" } }))
+			const answer = recordedBrowserAnswers[action]
+			return answer ? Promise.resolve(answer()) : Promise.reject(new Error(`No recorded answer to ${action}`))
 		},
 	} as unknown as BrowserRun,
 }
@@ -435,7 +450,7 @@ async function storeMessage(documentId: string, message: string) {
 	return database
 }
 
-test("ingestDocument prints a stored email to a PDF, archives that with its digest, and keeps the message", async () => {
+test("ingestDocument prints a stored email to a PDF, archives that with its digest and the browser's thumbnail, and keeps the message", async () => {
 	const documentId = "f1000000-0000-4000-8000-000000000001"
 	const database = await storeMessage(documentId, receiptMessage)
 	const { stepNames, step } = createRecordingStep()
@@ -455,39 +470,47 @@ test("ingestDocument prints a stored email to a PDF, archives that with its dige
 		({ key }) => key,
 	)
 	expect({
-		firstSteps: stepNames.slice(0, 2),
+		firstSteps: stepNames.slice(0, 4),
 		document,
 		contents: await database.select({ sha256: contents.sha256, documentId: contents.documentId }).from(contents),
 		objects,
+		thumbnailBytes: (await env.DOCUMENT_STORAGE.get(submittedThumbnailObjectKey(documentId)))?.size,
 		renderings: browserRenderings.map(({ action, scripts }) => ({ action, scripts })),
-		printedSubject: browserRenderings[0]?.html.includes("Fwd: Your receipt from Paperlark"),
-		printedBody: browserRenderings[0]?.html.includes("<p>Total 12,99 EUR</p>"),
-		activeMarkup: /elsewhere\.example|<script/.test(browserRenderings[0]?.html ?? ""),
+		printedSubject: browserRenderings.every(({ html }) => html.includes("Fwd: Your receipt from Paperlark")),
+		printedBody: browserRenderings.every(({ html }) => html.includes("<p>Total 12,99 EUR</p>")),
+		activeMarkup: browserRenderings.some(({ html }) => /elsewhere\.example|<script/.test(html)),
 	}).toEqual({
-		firstSteps: ["render email", "extract text"],
+		firstSteps: ["render email", "read email text", "draw email thumbnail", "extract text"],
 		document: {
 			status: "archived",
 			mimeType: "application/pdf",
 			storageObjectKey: `documents/${documentId}/original.pdf`,
-			// The SHA-256 of the stored PDF that the browser rendering answers with.
-			originalSha256: "3551f8806c62a6b604bfbeab63ececeac46ee9df4e7db1ff5835377ff07ab0ed",
+			// The SHA-256 of receipt_email.pdf, the recorded print.
+			originalSha256: "c8a8f5aaf008c65ac6ffb736112994ee1ca7bafabc3a962ae50de693cc4465bc",
 		},
-		contents: [{ sha256: "3551f8806c62a6b604bfbeab63ececeac46ee9df4e7db1ff5835377ff07ab0ed", documentId }],
+		contents: [{ sha256: "c8a8f5aaf008c65ac6ffb736112994ee1ca7bafabc3a962ae50de693cc4465bc", documentId }],
 		objects: [
 			`documents/${documentId}/content.md`,
 			`documents/${documentId}/original.eml`,
 			`documents/${documentId}/original.pdf`,
+			`documents/${documentId}/submitted_text.md`,
+			`documents/${documentId}/thumbnail.jpg`,
 		],
-		renderings: [{ action: "pdf", scripts: false }],
+		thumbnailBytes: 3588,
+		renderings: [
+			{ action: "pdf", scripts: false },
+			{ action: "scrape", scripts: false },
+			{ action: "screenshot", scripts: false },
+		],
 		printedSubject: true,
 		printedBody: true,
 		activeMarkup: false,
 	})
 })
 
-test("ingestDocument reads a printed email from its text layer, without the conversion, and gives the classifier the body once", async () => {
+test("ingestDocument takes a printed email's text from the browser, without reading the PDF, and gives the classifier the body once", async () => {
 	const documentId = "f1000000-0000-4000-8000-000000000005"
-	await storeMessage(documentId, receiptMessage)
+	const database = await storeMessage(documentId, receiptMessage)
 	const classificationRequests: Array<string> = []
 	const { step } = createRecordingStep()
 
@@ -497,24 +520,28 @@ test("ingestDocument reads a printed email from its text layer, without the conv
 			...recordedEnvironment,
 			AI_RUNTIME: {
 				toMarkdown: () => Promise.reject(new Error("A printed email needs no conversion")),
-				run: (_model: string, inputs: unknown) => {
+				run: (model: string, inputs: unknown) => {
+					if (model === "@cf/moondream/moondream3.1-9B-A2B") {
+						return Promise.reject(new Error("A printed email needs no recognition"))
+					}
 					classificationRequests.push(JSON.stringify(inputs))
 					return Promise.resolve(recording.classificationResponse)
 				},
 			} as unknown as Ai,
-			BROWSER_RENDERER: {
-				quickAction: () =>
-					Promise.resolve(new Response(digitalInvoice, { headers: { "Content-Type": "application/pdf" } })),
-			} as unknown as BrowserRun,
 		},
 		documentId,
 	)
 
-	const content = await (await env.DOCUMENT_STORAGE.get(contentObjectKey(documentId)))?.text()
+	const [document] = await database.select({ pageCount: documents.pageCount }).from(documents)
 	expect({
-		invoiceNumberInText: content?.includes("NK-2026-1048-3391"),
+		content: await (await env.DOCUMENT_STORAGE.get(contentObjectKey(documentId)))?.text(),
+		document,
 		emptyEmailBody: classificationRequests[0]?.includes("<email>\\n\\n</email>"),
-	}).toEqual({ invoiceNumberInText: true, emptyEmailBody: true })
+	}).toEqual({
+		content: "Subject: Fwd: Your receipt from Paperlark\nFrom: mira@example.com\n\nTotal 12,99 EUR",
+		document: { pageCount: null },
+		emptyEmailBody: true,
+	})
 })
 
 function recognitionEventStream(answer: string, finishReason: string) {

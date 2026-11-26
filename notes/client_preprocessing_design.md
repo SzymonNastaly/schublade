@@ -1,6 +1,6 @@
 # Client preprocessing design
 
-How the text and the first-page picture of a document move from the Worker to the clients, drafted on 2026-11-26. It extends `notes/client_protocol.md` with two routes and changes one premise of `notes/iphone_application_design.md`, which says "The PDF carries no text layer: the archive reads its pages as it reads every scan". The owner decided its open questions on 2026-11-26, and units S1, S2, S3, C1, C4, and C5 are built, and the Rust part of C3.
+How the text and the first-page picture of a document move from the Worker to the clients, drafted on 2026-11-26. It extends `notes/client_protocol.md` with two routes and changes one premise of `notes/iphone_application_design.md`, which says "The PDF carries no text layer: the archive reads its pages as it reads every scan". The owner decided its open questions on 2026-11-26, and units S1, S2, S3, C1, C4, C5, and M1 are built, and the Rust part of C3.
 
 Every claim about behaviour carries one of three labels. Documented means a vendor's documentation or this repository's notes say it. Measured means someone ran it, with the date. Inferred means it follows from the other two and nobody ran it.
 
@@ -215,7 +215,7 @@ The steps and what changes in each:
 
 | Step | Today | After unit S2 | After PDFium leaves (R1) |
 | --- | --- | --- | --- |
-| render email | Prints a stored email | Unchanged | Also stores the page's text and picture, see [Mail](#mail) |
+| render email | Prints a stored email | Unit M1: two more steps store the page's text and picture, see [Mail](#mail) | Unchanged |
 | extract text | PDFium, `toMarkdown`, `selectPageTextSources` | Reads `submitted_text.md` first. With at least 40 letters or digits it is the text, and nothing else runs. Otherwise today's chain | Submitted text, then `toMarkdown`, then failure |
 | recognize page N | Moondream on a rendered page | Only for a document without submitted text | Gone for PDFs. Stays for pictures (decision 1) |
 | store markdown | Writes `content.md` | Copies `submitted_text.md` to `content.md` as a stream, or writes the assembled text | Unchanged |
@@ -242,7 +242,7 @@ A failed document holds its content, so sending the same bytes again answers 200
 Mail keeps its per-byte cost. The email handler parses the message and hashes each attachment in the Worker, and no client can do that for it.
 
 - **An attachment.** A PDF or a picture arrives through `archiveContent` without text. It takes the fallback chain. A PDF with a text layer is read by `toMarkdown`. A scanned PDF from a network scanner fails after R1, and a picture is still read by Moondream. It has no thumbnail.
-- **A printed email.** Today PDFium reads the text layer that Chromium wrote. `toMarkdown` cannot replace it. On a forwarded email it kept three header lines and dropped the rest (measured, `AGENTS.md`). The browser that prints the page can also read it. `printMail` makes two more quick actions with the same inert markup: `scrape` of `body`, whose text is what the page shows, and `screenshot`, cut to the top of the page in the proportion of A4 and reduced to 480 pixels. Documented: `cf browser-run quick-action` lists `scrape` and `screenshot` beside `pdf`. Inferred: the binding's `quickAction` takes them as it takes `pdf`, and the scraped text holds the words of the text layer. Unit M1 measures it against PDFium on the mail fixtures before PDFium leaves. Each printed email then costs three browser sessions and not one.
+- **A printed email.** Today PDFium reads the text layer that Chromium wrote. `toMarkdown` cannot replace it. On a forwarded email it kept three header lines and dropped the rest (measured, `AGENTS.md`). The browser that prints the page can also read it. `printMail` makes two more quick actions with the same inert markup: `scrape` of `body`, whose text is what the page shows, and `screenshot`, cut to the top of the page in the proportion of A4 and reduced to 480 pixels. Documented: `cf browser-run quick-action` lists `scrape` and `screenshot` beside `pdf`. Measured in unit M1: the binding takes both, and the scraped text holds every letter and digit of the text layer. Each printed email costs three browser sessions and not one.
 - The printed header's words are added by the Worker, as `printedHeaderText` does today. An email of nothing but pictures is archived with its header and the mail context. `selectPrintedMailTextSources` goes.
 - The page count of a printed email is unknown without PDFium and stays null, which the protocol allows.
 - The digest of the printed PDF is still computed in the Workflow step, on a file the Worker made itself.
@@ -278,7 +278,7 @@ Mail keeps its per-byte cost. The email handler parses the message and hashes ea
 - `src/request_dispatch.ts`: the member's path.
 - `src/ingestion/document_ingestion.ts`: the extract text and classify steps.
 - `src/archive/document_representation.ts`: the order of `readThumbnail`.
-- Removed in R1: `src/inference/page_rasterizer.ts`, `@embedpdf/pdfium`, `selectPageTextSources`, `selectPrintedMailTextSources`, `recognitionLimitViolation`, and the PDF branch of `readPage`.
+- Removed in R1: `src/inference/page_rasterizer.ts`, `@embedpdf/pdfium`, `selectPageTextSources`, `recognitionLimitViolation`, and the PDF branch of `readPage`.
 
 **Rust.**
 
@@ -402,6 +402,16 @@ Unit C5 is built: the web application and the evaluation scripts send to the rec
 - The browser reads and sends at most three files of a tab at once, each a PUT of its own.
 - `document_reading.ts` runs in Node for the evaluation scripts, so its imports name their `.ts` files. Node has no canvas, so the scripts send no thumbnail and the archive draws one.
 - A POST to `/api/documents` now answers the archive's page, as TanStack Start answers a method a route lacks, and archives nothing.
+
+## What unit M1 changed in this design
+
+- The text and the picture are two steps after "render email", "read email text" and "draw email thumbnail", not two more actions inside it. Workers Free allows one quick action every 10 seconds (documented), so three actions in one step would be refused together on every retry, while a step of its own is retried alone after 10 seconds (inferred, not run on Free). Each step reads the stored message again, because a step's result keeps no page.
+- The text goes to `submitted_text.md` and the picture to `thumbnail.jpg`, the keys of a client's text and thumbnail, so the extract text step and `readThumbnail` take them without a change, and a retried email reads its text again. The text is the scrape's `text`, Chromium's `innerText` of `body`, with no page headings, because the page count is unknown.
+- The text passes the same 40 letters or digits rule as a client's. The printed header alone almost always passes it, so an email of nothing but pictures is archived with its header. One whose header and body hold fewer than 40 still reads the printed PDF through today's chain until R1.
+- `selectPrintedMailTextSources` and `printedHeaderText` went in M1 and not in R1, because the header is part of the scraped page.
+- The picture is a `screenshot` of an A4 viewport, 794 by 1123 CSS pixels, clipped at the scale 480/1123. Browser Run honoured the clip's scale: each answer was a 339 by 480 JPEG of 3.6 to 18 KB (measured, 2026-11-26).
+- Measured on 2026-11-26 through `pnpm dev`, because the shell's token is refused by Browser Run's REST API: three messages, the test's receipt, a forwarded HTML receipt with layout tables, a style sheet, and a hidden preheader, and a plain-text utility statement, each printed, scraped, and pictured once, nine quick actions in all. PDFium's text layer of each recorded PDF and the scraped text held the same letters and digits (64 of 64, 761 of 761, 460 of 460) and the same words, and neither held the hidden preheader. The scrape reported 64 to 84 ms of browser time; the PDF and the screenshot reported none in `X-Browser-Ms-Used`. The browser time is far below the 10 hours a month that Workers Paid includes, so the measurement cost nothing beyond the plan. The three messages also passed classification and indexing, which billed three classifications and three AI Search uploads on the development instance.
+- The receipt's answers are recorded in `test_fixtures/inference_recordings/receipt_email.json` and `receipt_email.pdf`, which the ingestion tests answer with.
 
 ## What unit C4 changed in this design
 

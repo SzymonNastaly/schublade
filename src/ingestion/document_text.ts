@@ -100,26 +100,6 @@ export function selectPageTextSources(
 	})
 }
 
-/**
- * Chromium wrote the text layer of a printed message from its HTML, so that layer holds everything
- * the message shows and needs no conversion. The printed header alone would pass any per-page
- * threshold, so the decision counts what the message adds to it, and a message of nothing but
- * images has its pages transcribed.
- */
-export function selectPrintedMailTextSources(
-	pages: ReadonlyArray<PageInspection>,
-	printedHeaderText: string,
-): Array<PageTextSource> {
-	const messageCharacterCount =
-		countMatches(pages.map(({ text }) => text).join("\n"), ALPHANUMERIC_CHARACTER) -
-		countMatches(printedHeaderText, ALPHANUMERIC_CHARACTER)
-	return pages.map(({ pageIndex, text }) =>
-		messageCharacterCount >= MINIMUM_ALPHANUMERIC_CHARACTERS
-			? { kind: "text_layer", pageIndex, text }
-			: { kind: "recognition", pageIndex },
-	)
-}
-
 // Each transcribed page costs one Moondream call and one workflow step, so a long scan is
 // refused before its first page is transcribed rather than after paying for every page.
 const MAXIMUM_RECOGNIZED_PAGES = 50

@@ -22,17 +22,17 @@ import {
 	isUsableSubmittedText,
 	recognitionLimitViolation,
 	selectPageTextSources,
-	selectPrintedMailTextSources,
 } from "./document_text"
 import { predecessorStatuses } from "./document_lifecycle"
-import { composePrintableMail, mailContextOf, parseMailWithinLimits, printedHeaderText } from "./mail_message"
-import { printMail } from "./mail_rendering"
+import { composePrintableMail, mailContextOf, parseMailWithinLimits } from "./mail_message"
+import { drawMailThumbnail, printMail, readMailText } from "./mail_rendering"
 import {
 	MAIL_MEDIA_TYPE,
 	contentObjectKey,
 	originalObjectKey,
 	parseSourceFile,
 	submittedTextObjectKey,
+	submittedThumbnailObjectKey,
 } from "./source_file"
 import { resolveTaxonomyName } from "./taxonomy_resolution"
 import type { WorkflowStep, WorkflowStepConfig } from "cloudflare:workers"
@@ -85,7 +85,7 @@ type PageRecognitionOutcome =
 
 type MailRenderingOutcome =
 	| { kind: "not_mail" }
-	| { kind: "rendered"; mailContext: MailContext; printedHeaderText: string }
+	| { kind: "rendered"; mailContext: MailContext; messageObjectKey: string }
 	| { kind: "refused"; failureReason: DocumentFailureReason; explanation: string }
 
 const RECOGNITION_DOTS_PER_INCH = 150
@@ -221,6 +221,17 @@ async function readOriginal(
 	return { sourceFile, bytes: new Uint8Array(await object.arrayBuffer()), quarterTurns: document.quarterTurns }
 }
 
+/** The stored message and the page Browser Run renders from it, undefined for a message without a body. */
+async function readPrintableMail(storage: R2Bucket, messageObjectKey: string) {
+	const stored = await storage.get(messageObjectKey)
+	if (!stored) throw new NonRetryableError(`No message is stored at ${messageObjectKey}`)
+	const email = await parseMailWithinLimits(new Uint8Array(await stored.arrayBuffer()), {
+		attachmentEncoding: "base64",
+	})
+	const html = email && composePrintableMail(email)
+	return email && html !== undefined ? { email, html } : undefined
+}
+
 /**
  * Prints a stored email to the PDF that the rest of ingestion reads, and keeps the message beside
  * it. The context comes from the message, so a message that the Cron Trigger started has it too.
@@ -236,15 +247,12 @@ async function renderStoredMail(
 		.from(documents)
 		.where(eq(documents.id, documentId))
 	if (document?.mimeType !== MAIL_MEDIA_TYPE) return { kind: "not_mail" }
-	const stored = await environment.DOCUMENT_STORAGE.get(document.storageObjectKey)
-	if (!stored) throw new NonRetryableError(`Message ${documentId} has no object at ${document.storageObjectKey}`)
-	const email = await parseMailWithinLimits(new Uint8Array(await stored.arrayBuffer()), {
-		attachmentEncoding: "base64",
-	})
-	const html = email && composePrintableMail(email)
-	if (!email || html === undefined) {
+	const messageObjectKey = document.storageObjectKey
+	const printable = await readPrintableMail(environment.DOCUMENT_STORAGE, messageObjectKey)
+	if (!printable) {
 		return { kind: "refused", failureReason: "unreadable_file", explanation: "The message has no body to render" }
 	}
+	const { email, html } = printable
 	const content = await printMail(environment.BROWSER_RENDERER, html)
 	const sourceFile = parseSourceFile("application/pdf")
 	if (!sourceFile) throw new NonRetryableError("PDF is not an accepted source file")
@@ -277,7 +285,7 @@ async function renderStoredMail(
 		kind: "rendered",
 		// The body is the document here, so the classifier reads it once, as the document text.
 		mailContext: { ...mailContextOf(email, email.from?.address ?? ""), bodyText: "" },
-		printedHeaderText: printedHeaderText(email),
+		messageObjectKey,
 	}
 }
 
@@ -291,7 +299,6 @@ async function extractText(
 	environment: IngestionEnvironment,
 	sourceFile: SourceFile,
 	bytes: Uint8Array<ArrayBuffer>,
-	mailHeaderText: string | undefined,
 ): Promise<TextExtractionOutcome> {
 	if (sourceFile.kind === "image") {
 		return { kind: "extracted", extraction: { convertedMarkdown: "", pages: [{ kind: "recognition", pageIndex: 0 }] } }
@@ -304,7 +311,6 @@ async function extractText(
 		if (!(error instanceof UnopenablePdfError)) throw error
 		return { kind: "refused", failureReason: "unreadable_file", explanation: error.message }
 	}
-	if (mailHeaderText !== undefined) return extractionOutcome("", selectPrintedMailTextSources(pages, mailHeaderText))
 	const conversion = await environment.AI_RUNTIME.toMarkdown(
 		{ name: `original.${sourceFile.extension}`, blob: new Blob([bytes], { type: sourceFile.mediaType }) },
 		{ gateway: { id: environment.AI_GATEWAY_IDENTIFIER }, conversionOptions: { pdf: { metadata: false } } },
@@ -579,18 +585,36 @@ async function archiveIngestedDocument(
 			throw new Error(rendering.explanation)
 		}
 		const mailContext = rendering.kind === "rendered" ? rendering.mailContext : deliveredMailContext
+		if (rendering.kind === "rendered") {
+			// The browser that printed the page reads its text and draws its picture, as a client
+			// does for its own file, so the extract text step never reads the PDF. Each action is a
+			// step of its own, because Workers Free refuses a second quick action within 10 seconds,
+			// and a refused step is retried alone.
+			const printableMail = async () => {
+				const printable = await readPrintableMail(environment.DOCUMENT_STORAGE, rendering.messageObjectKey)
+				if (!printable) throw new NonRetryableError(`Message ${documentId} no longer has a body to render`)
+				return printable.html
+			}
+			await step.do("read email text", inferenceStep, async () => {
+				const text = await readMailText(environment.BROWSER_RENDERER, await printableMail())
+				await environment.DOCUMENT_STORAGE.put(submittedTextObjectKey(documentId), text, {
+					httpMetadata: { contentType: "text/markdown; charset=utf-8" },
+				})
+			})
+			await step.do("draw email thumbnail", inferenceStep, async () => {
+				const thumbnail = await drawMailThumbnail(environment.BROWSER_RENDERER, await printableMail())
+				await environment.DOCUMENT_STORAGE.put(submittedThumbnailObjectKey(documentId), thumbnail, {
+					httpMetadata: { contentType: "image/jpeg" },
+				})
+			})
+		}
 
 		const textExtraction = await step.do("extract text", inferenceStep, async () => {
 			await recordDocumentStatus(environment, documentId, { status: "extracting" })
 			const submittedText = await environment.DOCUMENT_STORAGE.get(submittedTextObjectKey(documentId))
 			if (submittedText && isUsableSubmittedText(await submittedText.text())) return { kind: "submitted" as const }
 			const { sourceFile, bytes } = await readOriginal(database, environment.DOCUMENT_STORAGE, documentId)
-			return extractText(
-				environment,
-				sourceFile,
-				bytes,
-				rendering.kind === "rendered" ? rendering.printedHeaderText : undefined,
-			)
+			return extractText(environment, sourceFile, bytes)
 		})
 		if (textExtraction.kind === "refused") {
 			failureReason = textExtraction.failureReason
