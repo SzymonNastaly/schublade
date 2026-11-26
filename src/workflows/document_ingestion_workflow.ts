@@ -1,7 +1,7 @@
 import { WorkflowEntrypoint } from "cloudflare:workers"
 import { NonRetryableError } from "cloudflare:workflows"
 import { z } from "zod"
-import { mailContextSchema } from "../ingestion/classification_prompt"
+import { mailContextSchema } from "../ingestion/classification_request"
 import { ingestDocument } from "../ingestion/document_ingestion"
 import type { WorkflowEvent, WorkflowStep } from "cloudflare:workers"
 import type { IngestionOutcome } from "../ingestion/document_ingestion"

@@ -8,21 +8,22 @@ import recording from "../../test_fixtures/inference_recordings/electricity_invo
 import { connectToArchiveChanges } from "../archive/archive_changes"
 import { queryDocumentListing } from "../archive/document_listing"
 import { connectDatabase } from "../database/client"
-import { categories, contents, documents, extractedFields, senders, tags } from "../database/schema"
+import { categories, contents, documents, extractedFields, householdMembers, senders, tags } from "../database/schema"
 import { ingestDocument, retryDocumentIngestion, startWaitingMailRendering } from "./document_ingestion"
 import { contentObjectKey } from "./source_file"
 import type { WorkflowStep } from "cloudflare:workers"
 import type { SearchIndex } from "../search/document_indexing"
 
+const recordedResponses: Record<string, () => unknown> = {
+	"@cf/moondream/moondream3.1-9B-A2B": () => new Response(recording.textRecognitionEventStream).body,
+	"@cf/cloudflare/clairic-flash": () => recording.classificationResponse,
+	"@cf/cloudflare/clef-flash": () => recording.personAssignmentResponse,
+}
+
 // Replays the Workers AI responses recorded for this fixture, so the test makes no billed request.
 const recordedRuntime = {
 	toMarkdown: () => Promise.resolve(recording.markdownConversion),
-	run: (model: string) =>
-		Promise.resolve(
-			model === "@cf/moondream/moondream3.1-9B-A2B"
-				? new Response(recording.textRecognitionEventStream).body
-				: recording.classificationResponse,
-		),
+	run: (model: string) => Promise.resolve(recordedResponses[model]?.()),
 }
 
 // Records each AI Search upload instead of sending it to the billed service.
@@ -44,7 +45,8 @@ const browserRenderings: Array<{ action: string; html: string; scripts: boolean 
 const recordedEnvironment = {
 	...env,
 	AI_RUNTIME: recordedRuntime as unknown as Ai,
-	CLASSIFICATION_MODEL: "@cf/deepseek-ai/deepseek-v4.1-flash-1017",
+	CLASSIFICATION_MODEL: "@cf/cloudflare/clairic-flash",
+	PERSON_ASSIGNMENT_MODEL: "@cf/cloudflare/clef-flash",
 	SEARCH_INDEX: recordingSearchIndex,
 	// Browser Run bills per request, so the test answers with a stored PDF.
 	BROWSER_RENDERER: {
@@ -94,6 +96,11 @@ async function storeScannedInvoice(documentId: string, original: Uint8Array | Ar
 test("ingestDocument recognizes, classifies, archives, and indexes a scanned invoice one step per unit", async () => {
 	const documentId = "0f4c2b8e-5d71-4a39-9e62-3b1d7c8a4f10"
 	const database = await storeScannedInvoice(documentId)
+	// The invoice is addressed to both, so the person assignment chooses the household.
+	await database.insert(householdMembers).values([
+		{ displayName: "Mira Wiśniewska", addresseeNames: ["Mira Wiśniewska", "M. Wisniewska"] },
+		{ displayName: "Jonas Becker", addresseeNames: ["Jonas Becker"] },
+	])
 	const { stepNames, step } = createRecordingStep()
 
 	const outcome = await ingestDocument(step, recordedEnvironment, documentId)
@@ -112,9 +119,10 @@ test("ingestDocument recognizes, classifies, archives, and indexes a scanned inv
 	expect(outcome).toEqual({
 		documentId,
 		recognizedPageCount: 1,
-		classificationModel: "@cf/deepseek-ai/deepseek-v4.1-flash-1017",
-		classificationInputTokens: 2504,
-		classificationOutputTokens: 1756,
+		classificationModel: "@cf/cloudflare/clairic-flash",
+		classificationInputTokens: 2457,
+		personAssignmentModel: "@cf/cloudflare/clef-flash",
+		personAssignmentInputTokens: 965,
 	})
 	const expected = expectedExtraction.documents.find(
 		(document) => document.file_name === "electricity_invoice_scanned.pdf",
@@ -123,25 +131,23 @@ test("ingestDocument recognizes, classifies, archives, and indexes a scanned inv
 		{
 			id: documentId,
 			status: "archived",
-			title: "Stadtwerke Talbrück Invoice Electricity Consumption September 2025 to August 2026",
+			// Clairic Flash read the electricity statement as a gas invoice in the title.
+			title: "Stadtwerke Talbrück GmbH Gas invoice September 2026",
 			documentDate: "2026-09-22",
 			senderName: "Stadtwerke Talbrück GmbH",
 			categoryName: "Invoice",
 			personMemberId: null,
 			personName: null,
-			summary:
-				"This is an annual electricity consumption statement from Stadtwerke Talbrück for the joint supply address Am Lindenhang 7, covering 1 September 2025 to 31 August 2026. It records a consumption of 2,691 kWh and requires a Nachzahlung of €72.09 by 6 October 2026.",
+			summary: null,
 			mimeType: "application/pdf",
 			pageCount: 1,
 			tagNames: [],
 			fields: [
-				{ fieldKey: "amount", value: expected?.amount?.value, confidence: 0.99 },
-				{ fieldKey: "currency", value: expected?.currency?.value, confidence: 0.99 },
-				{ fieldKey: "due_date", value: expected?.due_date?.value, confidence: 0.99 },
-				{ fieldKey: "iban", value: expected?.iban?.value, confidence: 0.99 },
-				{ fieldKey: "invoice_number", value: expected?.invoice_number?.value, confidence: 0.99 },
-				// The model read the contract account number Vertragskonto as a policy number.
-				{ fieldKey: "policy_number", value: "300 418 225", confidence: 0.95 },
+				{ fieldKey: "amount", value: expected?.amount?.value, confidence: null },
+				{ fieldKey: "currency", value: expected?.currency?.value, confidence: null },
+				{ fieldKey: "due_date", value: expected?.due_date?.value, confidence: 0.9518867327450323 },
+				{ fieldKey: "iban", value: expected?.iban?.value, confidence: null },
+				{ fieldKey: "invoice_number", value: expected?.invoice_number?.value, confidence: null },
 			],
 		},
 	])
@@ -155,10 +161,10 @@ test("ingestDocument recognizes, classifies, archives, and indexes a scanned inv
 		{
 			name: `${documentId}.md`,
 			content: [
-				"# Stadtwerke Talbrück Invoice Electricity Consumption September 2025 to August 2026",
+				"# Stadtwerke Talbrück GmbH Gas invoice September 2026",
 				"Sender: Stadtwerke Talbrück GmbH",
 				"",
-				"This is an annual electricity consumption statement from Stadtwerke Talbrück for the joint supply address Am Lindenhang 7, covering 1 September 2025 to 31 August 2026. It records a consumption of 2,691 kWh and requires a Nachzahlung of €72.09 by 6 October 2026.",
+				"## Page 1",
 			],
 			metadata: {
 				person: "household",

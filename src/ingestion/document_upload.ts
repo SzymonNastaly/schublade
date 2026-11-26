@@ -4,7 +4,7 @@ import { contents, documents } from "../database/schema"
 import { claimContent, lookupContents, sha256Hexadecimal } from "./content_identity"
 import { recordIngestionStartFailure, startDocumentIngestion } from "./document_ingestion"
 import { identifySourceFile, originalObjectKey } from "./source_file"
-import type { MailContext } from "./classification_prompt"
+import type { MailContext } from "./classification_request"
 import type { SourceFile } from "./source_file"
 
 export type UploadEnvironment = Pick<

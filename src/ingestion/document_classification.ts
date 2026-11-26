@@ -21,7 +21,7 @@ export const extractedFieldKeys = Object.keys(extractedFieldTypes) as Array<Extr
 const invoiceFields: ReadonlyArray<ExtractedFieldKey> = ["amount", "currency", "due_date", "iban", "invoice_number"]
 const contractFields: ReadonlyArray<ExtractedFieldKey> = ["policy_number", "renewal_date", "cancellation_period"]
 
-/** The standard categories that the classification prompt offers, with the fields the classifier extracts for each. */
+/** The standard categories that the classification request offers, with the fields the classifier extracts for each. */
 export const standardCategories: ReadonlyArray<{ name: string; expectedFields: ReadonlyArray<ExtractedFieldKey> }> = [
 	{ name: "Invoice", expectedFields: invoiceFields },
 	{ name: "Receipt", expectedFields: invoiceFields },
@@ -38,56 +38,43 @@ export function findStandardCategory(normalizedName: string) {
 	return standardCategories.find((category) => normalizeTaxonomyName(category.name) === normalizedName)
 }
 
-const confidence = z.number().describe("Probability from 0 to 1 that the value is printed and read correctly")
+const typedAnswerSchema = z.object({ value: z.union([z.string(), z.number()]).nullable(), confidence: z.number() })
 
-function fieldValue<TValue extends z.ZodType>(value: TValue, description: string) {
-	return z.object({ value, confidence }).nullable().describe(`${description} Null when the document does not print it.`)
-}
+/** The answers of a Clairic request built by buildFieldExtractionRequest. */
+export const fieldExtractionResponseSchema = z.object({
+	answers: z.object({
+		document: z.object({
+			value: z.object({
+				sender: z.string().nullable(),
+				title: z.string().nullable(),
+				category: z.string().nullable(),
+				amount: z.number().nullable(),
+				currency: z.string().nullable(),
+				iban: z.string().nullable(),
+				invoice_number: z.string().nullable(),
+				policy_number: z.string().nullable(),
+				tags: z.string().nullable(),
+			}),
+		}),
+		document_date: typedAnswerSchema,
+		due_date: typedAnswerSchema,
+		renewal_date: typedAnswerSchema,
+		cancellation_period: typedAnswerSchema,
+	}),
+	usage: z.object({ input_tokens: z.number() }),
+})
 
-const calendarDate = "Calendar date in the form YYYY-MM-DD."
+type FieldExtractionAnswers = z.infer<typeof fieldExtractionResponseSchema>["answers"]
 
-/**
- * The structured output the classification model returns. The person field accepts only
- * the identifiers of the household members in D1 and `household`, so the model cannot
- * invent a member.
- */
-export function buildClassificationSchema(memberIds: ReadonlyArray<string>) {
-	const people: [string, ...Array<string>] = ["household", ...memberIds]
-	return z.object({
-		title: z.string().describe("English title: sender without legal form, document type, and period or subject"),
-		document_date: z.string().nullable().describe(`Issue date printed on the document. ${calendarDate}`),
-		sender: z.string().describe("Organization, authority, or person that issued the document"),
-		category: z.string().describe("One primary category"),
-		person: z.enum(people).describe("Identifier of the household member the document concerns, or household"),
-		tags: z.array(z.string()).describe("Zero to three lowercase cross-cutting labels such as tax-2026"),
-		summary: z.string().describe("Two English sentences: what the document is, and what it records or requires"),
-		fields: z.object({
-			amount: fieldValue(
-				z.number(),
-				"Final total as a decimal number: the amount to pay, paid, or refunded, such as Gesamtbetrag, Rechnungsbetrag, Summe, Nachzahlung, or Erstattung.",
-			),
-			currency: fieldValue(z.string(), "ISO 4217 code of the amount, such as EUR for € or USD for $."),
-			due_date: fieldValue(z.string(), `Date by which the amount must be paid, such as zahlbar bis. ${calendarDate}`),
-			iban: fieldValue(z.string(), "IBAN printed on the document, without spaces."),
-			invoice_number: fieldValue(
-				z.string(),
-				"Invoice, receipt, or transaction number, such as Rechnungsnummer or Bon-Nr.",
-			),
-			policy_number: fieldValue(z.string(), "Contract or insurance policy number, such as Vertragsnummer."),
-			renewal_date: fieldValue(z.string(), `Date the contract or policy next renews or ends. ${calendarDate}`),
-			cancellation_period: fieldValue(
-				z.string(),
-				"Notice period (Kündigungsfrist) as an ISO 8601 duration such as P3M.",
-			),
-		} satisfies Record<ExtractedFieldKey, z.ZodType>),
-	})
-}
-
-type ClassificationOutput = z.infer<ReturnType<typeof buildClassificationSchema>>
+/** The answer of a Clef request built by buildPersonAssignmentRequest. */
+export const personAssignmentResponseSchema = z.object({
+	answers: z.object({ person: z.object({ choice: z.string() }) }),
+	usage: z.object({ input_tokens: z.number() }),
+})
 
 type ExtractedField =
-	| { fieldKey: ExtractedFieldKey; fieldType: "number"; value: number; confidence: number }
-	| { fieldKey: ExtractedFieldKey; fieldType: "text" | "date"; value: string; confidence: number }
+	| { fieldKey: ExtractedFieldKey; fieldType: "number"; value: number; confidence: number | null }
+	| { fieldKey: ExtractedFieldKey; fieldType: "text" | "date"; value: string; confidence: number | null }
 
 export interface DocumentClassification {
 	title: string | null
@@ -97,7 +84,6 @@ export interface DocumentClassification {
 	/** Null assigns the document to the whole household. */
 	personMemberId: string | null
 	tagNames: Array<string>
-	summary: string | null
 	extractedFields: Array<ExtractedField>
 }
 
@@ -148,13 +134,42 @@ export function normalizeFieldValue(fieldKey: ExtractedFieldKey, value: string |
 	}
 }
 
-function normalizeExtractedFields(fields: ClassificationOutput["fields"]): Array<ExtractedField> {
+// Below this confidence, Clairic's typed dates on the test documents were invented, never read.
+const MINIMUM_TYPED_CONFIDENCE = 0.2
+
+type TypedAnswer = z.infer<typeof typedAnswerSchema>
+
+function typedValue(answer: TypedAnswer) {
+	return answer.value === null || answer.confidence < MINIMUM_TYPED_CONFIDENCE ? null : answer.value
+}
+
+/**
+ * Clairic reports one confidence for the generated object, the probability of the whole
+ * sequence, which says nothing about one field, so generated fields carry none.
+ */
+function normalizeExtractedFields(answers: FieldExtractionAnswers): Array<ExtractedField> {
+	const generated = answers.document.value
+	const typed = (answer: TypedAnswer) => ({ value: typedValue(answer), confidence: answer.confidence })
+	const cancellationMonths = typedValue(answers.cancellation_period)
+	const rawValues: Record<ExtractedFieldKey, { value: string | number | null; confidence: number | null }> = {
+		amount: { value: generated.amount, confidence: null },
+		currency: { value: generated.currency, confidence: null },
+		due_date: typed(answers.due_date),
+		iban: { value: generated.iban, confidence: null },
+		invoice_number: { value: generated.invoice_number, confidence: null },
+		policy_number: { value: generated.policy_number, confidence: null },
+		renewal_date: typed(answers.renewal_date),
+		cancellation_period: {
+			value: cancellationMonths === null ? null : `P${cancellationMonths}M`,
+			confidence: answers.cancellation_period.confidence,
+		},
+	}
 	const extractedFields: Array<ExtractedField> = []
 	for (const fieldKey of extractedFieldKeys) {
-		const extracted = fields[fieldKey]
-		if (extracted === null) continue
-		const value = normalizeFieldValue(fieldKey, extracted.value)
-		const fieldConfidence = Math.min(1, Math.max(0, extracted.confidence))
+		const { value: rawValue, confidence } = rawValues[fieldKey]
+		if (rawValue === null) continue
+		const value = normalizeFieldValue(fieldKey, rawValue)
+		const fieldConfidence = confidence === null ? null : Math.min(1, Math.max(0, confidence))
 		if (typeof value === "number") {
 			extractedFields.push({ fieldKey, fieldType: "number", value, confidence: fieldConfidence })
 		} else if (typeof value === "string") {
@@ -171,20 +186,28 @@ function normalizeTaxonomyLabel(value: string): string | null {
 	return text === null || normalizeTaxonomyName(text) === "" ? null : text
 }
 
-function normalizeTagNames(tags: Array<string>): Array<string> {
-	const names = tags.map((tag) => normalizeTaxonomyLabel(tag.toLowerCase())).filter((tag) => tag !== null)
+function normalizeTagNames(tags: string | null): Array<string> {
+	const names = (tags ?? "")
+		.split(",")
+		.map((tag) => normalizeTaxonomyLabel(tag.toLowerCase()))
+		.filter((tag) => tag !== null)
 	return [...new Set(names)].slice(0, MAXIMUM_TAG_COUNT)
 }
 
-export function normalizeClassification(output: ClassificationOutput): DocumentClassification {
+/** The classification of Clairic's answers, with the member Clef chose, or null for the household. */
+export function normalizeClassification(
+	answers: FieldExtractionAnswers,
+	personMemberId: string | null,
+): DocumentClassification {
+	const generated = answers.document.value
+	const documentDate = typedValue(answers.document_date)
 	return {
-		title: normalizeText(output.title),
-		documentDate: output.document_date === null ? null : normalizeCalendarDate(output.document_date),
-		senderName: normalizeTaxonomyLabel(output.sender),
-		categoryName: normalizeTaxonomyLabel(output.category),
-		personMemberId: output.person === "household" ? null : output.person,
-		tagNames: normalizeTagNames(output.tags),
-		summary: normalizeText(output.summary),
-		extractedFields: normalizeExtractedFields(output.fields),
+		title: generated.title === null ? null : normalizeText(generated.title),
+		documentDate: documentDate === null ? null : normalizeCalendarDate(String(documentDate)),
+		senderName: generated.sender === null ? null : normalizeTaxonomyLabel(generated.sender),
+		categoryName: generated.category === null ? null : normalizeTaxonomyLabel(generated.category),
+		personMemberId,
+		tagNames: normalizeTagNames(generated.tags),
+		extractedFields: normalizeExtractedFields(answers),
 	}
 }

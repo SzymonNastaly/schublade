@@ -23,7 +23,9 @@ const deploymentParametersSchema = z.strictObject({
 	authorizationStateNamespaceIdentifier: z.string().min(1).optional(),
 	aiGatewayIdentifier: z.string().min(1).optional(),
 	workerHostname: z.hostname().optional(),
+	// A Clairic model for every field but the person, and a Clef model for the person.
 	classificationModel: z.string().min(1).optional(),
+	personAssignmentModel: z.string().min(1).optional(),
 	accessTeamDomain: z.hostname().optional(),
 	accessAudience: z.string().min(1).optional(),
 	// The Email Routing address whose mail the Worker archives. Without it, the Worker rejects all mail.
@@ -184,9 +186,8 @@ export default defineConfig(({ mode }) => {
 				INGESTION_EMAIL_ADDRESS: bindings.text(bindingValues.INGESTION_EMAIL_ADDRESS),
 				MAIL_SENDER_ALLOWLIST: bindings.json(bindingValues.MAIL_SENDER_ALLOWLIST),
 				AI_GATEWAY_IDENTIFIER: bindings.text(deployment.aiGatewayIdentifier ?? "schublade"),
-				CLASSIFICATION_MODEL: bindings.text(
-					deployment.classificationModel ?? "@cf/deepseek-ai/deepseek-v4.1-flash-1017",
-				),
+				CLASSIFICATION_MODEL: bindings.text(deployment.classificationModel ?? "@cf/cloudflare/clairic-flash"),
+				PERSON_ASSIGNMENT_MODEL: bindings.text(deployment.personAssignmentModel ?? "@cf/cloudflare/clef-flash"),
 			},
 		},
 	}

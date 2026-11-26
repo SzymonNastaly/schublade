@@ -312,12 +312,15 @@ test("a client that pages from any earlier cursor ends with the documents the li
 			toMarkdown: () => Promise.resolve(recording.markdownConversion),
 			run: (model: string) =>
 				Promise.resolve(
-					model === "@cf/moondream/moondream3.1-9B-A2B"
-						? new Response(recording.textRecognitionEventStream).body
-						: recording.classificationResponse,
+					{
+						"@cf/moondream/moondream3.1-9B-A2B": new Response(recording.textRecognitionEventStream).body,
+						"@cf/cloudflare/clairic-flash": recording.classificationResponse,
+						"@cf/cloudflare/clef-flash": recording.personAssignmentResponse,
+					}[model],
 				),
 		} as unknown as Ai,
-		CLASSIFICATION_MODEL: "@cf/deepseek-ai/deepseek-v4.1-flash-1017",
+		CLASSIFICATION_MODEL: "@cf/cloudflare/clairic-flash",
+		PERSON_ASSIGNMENT_MODEL: "@cf/cloudflare/clef-flash",
 		SEARCH_INDEX: searchIndex,
 		DOCUMENT_INGESTION_WORKFLOW: { create: () => Promise.resolve() } as unknown as Workflow,
 	}
@@ -404,7 +407,7 @@ test("a client that pages from any earlier cursor ends with the documents the li
 		titles: [
 			"Allianz Liability Policy 2026",
 			"Frischemarkt Receipt",
-			"Stadtwerke Talbrück Invoice Electricity Consumption September 2025 to August 2026",
+			"Stadtwerke Talbrück GmbH Gas invoice September 2026",
 		],
 	})
 	expect(repeatedPages[0]).toEqual(repeatedPages[1])

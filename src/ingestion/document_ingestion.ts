@@ -36,7 +36,7 @@ import type { QuarterTurns } from "../database/schema"
 import type { PageInspection } from "../inference/page_rasterizer"
 import type { TextRecognition } from "../inference/text_recognizer"
 import type { SearchIndex } from "../search/document_indexing"
-import type { MailContext } from "./classification_prompt"
+import type { MailContext } from "./classification_request"
 import type { DocumentClassification } from "./document_classification"
 import type { DocumentFailureReason, DocumentStatus } from "./document_lifecycle"
 import type { PageTextSource, PageTranscription, TextExtraction } from "./document_text"
@@ -52,6 +52,7 @@ type IngestionEnvironment = Pick<
 	| "BROWSER_RENDERER"
 	| "CLASSIFICATION_MODEL"
 	| "IMAGE_TRANSFORMER"
+	| "PERSON_ASSIGNMENT_MODEL"
 > & { SEARCH_INDEX: SearchIndex }
 
 type StatusRecordEnvironment = Pick<Env, "ARCHIVE_COORDINATOR" | "DATABASE">
@@ -99,7 +100,8 @@ export interface IngestionOutcome {
 	recognizedPageCount: number
 	classificationModel: string
 	classificationInputTokens: number
-	classificationOutputTokens: number
+	personAssignmentModel: string
+	personAssignmentInputTokens: number
 }
 
 /**
@@ -452,7 +454,6 @@ async function archiveDocument(
 			senderId: sender === null ? null : recordIdentifier(senders, sender.normalizedName),
 			categoryId: category === null ? null : recordIdentifier(categories, category.normalizedName),
 			personMemberId: classification.personMemberId,
-			summary: classification.summary,
 			pageCount,
 			status: "archived",
 		})
@@ -618,7 +619,10 @@ async function archiveIngestedDocument(
 			return classifyDocument(
 				environment.AI_RUNTIME,
 				environment.AI_GATEWAY_IDENTIFIER,
-				environment.CLASSIFICATION_MODEL,
+				{
+					classification: environment.CLASSIFICATION_MODEL,
+					personAssignment: environment.PERSON_ASSIGNMENT_MODEL,
+				},
 				{
 					markdown,
 					mail: mailContext,
@@ -638,8 +642,9 @@ async function archiveIngestedDocument(
 			documentId,
 			recognizedPageCount: transcriptions.length,
 			classificationModel: environment.CLASSIFICATION_MODEL,
-			classificationInputTokens: result.inputTokens,
-			classificationOutputTokens: result.outputTokens,
+			classificationInputTokens: result.classificationInputTokens,
+			personAssignmentModel: environment.PERSON_ASSIGNMENT_MODEL,
+			personAssignmentInputTokens: result.personAssignmentInputTokens,
 		}
 	} catch (error) {
 		await step.do("record status failed", recordStep, () =>

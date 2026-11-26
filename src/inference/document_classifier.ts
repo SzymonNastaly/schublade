@@ -1,39 +1,54 @@
-import { Output, generateText } from "ai"
-import { createWorkersAI } from "workers-ai-provider"
-import { buildClassificationRequest } from "../ingestion/classification_prompt"
-import { normalizeClassification } from "../ingestion/document_classification"
-import type { ClassificationContext } from "../ingestion/classification_prompt"
+import { buildFieldExtractionRequest, buildPersonAssignmentRequest } from "../ingestion/classification_request"
+import {
+	fieldExtractionResponseSchema,
+	normalizeClassification,
+	personAssignmentResponseSchema,
+} from "../ingestion/document_classification"
+import type { ClassificationContext } from "../ingestion/classification_request"
 import type { DocumentClassification } from "../ingestion/document_classification"
+
+export interface ClassificationModels {
+	/** A Clairic model, which reads every field but the person. */
+	classification: string
+	/** A Clef model, which chooses the household member the document concerns. */
+	personAssignment: string
+}
 
 export interface ClassificationResult {
 	classification: DocumentClassification
-	inputTokens: number
-	outputTokens: number
+	classificationInputTokens: number
+	/** Zero when the household has no members to choose from. */
+	personAssignmentInputTokens: number
 }
 
+/** Both models bill input tokens only, so the input tokens measure the cost of a document. */
 export async function classifyDocument(
 	runtime: Ai,
 	gatewayIdentifier: string,
-	modelName: string,
+	models: ClassificationModels,
 	context: ClassificationContext,
 ): Promise<ClassificationResult> {
-	const workersAi = createWorkersAI({ binding: runtime, gateway: { id: gatewayIdentifier } })
-	const { schema, system, prompt } = buildClassificationRequest(context)
-	const result = await generateText({
-		model: workersAi(modelName),
-		system,
-		prompt,
-		output: Output.object({ schema }),
-		temperature: 0,
-		// Reasoning models spend most of their output on reasoning. Without a limit, Workers AI
-		// applies a model default that cut gpt-oss-120b off before it wrote any JSON.
-		maxOutputTokens: 8192,
-		// The workflow step retries, so the SDK does not retry on its own.
-		maxRetries: 0,
-	})
+	const run = async (modelName: string, inputs: object): Promise<unknown> =>
+		runtime.run(modelName, inputs as never, { gateway: { id: gatewayIdentifier } })
+	const assignPerson = async () => {
+		const personAssignment = buildPersonAssignmentRequest(models.personAssignment, context)
+		if (personAssignment === null) return { memberId: null, inputTokens: 0 }
+		const response = personAssignmentResponseSchema.parse(await run(models.personAssignment, personAssignment.request))
+		const memberId = personAssignment.memberIds.get(response.answers.person.choice)
+		if (memberId === undefined) {
+			throw new Error(`The person assignment chose ${response.answers.person.choice}, which it was not offered`)
+		}
+		return { memberId, inputTokens: response.usage.input_tokens }
+	}
+	const [fieldExtraction, person] = await Promise.all([
+		run(models.classification, buildFieldExtractionRequest(models.classification, context)).then((response) =>
+			fieldExtractionResponseSchema.parse(response),
+		),
+		assignPerson(),
+	])
 	return {
-		classification: normalizeClassification(result.output),
-		inputTokens: result.usage.inputTokens ?? 0,
-		outputTokens: result.usage.outputTokens ?? 0,
+		classification: normalizeClassification(fieldExtraction.answers, person.memberId),
+		classificationInputTokens: fieldExtraction.usage.input_tokens,
+		personAssignmentInputTokens: person.inputTokens,
 	}
 }

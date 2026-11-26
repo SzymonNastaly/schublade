@@ -1,6 +1,6 @@
 import PostalMime from "postal-mime"
 import type { Attachment, Email, PostalMimeOptions } from "postal-mime"
-import type { MailContext } from "./classification_prompt"
+import type { MailContext } from "./classification_request"
 
 // Household mail nests a few levels and holds a few dozen parts. The postal-mime defaults of 256
 // levels, 10,000 parts, 2 MiB of headers, and inline messages 10 deep admit far more, and every

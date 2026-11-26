@@ -68,7 +68,10 @@ const uploadResponseSchema = z.object({
 
 const workflowInstanceSchema = z.object({
 	result: z.object({
-		output: z.object({ classificationModel: z.string(), recognizedPageCount: z.number() }).nullable().optional(),
+		output: z
+			.object({ classificationModel: z.string(), personAssignmentModel: z.string(), recognizedPageCount: z.number() })
+			.nullable()
+			.optional(),
 		error: z.object({ message: z.string() }).nullable().optional(),
 		steps: z.array(z.object({ name: z.string(), start: z.string().nullable(), end: z.string().nullable() })).optional(),
 	}),
@@ -212,7 +215,10 @@ async function stepDurations(documentId: string) {
 			.filter((step) => step.name.startsWith(prefix) && step.start !== null && step.end !== null)
 			.reduce((total, step) => total + (Date.parse(step.end ?? "") - Date.parse(step.start ?? "")) / 1000, 0)
 	return {
-		model: instance.output?.classificationModel,
+		models:
+			instance.output === null || instance.output === undefined
+				? undefined
+				: `${instance.output.classificationModel}, ${instance.output.personAssignmentModel} for the person`,
 		errorMessage: instance.error?.message,
 		recognitionSeconds: seconds("recognize page"),
 		classificationSeconds: seconds("classify document"),
@@ -293,13 +299,13 @@ console.log(
 const fieldTotals = new Map(comparedFields.map((field) => [field, { matched: 0, scored: 0 }]))
 const mismatches: Array<string> = []
 const failures: Array<string> = []
-let model: string | undefined
+let models: string | undefined
 for (const expected of expectation.documents) {
 	const documentId = documentIds.get(expected.file_name) ?? ""
 	const actual = listing.find((document) => document.id === documentId)
 	if (!actual) throw new Error(`The listing lacks ${expected.file_name}`)
 	const durations = await stepDurations(documentId)
-	model ??= durations.model
+	models ??= durations.models
 	if (durations.errorMessage !== undefined) failures.push(`${expected.file_name}: ${durations.errorMessage}`)
 	let matched = 0
 	let scored = 0
@@ -353,7 +359,7 @@ console.log(
 		`${overall.matched}/${overall.scored}`,
 	].join(""),
 )
-console.log(`\nClassification model: ${model ?? "unknown"}`)
+console.log(`\nClassification models: ${models ?? "unknown"}`)
 console.log(`Wall time for all documents: ${((endedAt - startedAt) / 1000).toFixed(0)} s, uploaded together`)
 if (failures.length > 0) console.log(`\nFailures:\n${failures.join("\n")}`)
 if (mismatches.length > 0) console.log(`\nMismatches:\n${mismatches.join("\n")}`)
