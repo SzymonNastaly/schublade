@@ -270,7 +270,7 @@ fn the_conditions_every_route_shares_are_read_from_the_status_and_retry_after() 
             ("Retry-After", "120".to_owned()),
             ("Content-Type", "application/problem+json".to_owned()),
         ],
-        ..problem(503, "The archive is still recording the digests of its documents.")
+        ..problem(503, "The archive is busy. Try again later.")
     };
     let archive = TestArchive::start(vec![
         problem(401, "Send a valid API token"),

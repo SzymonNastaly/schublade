@@ -26,7 +26,7 @@ pub enum ConnectionState {
         since: Timestamp,
         attempt: u32,
     },
-    /// 503 with Retry-After: the archive still records digests of older documents.
+    /// 503 with Retry-After: the archive asked to be called again later.
     Deferred {
         until: Timestamp,
     },
