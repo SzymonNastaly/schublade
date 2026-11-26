@@ -130,7 +130,10 @@ export async function receiveDocument(
 		})
 		return await documentStatusResponse(database, archival.documentId, archival.kind === "accepted" ? 202 : 200)
 	} catch (error) {
-		if (isDigestMismatch(error)) return problem(422, "The original does not have the SHA-256 in the path")
+		if (isDigestMismatch(error)) {
+			console.warn(`R2 refused the original of ${sha256}`, error)
+			return problem(422, "The original does not have the SHA-256 in the path")
+		}
 		throw error
 	}
 }
