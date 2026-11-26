@@ -11,7 +11,9 @@ final class ApplicationGateway: ApplicationCommands, LibraryQueries, CollectorCo
 	private var collector: Collector?
 
 	func start(configuration: ApplicationConfiguration) async throws(ApplicationStartFailure) {
-		let started = try await narrowing {
+		var configuration = configuration
+		configuration.documentReader = CollectedDocumentReader()
+		let started = try await narrowing { [configuration] in
 			try await startApplicationCore(configuration: configuration)
 		} otherwise: { detail in
 			ApplicationStartFailure.Unexpected(detail: detail)

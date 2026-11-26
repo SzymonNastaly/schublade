@@ -12,7 +12,8 @@ cd "$(dirname "$0")/.."
 	&& cargo build --locked -p scripted_archive --bin scripted-archive-server)
 
 # The shared library sources sit beside this directory, so the configuration is named.
-swiftformat --lint --quiet --config .swiftformat . ../library_presentation ../library_presentation_tests
+swiftformat --lint --quiet --config .swiftformat . ../library_presentation ../library_presentation_tests \
+	../document_reading ../document_reading_tests
 swiftlint lint --strict --quiet
 interface_builder_files="$(find . -path ./build -prune -o \( -name "*.xib" -o -name "*.storyboard" \) -print)"
 if [ -n "$interface_builder_files" ]; then

@@ -33,7 +33,13 @@ final class ApplicationEndToEndTests: XCTestCase, InterfaceProbing {
 			controller: controller,
 			server: server
 		)
-		try await verifyCollectedDocumentArrives(in: window, tableView: tableView, controller: controller)
+		try await verifyCollectedDocumentArrives(
+			in: window,
+			tableView: tableView,
+			controller: controller,
+			server: server,
+			token: validToken
+		)
 		verifyWindowReopen(window: window, tableView: tableView, controller: controller)
 		try await verifyToolbarFollowsANewSplitView(in: window, controller: controller)
 	}
@@ -228,7 +234,9 @@ private extension ApplicationEndToEndTests {
 	func verifyCollectedDocumentArrives(
 		in window: NSWindow,
 		tableView: NSTableView,
-		controller: ApplicationController
+		controller: ApplicationController,
+		server: ScriptedArchiveProcess,
+		token: String
 	) async throws {
 		let folder = URL.temporaryDirectory.appending(
 			path: "schublade_end_to_end_\(UUID().uuidString)",
@@ -257,6 +265,8 @@ private extension ApplicationEndToEndTests {
 			try rowText(in: tableView, row: 1, identifier: InterfaceIdentifier.documentRowTitle),
 			"Processing Document"
 		)
+		let text = try await server.text(ofDocumentHolding: fixtureFile, token: token)
+		XCTAssertTrue(text.contains("Aktenzeichen: 33.10-2026-04812"), "the archive holds the text PDFKit read")
 		try verifyDividersSurvivePages(enrolled, in: window, controller: controller)
 		try await verifyInspectorMenuItem(controller: controller)
 		try await verifyInspectorGivesWayAndReturns(in: window, controller: controller)

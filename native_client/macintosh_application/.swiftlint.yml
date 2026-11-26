@@ -8,6 +8,8 @@ included:
   - interface_renderer
   - ../library_presentation
   - ../library_presentation_tests
+  - ../document_reading
+  - ../document_reading_tests
 excluded:
   - build
   - generated_bindings

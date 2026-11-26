@@ -68,6 +68,15 @@ targets:
       base:
         SWIFT_DEFAULT_ACTOR_ISOLATION: nonisolated
 
+  # Foundation, PDFKit, Vision, and ImageIO only, so that the iPhone application can build it too.
+  DocumentReading:
+    type: library.static
+    platform: macOS
+    sources: [../document_reading]
+    settings:
+      base:
+        SWIFT_DEFAULT_ACTOR_ISOLATION: nonisolated
+
   ApplicationPresentation:
     type: library.static
     platform: macOS
@@ -84,6 +93,7 @@ targets:
     platform: macOS
     sources: [application_interface]
     dependencies:
+      - target: DocumentReading
       - target: ApplicationPresentation
       - target: LibraryPresentation
       - target: ApplicationBindings
@@ -102,6 +112,7 @@ targets:
         excludes: ["*.svg"]
     dependencies:
       - target: ApplicationInterface
+      - target: DocumentReading
       - target: ApplicationPresentation
       - target: LibraryPresentation
       - target: ApplicationBindings
@@ -139,8 +150,9 @@ targets:
   ApplicationPresentationTests:
     type: bundle.unit-test
     platform: macOS
-    sources: [application_presentation_tests, ../library_presentation_tests]
+    sources: [application_presentation_tests, ../library_presentation_tests, ../document_reading_tests]
     dependencies:
+      - target: DocumentReading
       - target: ApplicationPresentation
       - target: LibraryPresentation
       - target: ApplicationBindings
@@ -173,6 +185,7 @@ targets:
     sources: [interface_renderer]
     dependencies:
       - target: ApplicationInterface
+      - target: DocumentReading
       - target: ApplicationPresentation
       - target: LibraryPresentation
       - target: ApplicationBindings

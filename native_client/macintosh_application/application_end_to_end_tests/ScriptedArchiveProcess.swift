@@ -1,3 +1,4 @@
+import CryptoKit
 import Darwin
 import Foundation
 import XCTest
@@ -73,6 +74,25 @@ final class ScriptedArchiveProcess {
 		}
 	}
 
+	/// The text the archive holds for the document of a file's bytes, read through the lookup and the
+	/// text route as a client of the archive reads it.
+	func text(ofDocumentHolding file: URL, token: String) async throws -> String {
+		let digest = try SHA256.hash(data: Data(contentsOf: file)).map { String(format: "%02x", $0) }.joined()
+		var lookup = URLRequest(url: baseURL.appending(path: "api/v1/contents/lookup"))
+		lookup.httpMethod = "POST"
+		lookup.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+		lookup.setValue("application/json", forHTTPHeaderField: "Content-Type")
+		lookup.httpBody = try JSONEncoder().encode(["sha256": [digest]])
+		let (answer, _) = try await URLSession.shared.data(for: lookup)
+		let decoder = JSONDecoder()
+		decoder.keyDecodingStrategy = .convertFromSnakeCase
+		let document = try XCTUnwrap(decoder.decode(ContentLookupAnswer.self, from: answer).contents.first?.documentId)
+		var textRequest = URLRequest(url: baseURL.appending(path: "api/v1/documents/\(document)/text"))
+		textRequest.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+		let (text, _) = try await URLSession.shared.data(for: textRequest)
+		return try XCTUnwrap(String(bytes: text, encoding: .utf8))
+	}
+
 	func stop() {
 		try? standardInputPipe.fileHandleForWriting.close()
 		if process.isRunning {
@@ -143,4 +163,13 @@ final class ScriptedArchiveProcess {
 			detail: candidates.map { $0.path(percentEncoded: false) }.joined(separator: ", ")
 		)
 	}
+}
+
+/// `POST /api/v1/contents/lookup` answered for one digest.
+private struct ContentLookupAnswer: Decodable {
+	let contents: [LookedUpContent]
+}
+
+private struct LookedUpContent: Decodable {
+	let documentId: String?
 }
