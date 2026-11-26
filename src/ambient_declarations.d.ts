@@ -13,3 +13,9 @@ declare module "*.pdf" {
 	const documentBytes: ArrayBuffer
 	export default documentBytes
 }
+
+// workerd implements readAtLeast, which fills a view with at least that many elements, but the
+// generated runtime types leave it out.
+interface ReadableStreamBYOBReader {
+	readAtLeast: <T extends ArrayBufferView>(minElements: number, view: T) => Promise<ReadableStreamReadResult<T>>
+}

@@ -40,7 +40,10 @@ export function identifySourceFile(content: Uint8Array): SourceFile | undefined 
 	)
 }
 
-/** Every R2 object of a document lies under this prefix: its original, its Markdown, or its message. */
+/**
+ * Every R2 object of a document lies under this prefix: its original, its Markdown, its message,
+ * and the text and thumbnail its client submitted.
+ */
 export function documentObjectPrefix(documentId: string): string {
 	return `documents/${documentId}/`
 }
@@ -55,4 +58,14 @@ export function contentObjectKey(documentId: string): string {
 
 export function thumbnailObjectKey(documentId: string): string {
 	return `${documentObjectPrefix(documentId)}thumbnail.png`
+}
+
+/** The Markdown a client read from the original, which the Workflow may take as the document's text. */
+export function submittedTextObjectKey(documentId: string): string {
+	return `${documentObjectPrefix(documentId)}submitted_text.md`
+}
+
+/** The JPEG of the first page that a client drew. */
+export function submittedThumbnailObjectKey(documentId: string): string {
+	return `${documentObjectPrefix(documentId)}thumbnail.jpg`
 }

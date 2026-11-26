@@ -1,6 +1,6 @@
 # Client preprocessing design
 
-How the text and the first-page picture of a document move from the Worker to the clients, drafted on 2026-11-26. It extends `notes/client_protocol.md` with two routes and changes one premise of `notes/iphone_application_design.md`, which says "The PDF carries no text layer: the archive reads its pages as it reads every scan". Nothing here is built. The note is one candidate design for review.
+How the text and the first-page picture of a document move from the Worker to the clients, drafted on 2026-11-26. It extends `notes/client_protocol.md` with two routes and changes one premise of `notes/iphone_application_design.md`, which says "The PDF carries no text layer: the archive reads its pages as it reads every scan". The owner decided its open questions on 2026-11-26, and units S1, S2, and S3 are built.
 
 Every claim about behaviour carries one of three labels. Documented means a vendor's documentation or this repository's notes say it. Measured means someone ran it, with the date. Inferred means it follows from the other two and nobody ran it.
 
@@ -26,7 +26,7 @@ The constraints that shape the design:
 | Mac application's collector | The same Swift module, called from the collector | The same | `PUT /api/v1/collected_documents/{sha256}` |
 | `schublade-collector` on Linux and macOS | The text layer through pdfium-render, no recognition | The first page through pdfium-render | `PUT /api/v1/collected_documents/{sha256}` |
 | Web application | PDF.js `getTextContent()`, nothing for a picture or a scanned page | The first page or the picture on a canvas | `PUT /api/submitted_documents/{sha256}`, behind Access |
-| A script or a Shortcut | None | None | The same route as the iPhone with a plain body, or `POST /api/documents/ingest` as today |
+| A script or a Shortcut | None | None | The same route as the iPhone with a plain body. `POST /api/documents/ingest` until unit L1 removes it (decision 4) |
 | Mail | None. The Worker reads it, see [Mail](#mail) | None for an attachment | No route |
 
 One request from a script, with no derived representation:
@@ -206,7 +206,7 @@ The steps and what changes in each:
 | --- | --- | --- | --- |
 | render email | Prints a stored email | Unchanged | Also stores the page's text and picture, see [Mail](#mail) |
 | extract text | PDFium, `toMarkdown`, `selectPageTextSources` | Reads `submitted_text.md` first. With at least 40 letters or digits it is the text, and nothing else runs. Otherwise today's chain | Submitted text, then `toMarkdown`, then failure |
-| recognize page N | Moondream on a rendered page | Only for a document without submitted text | Gone for PDFs. For pictures see decision 1 |
+| recognize page N | Moondream on a rendered page | Only for a document without submitted text | Gone for PDFs. Stays for pictures (decision 1) |
 | store markdown | Writes `content.md` | Copies `submitted_text.md` to `content.md` as a stream, or writes the assembled text | Unchanged |
 | classify document | Takes the text from the step before | Reads `content.md` from R2 | Unchanged |
 | archive document | Writes `page_count` from PDFium | Keeps the `page_count` of the reception when one came | Counts the `### Page N` headings of a conversion |
@@ -219,7 +219,7 @@ The classify step reads the text from R2, because a step's output is limited to 
 The fallback chain after R1, for a document without a usable submitted text:
 
 1. A PDF goes to `toMarkdown`. A conversion with at least 40 letters or digits is the text. A conversion that answers an error fails the document with `unreadable_file`.
-2. A picture goes to whatever decision 1 chooses.
+2. A picture goes to Moondream, as today (decision 1).
 3. Otherwise the document fails with `unreadable_page`, whose sentence becomes "No text could be read from this document. Send it from the Schublade app on an iPhone or a Mac, which reads scans on the device."
 
 `page_limit_exceeded` is no longer produced after R1. The schema keeps the value for documents that failed with it.
@@ -230,7 +230,7 @@ A failed document holds its content, so sending the same bytes again answers 200
 
 Mail keeps its per-byte cost. The email handler parses the message and hashes each attachment in the Worker, and no client can do that for it.
 
-- **An attachment.** A PDF or a picture arrives through `archiveContent` without text. It takes the fallback chain. A PDF with a text layer is read by `toMarkdown`. A scanned PDF from a network scanner fails after R1 unless decision 1 says otherwise. It has no thumbnail.
+- **An attachment.** A PDF or a picture arrives through `archiveContent` without text. It takes the fallback chain. A PDF with a text layer is read by `toMarkdown`. A scanned PDF from a network scanner fails after R1, and a picture is still read by Moondream. It has no thumbnail.
 - **A printed email.** Today PDFium reads the text layer that Chromium wrote. `toMarkdown` cannot replace it. On a forwarded email it kept three header lines and dropped the rest (measured, `AGENTS.md`). The browser that prints the page can also read it. `printMail` makes two more quick actions with the same inert markup: `scrape` of `body`, whose text is what the page shows, and `screenshot`, cut to the top of the page in the proportion of A4 and reduced to 480 pixels. Documented: `cf browser-run quick-action` lists `scrape` and `screenshot` beside `pdf`. Inferred: the binding's `quickAction` takes them as it takes `pdf`, and the scraped text holds the words of the text layer. Unit M1 measures it against PDFium on the mail fixtures before PDFium leaves. Each printed email then costs three browser sessions and not one.
 - The printed header's words are added by the Worker, as `printedHeaderText` does today. An email of nothing but pictures is archived with its header and the mail context. `selectPrintedMailTextSources` goes.
 - The page count of a printed email is unknown without PDFium and stays null, which the protocol allows.
@@ -245,14 +245,14 @@ Mail keeps its per-byte cost. The email handler parses the message and hashes ea
 | PDFium thumbnail | The client's JPEG. Browser Run's screenshot for a printed email | A PDF by mail, by script, or from an old build has no thumbnail |
 | PDFium page rendering for Moondream | Vision on an iPhone or a Mac | A scanned PDF from the browser, from `schublade-collector`, from a script, or by mail |
 | Moondream on a rendered page | Vision | The same four |
-| Moondream on a picture | Vision | A picture from the browser, from a script, or by mail |
+| Moondream on a picture | Vision, and Moondream for a picture that arrives without text (decision 1) | None |
 | The four rotations of a page that hit the token limit | Vision reads a page at any rotation (inferred, not measured on a turned fixture) | The same |
 
 ### Versions
 
 **An old build with a new archive.** `POST /api/documents/ingest` and `PUT /api/v1/contents/{sha256}` stay. The iPhone build 1.0 in the App Store sends multipart to the first, and the Mac build 1.0 sends the second. Their documents arrive without text and take today's chain until R1. After R1 their PDFs with a text layer still archive through `toMarkdown`, and their scans fail with `unreadable_page`. The Worker logs one line per arrival, `Document reception: route=<name> text=<submitted|absent> thumbnail=<submitted|absent>`, so `cf o11y telemetry` shows whether scans without text still arrive before the owner runs R1.
 
-**A new build with an old archive.** An old archive lacks the new routes, so `requireAccess` answers a plain 403, which `notes/client_protocol.md` defines as `RouteUnknown`. A client learns it without sending a document. The gate checks the method first, so `GET /api/v1/submitted_documents/<64 zeros>` answers 405 as a problem document on a new archive and the plain 403 on an old one. `archive_access` gains `read_document_reception`, which sends that request after `read_authorization` at connecting and once a day. The iPhone keeps the answer in its `ConnectedArchive` record, where the share extension reads it. For an old archive the client sends as today: the multipart body to the ingest route, or the plain PUT to `contents`. An upload that still meets `RouteUnknown` records it and is sent again the old way.
+**A new build with an old archive.** An old archive lacks the new routes, so `requireAccess` answers a plain 403, which `notes/client_protocol.md` defines as `RouteUnknown`. A client learns it without sending a document. The gate checks the method first, so `GET /api/v1/submitted_documents/<64 zeros>` answers 405 as a problem document on a new archive and the plain 403 on an old one. `archive_access` gains `read_document_reception`, which sends that request after `read_authorization` at connecting and once a day. The iPhone keeps the answer in its `ConnectedArchive` record, where the share extension reads it. For an old archive the client says "Update your archive" and holds its uploads until the archive offers the route (decision 2). An upload that still meets `RouteUnknown` records it and waits the same way.
 
 **The protocol.** `/api/v1` only gains a route, two optional headers, and a page count, which `notes/client_protocol.md` allows. No `/api/v2` and no Access change is needed.
 
@@ -271,10 +271,10 @@ Mail keeps its per-byte cost. The email handler parses the message and hashes ea
 
 **Rust.**
 
-- `archive_access/src/document_submission.rs`: `prepare_submission` takes `&DerivedRepresentations { page_texts: Vec<String>, thumbnail: Option<PathBuf> }` and a `SubmissionRoute`, and writes the prefix and the original to the body file. `PreparedSubmission` becomes `{ url, method, headers: Vec<(String, String)>, body_bytes }`, so Swift sets whatever headers Rust names. `compose_document_text(&[String]) -> String` writes the page headings. `read_submission_answer` reads the status body and a problem document, and gains `SubmissionAnswer::RouteUnknown`. The multipart writer stays as `SubmissionRoute::LegacyIngest`.
+- `archive_access/src/document_submission.rs`: `prepare_submission` takes `&DerivedRepresentations { page_texts: Vec<String>, thumbnail: Option<PathBuf> }` and a `SubmissionRoute`, and writes the prefix and the original to the body file. `PreparedSubmission` becomes `{ url, method, headers: Vec<(String, String)>, body_bytes }`, so Swift sets whatever headers Rust names. `compose_document_text(&[String]) -> String` writes the page headings. `read_submission_answer` reads the status body and a problem document, and gains `SubmissionAnswer::RouteUnknown`. The multipart writer goes once no client calls it (decision 2).
 - `archive_access/src/archive_exchange.rs`: `put_document(path, headers, parts: &[&[u8]])`, which sends the parts one after another without joining them.
 - `collection_core/src/document_reading.rs`, new: `trait DocumentReader: Send + Sync { fn read(&self, content: &VerifiedContent) -> DerivedRepresentations }`. A reader that fails returns nothing, so reading never holds back a submission. `work_execution.rs` calls it in `SubmitContent` after `read_submission_source`, and `ArchiveClient::submit` takes the result.
-- `collection_core/src/archive_client.rs`: `HttpArchiveClient::submit` sends to `collected_documents` and to `contents` for an old archive.
+- `collection_core/src/archive_client.rs`: `HttpArchiveClient::submit` sends to `collected_documents`, and holds its submissions while the archive lacks it.
 - `collection_command`: `PdfiumDocumentReader` over pdfium-render with a bundled PDFium. PDFium stays out of `collection_core`, so the applications never link it.
 - `application_bindings`: a callback interface `DocumentReader` that `start_application_core` takes, and `prepare_document_submission` with `page_texts` and `thumbnail_path`.
 - `scripted_archive`: both routes in `client_protocol.rs`, the submitted text and thumbnail kept with the document, and `--legacy-reception`, which answers the plain 403.
@@ -317,13 +317,15 @@ Mail keeps its per-byte cost. The email handler parses the message and hashes ea
 
 ## Decisions for the owner
 
-1. **What reads a scan or a photograph that arrives without text, once Moondream is gone?** The browser, `schublade-collector`, a script, and mail cannot recognize text. The choices are to fail such a document with `unreadable_page` and let an Apple device repair it (units A1 and C6), to keep Moondream for picture originals only, which needs no PDFium and no Worker CPU beyond the binding calls, or to add recognition to the browser. This note recommends splitting the removal: R1 removes PDFium and the recognition of PDF pages, and R2 removes Moondream for pictures only after this decision.
-2. **Should a new build send the old way to an old archive, or say "Update your archive" and wait?** The note designs the fallback, because version 1.0 is public and a scan must not wait on a household's deploy. Waiting would delete the multipart writer now.
-3. **When may R1 run?** After R1 the scans of builds before this design fail. The log line shows how many still arrive.
-4. **Does `POST /api/documents/ingest` stay for scripts and Shortcuts for good?** It buffers and hashes in the Worker. The PUT with a plain body costs nothing per byte but needs the digest in the path.
-5. **Draw the thumbnails of old PDFs once before PDFium leaves, or let those nobody ever listed show a file icon?** The drawing is unit B1, a scheduled run of 25 documents that keeps its position in one R2 object.
-6. **Is plain text enough for PDFs with a text layer?** Tables no longer arrive as Markdown. The alternative keeps `toMarkdown` for every PDF and uses the client's text only where the conversion is short, which keeps one billed call per document.
-7. **480 pixels for the thumbnail?** It matches today's drawing. 312 would keep the iPhone's file as it is.
+The owner decided on 2026-11-26:
+
+1. **What reads a scan or a photograph that arrives without text, once Moondream is gone?** Decided: Moondream stays for picture originals. R1 removes PDFium and the recognition of PDF pages, and R2 does not remove Moondream for pictures.
+2. **Should a new build send the old way to an old archive, or say "Update your archive" and wait?** Decided: it says "Update your archive" and holds its uploads. A new client has no fallback, so each client's multipart writer goes in the unit that moves that client over.
+3. **When may R1 run?** Open. The log line shows how many scans without text still arrive.
+4. **Does `POST /api/documents/ingest` stay for scripts and Shortcuts for good?** Decided: no. It goes with the old clients in unit L1, and scripts send the PUT with the digest.
+5. **Draw the thumbnails of old PDFs once before PDFium leaves, or let those nobody ever listed show a file icon?** Undecided. Unit B1 stays optional.
+6. **Is plain text enough for PDFs with a text layer?** Decided: yes. No `toMarkdown` for every PDF.
+7. **480 pixels for the thumbnail?** Decided: yes.
 
 ## Units
 
@@ -334,9 +336,9 @@ Each unit ends in its check and one commit on `main`. The server comes first and
 | S1 | The reception: `document_reception.ts`, the route entry, the member's path, `archiveContent` over a stream, the old `contents` route on the same function, the log line | Node: one table test of `parseReceptionHeaders`. workerd: a new content answers 202 and R2 holds three objects of literal sizes, the same request again answers 200 and writes nothing, a wrong digest answers 422 and stores nothing. The existing 409 and 503 tests run over both collector paths. One line per path in the route listing test | `pnpm check`. On staging: 20 MB twice with the ingest token, the CPU time of both routes, and the mismatch message of deployed R2 |
 | S2 | The Workflow reads the submitted text, and classify reads `content.md` | workerd: a document with a submitted text is archived while `toMarkdown` and Moondream throw when called, and `content.md` equals the literal text. A submitted text of 10 letters takes today's chain | `pnpm check`. `pnpm dev`: a scanned fixture sent by `curl` with a text is archived without a Moondream entry in the gateway log |
 | S3 | `readThumbnail` in its new order | workerd: a stored `thumbnail.jpg` is served as `image/jpeg`. The existing tests cover the PNG and the mark | `pnpm check` |
-| C1 | The wire in Rust: `prepare_submission`, `compose_document_text`, the answers, `read_document_reception`, `put_document`, both routes and `--legacy-reception` in the scripted archive, and `test_fixtures/client_protocol/submitted_document_text.md`, which the Rust writer, the Worker's test, and the web's writer share | The body equals the fixture and the counts. Each answer reads as what the application does next. A submission to a legacy archive is sent again as multipart | The cargo checks on Linux and the Mac |
+| C1 | The wire in Rust: `prepare_submission`, `compose_document_text`, the answers, `read_document_reception`, `put_document`, both routes and `--legacy-reception` in the scripted archive, and `test_fixtures/client_protocol/submitted_document_text.md`, which the Rust writer, the Worker's test, and the web's writer share | The body equals the fixture and the counts. Each answer reads as what the application does next. A submission to a legacy archive is held and reported as "Update your archive" | The cargo checks on Linux and the Mac |
 | C2 | `DocumentReading` and the iPhone application with its share extension | Swift Testing: the text of one digital fixture and of one scanned fixture holds literal values of `expected_extraction.json`. End to end: the scripted archive holds the text of a scan the application sent | The iPhone's `check_application.sh`. On the owner's iPhone: a scan and a share of a 25-page PDF archive without a Moondream entry |
-| C3 | `DocumentReader` in `collection_core`, the callback in the bindings, the Mac's conformance | One corpus scenario: the scripted archive holds the text a fixed reader returned. One coordinator test against a legacy archive | The cargo checks, the Mac's `check_application.sh` |
+| C3 | `DocumentReader` in `collection_core`, the callback in the bindings, the Mac's conformance | One corpus scenario: the scripted archive holds the text a fixed reader returned. One coordinator test: a legacy archive holds the submissions | The cargo checks, the Mac's `check_application.sh` |
 | C4 | `PdfiumDocumentReader` in `collection_command` | One test: the text of a digital fixture holds its literal values | The cargo checks on Linux and the Mac |
 | C5 | The web application reads and sends, `POST /api/documents` goes, the evaluation scripts send text | Node: the page texts of one fixture through PDF.js hold its literal values, and the body equals the shared fixture | `pnpm check`. `pnpm dev` with a PDF and a photograph in a browser. `pnpm evaluate:extraction`, billed, with the owner's go |
 | M1 | A printed email takes its text and its picture from Browser Run | workerd: with recorded answers of the three quick actions, a stored email is archived with the scraped text and a `thumbnail.jpg` | `pnpm check`. The local email endpoint with a mail fixture. The scraped text against PDFium's on the mail fixtures |
@@ -344,8 +346,8 @@ Each unit ends in its check and one commit on `main`. The server comes first and
 | C6 | Optional, decision 1: an application sends the text of a failed document of its copy whose original it holds | One scenario against the scripted archive | The cargo checks |
 | B1 | Optional, decision 5: the scheduled drawing of missing thumbnails | workerd: one run draws one and moves its position | `pnpm check`, then the log line "0 remaining" on the deployment |
 | R1 | PDFium leaves: `page_rasterizer.ts`, the package, the 90% rule, the recognition of PDF pages | The tests of the removed code go. One workerd test of the fallback chain: no text and a short conversion fail with `unreadable_page` | `pnpm check`. The Worker's bundle size before and after |
-| R2 | Decision 1: Moondream for pictures leaves or stays | By the decision | `pnpm check` |
-| L1 | Later: the ingest route's multipart, `contents`, and the clients' second way of sending | The tests of the removed code go | `pnpm check`, the cargo checks |
+| R2 | Not needed: decision 1 keeps Moondream for pictures | None | None |
+| L1 | Later: `POST /api/documents/ingest` with its multipart (decision 4), and `contents` | The tests of the removed code go | `pnpm check` |
 
 `AGENTS.md` and `notes/client_protocol.md` change with the unit that changes what they describe. `README.md` needs its upload example and its description of ingestion revised after C5 and R1, which the owner writes.
 

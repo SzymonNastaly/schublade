@@ -37,5 +37,5 @@ export async function receiveTokenIngestion(
 			{ status: 403 },
 		)
 	}
-	return receiveDocumentUploads(environment, request)
+	return receiveDocumentUploads(environment, request, "ingest")
 }

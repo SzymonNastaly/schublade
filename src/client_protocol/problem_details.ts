@@ -11,6 +11,7 @@ const problemTitles = {
 	405: "Method Not Allowed",
 	409: "Conflict",
 	410: "Gone",
+	411: "Length Required",
 	413: "Content Too Large",
 	415: "Unsupported Media Type",
 	422: "Unprocessable Content",

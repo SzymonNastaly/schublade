@@ -3,7 +3,12 @@ import { connectDatabase } from "../database/client"
 import { contents, documents } from "../database/schema"
 import { claimContent, lookupContents, sha256Hexadecimal } from "./content_identity"
 import { recordIngestionStartFailure, startDocumentIngestion } from "./document_ingestion"
-import { identifySourceFile, originalObjectKey } from "./source_file"
+import {
+	identifySourceFile,
+	originalObjectKey,
+	submittedTextObjectKey,
+	submittedThumbnailObjectKey,
+} from "./source_file"
 import type { MailContext } from "./classification_request"
 import type { SourceFile } from "./source_file"
 
@@ -36,11 +41,24 @@ export type UploadOutcome =
 	| { kind: "rejected"; fileName: string; reason: string }
 	| { kind: "failed"; fileName: string; reason: string }
 
-/** The bytes of one file with the kind and the digest its sender established. */
+/** What a client derived from the original. A part it did not send is absent. */
+export interface DerivedRepresentations {
+	text?: Uint8Array<ArrayBuffer>
+	thumbnail?: Uint8Array<ArrayBuffer>
+	pageCount?: number
+}
+
+/**
+ * One file with the kind and the digest its sender established. The content is its bytes, or a
+ * stream of exactly byteSize bytes that no code of the Worker reads. R2 checks either against the
+ * digest as it stores them and throws on a mismatch, before anything else is written.
+ */
 export interface ContentSubmission {
-	content: Uint8Array<ArrayBuffer>
+	content: Uint8Array<ArrayBuffer> | ReadableStream<Uint8Array>
+	byteSize: number
 	sourceFile: SourceFile
 	sha256: string
+	derived?: DerivedRepresentations
 }
 
 /**
@@ -56,15 +74,15 @@ type ContentArchival = { kind: "accepted" | "already_archived"; documentId: stri
 
 /**
  * Archives a content once, whichever way its bytes arrive. Bytes a document holds answer with
- * that document before anything is written. Otherwise the original goes to R2, and one D1
- * transaction records the document, claims the content for it, and reads which document holds
- * the content. Two uploads of the same bytes can reach that transaction together, and the one
- * that lost removes the document it recorded and answers with the winner. A content whose
- * document was deleted is archived again.
+ * that document before anything is written. Otherwise the original and the representations its
+ * client derived go to R2, and one D1 transaction records the document, claims the content for
+ * it, and reads which document holds the content. Two uploads of the same bytes can reach that
+ * transaction together, and the one that lost removes the objects and the document it recorded
+ * and answers with the winner. A content whose document was deleted is archived again.
  */
 export async function archiveContent(
 	environment: UploadEnvironment,
-	{ content, sourceFile, sha256 }: ContentSubmission,
+	{ content, byteSize, sourceFile, sha256, derived = {} }: ContentSubmission,
 	{ documentId, mailContext }: DocumentOrigin = { documentId: crypto.randomUUID() },
 ): Promise<ContentArchival> {
 	const database = connectDatabase(environment.DATABASE)
@@ -73,27 +91,48 @@ export async function archiveContent(
 	const storageObjectKey = originalObjectKey(documentId, sourceFile)
 	await environment.DOCUMENT_STORAGE.put(storageObjectKey, content, {
 		httpMetadata: { contentType: sourceFile.mediaType },
+		sha256,
 	})
-	const [recorded, , [claim]] = await database
-		.batch([
-			database
-				.insert(documents)
-				.values({
-					id: documentId,
-					storageObjectKey,
-					mimeType: sourceFile.mediaType,
-					byteSize: content.byteLength,
-					originalSha256: sha256,
-					status: "processing",
-				})
-				.onConflictDoNothing()
-				.returning({ id: documents.id }),
-			claimContent(database, sha256, documentId),
-			database.select({ documentId: contents.documentId }).from(contents).where(eq(contents.sha256, sha256)),
-		])
+	const derivedObjects = [
+		derived.text && {
+			key: submittedTextObjectKey(documentId),
+			body: derived.text,
+			contentType: "text/markdown; charset=utf-8",
+		},
+		derived.thumbnail && {
+			key: submittedThumbnailObjectKey(documentId),
+			body: derived.thumbnail,
+			contentType: "image/jpeg",
+		},
+	].filter((object) => object !== undefined)
+	const storedObjectKeys = [storageObjectKey, ...derivedObjects.map((object) => object.key)]
+	const [recorded, , [claim]] = await Promise.all(
+		derivedObjects.map(({ key, body, contentType }) =>
+			environment.DOCUMENT_STORAGE.put(key, body, { httpMetadata: { contentType } }),
+		),
+	)
+		.then(() =>
+			database.batch([
+				database
+					.insert(documents)
+					.values({
+						id: documentId,
+						storageObjectKey,
+						mimeType: sourceFile.mediaType,
+						byteSize,
+						pageCount: derived.pageCount,
+						originalSha256: sha256,
+						status: "processing",
+					})
+					.onConflictDoNothing()
+					.returning({ id: documents.id }),
+				claimContent(database, sha256, documentId),
+				database.select({ documentId: contents.documentId }).from(contents).where(eq(contents.sha256, sha256)),
+			]),
+		)
 		.catch(async (error: unknown) => {
-			// Without its row, nothing would list or remove the stored original.
-			await environment.DOCUMENT_STORAGE.delete(storageObjectKey)
+			// Without its row, nothing would list or remove the stored objects.
+			await environment.DOCUMENT_STORAGE.delete(storedObjectKeys)
 			throw error
 		})
 	// The claim in the same transaction leaves the content held, so the fallback never applies.
@@ -104,8 +143,8 @@ export async function archiveContent(
 	}
 	try {
 		if (holderId !== documentId) {
-			// The original goes before its row, so no failure leaves an original that no row lists.
-			await environment.DOCUMENT_STORAGE.delete(storageObjectKey)
+			// The objects go before their row, so no failure leaves an object that no row lists.
+			await environment.DOCUMENT_STORAGE.delete(storedObjectKeys)
 			await database.delete(documents).where(eq(documents.id, documentId))
 			return { kind: "already_archived", documentId: holderId }
 		}
@@ -140,7 +179,7 @@ export async function acceptDocumentUpload(
 	if (!sourceFile) return { kind: "rejected", fileName: file.name, reason: UNACCEPTED_FILE_KIND }
 	const archival = await archiveContent(
 		environment,
-		{ content, sourceFile, sha256: await sha256Hexadecimal(content) },
+		{ content, byteSize: content.byteLength, sourceFile, sha256: await sha256Hexadecimal(content) },
 		origin,
 	)
 	return { ...archival, fileName: file.name }
@@ -164,19 +203,6 @@ export function limitRequestBody(request: Request, maximumBytes: number) {
 	return { body, exceeded: () => receivedBytes > maximumBytes }
 }
 
-type DocumentBody = { kind: "body"; content: Uint8Array<ArrayBuffer> } | { kind: "too_large" }
-
-/** The body of a request that sends one file as is, or too_large beyond MAXIMUM_DOCUMENT_BYTES. */
-export async function readDocumentBody(request: Request): Promise<DocumentBody> {
-	const { body, exceeded } = limitRequestBody(request, MAXIMUM_DOCUMENT_BYTES)
-	try {
-		return { kind: "body", content: new Uint8Array(await new Response(body).arrayBuffer()) }
-	} catch (error) {
-		if (exceeded()) return { kind: "too_large" }
-		throw error
-	}
-}
-
 type MultipartBody = { kind: "form"; formData: FormData } | { kind: "too_large" } | { kind: "malformed" }
 
 async function readLimitedFormData(request: Request): Promise<MultipartBody> {
@@ -195,8 +221,15 @@ async function readLimitedFormData(request: Request): Promise<MultipartBody> {
 	}
 }
 
-/** Accepts the files of a multipart request whose fields are named files, one outcome per file. */
-export async function receiveDocumentUploads(environment: UploadEnvironment, request: Request): Promise<Response> {
+/**
+ * Accepts the files of a multipart request whose fields are named files, one outcome per file. The
+ * route is the ingest route of a token or the browser's upload, and multipart carries no text.
+ */
+export async function receiveDocumentUploads(
+	environment: UploadEnvironment,
+	request: Request,
+	route: "ingest" | "documents",
+): Promise<Response> {
 	const body = await readLimitedFormData(request)
 	if (body.kind === "too_large") {
 		return Response.json(
@@ -218,6 +251,7 @@ export async function receiveDocumentUploads(environment: UploadEnvironment, req
 			})
 			continue
 		}
+		console.log(`Document reception: route=${route} text=absent thumbnail=absent`)
 		try {
 			outcomes.push(await acceptDocumentUpload(environment, file))
 		} catch (error) {

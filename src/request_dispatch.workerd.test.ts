@@ -128,6 +128,10 @@ test("every other path requires an Access assertion even with a valid token, and
 		await dispatch(new Request(`https://archive.test${documentPath}/originals`, { headers: bearer }), environment),
 		await dispatch(new Request(`https://archive.test${documentPath}/text/page`, { headers: bearer }), environment),
 		await dispatch(new Request(`https://archive.test${documentPath}/Thumbnail`, { headers: bearer }), environment),
+		await dispatch(
+			new Request(`https://archive.test/api/submitted_documents/${"0".repeat(64)}`, { method: "PUT", headers: bearer }),
+			environment,
+		),
 		await dispatch(new Request("https://archive.test/settings", { headers: bearer }), environment),
 		await dispatch(new Request("https://archive.test/authorize", { headers: bearer }), environment),
 		await dispatch(uploadRequest("/mcp/", bearer), environment),
@@ -141,7 +145,7 @@ test("every other path requires an Access assertion even with a valid token, and
 	]
 
 	expect(await Promise.all(responses.map(outcome))).toEqual([
-		...Array.from({ length: 23 }, () => ({ status: 403, body: "Access denied: assertion_missing" })),
+		...Array.from({ length: 24 }, () => ({ status: 403, body: "Access denied: assertion_missing" })),
 		{ status: 403, body: "Cross-site request refused: https://elsewhere.example" },
 	])
 })
@@ -158,7 +162,7 @@ function matchingPath(pattern: RegExp): string {
 		.replace("([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})", DOCUMENT_IDENTIFIER)
 		.replace("([0-9a-f]{64})", SCANNED_INVOICE_SHA256)
 		.replace("(original|text|thumbnail)", "original")
-	if (!/^[a-z0-9/-]+$/.test(path)) throw new Error(`Give matchingPath a value for each parameter of ${pattern.source}`)
+	if (!/^[a-z0-9/_-]+$/.test(path)) throw new Error(`Give matchingPath a value for each parameter of ${pattern.source}`)
 	return path
 }
 
@@ -176,7 +180,10 @@ test("every client route answers 401 without a token, 405 to another method, and
 		dispatch(
 			new Request(`https://archive.test${path}`, {
 				method,
-				headers: token === undefined ? {} : { Authorization: `Bearer ${token}` },
+				headers: {
+					...(token !== undefined && { Authorization: `Bearer ${token}` }),
+					...(method === "PUT" && { "Content-Length": String(scannedInvoice.byteLength) }),
+				},
 				body: bodies[method],
 			}),
 			environment,
@@ -222,6 +229,8 @@ test("every client route answers 401 without a token, 405 to another method, and
 	const readingRefused = "The API token does not permit reading the archive"
 	const restrictedRefused =
 		"This API token is restricted to a part of the archive. A collector needs an unrestricted token."
+	const submissionRestrictedRefused =
+		"This API token is restricted to a part of the archive. Adding documents needs an unrestricted token."
 	expect(answers).toEqual({
 		"GET /api/v1/authorization": { ...shared("GET"), ingestToken: 200, readToken: 200, restrictedToken: 200 },
 		"GET /api/v1/changes": { ...shared("GET"), ingestToken: readingRefused, readToken: 200, restrictedToken: 200 },
@@ -240,6 +249,18 @@ test("every client route answers 401 without a token, 405 to another method, and
 		[`PUT /api/v1/contents/${SCANNED_INVOICE_SHA256}`]: {
 			...shared("PUT"),
 			ingestToken: 202,
+			readToken: 200,
+			restrictedToken: restrictedRefused,
+		},
+		[`PUT /api/v1/submitted_documents/${SCANNED_INVOICE_SHA256}`]: {
+			...shared("PUT"),
+			ingestToken: 200,
+			readToken: 200,
+			restrictedToken: submissionRestrictedRefused,
+		},
+		[`PUT /api/v1/collected_documents/${SCANNED_INVOICE_SHA256}`]: {
+			...shared("PUT"),
+			ingestToken: 200,
 			readToken: 200,
 			restrictedToken: restrictedRefused,
 		},

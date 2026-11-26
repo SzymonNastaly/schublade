@@ -17,7 +17,7 @@ export const Route = createFileRoute("/api/documents")({
 				if (!criteria.success) return Response.json({ error: z.prettifyError(criteria.error) }, { status: 400 })
 				return Response.json({ documents: await searchDocuments(database, env.SEARCH_INDEX, criteria.data) })
 			},
-			POST: ({ request }) => receiveDocumentUploads(env, request),
+			POST: ({ request }) => receiveDocumentUploads(env, request, "documents"),
 		},
 	},
 })

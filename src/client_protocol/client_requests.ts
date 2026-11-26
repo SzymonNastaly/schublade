@@ -1,8 +1,9 @@
 import { authenticateApiToken } from "../authentication/api_tokens"
 import { isRestrictedScope, permits } from "../authorization/caller_authorization"
 import { connectDatabase } from "../database/client"
-import { levelRefusals } from "./client_paths"
-import { documentStatusResponse, serveContentLookup, serveContentSubmission } from "./collection_requests"
+import { receiveDocument } from "../ingestion/document_reception"
+import { levelRefusals, restrictedScopeRefusals } from "./client_paths"
+import { documentStatusResponse, serveContentLookup } from "./collection_requests"
 import { serveAuthorization, serveChanges } from "./journal_requests"
 import { problem } from "./problem_details"
 import { serveDocumentRepresentationRequest } from "./representation_requests"
@@ -38,11 +39,8 @@ async function answerClientRequest(
 		return problem(401, "Send a valid API token in the Authorization header", { "WWW-Authenticate": "Bearer" })
 	}
 	if (!permits(caller, level)) return problem(403, levelRefusals[level])
-	if (restrictedScope === "refused" && isRestrictedScope(caller.scope)) {
-		return problem(
-			403,
-			"This API token is restricted to a part of the archive. A collector needs an unrestricted token.",
-		)
+	if (restrictedScope !== "applied" && isRestrictedScope(caller.scope)) {
+		return problem(403, restrictedScopeRefusals[restrictedScope])
 	}
 	try {
 		switch (route.kind) {
@@ -61,8 +59,8 @@ async function answerClientRequest(
 				)
 			case "content_lookup":
 				return await serveContentLookup(database, request)
-			case "content_submission":
-				return await serveContentSubmission(environment, database, request, route.sha256)
+			case "document_reception":
+				return await receiveDocument(environment, request, { route: route.reception, sha256: route.sha256 })
 			case "document_status":
 				return await documentStatusResponse(database, route.documentId)
 		}

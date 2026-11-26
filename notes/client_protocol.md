@@ -12,10 +12,12 @@ The routes under `/api/v1` that a native client reaches with a bearer token, agr
 | GET    | `/api/v1/documents/{id}/text`          | read   | 200, 304          | 400, 404                    |
 | GET    | `/api/v1/documents/{id}/thumbnail`     | read   | 200, 304          | 400, 404                    |
 | POST   | `/api/v1/contents/lookup`              | ingest | 200               | 400, 413, 503               |
-| PUT    | `/api/v1/contents/{sha256}`            | ingest | 200, 202          | 409, 413, 415, 422, 503     |
+| PUT    | `/api/v1/contents/{sha256}`            | ingest | 200, 202          | 400, 409, 411, 413, 415, 422, 503 |
+| PUT    | `/api/v1/submitted_documents/{sha256}` | ingest | 200, 202          | 400, 411, 413, 415, 422     |
+| PUT    | `/api/v1/collected_documents/{sha256}` | ingest | 200, 202          | 400, 409, 411, 413, 415, 422, 503 |
 | GET    | `/api/v1/documents/{id}`               | ingest | 200               | 404                         |
 
-Every route also answers 401, 403 for a token below its level, 405, and 500, and each of the collector's three routes answers 403 to a token with a restricted scope. `{id}` is a lowercase UUID, `[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}`. `{sha256}` is 64 lowercase hexadecimal digits, `[0-9a-f]{64}`. The last three routes are the collector's. For an unrestricted token their paths, methods, levels, bodies, and status codes are unchanged.
+Every route also answers 401, 403 for a token below its level, 405, and 500, and each route from the lookup on answers 403 to a token with a restricted scope. `{id}` is a lowercase UUID, `[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}`. `{sha256}` is 64 lowercase hexadecimal digits, `[0-9a-f]{64}`. The lookup, `contents`, `collected_documents`, and the document status are the collector's routes, and `submitted_documents` is a person's. [Receiving a document](#receiving-a-document) describes the three PUT routes. A member's browser reaches the reception of `submitted_documents` at `PUT /api/submitted_documents/{sha256}`, behind Access.
 
 `src/client_protocol/client_paths.ts` holds the one route table. Each route has an anchored pattern, its method, and its level, so a route cannot exist without a level. No route requires a level above `read` yet. `ingest` is the lowest level, so the authorization route admits every token, and the four routes that read the archive refuse a token that only adds documents. `request_dispatch.ts` admits a request without Access only when its pathname matches one pattern exactly. A trailing slash, uppercase hexadecimal, another case, and any other path under `/api/v1` stay behind `requireAccess`.
 
@@ -32,7 +34,7 @@ One gate in `src/client_protocol/client_requests.ts` answers every route in this
 1. **Method.** Another method on a matched path answers 405 with `Allow: <method>` and the detail "Send this request with GET".
 2. **Token.** `Authorization: Bearer schublade_…`. A missing, malformed, unknown, or revoked token answers 401 with `WWW-Authenticate: Bearer` and the detail "Send a valid API token in the Authorization header". The answer is the same for all four, so it reveals no token.
 3. **Level.** The levels are ordered `ingest`, `read`, `modify`, `administer`, and each grants every permission of the levels before it (`permits` in `src/authorization/caller_authorization.ts`). A token below the route's level answers 403 with "The API token does not permit reading the archive". No token is below `ingest`. [What a token of each level can do](#what-a-token-of-each-level-can-do) has the table.
-4. **Scope.** The route table says of each route whether it applies a restricted scope or refuses it. The authorization, the changes, and the representations apply it. A collector must see every content, or it would archive one a second time, so the collector's three routes cannot apply a scope. They answer a token whose scope holds any list 403 with "This API token is restricted to a part of the archive. A collector needs an unrestricted token."
+4. **Scope.** The route table says of each route whether it applies a restricted scope or refuses it, and with which sentence. The authorization, the changes, and the representations apply it. A collector must see every content, or it would archive one a second time, so the collector's routes cannot apply a scope. They answer a token whose scope holds any list 403 with "This API token is restricted to a part of the archive. A collector needs an unrestricted token." `submitted_documents` answers the document that holds the bytes whether or not the scope admits it, so it refuses such a token with "This API token is restricted to a part of the archive. Adding documents needs an unrestricted token."
 5. **The route.** A handler that throws answers 500 with "The archive could not complete the request. Send it again." and logs the error.
 
 ### What a token of each level can do
@@ -41,7 +43,7 @@ The order follows how much of the household's papers a level exposes. Adding a d
 
 | Level    | Settings calls it                              | Routes it reaches                                                                                          |
 | -------- | ---------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
-| `ingest` | "Scanner, script, or Shortcut: adds documents" | `GET /api/v1/authorization`, the collector's three routes, and `POST /api/documents/ingest`                |
+| `ingest` | "Scanner, script, or Shortcut: adds documents" | `GET /api/v1/authorization`, the collector's routes, `submitted_documents`, and `POST /api/documents/ingest` |
 | `read`   | "Schublade app: reads and adds documents"      | Every route of `ingest`, and `GET /api/v1/changes`, `/original`, `/text`, and `/thumbnail` of a document  |
 
 A token of level `ingest` never reads a title, a summary, a text, or an original. The document status route and the lookup answer it only an identifier, a status, and a failure reason. Settings issues both kinds, and the form starts with `ingest`. No route for a token needs `modify` or `administer`, and Settings issues neither.
@@ -397,9 +399,9 @@ If-None-Match: "a3f1c2d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f90
 
 ## The collector's routes
 
-For an unrestricted token these three routes are unchanged in path, method, level, body, status codes, and limits. A token with a restricted scope gets 403 on each, and every answer carries `Cache-Control: no-store`. Their handlers sit in `src/client_protocol/collection_requests.ts` behind the shared gate, and `collection_requests.workerd.test.ts` asserts what it asserted before the move.
+A token with a restricted scope gets 403 on each, and every answer carries `Cache-Control: no-store`. The lookup and the document status sit in `src/client_protocol/collection_requests.ts` behind the shared gate. `PUT /api/v1/contents/{sha256}` and `collected_documents` reach `receiveDocument` in `src/ingestion/document_reception.ts`, which [Receiving a document](#receiving-a-document) describes.
 
-While a document of an accepted kind lacks its `original_sha256`, the lookup and the upload answer 503 with `Retry-After: 900` and "The archive is still recording the digests of its documents. Send the request again later.", because the lookup would call archived bytes absent. The document status route never answers it.
+While a document of an accepted kind lacks its `original_sha256`, the lookup and both PUT routes answer 503 with `Retry-After: 900` and "The archive is still recording the digests of its documents. Send the request again later.", because the lookup would call archived bytes absent. The document status route never answers it.
 
 ### POST /api/v1/contents/lookup
 
@@ -425,21 +427,6 @@ The state of each content, in the order asked. The body is at most 128,000 bytes
 
 `state` is `present` with `document_id`, `absent`, or `deleted` for a content whose document the owner deleted. 400 answers a body that is not JSON or does not match, and 413 a body over the limit.
 
-### PUT /api/v1/contents/{sha256}
-
-The body is the file's bytes, at most 25,000,000. The checks run in this order:
-
-| Status | When                                                                                      |
-| ------ | ----------------------------------------------------------------------------------------- |
-| 409    | The owner deleted the document of this content. Answered before the body is read          |
-| 413    | The body exceeds 25,000,000 bytes                                                          |
-| 422    | The body's SHA-256 is not the one in the path                                             |
-| 415    | The bytes are no PDF, JPEG, PNG, or WebP file                                             |
-| 202    | The content became a new document                                                          |
-| 200    | A document holds the content already                                                       |
-
-A 202 and a 200 carry the body of the document status route and `Location: /api/v1/documents/<id>`.
-
 ### GET /api/v1/documents/{id}
 
 `200`, with `Location: /api/v1/documents/<id>`:
@@ -449,6 +436,36 @@ A 202 and a 200 carry the body of the document status route and `Location: /api/
 ```
 
 404 answers an identifier no document has.
+
+## Receiving a document
+
+Three PUT routes receive one document named by the SHA-256 of its original, and one function, `receiveDocument` in `src/ingestion/document_reception.ts`, answers all three. `notes/client_preprocessing_design.md` explains the design.
+
+| Path | Sent by | A deleted content | While a digest is missing | Derived representations |
+| --- | --- | --- | --- | --- |
+| `/api/v1/submitted_documents/{sha256}` | A person: the iPhone application, its share extension, a script, and the browser at `/api/submitted_documents/{sha256}` | Archived again | Received | Accepted |
+| `/api/v1/collected_documents/{sha256}` | A collector | 409 | 503 | Accepted |
+| `/api/v1/contents/{sha256}` | Collector builds before derived representations | 409 | 503 | 400 |
+
+The body is the client's Markdown text, then its JPEG thumbnail, then the original, with no separator. `Schublade-Text-Byte-Count` and `Schublade-Thumbnail-Byte-Count` give the byte counts of the first two and default to 0, so a body without them is the original alone, as `curl -T scan.pdf` sends it. `Schublade-Page-Count` gives the number of pages the client read, 1 for a picture. The original is `Content-Length` minus both counts. `Content-Type` is not read: the archive identifies the original by its leading bytes.
+
+The text is UTF-8 Markdown with one `## Page N` heading per page in page order, a page without text keeping its heading. The thumbnail is a JPEG of the first page, at most 480 pixels on its longer side.
+
+The checks run in this order:
+
+| Status | When |
+| --- | --- |
+| 503 | A collector's route only: a document still awaits its digest. `Retry-After: 900` |
+| 409 | A collector's route only: the owner deleted the document of this content |
+| 400 | A query parameter, a count or page count that is no decimal number, a page count of 0, no byte left for the original, a derived header on `contents`, or a body shorter than its `Content-Length` |
+| 411 | No `Content-Length` |
+| 413 | A text above 2,000,000 bytes, a thumbnail above 200,000 bytes, or an original above 25,000,000 bytes |
+| 200 | A document holds the content. The body is not read and nothing is written |
+| 415 | The thumbnail does not start with `FF D8 FF`, or the original is no PDF, JPEG, PNG, or WebP file |
+| 422 | R2 received other bytes than the digest in the path names. Nothing is stored |
+| 202 | The content became a new document |
+
+A 202 and a 200 carry the body of the document status route and `Location: /api/v1/documents/<id>`. The Worker reads only the counted bytes and the 12 leading bytes of the original, and pipes the rest into R2 through a `FixedLengthStream`, so R2 checks the digest. The text goes to `documents/<id>/submitted_text.md` and the thumbnail to `documents/<id>/thumbnail.jpg`. Each arrival on these routes and on the multipart uploads logs one line `Document reception: route=<name> text=<submitted|absent> thumbnail=<submitted|absent>`.
 
 ## What a client does on each answer
 

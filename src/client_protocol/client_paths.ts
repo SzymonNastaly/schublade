@@ -1,4 +1,5 @@
 import type { PermissionLevel } from "../authorization/caller_authorization"
+import type { ReceptionRoute } from "../ingestion/document_reception"
 
 /**
  * The prefix of every route a bearer token reaches. Cloudflare Access bypasses it, and the Worker
@@ -17,7 +18,7 @@ type ClientRoute =
 	| { kind: "changes" }
 	| { kind: "document_representation"; documentId: string; representation: DocumentRepresentationName }
 	| { kind: "content_lookup" }
-	| { kind: "content_submission"; sha256: string }
+	| { kind: "document_reception"; reception: ReceptionRoute; sha256: string }
 	| { kind: "document_status"; documentId: string }
 
 /** The levels a route can require, each with the refusal of a token below it. */
@@ -26,15 +27,22 @@ export const levelRefusals = {
 	ingest: "The API token does not permit ingesting documents",
 } as const satisfies Partial<Record<PermissionLevel, string>>
 
+/** The refusal of a token whose scope holds a list, for each kind of route that cannot apply a scope. */
+export const restrictedScopeRefusals = {
+	collector: "This API token is restricted to a part of the archive. A collector needs an unrestricted token.",
+	submission: "This API token is restricted to a part of the archive. Adding documents needs an unrestricted token.",
+} as const
+
 export interface MatchedRoute {
 	method: "GET" | "POST" | "PUT"
 	level: keyof typeof levelRefusals
 	/**
 	 * What a token whose scope holds a list gets. A route that applies the scope answers only what
 	 * the scope admits. A collector must see every content, or it would archive one a second time,
-	 * so its routes cannot apply a scope and refuse such a token.
+	 * and an upload answers the document that holds its bytes whether or not the scope admits it,
+	 * so those routes cannot apply a scope and refuse such a token with their sentence.
 	 */
-	restrictedScope: "applied" | "refused"
+	restrictedScope: "applied" | keyof typeof restrictedScopeRefusals
 	route: ClientRoute
 }
 
@@ -74,21 +82,35 @@ export const clientRouteDefinitions: ReadonlyArray<RouteDefinition> = [
 	{
 		method: "POST",
 		level: "ingest",
-		restrictedScope: "refused",
+		restrictedScope: "collector",
 		pattern: new RegExp(`^${CLIENT_PATH_PREFIX}/contents/lookup$`),
 		route: () => ({ kind: "content_lookup" }),
 	},
 	{
 		method: "PUT",
 		level: "ingest",
-		restrictedScope: "refused",
+		restrictedScope: "collector",
 		pattern: new RegExp(`^${CLIENT_PATH_PREFIX}/contents/(${DIGEST})$`),
-		route: ([, sha256 = ""]) => ({ kind: "content_submission", sha256 }),
+		route: ([, sha256 = ""]) => ({ kind: "document_reception", reception: "contents", sha256 }),
+	},
+	{
+		method: "PUT",
+		level: "ingest",
+		restrictedScope: "submission",
+		pattern: new RegExp(`^${CLIENT_PATH_PREFIX}/submitted_documents/(${DIGEST})$`),
+		route: ([, sha256 = ""]) => ({ kind: "document_reception", reception: "submitted_documents", sha256 }),
+	},
+	{
+		method: "PUT",
+		level: "ingest",
+		restrictedScope: "collector",
+		pattern: new RegExp(`^${CLIENT_PATH_PREFIX}/collected_documents/(${DIGEST})$`),
+		route: ([, sha256 = ""]) => ({ kind: "document_reception", reception: "collected_documents", sha256 }),
 	},
 	{
 		method: "GET",
 		level: "ingest",
-		restrictedScope: "refused",
+		restrictedScope: "collector",
 		pattern: new RegExp(`^${CLIENT_PATH_PREFIX}/documents/(${DOCUMENT_IDENTIFIER})$`),
 		route: ([, documentId = ""]) => ({ kind: "document_status", documentId }),
 	},
