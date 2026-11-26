@@ -28,10 +28,7 @@ export default defineConfig({
 						miniflare: {
 							compatibilityDate: "2026-11-01",
 							compatibilityFlags: ["nodejs_compat"],
-							modulesRules: [
-								{ type: "CompiledWasm", include: ["**/*.wasm?module"] },
-								{ type: "Data", include: ["**/*.pdf"] },
-							],
+							modulesRules: [{ type: "Data", include: ["**/*.pdf"] }],
 							d1Databases: ["DATABASE"],
 							r2Buckets: ["DOCUMENT_STORAGE"],
 							kvNamespaces: ["OAUTH_KV"],

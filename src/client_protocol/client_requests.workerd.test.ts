@@ -18,7 +18,7 @@ import {
 	senders,
 	tags,
 } from "../database/schema"
-import { contentObjectKey, thumbnailObjectKey } from "../ingestion/source_file"
+import { contentObjectKey, submittedThumbnailObjectKey } from "../ingestion/source_file"
 import { createRequestDispatcher } from "../request_dispatch"
 import { createInMemorySearchIndex } from "../search/in_memory_search_index"
 import type { AuthorizationScope } from "../authorization/caller_authorization"
@@ -171,8 +171,8 @@ beforeAll(async () => {
 	await env.DOCUMENT_STORAGE.put(contentObjectKey(statement), "# Annual statement", {
 		httpMetadata: { contentType: "text/markdown; charset=utf-8" },
 	})
-	await env.DOCUMENT_STORAGE.put(thumbnailObjectKey(statement), "thumbnail", {
-		httpMetadata: { contentType: "image/png" },
+	await env.DOCUMENT_STORAGE.put(submittedThumbnailObjectKey(statement), "thumbnail", {
+		httpMetadata: { contentType: "image/jpeg" },
 	})
 	await env.DOCUMENT_STORAGE.put(`documents/${note}/original.jpg`, "note", {
 		httpMetadata: { contentType: "image/jpeg" },

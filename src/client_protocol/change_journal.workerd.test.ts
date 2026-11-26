@@ -19,7 +19,7 @@ import {
 } from "../database/schema"
 import { ingestDocument } from "../ingestion/document_ingestion"
 import { acceptDocumentUpload } from "../ingestion/document_upload"
-import { contentObjectKey } from "../ingestion/source_file"
+import { contentObjectKey, submittedTextObjectKey } from "../ingestion/source_file"
 import { createInMemorySearchIndex } from "../search/in_memory_search_index"
 import { formatJournalCursor, parseJournalCursor, readJournalIdentity, readJournalPage } from "./change_journal"
 import type { WorkflowStep } from "cloudflare:workers"
@@ -309,11 +309,9 @@ test("a client that pages from any earlier cursor ends with the documents the li
 	const ingestionEnvironment = {
 		...env,
 		AI_RUNTIME: {
-			toMarkdown: () => Promise.resolve(recording.markdownConversion),
 			run: (model: string) =>
 				Promise.resolve(
 					{
-						"@cf/moondream/moondream3.1-9B-A2B": new Response(recording.textRecognitionEventStream).body,
 						"@cf/cloudflare/clairic-flash": recording.classificationResponse,
 						"@cf/cloudflare/clef-flash": recording.personAssignmentResponse,
 					}[model],
@@ -333,6 +331,11 @@ test("a client that pages from any earlier cursor ends with the documents the li
 			const upload = await acceptDocumentUpload(ingestionEnvironment, new File([scannedInvoice], "invoice.pdf"))
 			if (upload.kind !== "accepted") throw new Error(`The upload was ${upload.kind}`)
 			invoiceId = upload.documentId
+			// The text a client read from the scan, which the Worker does not read itself.
+			await env.DOCUMENT_STORAGE.put(
+				submittedTextObjectKey(invoiceId),
+				"## Page 1\n\nStadtwerke Talbrück GmbH, Jahresabrechnung Strom 2026, Nachzahlungsbetrag 72,09 €\n",
+			)
 		},
 		() => ingestDocument(step, ingestionEnvironment, invoiceId),
 		() =>

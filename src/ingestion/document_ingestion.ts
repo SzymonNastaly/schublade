@@ -13,16 +13,10 @@ import {
 } from "../database/schema"
 import { classifyDocument } from "../inference/document_classifier"
 import { indexDocument } from "../search/document_indexing"
-import { UnopenablePdfError, inspectPages, rasterizePage } from "../inference/page_rasterizer"
 import { countDistinctWords, createMoondreamRecognizer, normalizeRecognitionImage } from "../inference/text_recognizer"
 import { claimContent, sha256Hexadecimal } from "./content_identity"
 import { findStandardCategory } from "./document_classification"
-import {
-	assembleDocumentMarkdown,
-	isUsableSubmittedText,
-	recognitionLimitViolation,
-	selectPageTextSources,
-} from "./document_text"
+import { convertedPageTexts, holdsUsableText } from "./document_text"
 import { predecessorStatuses } from "./document_lifecycle"
 import { composePrintableMail, mailContextOf, parseMailWithinLimits } from "./mail_message"
 import { drawMailThumbnail, printMail, readMailText } from "./mail_rendering"
@@ -40,13 +34,11 @@ import type { InferInsertModel, SQL } from "drizzle-orm"
 import type { SQLiteTable } from "drizzle-orm/sqlite-core"
 import type { ArchiveDatabase } from "../database/client"
 import type { QuarterTurns } from "../database/schema"
-import type { PageInspection } from "../inference/page_rasterizer"
 import type { TextRecognition } from "../inference/text_recognizer"
 import type { SearchIndex } from "../search/document_indexing"
 import type { MailContext } from "./classification_request"
 import type { DocumentClassification } from "./document_classification"
 import type { DocumentFailureReason, DocumentStatus } from "./document_lifecycle"
-import type { PageTextSource, PageTranscription, TextExtraction } from "./document_text"
 import type { SourceFile } from "./source_file"
 
 type IngestionEnvironment = Pick<
@@ -73,22 +65,20 @@ type DocumentStatusChange =
 
 // A refusal is a step result, so its reason survives the step boundary, which does not promise
 // to keep the class of a thrown error. A submitted text stays in R2, because a step's result is
-// limited to 1 MiB.
+// limited to 1 MiB. A picture is read by recognition in steps of its own.
 type TextExtractionOutcome =
 	| { kind: "submitted" }
-	| { kind: "extracted"; extraction: TextExtraction }
+	| { kind: "converted"; markdown: string; pageCount: number }
+	| { kind: "picture" }
 	| { kind: "refused"; failureReason: DocumentFailureReason; explanation: string }
 
-type PageRecognitionOutcome =
-	| { kind: "recognized"; transcription: PageTranscription }
-	| { kind: "refused"; failureReason: DocumentFailureReason; explanation: string }
+type PictureRecognitionOutcome =
+	{ kind: "recognized"; text: string } | { kind: "refused"; failureReason: DocumentFailureReason; explanation: string }
 
 type MailRenderingOutcome =
 	| { kind: "not_mail" }
 	| { kind: "rendered"; mailContext: MailContext; messageObjectKey: string }
 	| { kind: "refused"; failureReason: DocumentFailureReason; explanation: string }
-
-const RECOGNITION_DOTS_PER_INCH = 150
 
 const QUARTER_TURNS: ReadonlyArray<QuarterTurns> = [0, 1, 2, 3]
 
@@ -289,80 +279,71 @@ async function renderStoredMail(
 	}
 }
 
-function extractionOutcome(convertedMarkdown: string, pages: Array<PageTextSource>): TextExtractionOutcome {
-	const limitViolation = recognitionLimitViolation(pages)
-	if (limitViolation) return { kind: "refused", failureReason: "page_limit_exceeded", explanation: limitViolation }
-	return { kind: "extracted", extraction: { convertedMarkdown, pages } }
-}
-
+/**
+ * Reads a document that arrived without a usable text. A PDF is converted, and the conversion is
+ * its text when its pages hold 40 letters or digits. A scan has no text layer to convert, and the
+ * Worker reads no PDF page itself, so it fails and is sent again from a device that reads it.
+ */
 async function extractText(
 	environment: IngestionEnvironment,
 	sourceFile: SourceFile,
 	bytes: Uint8Array<ArrayBuffer>,
 ): Promise<TextExtractionOutcome> {
-	if (sourceFile.kind === "image") {
-		return { kind: "extracted", extraction: { convertedMarkdown: "", pages: [{ kind: "recognition", pageIndex: 0 }] } }
-	}
-	// PDFium runs first, so a file it cannot open is refused before the billed conversion.
-	let pages: Array<PageInspection>
-	try {
-		pages = await inspectPages(bytes)
-	} catch (error) {
-		if (!(error instanceof UnopenablePdfError)) throw error
-		return { kind: "refused", failureReason: "unreadable_file", explanation: error.message }
-	}
+	if (sourceFile.kind === "image") return { kind: "picture" }
 	const conversion = await environment.AI_RUNTIME.toMarkdown(
 		{ name: `original.${sourceFile.extension}`, blob: new Blob([bytes], { type: sourceFile.mediaType }) },
 		{ gateway: { id: environment.AI_GATEWAY_IDENTIFIER }, conversionOptions: { pdf: { metadata: false } } },
 	)
-	if (conversion.format === "error") throw new Error(`Markdown conversion failed: ${conversion.error}`)
-	return extractionOutcome(conversion.data, selectPageTextSources(pages, conversion.data))
+	if (conversion.format === "error") {
+		return {
+			kind: "refused",
+			failureReason: "unreadable_file",
+			explanation: `Markdown conversion failed: ${conversion.error}`,
+		}
+	}
+	const pageTexts = convertedPageTexts(conversion.data)
+	if (!holdsUsableText(pageTexts.join("\n"))) {
+		return {
+			kind: "refused",
+			failureReason: "unreadable_page",
+			explanation: "The document arrived without a text, and its conversion holds fewer than 40 letters or digits",
+		}
+	}
+	return { kind: "converted", markdown: conversion.data.trim(), pageCount: pageTexts.length }
 }
 
-async function readPage(
+async function readPicture(
 	environment: IngestionEnvironment,
-	{ sourceFile, bytes }: { sourceFile: SourceFile; bytes: Uint8Array<ArrayBuffer> },
-	pageIndex: number,
+	bytes: Uint8Array<ArrayBuffer>,
 	quarterTurns: QuarterTurns,
 ): Promise<TextRecognition> {
-	const image =
-		sourceFile.kind === "image"
-			? await normalizeRecognitionImage(environment.IMAGE_TRANSFORMER, bytes, quarterTurns)
-			: {
-					mediaType: "image/png" as const,
-					bytes: (await rasterizePage(bytes, pageIndex, RECOGNITION_DOTS_PER_INCH, quarterTurns)).pngBytes,
-				}
+	const image = await normalizeRecognitionImage(environment.IMAGE_TRANSFORMER, bytes, quarterTurns)
 	return createMoondreamRecognizer(environment.AI_RUNTIME, environment.AI_GATEWAY_IDENTIFIER).transcribe(image)
 }
 
 /**
- * Reads a page at the document's recorded rotation. A page that never finishes is usually turned,
- * so it is read at the other three rotations, and the reading with the most distinct words wins.
- * The winning rotation is recorded, so the later pages cost one reading each.
+ * Reads a picture at the document's recorded rotation. A picture that never finishes is usually
+ * turned, so it is read at the other three rotations, and the reading with the most distinct words
+ * wins. The winning rotation is recorded, so a retry reads it once.
  */
-async function recognizePage(
+async function recognizePicture(
 	step: IngestionStep,
 	environment: IngestionEnvironment,
 	database: ArchiveDatabase,
 	documentId: string,
-	pageIndex: number,
-): Promise<PageRecognitionOutcome> {
-	const pageNumber = pageIndex + 1
-	const readStoredOriginal = () => readOriginal(database, environment.DOCUMENT_STORAGE, documentId)
-	const { quarterTurns, recognition } = await step.do(`recognize page ${pageNumber}`, inferenceStep, async () => {
-		const original = await readStoredOriginal()
-		const recordedTurns = original.quarterTurns
-		return { quarterTurns: recordedTurns, recognition: await readPage(environment, original, pageIndex, recordedTurns) }
+): Promise<PictureRecognitionOutcome> {
+	const readStoredPicture = () => readOriginal(database, environment.DOCUMENT_STORAGE, documentId)
+	const { quarterTurns, recognition } = await step.do("recognize picture", inferenceStep, async () => {
+		const { bytes, quarterTurns: recordedTurns } = await readStoredPicture()
+		return { quarterTurns: recordedTurns, recognition: await readPicture(environment, bytes, recordedTurns) }
 	})
-	if (recognition.kind === "transcribed") {
-		return { kind: "recognized", transcription: { pageIndex, text: recognition.text } }
-	}
+	if (recognition.kind === "transcribed") return { kind: "recognized", text: recognition.text }
 
 	const readings = await Promise.all(
 		QUARTER_TURNS.filter((turns) => turns !== quarterTurns).map(async (candidate) => ({
 			candidate,
-			reading: await step.do(`recognize page ${pageNumber} turned ${candidate * 90} degrees`, inferenceStep, async () =>
-				readPage(environment, await readStoredOriginal(), pageIndex, candidate),
+			reading: await step.do(`recognize picture turned ${candidate * 90} degrees`, inferenceStep, async () =>
+				readPicture(environment, (await readStoredPicture()).bytes, candidate),
 			),
 		})),
 	)
@@ -377,14 +358,14 @@ async function recognizePage(
 		return {
 			kind: "refused",
 			failureReason: "unreadable_page",
-			explanation: `Page ${pageNumber} did not finish within the token limit at any rotation`,
+			explanation: "The picture did not finish within the token limit at any rotation",
 		}
 	}
 	const { quarterTurns: winningTurns, text } = best
-	await step.do(`record rotation of page ${pageNumber}`, recordStep, async () => {
+	await step.do("record rotation of picture", recordStep, async () => {
 		await database.update(documents).set({ recognitionQuarterTurns: winningTurns }).where(eq(documents.id, documentId))
 	})
-	return { kind: "recognized", transcription: { pageIndex, text } }
+	return { kind: "recognized", text }
 }
 
 async function readTaxonomy(database: ArchiveDatabase) {
@@ -612,7 +593,7 @@ async function archiveIngestedDocument(
 		const textExtraction = await step.do("extract text", inferenceStep, async () => {
 			await recordDocumentStatus(environment, documentId, { status: "extracting" })
 			const submittedText = await environment.DOCUMENT_STORAGE.get(submittedTextObjectKey(documentId))
-			if (submittedText && isUsableSubmittedText(await submittedText.text())) return { kind: "submitted" as const }
+			if (submittedText && holdsUsableText(await submittedText.text())) return { kind: "submitted" as const }
 			const { sourceFile, bytes } = await readOriginal(database, environment.DOCUMENT_STORAGE, documentId)
 			return extractText(environment, sourceFile, bytes)
 		})
@@ -620,7 +601,7 @@ async function archiveIngestedDocument(
 			failureReason = textExtraction.failureReason
 			throw new Error(textExtraction.explanation)
 		}
-		const transcriptions: Array<PageTranscription> = []
+		let recognizedPageCount = 0
 		if (textExtraction.kind === "submitted") {
 			await step.do("store markdown", recordStep, async () => {
 				const submittedText = await environment.DOCUMENT_STORAGE.get(submittedTextObjectKey(documentId))
@@ -630,23 +611,21 @@ async function archiveIngestedDocument(
 				})
 			})
 		} else {
-			const { extraction } = textExtraction
-			const recognitionPages = extraction.pages.filter((page) => page.kind === "recognition")
-			if (recognitionPages.length > 0) {
+			let markdown = ""
+			if (textExtraction.kind === "picture") {
 				await step.do("record status recognizing_text", recordStep, () =>
 					recordDocumentStatus(environment, documentId, { status: "recognizing_text" }),
 				)
-				for (const { pageIndex } of recognitionPages) {
-					// Each page is its own step, so a failed page retries without repeating the others.
-					const recognition = await recognizePage(step, environment, database, documentId, pageIndex)
-					if (recognition.kind === "refused") {
-						failureReason = recognition.failureReason
-						throw new Error(recognition.explanation)
-					}
-					transcriptions.push(recognition.transcription)
+				const recognition = await recognizePicture(step, environment, database, documentId)
+				if (recognition.kind === "refused") {
+					failureReason = recognition.failureReason
+					throw new Error(recognition.explanation)
 				}
+				markdown = `## Page 1\n\n${recognition.text}`
+				recognizedPageCount = 1
+			} else {
+				markdown = textExtraction.markdown
 			}
-			const markdown = assembleDocumentMarkdown(extraction, transcriptions)
 			await step.do("store markdown", recordStep, async () => {
 				await environment.DOCUMENT_STORAGE.put(contentObjectKey(documentId), markdown, {
 					httpMetadata: { contentType: "text/markdown; charset=utf-8" },
@@ -681,13 +660,18 @@ async function archiveIngestedDocument(
 
 		await step.do("archive document", recordStep, async () => {
 			// A client's page count, recorded at the reception, stands when the client's text does.
-			const pageCount = textExtraction.kind === "extracted" ? textExtraction.extraction.pages.length : undefined
+			const pageCount =
+				textExtraction.kind === "converted"
+					? textExtraction.pageCount
+					: textExtraction.kind === "picture"
+						? 1
+						: undefined
 			await archiveDocument(database, documentId, result.classification, pageCount)
 			await announceArchiveChange(environment)
 		})
 		return {
 			documentId,
-			recognizedPageCount: transcriptions.length,
+			recognizedPageCount,
 			classificationModel: environment.CLASSIFICATION_MODEL,
 			classificationInputTokens: result.classificationInputTokens,
 			personAssignmentModel: environment.PERSON_ASSIGNMENT_MODEL,

@@ -18,9 +18,8 @@ export type UploadEnvironment = Pick<
 	"ARCHIVE_COORDINATOR" | "DATABASE" | "DOCUMENT_STORAGE" | "DOCUMENT_INGESTION_WORKFLOW"
 >
 
-// A Worker isolate has 128 MB of memory. Text extraction holds an original three times at once,
-// in the R2 read, the Blob for Markdown conversion, and the PDFium heap, so 25 MB per file
-// keeps that step near 75 MB.
+// A Worker isolate has 128 MB of memory. Text extraction holds an original twice at once, in the
+// R2 read and the Blob for Markdown conversion, so 25 MB per file keeps that step near 50 MB.
 export const MAXIMUM_DOCUMENT_BYTES = 25_000_000
 
 /**

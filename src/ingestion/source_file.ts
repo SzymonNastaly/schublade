@@ -58,16 +58,12 @@ export function contentObjectKey(documentId: string): string {
 	return `${documentObjectPrefix(documentId)}content.md`
 }
 
-export function thumbnailObjectKey(documentId: string): string {
-	return `${documentObjectPrefix(documentId)}thumbnail.png`
-}
-
 /** The Markdown a client read from the original, which the Workflow may take as the document's text. */
 export function submittedTextObjectKey(documentId: string): string {
 	return `${documentObjectPrefix(documentId)}submitted_text.md`
 }
 
-/** The JPEG of the first page that a client drew. */
+/** The JPEG of the first page that a client, or Browser Run for a printed email, drew. */
 export function submittedThumbnailObjectKey(documentId: string): string {
 	return `${documentObjectPrefix(documentId)}thumbnail.jpg`
 }

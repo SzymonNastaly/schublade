@@ -103,7 +103,7 @@ test("queryDocumentStatuses reports the given documents with their failure reaso
 		.insert(documents)
 		.values([
 			{ ...statusDocument(settledId, "archived"), title: "Plain Receipt" },
-			{ ...statusDocument(failedId, "failed"), failureReason: "page_limit_exceeded" },
+			{ ...statusDocument(failedId, "failed"), failureReason: "unreadable_page" },
 			statusDocument("c2000000-0000-4000-8000-000000000004", "classifying"),
 		])
 
@@ -111,7 +111,7 @@ test("queryDocumentStatuses reports the given documents with their failure reaso
 
 	expect(records.sort((first, second) => first.documentId.localeCompare(second.documentId))).toEqual([
 		{ documentId: settledId, title: "Plain Receipt", status: "archived", failureReason: null },
-		{ documentId: failedId, title: null, status: "failed", failureReason: "page_limit_exceeded" },
+		{ documentId: failedId, title: null, status: "failed", failureReason: "unreadable_page" },
 	])
 })
 

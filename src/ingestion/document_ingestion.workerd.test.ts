@@ -13,10 +13,10 @@ import { categories, contents, documents, extractedFields, householdMembers, sen
 import { ingestDocument, retryDocumentIngestion, startWaitingMailRendering } from "./document_ingestion"
 import { contentObjectKey, submittedThumbnailObjectKey } from "./source_file"
 import type { WorkflowStep } from "cloudflare:workers"
+import type { QuarterTurns } from "../database/schema"
 import type { SearchIndex } from "../search/document_indexing"
 
 const recordedResponses: Record<string, () => unknown> = {
-	"@cf/moondream/moondream3.1-9B-A2B": () => new Response(recording.textRecognitionEventStream).body,
 	"@cf/cloudflare/clairic-flash": () => recording.classificationResponse,
 	"@cf/cloudflare/clef-flash": () => recording.personAssignmentResponse,
 }
@@ -108,36 +108,63 @@ async function storeScannedInvoice(documentId: string, original: Uint8Array | Ar
 	return database
 }
 
-test("ingestDocument recognizes, classifies, archives, and indexes a scanned invoice one step per unit", async () => {
-	const documentId = "0f4c2b8e-5d71-4a39-9e62-3b1d7c8a4f10"
+// A client read this text from the scanned invoice and sent it with the original.
+const submittedText =
+	"## Page 1\n\nStadtwerke Talbrück GmbH\nJahresabrechnung Strom\nRechnungsnummer JA-2026-0381547\nNachzahlungsbetrag 72,09 €\n"
+
+async function storeSubmittedText(documentId: string, text: string) {
 	const database = await storeScannedInvoice(documentId)
+	await env.DOCUMENT_STORAGE.put(`documents/${documentId}/submitted_text.md`, text)
+	await database.update(documents).set({ pageCount: 3 }).where(eq(documents.id, documentId))
+	return database
+}
+
+test("ingestDocument archives, classifies, and indexes a document with a submitted text without converting or recognizing it", async () => {
+	const documentId = "5b8d1f2a-3c47-4e69-a0b2-7c9e4d1f6a83"
+	const database = await storeSubmittedText(documentId, submittedText)
 	// The invoice is addressed to both, so the person assignment chooses the household.
 	await database.insert(householdMembers).values([
 		{ displayName: "Mira Wiśniewska", addresseeNames: ["Mira Wiśniewska", "M. Wisniewska"] },
 		{ displayName: "Jonas Becker", addresseeNames: ["Jonas Becker"] },
 	])
+	const refusingRuntime = {
+		toMarkdown: () => Promise.reject(new Error("A document with a submitted text is not converted")),
+		run: (model: string) =>
+			model === "@cf/moondream/moondream3.1-9B-A2B"
+				? Promise.reject(new Error("A document with a submitted text is not recognized"))
+				: recordedRuntime.run(model),
+	}
 	const { stepNames, step } = createRecordingStep()
 
-	const outcome = await ingestDocument(step, recordedEnvironment, documentId)
-
-	expect(stepNames).toEqual([
-		"render email",
-		"extract text",
-		"record status recognizing_text",
-		"recognize page 1",
-		"store markdown",
-		"record status classifying",
-		"classify document",
-		"archive document",
-		"index document",
-	])
-	expect(outcome).toEqual({
+	const outcome = await ingestDocument(
+		step,
+		{ ...recordedEnvironment, AI_RUNTIME: refusingRuntime as unknown as Ai },
 		documentId,
-		recognizedPageCount: 1,
-		classificationModel: "@cf/cloudflare/clairic-flash",
-		classificationInputTokens: 2457,
-		personAssignmentModel: "@cf/cloudflare/clef-flash",
-		personAssignmentInputTokens: 965,
+	)
+
+	expect({
+		stepNames,
+		outcome,
+		markdown: await (await env.DOCUMENT_STORAGE.get(contentObjectKey(documentId)))?.text(),
+	}).toEqual({
+		stepNames: [
+			"render email",
+			"extract text",
+			"store markdown",
+			"record status classifying",
+			"classify document",
+			"archive document",
+			"index document",
+		],
+		outcome: {
+			documentId,
+			recognizedPageCount: 0,
+			classificationModel: "@cf/cloudflare/clairic-flash",
+			classificationInputTokens: 2457,
+			personAssignmentModel: "@cf/cloudflare/clef-flash",
+			personAssignmentInputTokens: 965,
+		},
+		markdown: submittedText,
 	})
 	const expected = expectedExtraction.documents.find(
 		(document) => document.file_name === "electricity_invoice_scanned.pdf",
@@ -155,7 +182,7 @@ test("ingestDocument recognizes, classifies, archives, and indexes a scanned inv
 			personName: null,
 			summary: null,
 			mimeType: "application/pdf",
-			pageCount: 1,
+			pageCount: 3,
 			tagNames: [],
 			fields: [
 				{ fieldKey: "amount", value: expected?.amount?.value, confidence: null },
@@ -165,10 +192,6 @@ test("ingestDocument recognizes, classifies, archives, and indexes a scanned inv
 				{ fieldKey: "invoice_number", value: expected?.invoice_number?.value, confidence: null },
 			],
 		},
-	])
-	const markdown = await (await env.DOCUMENT_STORAGE.get(contentObjectKey(documentId)))?.text()
-	expect(markdown?.split("\n").filter((line) => line.includes("Nachzahlungsbetrag"))).toEqual([
-		"Bitte überweisen Sie den Nachzahlungsbetrag von 72,09 € bis zum 06.10.2026 unter Angabe der Rechnungsnummer JA-2026-0381547 das folgende Konto:",
 	])
 	const [sender] = await database.select({ id: senders.id }).from(senders)
 	const [category] = await database.select({ id: categories.id }).from(categories)
@@ -189,81 +212,12 @@ test("ingestDocument recognizes, classifies, archives, and indexes a scanned inv
 			},
 		},
 	])
-	expect(searchIndexUploads[0]?.content.endsWith(`${markdown?.trim()}\n`)).toBe(true)
-})
-
-// A client read this text from the scanned invoice and sent it with the original.
-const submittedText =
-	"## Page 1\n\nStadtwerke Talbrück GmbH\nJahresabrechnung Strom\nRechnungsnummer JA-2026-0381547\nNachzahlungsbetrag 72,09 €\n"
-
-async function storeSubmittedText(documentId: string, text: string) {
-	const database = await storeScannedInvoice(documentId)
-	await env.DOCUMENT_STORAGE.put(`documents/${documentId}/submitted_text.md`, text)
-	await database.update(documents).set({ pageCount: 3 }).where(eq(documents.id, documentId))
-	return database
-}
-
-test("ingestDocument archives a document with a submitted text without converting or recognizing it", async () => {
-	const documentId = "5b8d1f2a-3c47-4e69-a0b2-7c9e4d1f6a83"
-	const database = await storeSubmittedText(documentId, submittedText)
-	const refusingRuntime = {
-		toMarkdown: () => Promise.reject(new Error("A document with a submitted text is not converted")),
-		run: (model: string) =>
-			model === "@cf/moondream/moondream3.1-9B-A2B"
-				? Promise.reject(new Error("A document with a submitted text is not recognized"))
-				: recordedRuntime.run(model),
-	}
-	const { stepNames, step } = createRecordingStep()
-
-	await ingestDocument(step, { ...recordedEnvironment, AI_RUNTIME: refusingRuntime as unknown as Ai }, documentId)
-
-	const [document] = await database.select({ status: documents.status, pageCount: documents.pageCount }).from(documents)
-	expect({
-		stepNames,
-		document,
-		markdown: await (await env.DOCUMENT_STORAGE.get(contentObjectKey(documentId)))?.text(),
-	}).toEqual({
-		stepNames: [
-			"render email",
-			"extract text",
-			"store markdown",
-			"record status classifying",
-			"classify document",
-			"archive document",
-			"index document",
-		],
-		document: { status: "archived", pageCount: 3 },
-		markdown: submittedText,
-	})
-})
-
-test("ingestDocument reads a scan itself when its submitted text holds fewer than 40 letters or digits", async () => {
-	const documentId = "8e2c4a6b-1d93-4f57-b0e8-3a5c7d9f1b24"
-	const database = await storeSubmittedText(documentId, "## Page 1\n\nRechnung 1\n")
-	const { stepNames, step } = createRecordingStep()
-
-	await ingestDocument(step, recordedEnvironment, documentId)
-
-	const [document] = await database.select({ status: documents.status, pageCount: documents.pageCount }).from(documents)
-	expect({ stepNames, document }).toEqual({
-		stepNames: [
-			"render email",
-			"extract text",
-			"record status recognizing_text",
-			"recognize page 1",
-			"store markdown",
-			"record status classifying",
-			"classify document",
-			"archive document",
-			"index document",
-		],
-		document: { status: "archived", pageCount: 1 },
-	})
+	expect(searchIndexUploads[0]?.content.endsWith(submittedText)).toBe(true)
 })
 
 test("a browser open during ingestion hears each status the workflow records", async () => {
 	const documentId = "2a6e4d0c-7f93-4b5a-8c14-5d3f9e0b6a32"
-	await storeScannedInvoice(documentId)
+	await storeSubmittedText(documentId, submittedText)
 	const { webSocket } = await connectToArchiveChanges(
 		env,
 		new Request("https://archive.test/api/archive_changes", { headers: { Upgrade: "websocket" } }),
@@ -276,14 +230,14 @@ test("a browser open during ingestion hears each status the workflow records", a
 
 	await ingestDocument(createRecordingStep().step, recordedEnvironment, documentId)
 
-	// extracting, recognizing_text, classifying, and archived
-	await vi.waitFor(() => expect(announcements).toBe(4))
+	// extracting, classifying, and archived
+	await vi.waitFor(() => expect(announcements).toBe(3))
 	webSocket?.close()
 })
 
 test("ingestDocument writes nothing when the document leaves classifying before the archive step", async () => {
 	const documentId = "3c9a7e15-2b84-4f06-8d1e-5a6f0b9c2e47"
-	const database = await storeScannedInvoice(documentId)
+	const database = await storeSubmittedText(documentId, submittedText)
 	await database
 		.insert(extractedFields)
 		.values({ documentId, fieldKey: "amount", fieldType: "number", valueNumber: 10 })
@@ -313,22 +267,10 @@ test("ingestDocument writes nothing when the document leaves classifying before 
 	})
 })
 
-// PDFium rebuilds the missing cross-reference table, so these objects are a valid file of blank pages.
-function blankPdf(pageCount: number, mediaBox = "0 0 100 100"): Uint8Array {
-	const pageObjects = Array.from(
-		{ length: pageCount },
-		(_, index) => `${index + 3} 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [${mediaBox}] >>\nendobj\n`,
-	)
-	const kids = pageObjects.map((_, index) => `${index + 3} 0 R`).join(" ")
-	return new TextEncoder().encode(
-		`%PDF-1.4\n1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n2 0 obj\n<< /Type /Pages /Count ${pageCount} /Kids [${kids}] >>\nendobj\n${pageObjects.join("")}trailer\n<< /Root 1 0 R >>\n%%EOF\n`,
-	)
-}
-
 test("ingestDocument records why a document failed", async () => {
 	const documentId = "7d2e9b41-6c3a-4f18-b5d7-2a8c1e4f9b03"
-	const failureAfter = async (original: Uint8Array | ArrayBuffer, runtime: unknown) => {
-		const database = await storeScannedInvoice(documentId, original)
+	const failureAfter = async (storeDocument: () => Promise<ReturnType<typeof connectDatabase>>, runtime: unknown) => {
+		const database = await storeDocument()
 		const { stepNames, step } = createRecordingStep()
 		const message = await ingestDocument(step, { ...recordedEnvironment, AI_RUNTIME: runtime as Ai }, documentId).catch(
 			(error: Error) => error.message,
@@ -338,24 +280,33 @@ test("ingestDocument records why a document failed", async () => {
 			.from(documents)
 		return { ...document, message, stepNames }
 	}
-	const emptyConversion = { toMarkdown: () => Promise.resolve({ format: "markdown", data: "" }) }
+	const failedConversion = {
+		toMarkdown: () => Promise.resolve({ format: "error", error: "The PDF could not be parsed" }),
+	}
 	const unavailableConversion = { toMarkdown: () => Promise.reject(new Error("The conversion service is unavailable")) }
 
 	expect({
-		longScan: await failureAfter(blankPdf(51), emptyConversion),
-		damagedFile: await failureAfter(new TextEncoder().encode("%PDF-1.7\nnot a document"), unavailableConversion),
-		serviceError: await failureAfter(scannedInvoice, unavailableConversion),
+		// The recorded conversion of the scan holds its file name and one page heading.
+		scanWithShortText: await failureAfter(
+			() => storeSubmittedText(documentId, "## Page 1\n\nRechnung 1\n"),
+			recordedRuntime,
+		),
+		damagedFile: await failureAfter(
+			() => storeScannedInvoice(documentId, new TextEncoder().encode("%PDF-1.7\nnot a document")),
+			failedConversion,
+		),
+		serviceError: await failureAfter(() => storeScannedInvoice(documentId), unavailableConversion),
 	}).toEqual({
-		longScan: {
+		scanWithShortText: {
 			status: "failed",
-			failureReason: "page_limit_exceeded",
-			message: "The document has 51 pages without a readable text layer, and at most 50 are transcribed",
+			failureReason: "unreadable_page",
+			message: "The document arrived without a text, and its conversion holds fewer than 40 letters or digits",
 			stepNames: ["render email", "extract text", "record status failed"],
 		},
 		damagedFile: {
 			status: "failed",
 			failureReason: "unreadable_file",
-			message: "PDFium could not open the document, error code 3",
+			message: "Markdown conversion failed: The PDF could not be parsed",
 			stepNames: ["render email", "extract text", "record status failed"],
 		},
 		serviceError: {
@@ -549,16 +500,38 @@ function recognitionEventStream(answer: string, finishReason: string) {
 		.body
 }
 
-function pngDimensions(dataUri: string) {
-	const bytes = Uint8Array.from(atob(dataUri.split(",")[1] ?? ""), (character) => character.charCodeAt(0))
-	const view = new DataView(bytes.buffer)
-	return { width: view.getUint32(16), height: view.getUint32(20) }
+/** A Cloudflare Images binding that records each transformation and answers with three bytes. */
+function recordingImageTransformer() {
+	const transformations: Array<unknown> = []
+	const inputs: Array<Promise<ArrayBuffer>> = []
+	const imageTransformer = {
+		input(stream: ReadableStream<Uint8Array>) {
+			inputs.push(new Response(stream).arrayBuffer())
+			const transformer = {
+				transform(options: unknown) {
+					transformations.push(options)
+					return transformer
+				},
+				output(options: unknown) {
+					transformations.push(options)
+					return Promise.resolve({ response: () => new Response(new Uint8Array([1, 2, 3])) })
+				},
+			}
+			return transformer
+		},
+	} as unknown as ImagesBinding
+	return { imageTransformer, transformations, inputs }
+}
+
+async function storePicture(documentId: string, quarterTurns: QuarterTurns = 0) {
+	const database = await storeScannedInvoice(documentId, new Uint8Array([0xff, 0xd8, 0xff, 0x01]))
+	await database.update(documents).set({ mimeType: "image/jpeg", recognitionQuarterTurns: quarterTurns })
+	return database
 }
 
 function recognitionRuntime(answers: Array<{ answer: string; finishReason: string }>) {
 	const requests: Array<{ image: string; tokenLimit: number; skipsCache: boolean }> = []
 	const runtime = {
-		toMarkdown: () => Promise.resolve({ format: "markdown", data: "" }),
 		run: (
 			model: string,
 			inputs: { image: string; max_tokens: number },
@@ -576,59 +549,63 @@ function recognitionRuntime(answers: Array<{ answer: string; finishReason: strin
 const stoppedAtTokenLimit = { answer: "Seite Seite Seite", finishReason: "length" }
 const finishedWith = (answer: string) => ({ answer, finishReason: "stop" })
 
-test("a page that stops at the token limit is read at the other rotations, and the reading with the most distinct words turns the later pages", async () => {
+test("a picture that stops at the token limit is read at the other rotations, and the reading with the most distinct words is kept with its rotation", async () => {
 	const documentId = "a1000000-0000-4000-8000-000000000001"
-	const database = await storeScannedInvoice(documentId, blankPdf(2, "0 0 100 200"))
-	const { requests, runtime } = recognitionRuntime([
+	const database = await storePicture(documentId)
+	const { runtime } = recognitionRuntime([
 		stoppedAtTokenLimit,
 		finishedWith("Seite Seite Seite Seite Seite Seite Seite"),
 		stoppedAtTokenLimit,
 		finishedWith("Eine lange und lesbare Seite"),
-		finishedWith("Zweite Seite"),
 	])
+	const { imageTransformer, transformations } = recordingImageTransformer()
 	const { stepNames, step } = createRecordingStep()
 
-	await ingestDocument(step, { ...recordedEnvironment, AI_RUNTIME: runtime }, documentId)
+	await ingestDocument(
+		step,
+		{ ...recordedEnvironment, AI_RUNTIME: runtime, IMAGE_TRANSFORMER: imageTransformer },
+		documentId,
+	)
 
 	const [document] = await database
-		.select({ status: documents.status, quarterTurns: documents.recognitionQuarterTurns })
+		.select({
+			status: documents.status,
+			quarterTurns: documents.recognitionQuarterTurns,
+			pageCount: documents.pageCount,
+		})
 		.from(documents)
-	const content = await (await env.DOCUMENT_STORAGE.get(contentObjectKey(documentId)))?.text()
 	expect({
 		document,
-		content,
-		recognitionSteps: stepNames.filter((name) => name.includes(" page ") || name.includes("rotation")),
-		pages: requests.map(({ image }) => pngDimensions(image)),
+		content: await (await env.DOCUMENT_STORAGE.get(contentObjectKey(documentId)))?.text(),
+		recognitionSteps: stepNames.filter((name) => name.includes("picture")),
+		rotations: transformations.flatMap((options) =>
+			typeof options === "object" && options !== null && "rotate" in options ? [options.rotate] : [],
+		),
 	}).toEqual({
-		document: { status: "archived", quarterTurns: 3 },
-		content: "## Page 1\n\nEine lange und lesbare Seite\n\n## Page 2\n\nZweite Seite",
+		document: { status: "archived", quarterTurns: 3, pageCount: 1 },
+		content: "## Page 1\n\nEine lange und lesbare Seite",
 		recognitionSteps: [
-			"recognize page 1",
-			"recognize page 1 turned 90 degrees",
-			"recognize page 1 turned 180 degrees",
-			"recognize page 1 turned 270 degrees",
-			"record rotation of page 1",
-			"recognize page 2",
+			"recognize picture",
+			"recognize picture turned 90 degrees",
+			"recognize picture turned 180 degrees",
+			"recognize picture turned 270 degrees",
+			"record rotation of picture",
 		],
-		pages: [
-			{ width: 208, height: 417 },
-			{ width: 417, height: 208 },
-			{ width: 208, height: 417 },
-			{ width: 417, height: 208 },
-			{ width: 417, height: 208 },
-		],
+		rotations: [0, 90, 180, 270],
 	})
 })
 
-test("a page that stops at the token limit at every rotation fails its document before classification", async () => {
+test("a picture that stops at the token limit at every rotation fails its document before classification", async () => {
 	const documentId = "a1000000-0000-4000-8000-000000000003"
-	const database = await storeScannedInvoice(documentId, blankPdf(1))
+	const database = await storePicture(documentId)
 	const { requests, runtime } = recognitionRuntime(Array.from({ length: 4 }, () => stoppedAtTokenLimit))
 	const { stepNames, step } = createRecordingStep()
 
-	const message = await ingestDocument(step, { ...recordedEnvironment, AI_RUNTIME: runtime }, documentId).catch(
-		(error: Error) => error.message,
-	)
+	const message = await ingestDocument(
+		step,
+		{ ...recordedEnvironment, AI_RUNTIME: runtime, IMAGE_TRANSFORMER: recordingImageTransformer().imageTransformer },
+		documentId,
+	).catch((error: Error) => error.message)
 
 	const [document] = await database
 		.select({ status: documents.status, failureReason: documents.failureReason })
@@ -639,16 +616,16 @@ test("a page that stops at the token limit at every rotation fails its document 
 		stepNames,
 		requests: requests.map(({ tokenLimit, skipsCache }) => ({ tokenLimit, skipsCache })),
 	}).toEqual({
-		message: "Page 1 did not finish within the token limit at any rotation",
+		message: "The picture did not finish within the token limit at any rotation",
 		document: { status: "failed", failureReason: "unreadable_page" },
 		stepNames: [
 			"render email",
 			"extract text",
 			"record status recognizing_text",
-			"recognize page 1",
-			"recognize page 1 turned 90 degrees",
-			"recognize page 1 turned 180 degrees",
-			"recognize page 1 turned 270 degrees",
+			"recognize picture",
+			"recognize picture turned 90 degrees",
+			"recognize picture turned 180 degrees",
+			"recognize picture turned 270 degrees",
 			"record status failed",
 		],
 		requests: Array.from({ length: 4 }, () => ({ tokenLimit: 2048, skipsCache: true })),
@@ -657,26 +634,8 @@ test("a page that stops at the token limit at every rotation fails its document 
 
 test("ingestDocument sends an uploaded photograph through the image transformer before text recognition", async () => {
 	const documentId = "a1000000-0000-4000-8000-000000000002"
-	const database = await storeScannedInvoice(documentId, new Uint8Array([0xff, 0xd8, 0xff, 0x01]))
-	await database.update(documents).set({ mimeType: "image/jpeg", recognitionQuarterTurns: 2 })
-	const transformations: Array<unknown> = []
-	let inputBytes: Promise<ArrayBuffer> = Promise.resolve(new ArrayBuffer(0))
-	const imageTransformer = {
-		input(stream: ReadableStream<Uint8Array>) {
-			inputBytes = new Response(stream).arrayBuffer()
-			const transformer = {
-				transform(options: unknown) {
-					transformations.push(options)
-					return transformer
-				},
-				output(options: unknown) {
-					transformations.push(options)
-					return Promise.resolve({ response: () => new Response(new Uint8Array([1, 2, 3])) })
-				},
-			}
-			return transformer
-		},
-	}
+	await storePicture(documentId, 2)
+	const { imageTransformer, transformations, inputs: pictureInputs } = recordingImageTransformer()
 	const recognizedImages: Array<string> = []
 	const { step } = createRecordingStep()
 
@@ -684,7 +643,7 @@ test("ingestDocument sends an uploaded photograph through the image transformer 
 		step,
 		{
 			...recordedEnvironment,
-			IMAGE_TRANSFORMER: imageTransformer as unknown as ImagesBinding,
+			IMAGE_TRANSFORMER: imageTransformer,
 			AI_RUNTIME: {
 				run: (model: string, inputs: { image: string }) => {
 					if (model !== "@cf/moondream/moondream3.1-9B-A2B") return Promise.resolve(recording.classificationResponse)
@@ -696,8 +655,12 @@ test("ingestDocument sends an uploaded photograph through the image transformer 
 		documentId,
 	)
 
-	expect({ input: [...new Uint8Array(await inputBytes)], transformations, recognizedImages }).toEqual({
-		input: [0xff, 0xd8, 0xff, 0x01],
+	expect({
+		inputs: await Promise.all(pictureInputs.map(async (input) => [...new Uint8Array(await input)])),
+		transformations,
+		recognizedImages,
+	}).toEqual({
+		inputs: [[0xff, 0xd8, 0xff, 0x01]],
 		transformations: [
 			{ width: 1600, height: 1600, fit: "scale-down", rotate: 180 },
 			{ format: "image/jpeg", quality: 90, background: "#FFFFFF" },

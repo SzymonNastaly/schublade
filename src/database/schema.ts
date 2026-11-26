@@ -32,12 +32,7 @@ const documentStatuses = [
  */
 export const succeedingModificationTime = () => sql`max(unixepoch(), updated_at + 1)`
 
-const documentFailureReasons = [
-	"unreadable_file",
-	"page_limit_exceeded",
-	"unreadable_page",
-	"processing_error",
-] as const
+const documentFailureReasons = ["unreadable_file", "unreadable_page", "processing_error"] as const
 
 export type QuarterTurns = 0 | 1 | 2 | 3
 

@@ -332,7 +332,7 @@ The owner decided on 2026-11-26:
 
 1. **What reads a scan or a photograph that arrives without text, once Moondream is gone?** Decided: Moondream stays for picture originals. R1 removes PDFium and the recognition of PDF pages, and R2 does not remove Moondream for pictures.
 2. **Should a new build send the old way to an old archive, or say "Update your archive" and wait?** Decided: it says "Update your archive" and holds its uploads. A new client has no fallback, so each client's multipart writer goes in the unit that moves that client over.
-3. **When may R1 run?** Open. The log line shows how many scans without text still arrive.
+3. **When may R1 run?** Decided on 2026-11-26: the archive has no users, so R1 removes PDFium now.
 4. **Does `POST /api/documents/ingest` stay for scripts and Shortcuts for good?** Decided: no. It goes with the old clients in unit L1, and scripts send the PUT with the digest.
 5. **Draw the thumbnails of old PDFs once before PDFium leaves, or let those nobody ever listed show a file icon?** Undecided. Unit B1 stays optional.
 6. **Is plain text enough for PDFs with a text layer?** Decided: yes. No `toMarkdown` for every PDF.
@@ -440,6 +440,16 @@ The owner decided on 2026-11-26 that the archive has no users and keeps no compa
 - The log line `Document reception: route=… text=… thumbnail=…` is gone. It existed to decide when R1 could run, and the owner decided that without it.
 - `acceptDocumentUpload` stays for mail, its only caller outside the tests, and `MAXIMUM_FILES_PER_SUBMISSION` became `MAXIMUM_ATTACHMENTS` in `inbound_mail.ts`.
 - The Access application "schublade <worker>: token ingestion" keeps its name, so provisioning finds it, and `tokenIngestionDestinations` names only `/api/v1`. A deployment provisioned before L1 keeps the destination `/api/documents/ingest` until provisioning runs again. The Worker answers that path behind `requireAccess`, so the stale bypass admits nothing.
+
+## What unit R1 changed in this design
+
+- The fallback chain is as designed. A conversion counts as a text only by the letters and digits of its `### Page N` sections, because `toMarkdown` opens with `# original.pdf` and `## Contents`, and five page headings with that preamble already hold 40 letters and digits. `isUsableSubmittedText` became `holdsUsableText`, and `convertedPageTexts` replaced `selectPageTextSources`, `recognitionLimitViolation`, `assembleDocumentMarkdown`, and their types.
+- The recognition steps of a picture are named "recognize picture", "recognize picture turned N degrees", and "record rotation of picture", because a PDF page is never recognized. A picture's page count is 1, as before.
+- `page_limit_exceeded` left the schema and the failure sentences, not only the Workflow. The staging database held 40 documents, none failed (read on 2026-11-26), and the column is text, so no migration was needed and drizzle-kit generated none.
+- `@embedpdf/pdfium` moved to `devDependencies`, not out of `package.json`: `scripts/generate_test_documents.ts` and `generate_collection_corpus.ts` render the fixtures with it. `fast-png`, which only the Worker's thumbnail drawing used, is gone.
+- `readThumbnail` reads no `thumbnail.png` and writes no mark. A PNG that an earlier deployment drew stays in R2 under its document and goes with it, read by nothing.
+- The Worker's bundle without source maps went from 8,820,338 to 3,877,989 bytes, and from 3,216,852 to 1,005,202 bytes as one gzip of its files (measured on 2026-11-26 with `pnpm run build`). The PDFium WebAssembly module was 4,646,932 bytes of the difference, and its glue code the rest.
+- Every test that reached Moondream through a PDF now sends a picture or a submitted text: the pipeline test archives the scanned invoice with a submitted text, the rotation tests read a picture, and the change journal test gives its scan a text.
 
 ## Next implementation step
 

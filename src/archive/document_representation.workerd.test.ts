@@ -5,68 +5,45 @@ import { connectDatabase } from "../database/client"
 import { documents } from "../database/schema"
 import { serveDocumentRepresentation } from "./document_representation"
 
-async function storePdfDocument(documentId: string, content: ArrayBuffer | string) {
+async function storeDocument(documentId: string, extension: string, mimeType: string, content: ArrayBuffer | string) {
 	await applyD1Migrations(env.DATABASE, inject("databaseMigrations"))
-	const storageObjectKey = `documents/${documentId}/original.pdf`
-	await env.DOCUMENT_STORAGE.put(storageObjectKey, content, { httpMetadata: { contentType: "application/pdf" } })
+	const storageObjectKey = `documents/${documentId}/original.${extension}`
+	await env.DOCUMENT_STORAGE.put(storageObjectKey, content, { httpMetadata: { contentType: mimeType } })
 	await connectDatabase(env.DATABASE)
 		.insert(documents)
-		.values({ id: documentId, storageObjectKey, mimeType: "application/pdf", byteSize: 1024, status: "archived" })
+		.values({ id: documentId, storageObjectKey, mimeType, byteSize: 1024, status: "archived" })
 }
 
-test("the thumbnail of a PDF is rendered on first request and served from storage afterwards", async () => {
-	const documentId = "7c1f3a5b-9d2e-4f68-b0c4-3e8a6d1f9b72"
-	await storePdfDocument(documentId, digitalStatement)
-
-	const rendered = await serveDocumentRepresentation(env, { documentId, representation: "thumbnail" })
-	const pngSignature = [...new Uint8Array(await rendered.arrayBuffer()).slice(0, 4)]
-	await env.DOCUMENT_STORAGE.put(`documents/${documentId}/thumbnail.png`, "stored thumbnail")
-	const served = await serveDocumentRepresentation(env, { documentId, representation: "thumbnail" })
-
-	expect({ status: rendered.status, type: rendered.headers.get("content-type"), pngSignature }).toEqual({
-		status: 200,
-		type: "image/png",
-		pngSignature: [0x89, 0x50, 0x4e, 0x47],
-	})
-	expect(await served.text()).toBe("stored thumbnail")
-})
-
-test("the thumbnail a client submitted is served as a JPEG before any drawing of the PDF", async () => {
-	const documentId = "4a6c8e0b-2d1f-4c35-9b7e-6f1a3c5e7d92"
-	await storePdfDocument(documentId, digitalStatement)
-	await env.DOCUMENT_STORAGE.put(`documents/${documentId}/thumbnail.jpg`, "submitted thumbnail", {
+test("the thumbnail is the JPEG a client submitted, or a picture original itself, and a PDF without one has none and is not read", async () => {
+	const submitted = "4a6c8e0b-2d1f-4c35-9b7e-6f1a3c5e7d92"
+	const picture = "7c1f3a5b-9d2e-4f68-b0c4-3e8a6d1f9b72"
+	const withoutThumbnail = "8d2a4b6c-0e3f-4a79-a1d5-4f9b7e2a0c83"
+	await storeDocument(submitted, "pdf", "application/pdf", digitalStatement)
+	await env.DOCUMENT_STORAGE.put(`documents/${submitted}/thumbnail.jpg`, "submitted thumbnail", {
 		httpMetadata: { contentType: "image/jpeg" },
 	})
-
-	const response = await serveDocumentRepresentation(env, { documentId, representation: "thumbnail" })
-
-	expect({
-		status: response.status,
-		type: response.headers.get("content-type"),
-		body: await response.text(),
-		drawnThumbnail: await env.DOCUMENT_STORAGE.head(`documents/${documentId}/thumbnail.png`),
-	}).toEqual({ status: 200, type: "image/jpeg", body: "submitted thumbnail", drawnThumbnail: null })
-})
-
-test("a PDF that cannot be rendered has no thumbnail, and its original is read once however often the thumbnail is requested", async () => {
-	const documentId = "8d2a4b6c-0e3f-4a79-a1d5-4f9b7e2a0c83"
-	await storePdfDocument(documentId, "this is not a PDF")
+	await storeDocument(picture, "png", "image/png", "photographed receipt")
+	await storeDocument(withoutThumbnail, "pdf", "application/pdf", digitalStatement)
 	const reads = vi.spyOn(env.DOCUMENT_STORAGE, "get")
 
-	const statuses: Array<number> = []
-	for (let request = 0; request < 3; request += 1) {
-		const response = await serveDocumentRepresentation(env, { documentId, representation: "thumbnail" })
-		statuses.push(response.status)
-		await response.body?.cancel()
-	}
+	const answers = await Promise.all(
+		[submitted, picture, withoutThumbnail].map(async (documentId) => {
+			const response = await serveDocumentRepresentation(env, { documentId, representation: "thumbnail" })
+			const body = new TextDecoder().decode(await response.arrayBuffer())
+			return { status: response.status, type: response.headers.get("content-type"), body }
+		}),
+	)
 	const readKeys = reads.mock.calls.map(([key]) => key)
 	reads.mockRestore()
 
-	expect({
-		statuses,
-		readsOfTheOriginal: readKeys.filter((key) => key === `documents/${documentId}/original.pdf`).length,
-		readsOfTheMark: readKeys.filter((key) => key === `documents/${documentId}/thumbnail.png`).length,
-	}).toEqual({ statuses: [404, 404, 404], readsOfTheOriginal: 1, readsOfTheMark: 3 })
+	expect({ answers, readsOfThePdf: readKeys.filter((key) => key.endsWith("/original.pdf")) }).toEqual({
+		answers: [
+			{ status: 200, type: "image/jpeg", body: "submitted thumbnail" },
+			{ status: 200, type: "image/png", body: "photographed receipt" },
+			{ status: 404, type: "text/plain;charset=UTF-8", body: "Not found" },
+		],
+		readsOfThePdf: [],
+	})
 })
 
 test("an email not yet rendered has no thumbnail", async () => {

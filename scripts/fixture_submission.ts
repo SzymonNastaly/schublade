@@ -4,7 +4,7 @@ import type { UploadOutcome } from "../src/ingestion/document_upload.ts"
 
 /**
  * Sends a test document as the web application does: a PDF with the page texts PDF.js reads, and
- * a picture alone. Node has no canvas, so the archive draws the thumbnail itself.
+ * a picture alone. Node has no canvas, so the document has no thumbnail.
  */
 export function submitFixtureDocument(baseUrl: string, file: File): Promise<UploadOutcome> {
 	return submitDocument(

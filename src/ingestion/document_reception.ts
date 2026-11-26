@@ -5,7 +5,7 @@ import { connectDatabase } from "../database/client"
 import { documents } from "../database/schema"
 import { lookupContents } from "./content_identity"
 import { retryDocumentIngestion } from "./document_ingestion"
-import { isUsableSubmittedText } from "./document_text"
+import { holdsUsableText } from "./document_text"
 import { MAXIMUM_DOCUMENT_BYTES, archiveContent } from "./document_upload"
 import { parseReceptionHeaders } from "./reception_headers"
 import {
@@ -128,7 +128,7 @@ async function retryWithSubmittedText(
 	const prefix = await readDerivedPrefix(reader, layout)
 	reader.releaseLock()
 	if (prefix.kind === "refused") return problem(prefix.status, prefix.detail)
-	if (!isUsableSubmittedText(new TextDecoder().decode(prefix.text))) return undefined
+	if (!holdsUsableText(new TextDecoder().decode(prefix.text))) return undefined
 	const markdown = { httpMetadata: { contentType: "text/markdown; charset=utf-8" } }
 	await Promise.all([
 		environment.DOCUMENT_STORAGE.put(submittedTextObjectKey(documentId), prefix.text, markdown),
