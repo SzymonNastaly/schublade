@@ -32,7 +32,7 @@ use archive_replica::{Attendance, Replica, ReplicaEvent, ReplicaSettings, WakeRe
 use collection_core::state_store::StoreOpenFailure;
 use collection_core::{CollectorEvent, CollectorSettings, EmptyDocumentReader, StartFailure};
 
-pub use document_reading::{DocumentReader, DocumentReading};
+pub use document_reading::{DocumentMediaType, DocumentReader, DocumentReading};
 
 pub use published_library::{
     Amount, CalendarDate, CategoryIdentifier, DetailField, DocumentCondition, DocumentDetail, DocumentIdentifier,
@@ -47,8 +47,8 @@ pub use published_status::{
     Receipt, SkipReason, SkippedCount, SuspensionReason,
 };
 pub use published_submission::{
-    DocumentMediaType, DocumentSubmissionAnswer, DocumentSubmissionRequest, SubmissionPreparationRefusal,
-    prepare_document_submission, read_document_submission_answer,
+    DocumentSubmissionAnswer, DocumentSubmissionRequest, SubmissionPreparationRefusal, prepare_document_submission,
+    read_document_submission_answer,
 };
 pub use refusals::{
     ApplicationFault, ApplicationStartFailure, ConnectionRefusal, DecisionRefusal, EnrollmentRefusal,

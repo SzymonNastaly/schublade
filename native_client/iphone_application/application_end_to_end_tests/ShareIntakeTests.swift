@@ -7,8 +7,9 @@ import XCTest
 
 final class ShareIntakeTests: XCTestCase {
 	/// The PDF's copy carries no extension, as a provider's file may not, while its suggested name
-	/// carries one, as Safari's does, and the name sent keeps one.
-	func testSharedFilesBecomeClaimedSubmissionsAndATextFileIsRefused() async throws {
+	/// carries one, as Safari's does, and the name sent keeps one. The picture needs recognition, which
+	/// the extension leaves to the application, so its upload is not claimed.
+	func testSharedFilesBecomeSubmissionsAndATextFileIsRefused() async throws {
 		let directory = URL.temporaryDirectory.appending(path: UUID().uuidString, directoryHint: .isDirectory)
 		try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
 		let letter = directory.appending(path: "Letter from the Stadtwerke")
@@ -23,12 +24,11 @@ final class ShareIntakeTests: XCTestCase {
 		let entries = try await [
 			ShareIntake.SharedFile(file: letter, type: .pdf, suggestedName: "Letter from the Stadtwerke.pdf"),
 			ShareIntake.SharedFile(file: receipt, type: .heic, suggestedName: "Receipt"),
-		].asyncMap { try await ShareIntake.receive($0, picture: nil, into: queue, now: sharedAt) }
+		].asyncMap { try await ShareIntake.receive($0, into: queue, now: sharedAt) }
 		var refusal: (any Error)?
 		do {
 			_ = try await ShareIntake.receive(
 				ShareIntake.SharedFile(file: notes, type: .plainText, suggestedName: "Notes"),
-				picture: nil,
 				into: queue,
 				now: sharedAt
 			)
@@ -39,7 +39,7 @@ final class ShareIntakeTests: XCTestCase {
 		XCTAssertEqual(entries.map(\.manifest.fileName), ["Letter from the Stadtwerke.pdf", "Receipt.jpg"])
 		XCTAssertEqual(entries.map(\.manifest.kind), [.pdf, .jpeg])
 		XCTAssertEqual(entries.map(\.manifest.origin), [.share, .share])
-		XCTAssertEqual(entries.map(\.manifest.uploadClaimedAt), [sharedAt, sharedAt])
+		XCTAssertEqual(entries.map(\.manifest.uploadClaimedAt), [sharedAt, nil])
 		XCTAssertEqual(refusal as? DocumentImport.ImportFailure, .unacceptedKind("Notes.txt"))
 		XCTAssertEqual(Set(queue.entries().map(\.id)), Set(entries.map(\.id)))
 		let picture = try Data(contentsOf: XCTUnwrap(queue.documentFile(of: entries[1])))
@@ -58,7 +58,6 @@ final class ShareIntakeTests: XCTestCase {
 
 		let entry = try await ShareIntake.receive(
 			ShareIntake.SharedFile(file: photograph, type: .heic, suggestedName: "Receipt"),
-			picture: nil,
 			into: queue
 		)
 

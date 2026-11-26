@@ -130,10 +130,8 @@ public enum LibraryFailureWording {
 		switch reason {
 		case .unreadableFile:
 			"This file could not be opened."
-		case .pageLimitExceeded:
-			"This PDF needs text recognition on more than 50 pages, which is the limit."
 		case .unreadablePage:
-			"A page could not be read in any orientation."
+			"No text could be read from this document."
 		case .processingError:
 			"Processing failed. Try again."
 		case .other:

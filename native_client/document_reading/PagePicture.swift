@@ -45,11 +45,14 @@ enum PagePicture {
 		return CGImageSourceCreateThumbnailAtIndex(source, 0, decoding)
 	}
 
-	/// The picture drawn on white, because a JPEG has no transparency and a transparent pixel would
-	/// turn black in it.
-	static func onWhite(_ picture: CGImage) -> CGImage? {
-		let context = whiteContext(width: picture.width, height: picture.height)
-		context?.draw(picture, in: CGRect(x: 0, y: 0, width: picture.width, height: picture.height))
+	/// The picture at most `longerSide` pixels on its longer side, drawn on white, because a JPEG has
+	/// no transparency and a transparent pixel would turn black in it.
+	static func reduced(_ picture: CGImage, longerSide: Int) -> CGImage? {
+		let scale = min(Double(longerSide) / Double(max(picture.width, picture.height, 1)), 1)
+		let width = Int((Double(picture.width) * scale).rounded())
+		let height = Int((Double(picture.height) * scale).rounded())
+		let context = whiteContext(width: width, height: height)
+		context?.draw(picture, in: CGRect(x: 0, y: 0, width: width, height: height))
 		return context?.makeImage()
 	}
 

@@ -155,7 +155,7 @@ final class ArrivalPresentationTests: XCTestCase {
 			arrival,
 			title: "Scan",
 			second: "3 pages · 9:12",
-			third: "A page could not be read in any orientation.",
+			third: "No text could be read from this document.",
 			trailing: .attention
 		)
 	}

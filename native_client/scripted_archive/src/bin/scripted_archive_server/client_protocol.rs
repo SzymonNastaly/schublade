@@ -1,5 +1,5 @@
-//! The routes of `notes/client_protocol.md` and `POST /api/documents/ingest`, each answered from the
-//! `ScriptedArchive` as the Worker answers it.
+//! The routes of `notes/client_protocol.md`, each answered from the `ScriptedArchive` as the Worker
+//! answers it.
 
 use archive_access::{ArchiveCondition, ContentDigest, DocumentIdentifier, PermissionLevel, Timestamp};
 use archive_replica::replica_records::{
@@ -11,7 +11,7 @@ use collection_core::ArchiveClient;
 use collection_core::candidate_classification::identify_content_kind;
 use collection_core::content_synchronization::LookupAnswer;
 use collection_core::domain_types::DocumentStatus;
-use scripted_archive::{ScriptedArchive, UploadOutcome};
+use scripted_archive::ScriptedArchive;
 
 use crate::{Answer, Body};
 
@@ -368,63 +368,4 @@ pub fn serve_document_thumbnail(archive: &ScriptedArchive, identifier: &str, que
         Err(archive_access::DownloadFailure::Archive(condition)) => Answer::from_condition(condition),
         Err(archive_access::DownloadFailure::Destination(error)) => Answer::problem(500, &error.to_string()),
     }
-}
-
-/// The files of a `multipart/form-data` body in fields named `files`, each with its file name.
-/// `None` when the content type names no boundary or the body does not follow it.
-fn multipart_files(content_type: Option<&str>, body: &[u8]) -> Option<Vec<(String, Vec<u8>)>> {
-    let boundary = content_type?
-        .strip_prefix("multipart/form-data")?
-        .split(';')
-        .find_map(|parameter| parameter.trim().strip_prefix("boundary="))?
-        .trim_matches('"');
-    let delimiter = format!("--{boundary}").into_bytes();
-    let position = |haystack: &[u8], needle: &[u8]| haystack.windows(needle.len()).position(|window| window == needle);
-    let mut rest = &body[position(body, &delimiter)? + delimiter.len()..];
-    let mut files = Vec::new();
-    while !rest.starts_with(b"--") {
-        rest = rest.strip_prefix(b"\r\n")?;
-        let headers_end = position(rest, b"\r\n\r\n")?;
-        let headers = String::from_utf8_lossy(&rest[..headers_end]).into_owned();
-        rest = &rest[headers_end + 4..];
-        let content_end = position(rest, &[b"\r\n".as_slice(), &delimiter].concat())?;
-        let file_name = headers
-            .split("filename=\"")
-            .nth(1)
-            .and_then(|tail| tail.split('"').next())
-            .map(str::to_owned);
-        if headers.contains("name=\"files\"")
-            && let Some(file_name) = file_name
-        {
-            files.push((file_name, rest[..content_end].to_vec()));
-        }
-        rest = &rest[content_end + 2 + delimiter.len()..];
-    }
-    Some(files)
-}
-
-/// `POST /api/documents/ingest`: each file of the body answered as `src/ingestion/document_upload.ts`
-/// answers it.
-pub fn ingest(archive: &ScriptedArchive, content_type: Option<&str>, body: &[u8]) -> Answer {
-    let Some(files) = multipart_files(content_type, body) else {
-        return Answer::json(
-            400,
-            serde_json::json!({ "error": "Send the documents as multipart form fields named files" }),
-        );
-    };
-    let outcomes: Vec<serde_json::Value> = files
-        .into_iter()
-        .map(|(file_name, bytes)| match archive.upload(&bytes) {
-            UploadOutcome::Accepted(document) => serde_json::json!({
-                "kind": "accepted", "fileName": file_name, "documentId": document.as_str(),
-            }),
-            UploadOutcome::AlreadyArchived(document) => serde_json::json!({
-                "kind": "already_archived", "fileName": file_name, "documentId": document.as_str(),
-            }),
-            UploadOutcome::Rejected(reason) => serde_json::json!({
-                "kind": "rejected", "fileName": file_name, "reason": reason,
-            }),
-        })
-        .collect();
-    Answer::json(200, serde_json::json!({ "outcomes": outcomes }))
 }

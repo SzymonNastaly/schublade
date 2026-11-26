@@ -84,9 +84,10 @@ public final class SubmissionTransfer: NSObject, URLSessionDataDelegate, Sendabl
 			return
 		}
 		var request = URLRequest(url: url)
-		request.httpMethod = "POST"
-		request.setValue(prepared.contentType, forHTTPHeaderField: "Content-Type")
-		request.setValue(prepared.authorization, forHTTPHeaderField: "Authorization")
+		request.httpMethod = "PUT"
+		for (name, value) in prepared.headers {
+			request.setValue(value, forHTTPHeaderField: name)
+		}
 		guard let session = state.withLock({ $0.invalidating ? nil : $0.session }) else {
 			onAnswer(attempt, nil)
 			return
@@ -169,7 +170,11 @@ public final class SubmissionTransfer: NSObject, URLSessionDataDelegate, Sendabl
 			onAnswer(attempt, nil)
 			return
 		}
-		onAnswer(attempt, readDocumentSubmissionAnswer(status: UInt16(response.statusCode), body: body))
+		onAnswer(attempt, readDocumentSubmissionAnswer(
+			status: UInt16(response.statusCode),
+			contentType: response.value(forHTTPHeaderField: "Content-Type"),
+			body: body
+		))
 	}
 
 	public func urlSessionDidFinishEvents(forBackgroundURLSession _: URLSession) {

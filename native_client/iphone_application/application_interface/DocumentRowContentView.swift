@@ -48,6 +48,9 @@ struct DocumentRowContent: UIContentConfiguration, Equatable {
 /// The first page of a row, as `PagePicture` cuts and draws it.
 enum RowPicture {
 	nonisolated static let defaultSize = CGSize(width: 44, height: 58)
+	/// The longer side in pixels a row's picture is decoded at: three times the largest picture a row
+	/// draws.
+	nonisolated static let pixelLimit = 312
 
 	/// The default size at the default text size, growing with the text up to 66 points wide.
 	static var size: CGSize {

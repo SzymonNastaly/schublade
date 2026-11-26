@@ -9,6 +9,8 @@ included:
   - share_extension
   - submission_queue
   - ../library_presentation
+  - ../document_reading
+  - ../document_reading_tests
 excluded:
   - build
   - generated_bindings

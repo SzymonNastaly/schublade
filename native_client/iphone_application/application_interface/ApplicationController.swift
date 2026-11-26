@@ -1,5 +1,6 @@
 import ApplicationBindings
 import CoreGraphics
+import DocumentReading
 import Foundation
 import Observation
 import SubmissionQueue
@@ -226,9 +227,14 @@ final class ApplicationController {
 				kind: kind,
 				origin: scanned ? .scan : .importedFile,
 				pageCount: pages,
-				picture: SubmissionPicture.make(from: file, kind: kind)
+				contents: Self.read(copy, kind: kind)
 			)
 		}
+	}
+
+	@concurrent
+	private static func read(_ file: URL, kind: SubmissionFileKind) async -> DocumentContents? {
+		kind.contents(of: file, recognizing: true)
 	}
 	#endif
 }

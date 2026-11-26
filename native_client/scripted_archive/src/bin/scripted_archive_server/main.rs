@@ -7,7 +7,7 @@
 use std::io::{Read, Write};
 use std::sync::{Mutex, PoisonError};
 
-use archive_access::{ArchiveCondition, INGEST_PATH, PermissionLevel, SubmissionRoute};
+use archive_access::{ArchiveCondition, PermissionLevel, SubmissionRoute};
 use scripted_archive::ScriptedArchive;
 
 mod client_protocol;
@@ -16,8 +16,8 @@ mod document_seeding;
 mod paced_reception;
 
 use client_protocol::{
-    ingest, look_up, serve_authorization, serve_changes, serve_document_original, serve_document_status,
-    serve_document_text, serve_document_thumbnail,
+    look_up, serve_authorization, serve_changes, serve_document_original, serve_document_status, serve_document_text,
+    serve_document_thumbnail,
 };
 use document_reception::{receive_document, reception_route};
 use document_seeding::{restrict_to_category, seed_corpus, seed_document_endpoint};
@@ -164,7 +164,6 @@ fn route_request(server: &mut ScriptedServer, request: &ArchiveRequest<'_>, body
         (Method::Get, AUTHORIZATION_PATH) => serve_authorization(archive, query),
         (Method::Get, CHANGES_PATH) => serve_changes(archive, query),
         (Method::Post, LOOKUP_PATH) => look_up(archive, &body),
-        (Method::Post, INGEST_PATH) => ingest(archive, request.header("Content-Type"), &body),
         (Method::Put, path) if let Some((route, digest)) = reception_route(path) => {
             receive_document(archive, route, digest, request, query, &body)
         }
@@ -205,8 +204,8 @@ struct Options {
     token: String,
     permission: PermissionLevel,
     seed: usize,
-    /// Bytes per second at which the body of a person's upload, to the ingest route or the
-    /// reception, is read, so a screen examination can show an upload under way.
+    /// Bytes per second at which the body of a person's upload to the reception is read, so a
+    /// screen examination can show an upload under way.
     ingest_pace: Option<usize>,
     restricted_category: Option<String>,
 }
@@ -294,8 +293,8 @@ fn answer_request(server: &Mutex<ScriptedServer>, ingest_pace: Option<usize>, mu
             )
         })
         .collect();
-    let persons_upload = request.url() == INGEST_PATH
-        || reception_route(request.url()).is_some_and(|(route, _)| route == SubmissionRoute::SubmittedDocuments);
+    let persons_upload =
+        reception_route(request.url()).is_some_and(|(route, _)| route == SubmissionRoute::SubmittedDocuments);
     let pace = ingest_pace.filter(|_| persons_upload);
     let mut body = Vec::new();
     let answer = if read_body(request.as_reader(), pace, &mut body).is_err() {

@@ -317,7 +317,7 @@ mod tests {
     use super::*;
     use crate::{ArchiveRequest, Body, DOCUMENT_PATH_PREFIX, SEED_DOCUMENT_PATH, ScriptedServer, route_request};
     use archive_replica::{ArchiveReader, PageAnswer};
-    use scripted_archive::UploadOutcome;
+    use scripted_archive::ReceivedRepresentations;
     use serde_json::json;
 
     const AUTHORIZATION: &str = "Bearer scripted-seeding-token";
@@ -357,9 +357,7 @@ mod tests {
     }
 
     fn uploaded(archive: &ScriptedArchive, bytes: &[u8]) -> (DocumentIdentifier, String) {
-        let UploadOutcome::Accepted(document) = archive.upload(bytes) else {
-            panic!("new bytes become a document");
-        };
+        let document = archive.receive(bytes, ReceivedRepresentations::default());
         (document, content_digest_of(bytes).hexadecimal())
     }
 

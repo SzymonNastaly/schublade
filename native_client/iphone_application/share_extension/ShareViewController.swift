@@ -6,7 +6,7 @@ import UniformTypeIdentifiers
 /// archive, and Send. The files are copied as the sheet appears, so their pictures show before Send.
 /// Send makes a submission of each copy, starts its upload in the extension's own background
 /// session, and closes once every file is on its way. The application receives the answers that
-/// arrive after that.
+/// arrive after that, and reads and sends a file whose pages only recognition reads.
 final class ShareViewController: UIViewController {
 	/// What the sheet shows, from the moment it appears to the moment it closes.
 	private enum Phase {
@@ -14,8 +14,9 @@ final class ShareViewController: UIViewController {
 		case ready
 		/// The upload of the file at `current` is being prepared.
 		case sending(current: Int)
-		/// Every file is on its way, and the sheet closes a moment later.
-		case handedOver
+		/// Every file is on its way, and the sheet closes a moment later, or `leftToApplication` of them
+		/// wait for the application to recognize their pages, and the sheet stays until Done.
+		case handedOver(leftToApplication: Int)
 		case partlyUnread(unreadNames: [String], sentCount: Int)
 	}
 
@@ -46,9 +47,6 @@ final class ShareViewController: UIViewController {
 	private var files: [ShareContents.SharedFile] = []
 	/// The copy of each file, made one after another as the sheet appears, which Send awaits.
 	private var copies: [Task<URL, any Error>] = []
-	/// The first page of each copy at the size a submission keeps, from the rendering its tile shows,
-	/// so Quick Look draws each file once.
-	private var submissionPictures: [Task<CGImage?, Never>] = []
 	/// Where the copies are made, which goes as a whole once nothing needs it: when the sheet ends
 	/// without Send, and after Send once the queue has taken every copy it could read.
 	private let copiesDirectory = URL.temporaryDirectory.appending(
@@ -174,27 +172,22 @@ final class ShareViewController: UIViewController {
 				navigationItem.rightBarButtonItem = item
 			}
 			navigationItem.leftBarButtonItem?.isEnabled = false
-		case .handedOver:
-			sheet.show(ShareSheetView.Words(headline: "On its way to your archive.", handedOver: true))
+		case let .handedOver(leftToApplication):
+			sheet.show(handedOverWords(leftToApplication: leftToApplication))
 			navigationItem.leftBarButtonItem?.isEnabled = false
-			navigationItem.rightBarButtonItem = nil
+			navigationItem.rightBarButtonItem = leftToApplication == 0 ? nil : doneItem()
 		case let .partlyUnread(unreadNames, sentCount):
 			sheet.show(ShareSheetView.Words(
 				headline: "Schublade could not read \(ListFormatter.localizedString(byJoining: unreadNames)).",
 				destination: sentCount == 0 ? nil : "The other files are on their way to your archive."
 			))
 			navigationItem.leftBarButtonItem = nil
-			navigationItem.rightBarButtonItem = UIBarButtonItem(
-				systemItem: .done,
-				primaryAction: UIAction { [weak self] _ in
-					self?.extensionContext?.completeRequest(returningItems: nil)
-				}
-			)
+			navigationItem.rightBarButtonItem = doneItem()
 		}
 	}
 
 	/// Copies each file before the next, because an extension is ended above about 120 MB, and asks
-	/// Quick Look for its picture once its copy exists, which its tile shows and its submission keeps.
+	/// Quick Look for its picture once its copy exists, which its tile shows.
 	private func copyFiles() {
 		let size = ShareTileSize.of(count: files.count)
 		let scale = traitCollection.displayScale
@@ -209,15 +202,14 @@ final class ShareViewController: UIViewController {
 			previous = copy
 			return copy
 		}
-		submissionPictures = copies.enumerated().map { index, copy in
+		for (index, copy) in copies.enumerated() {
 			Task { [weak self] in
 				guard let file = try? await copy.value,
 				      let rendering = await ShareTileSize.rendering(of: file, size: size, scale: scale)
 				else {
-					return nil
+					return
 				}
 				self?.sheet.update(index) { $0.picture = ShareTileSize.framed(rendering, size: size, scale: scale) }
-				return SubmissionPicture.reduced(rendering)
 			}
 		}
 	}
@@ -251,28 +243,16 @@ final class ShareViewController: UIViewController {
 		// on their way.
 		isModalInPresentation = true
 		Task {
-			let queue = destination.container.submissionQueue
 			var unreadNames: [String] = []
+			var leftToApplication = 0
 			for (index, file) in files.enumerated() {
 				phase = .sending(current: index)
 				show()
 				sheet.reveal(index)
 				do {
 					let copy = try await copies[index].value
-					let entry = try await ShareIntake.receive(
-						ShareIntake.SharedFile(file: copy, type: file.type, suggestedName: file.provider.suggestedName),
-						picture: submissionPictures[index].value,
-						into: queue
-					)
-					switch await queue.prepare(
-						entry,
-						archiveOrigin: destination.archive.origin,
-						credentials: destination.installation.credentialStorage
-					) {
-					case let .prepared(request, attempt, body):
-						Self.transfer?.send(attempt, request: request, body: body)
-					case let .answered(answer):
-						_ = try? queue.record(answer, for: entry.id)
+					if try await hand(copy, of: file, to: destination) {
+						leftToApplication += 1
 					}
 					sheet.update(index) { $0.mark = .started }
 				} catch {
@@ -289,9 +269,12 @@ final class ShareViewController: UIViewController {
 				Haptics.shareUnread()
 				return
 			}
-			phase = .handedOver
+			phase = .handedOver(leftToApplication: leftToApplication)
 			show()
 			Haptics.shareHandedOver()
+			guard leftToApplication == 0 else {
+				return
+			}
 			try? await Task.sleep(for: Self.handedOverPause)
 			extensionContext?.completeRequest(returningItems: nil)
 		}
@@ -300,6 +283,48 @@ final class ShareViewController: UIViewController {
 
 /// The bar's items and the footnote, apart from the states that choose them.
 private extension ShareViewController {
+	/// Enqueues one copy and starts its upload, unless its pages wait for the application, which
+	/// recognizes them. Answers whether the copy was left to the application.
+	func hand(_ copy: URL, of file: ShareContents.SharedFile, to destination: ShareDestination) async throws -> Bool {
+		let queue = destination.container.submissionQueue
+		let entry = try await ShareIntake.receive(
+			ShareIntake.SharedFile(file: copy, type: file.type, suggestedName: file.provider.suggestedName),
+			into: queue
+		)
+		guard entry.manifest.uploadClaimedAt != nil else {
+			return true
+		}
+		switch await queue.prepare(
+			entry,
+			archiveOrigin: destination.archive.origin,
+			credentials: destination.installation.credentialStorage
+		) {
+		case let .prepared(request, attempt, body):
+			Self.transfer?.send(attempt, request: request, body: body)
+		case let .answered(answer):
+			_ = try? queue.record(answer, for: entry.id)
+		}
+		return false
+	}
+
+	func handedOverWords(leftToApplication: Int) -> ShareSheetView.Words {
+		guard leftToApplication > 0 else {
+			return ShareSheetView.Words(headline: "On its way to your archive.", handedOver: true)
+		}
+		return ShareSheetView.Words(
+			headline: leftToApplication == files.count ? "Ready to send." : "Partly on its way.",
+			destination: "Open Schublade to read the scanned pages and send "
+				+ (leftToApplication == 1 ? "the document." : "the \(leftToApplication) documents."),
+			handedOver: true
+		)
+	}
+
+	func doneItem() -> UIBarButtonItem {
+		UIBarButtonItem(systemItem: .done, primaryAction: UIAction { [weak self] _ in
+			self?.extensionContext?.completeRequest(returningItems: nil)
+		})
+	}
+
 	func cancelItem() -> UIBarButtonItem {
 		UIBarButtonItem(systemItem: .cancel, primaryAction: UIAction { [weak self] _ in
 			self?.cancel()

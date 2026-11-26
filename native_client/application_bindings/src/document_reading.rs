@@ -8,7 +8,14 @@ use collection_core::DerivedRepresentations;
 use collection_core::candidate_classification::{ContentKind, identify_content_kind};
 use collection_core::file_system_observation::VerifiedContent;
 
-use crate::published_submission::DocumentMediaType;
+/// The kinds of file the archive accepts.
+#[derive(uniffi::Enum, Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DocumentMediaType {
+    Pdf,
+    Jpeg,
+    Png,
+    Webp,
+}
 
 /// What an application read from one document: the text of each page in page order, empty for a
 /// page it could not read, and a JPEG of the first page, at most 480 pixels on its longer side.

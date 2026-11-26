@@ -1,5 +1,5 @@
 import ApplicationBindings
-import CoreGraphics
+import DocumentReading
 import Foundation
 
 /// The submissions on this device, one directory each, under a root that the application and its
@@ -17,9 +17,12 @@ public struct SubmissionQueue: Sendable {
 	/// The archived answer, apart from every other, because no later answer may replace it.
 	private static let archivedAnswerName = "archived_answer.json"
 	private static let bodyName = "request_body"
-	/// The first page as a small JPEG, which stays when the archive takes the bytes, so the row keeps
-	/// its picture until the archive's own replaces it.
+	/// The first page as the JPEG of 480 pixels the archive receives beside the bytes. It stays when
+	/// the archive takes them, so the row keeps its picture until the archive's own replaces it.
 	private static let pictureName = "thumbnail.jpg"
+	/// The text of each page as the archive receives it, absent while the document awaits the
+	/// application's recognition.
+	private static let pageTextsName = "page_texts.json"
 	/// When the archive last accepted a token that permits sending.
 	private static let tokenAcceptanceName = "token_accepted.json"
 	/// How long an archived submission stays listed.
@@ -43,17 +46,17 @@ public struct SubmissionQueue: Sendable {
 		submissions.appending(path: identifier.uuidString, directoryHint: .isDirectory)
 	}
 
-	/// Moves `document` into a new submission, which then owns the file, with `picture` as its first
-	/// page. The share extension claims the upload at `now`, before the rename, so the application
-	/// never sees its submission unclaimed. `identifier` lets a row shown while the document was
-	/// prepared stay the same row.
+	/// Moves `document` into a new submission, which then owns the file, with what was read from it.
+	/// Contents that await recognition, or none, leave the reading to `prepare`. The share extension
+	/// claims the upload at `now`, before the rename, so the application never sees its submission
+	/// unclaimed. `identifier` lets a row shown while the document was prepared stay the same row.
 	public func enqueue(
 		document: URL,
 		fileName: String,
 		kind: SubmissionFileKind,
 		origin: SubmissionOrigin,
 		pageCount: Int? = nil,
-		picture: CGImage? = nil,
+		contents: DocumentContents? = nil,
 		identifier: UUID = UUID(),
 		claimingUpload: Bool = false,
 		now: Date = .now
@@ -76,8 +79,8 @@ public struct SubmissionQueue: Sendable {
 				uploadClaimedAt: claimingUpload ? now : nil
 			)
 			try JSONEncoder().encode(manifest).write(to: building.appending(path: Self.manifestName))
-			if let reduced = picture.flatMap(SubmissionPicture.reduced) {
-				_ = PictureFile.writeJPEG(reduced, to: building.appending(path: Self.pictureName), quality: 0.8)
+			if let contents {
+				try Self.write(contents, into: building)
 			}
 		} catch {
 			try? FileManager.default.removeItem(at: building)
@@ -133,6 +136,37 @@ public struct SubmissionQueue: Sendable {
 	public func pictureFile(of identifier: UUID) -> URL? {
 		let file = directory(of: identifier).appending(path: Self.pictureName)
 		return FileManager.default.fileExists(atPath: file.path(percentEncoded: false)) ? file : nil
+	}
+
+	/// The text of each page, or nil while the submission awaits its reading.
+	func pageTexts(of identifier: UUID) -> [String]? {
+		(try? Data(contentsOf: directory(of: identifier).appending(path: Self.pageTextsName)))
+			.flatMap { try? JSONDecoder().decode([String].self, from: $0) }
+	}
+
+	/// Stores what was read from a submission's document: the picture, and the page texts unless
+	/// they await recognition. Each is written to a temporary name and renamed, because the other
+	/// process may read the submission meanwhile.
+	static func write(_ contents: DocumentContents, into directory: URL) throws {
+		var files: [(String, Data)] = contents.thumbnail.map { [(pictureName, $0)] } ?? []
+		if !contents.awaitsRecognition {
+			try files.append((pageTextsName, JSONEncoder().encode(contents.pageTexts)))
+		}
+		for (name, data) in files {
+			let temporary = directory.appending(path: "\(name).\(UUID().uuidString)")
+			let destination = directory.appending(path: name)
+			try data.write(to: temporary)
+			if rename(temporary.path(percentEncoded: false), destination.path(percentEncoded: false)) != 0 {
+				let failure = String(cString: strerror(errno))
+				try? FileManager.default.removeItem(at: temporary)
+				throw CocoaError(.fileWriteUnknown, userInfo: [NSLocalizedDescriptionKey: failure])
+			}
+		}
+	}
+
+	/// Stores what the application read from a submission the share extension left to it.
+	func store(_ contents: DocumentContents, for identifier: UUID) throws {
+		try Self.write(contents, into: directory(of: identifier))
 	}
 
 	/// Where the body of one upload is written and uploaded from.

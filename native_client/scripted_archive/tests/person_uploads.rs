@@ -1,7 +1,6 @@
 //! Documents sent to the scripted archive as the clients send them: a body that
 //! `prepare_submission` wrote for the iPhone, put to the reception and read by
-//! `read_submission_answer`, the parts a collector puts with `send_document`, and the multipart body
-//! of `prepare_ingest_submission` posted to the ingest route.
+//! `read_submission_answer`, and the parts a collector puts with `send_document`.
 
 use std::io::{BufRead, BufReader};
 use std::process::{Child, ChildStdin, Command, Stdio};
@@ -9,8 +8,8 @@ use std::time::{Duration, Instant};
 
 use archive_access::{
     ArchiveAddress, ArchiveDownload, ArchiveExchange, ArchiveToken, ContentDigest, DerivedRepresentations,
-    SubmissionAnswer, SubmissionMediaType, SubmissionRoute, compose_document_text, prepare_ingest_submission,
-    prepare_submission, read_ingest_submission_answer, read_submission_answer, send_document,
+    SubmissionAnswer, SubmissionRoute, compose_document_text, prepare_submission, read_submission_answer,
+    send_document,
 };
 use sha2::{Digest, Sha256};
 
@@ -45,46 +44,20 @@ impl ScriptedArchiveServer {
         }
     }
 
-    fn send(&self, contents: &[u8], file_name: &str, token: &str) -> SubmissionAnswer {
-        let directory = tempfile::tempdir().unwrap();
-        let document = directory.path().join(file_name);
-        std::fs::write(&document, contents).unwrap();
-        let body = directory.path().join("request_body");
-        let prepared = prepare_ingest_submission(
-            &self.address,
-            &ArchiveToken::new(token.to_owned()),
-            &document,
-            file_name,
-            SubmissionMediaType::Pdf,
-            &body,
-        )
-        .unwrap();
-        let answer = ureq::post(&prepared.url)
-            .header("Content-Type", &prepared.content_type)
-            .header("Authorization", &prepared.authorization)
-            .config()
-            .http_status_as_error(false)
-            .build()
-            .send(std::fs::read(&body).unwrap())
-            .unwrap();
-        let status = answer.status().as_u16();
-        read_ingest_submission_answer(status, &answer.into_body().read_to_vec().unwrap())
-    }
-
     fn exchange(&self) -> ArchiveExchange {
         ArchiveExchange::new(&self.address, &ArchiveToken::new(TOKEN.to_owned()))
     }
 
     /// Writes the body as the iPhone writes it and puts it to the reception as its background
     /// transfer does.
-    fn submit(&self, original: &[u8], derived: &DerivedRepresentations) -> SubmissionAnswer {
+    fn submit(&self, original: &[u8], derived: &DerivedRepresentations, token: &str) -> SubmissionAnswer {
         let directory = tempfile::tempdir().unwrap();
         let document = directory.path().join("Scan.pdf");
         std::fs::write(&document, original).unwrap();
         let body = directory.path().join("request_body");
         let prepared = prepare_submission(
             &self.address,
-            &ArchiveToken::new(TOKEN.to_owned()),
+            &ArchiveToken::new(token.to_owned()),
             &document,
             derived,
             &body,
@@ -117,29 +90,18 @@ impl Drop for ScriptedArchiveServer {
 }
 
 #[test]
-fn a_sent_scan_is_archived_once_and_the_archive_answers_each_refusal() {
+fn the_reception_answers_bytes_of_no_accepted_kind_and_a_revoked_token() {
     let server = ScriptedArchiveServer::start(&[]);
-    let scan = b"%PDF-1.4\nA letter from the Stadtwerke\n%%EOF\n";
+    let nothing = DerivedRepresentations::default();
 
-    let SubmissionAnswer::Archived { document, already_held } = server.send(scan, "Scan.pdf", TOKEN) else {
-        panic!("the first upload of a scan is archived");
-    };
-    assert!(!already_held);
     assert_eq!(
-        server.send(scan, "Scan again.pdf", TOKEN),
-        SubmissionAnswer::Archived {
-            document,
-            already_held: true
-        }
-    );
-    assert_eq!(
-        server.send(b"plain notes", "notes.pdf", TOKEN),
+        server.submit(b"plain notes", &nothing, TOKEN),
         SubmissionAnswer::Rejected {
             reason: "Only PDF, JPEG, PNG, and WebP files can be archived.".to_owned()
         }
     );
     assert_eq!(
-        server.send(scan, "Scan.pdf", "revoked-token"),
+        server.submit(b"%PDF-1.4\nA letter\n%%EOF\n", &nothing, "revoked-token"),
         SubmissionAnswer::TokenRefused
     );
 }
@@ -153,9 +115,10 @@ fn a_posted_token_replaces_the_one_the_archive_accepts() {
         .unwrap();
     assert_eq!(replacement.status().as_u16(), 204);
 
-    assert_eq!(server.send(scan, "Scan.pdf", TOKEN), SubmissionAnswer::TokenRefused);
+    let nothing = DerivedRepresentations::default();
+    assert_eq!(server.submit(scan, &nothing, TOKEN), SubmissionAnswer::TokenRefused);
     assert!(matches!(
-        server.send(scan, "Scan.pdf", "another-token"),
+        server.submit(scan, &nothing, "another-token"),
         SubmissionAnswer::Archived {
             already_held: false,
             ..
@@ -168,7 +131,7 @@ fn the_archive_answers_other_requests_while_it_reads_a_paced_upload() {
     let server = ScriptedArchiveServer::start(&["--ingest-pace", "10000"]);
     let scan = [b"%PDF-1.4\n".as_slice(), &[b'x'; 10_000]].concat();
     std::thread::scope(|scope| {
-        let upload = scope.spawn(|| server.send(&scan, "Scan.pdf", TOKEN));
+        let upload = scope.spawn(|| server.submit(&scan, &DerivedRepresentations::default(), TOKEN));
         std::thread::sleep(Duration::from_millis(300));
         let asked = Instant::now();
         let held = ureq::get(format!("{}/scripted/held", server.address.origin()))
@@ -201,12 +164,12 @@ fn a_document_reaches_the_reception_with_its_text_and_thumbnail_once_on_either_r
         thumbnail: Some(thumbnail.clone()),
     };
 
-    let SubmissionAnswer::Archived { document, already_held } = server.submit(scan, &derived) else {
+    let SubmissionAnswer::Archived { document, already_held } = server.submit(scan, &derived, TOKEN) else {
         panic!("the first submission of a scan is archived");
     };
     assert!(!already_held);
     assert_eq!(
-        server.submit(scan, &derived),
+        server.submit(scan, &derived, TOKEN),
         SubmissionAnswer::Archived {
             document: document.clone(),
             already_held: true

@@ -1,4 +1,4 @@
-import ApplicationBindings
+import DocumentReading
 import Foundation
 
 /// How a person chose a document to send.
@@ -9,7 +9,7 @@ public enum SubmissionOrigin: String, Codable, Sendable {
 	case share
 }
 
-/// The kinds of file the archive accepts, as the bindings' `DocumentMediaType` names them.
+/// The kinds of file the archive accepts.
 public enum SubmissionFileKind: String, Codable, Sendable {
 	case pdf
 	case jpeg
@@ -25,13 +25,13 @@ public enum SubmissionFileKind: String, Codable, Sendable {
 		}
 	}
 
-	public var mediaType: DocumentMediaType {
-		switch self {
-		case .pdf: .pdf
-		case .jpeg: .jpeg
-		case .png: .png
-		case .webp: .webp
+	/// Reads what the archive receives beside a file of this kind, from the file mapped rather than
+	/// copied, so the share extension holds only the pages it draws. Nil when the file cannot be read.
+	public func contents(of file: URL, recognizing: Bool) -> DocumentContents? {
+		guard let original = try? Data(contentsOf: file, options: .alwaysMapped) else {
+			return nil
 		}
+		return DocumentContents.read(original, kind: self == .pdf ? .pdf : .picture, recognizing: recognizing)
 	}
 }
 

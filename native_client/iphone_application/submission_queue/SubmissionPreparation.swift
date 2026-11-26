@@ -50,9 +50,10 @@ public struct SubmissionAttempt: Hashable, Sendable {
 
 public extension SubmissionQueue {
 	/// Writes the body of `entry` with the token that `credentials` holds for `archiveOrigin`, away
-	/// from the caller's actor, since a scan's body can hold 25 MB. The token is read now, because
-	/// each attempt's body is removed with its answer. A submission whose bytes are gone keeps the
-	/// answer it holds, such as the archived one that another process recorded meanwhile.
+	/// from the caller's actor, since a scan's body can hold 25 MB. A submission the share extension
+	/// left to the application is read first, with recognition. The token is read now, because each
+	/// attempt's body is removed with its answer. A submission whose bytes are gone keeps the answer
+	/// it holds, such as the archived one that another process recorded meanwhile.
 	@concurrent
 	func prepare(
 		_ entry: SubmissionEntry,
@@ -65,6 +66,11 @@ public extension SubmissionQueue {
 					?? .rejected(reason: "The file is no longer on this iPhone.", answeredAt: .now)
 			)
 		}
+		var pageTexts = pageTexts(of: entry.id)
+		if pageTexts == nil, let contents = entry.manifest.kind.contents(of: document, recognizing: true) {
+			try? store(contents, for: entry.id)
+			pageTexts = contents.pageTexts
+		}
 		let attempt = SubmissionAttempt(submission: entry.id)
 		let body = bodyFile(of: attempt)
 		do {
@@ -72,8 +78,8 @@ public extension SubmissionQueue {
 				archiveOrigin: archiveOrigin,
 				credentialStorage: credentials,
 				documentPath: document.path(percentEncoded: false),
-				fileName: entry.manifest.fileName,
-				mediaType: entry.manifest.kind.mediaType,
+				pageTexts: pageTexts ?? [],
+				thumbnailPath: pictureFile(of: entry.id)?.path(percentEncoded: false),
 				destinationPath: body.path(percentEncoded: false)
 			)
 			return .prepared(request, attempt: attempt, body: body)

@@ -1,3 +1,4 @@
+import DocumentReading
 import PhotosUI
 import ScanRequest
 import SubmissionQueue
@@ -115,14 +116,16 @@ extension DocumentCapture: VNDocumentCameraViewControllerDelegate {
 				startedAt: savedAt
 			)
 			do {
+				// Vision reads the pages the camera holds while the PDF is written from them.
+				async let contents = Self.readScan(pages)
 				let file = try await Self.writeScan(pages)
-				try submissions.submit(
+				try await submissions.submit(
 					document: file,
 					fileName: "\(name).pdf",
 					kind: .pdf,
 					origin: .scan,
 					pageCount: pages.count,
-					picture: firstPage,
+					contents: contents,
 					preparedAs: identifier
 				)
 			} catch ScanDocumentWriter.WriteFailure.tooLarge {
@@ -145,7 +148,7 @@ extension DocumentCapture: VNDocumentCameraViewControllerDelegate {
 		guard let first = pages.first else {
 			return nil
 		}
-		let scale = CGFloat(SubmissionPicture.pixelLimit) / max(first.size.width, first.size.height, 1)
+		let scale = CGFloat(RowPicture.pixelLimit) / max(first.size.width, first.size.height, 1)
 		let fitted = CGSize(width: first.size.width * scale, height: first.size.height * scale)
 		return await first.byPreparingThumbnail(ofSize: fitted)?.cgImage
 	}
@@ -157,6 +160,25 @@ extension DocumentCapture: VNDocumentCameraViewControllerDelegate {
 	func documentCameraViewController(_ camera: VNDocumentCameraViewController, didFailWithError error: any Error) {
 		camera.dismiss(animated: true)
 		alert("The Camera Stopped", error.localizedDescription)
+	}
+
+	/// What Vision recognizes on each page and the first page as the archive lists it.
+	@concurrent
+	private static func readScan(_ pages: [UIImage]) async -> DocumentContents {
+		DocumentContents.read(pages: pages.lazy.compactMap(uprightPicture))
+	}
+
+	/// A page as Vision reads it: its own pixels when the camera stored it upright, else drawn upright.
+	nonisolated static func uprightPicture(_ page: UIImage) -> CGImage? {
+		if page.imageOrientation == .up, let picture = page.cgImage {
+			return picture
+		}
+		let format = UIGraphicsImageRendererFormat()
+		format.scale = page.scale
+		format.opaque = true
+		return UIGraphicsImageRenderer(size: page.size, format: format).image { _ in
+			page.draw(at: .zero)
+		}.cgImage
 	}
 
 	@concurrent
@@ -239,9 +261,14 @@ extension DocumentCapture: PHPickerViewControllerDelegate, UIDocumentPickerDeleg
 			fileName: imported.fileName,
 			kind: imported.kind,
 			origin: origin,
-			picture: SubmissionPicture.make(from: imported.file, kind: imported.kind),
+			contents: Self.read(imported),
 			preparedAs: identifier
 		)
+	}
+
+	@concurrent
+	private static func read(_ imported: DocumentImport.ImportedDocument) async -> DocumentContents? {
+		imported.kind.contents(of: imported.file, recognizing: true)
 	}
 
 	@concurrent

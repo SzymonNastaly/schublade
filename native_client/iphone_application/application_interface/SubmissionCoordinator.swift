@@ -1,4 +1,5 @@
 import ApplicationBindings
+import DocumentReading
 import Foundation
 import LibraryPresentation
 import Observation
@@ -190,7 +191,7 @@ extension SubmissionCoordinator {
 			return picture
 		}
 		guard let file = queue.pictureFile(of: identifier),
-		      let decoded = PictureFile.decoded(from: file, longerSide: SubmissionPicture.pixelLimit)
+		      let decoded = PictureFile.decoded(from: file, longerSide: RowPicture.pixelLimit)
 		else {
 			return nil
 		}
@@ -243,7 +244,7 @@ extension SubmissionCoordinator {
 		kind: SubmissionFileKind,
 		origin: SubmissionOrigin,
 		pageCount: Int? = nil,
-		picture: CGImage? = nil,
+		contents: DocumentContents? = nil,
 		preparedAs identifier: UUID? = nil
 	) throws(SubmissionQueue.QueueFailure) {
 		let prepared = preparing.first { $0.identifier == identifier }
@@ -257,7 +258,7 @@ extension SubmissionCoordinator {
 			kind: kind,
 			origin: origin,
 			pageCount: pageCount,
-			picture: picture,
+			contents: contents,
 			identifier: prepared?.identifier ?? UUID(),
 			now: prepared?.startedAt ?? .now
 		)

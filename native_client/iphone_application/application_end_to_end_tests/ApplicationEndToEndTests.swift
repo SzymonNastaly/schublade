@@ -54,9 +54,8 @@ final class ApplicationEndToEndTests: XCTestCase {
 		await second.shutdown()
 	}
 
-	/// A scan sent as the iPhone sends it: the body prepared in Rust with the token from the Keychain,
-	/// uploaded from its file by `URLSession`, its answer read in Rust, and the new document
-	/// copied into the library, which an archived answer asks to synchronize at once.
+	/// A scan's body prepared in Rust with its text and the Keychain's token, put by `URLSession`, its
+	/// answer read in Rust, its text in the archive, and its document in the library.
 	@MainActor
 	func testASentScanArrivesInTheLibrary() async throws {
 		var configuration = ApplicationEnvironment.isolated().applicationConfiguration
@@ -73,27 +72,35 @@ final class ApplicationEndToEndTests: XCTestCase {
 		let directory = URL.temporaryDirectory.appending(path: UUID().uuidString, directoryHint: .isDirectory)
 		try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
 		let scan = directory.appending(path: "document.pdf")
-		try Data("%PDF-1.4\nA letter scanned on the iPhone \(UUID().uuidString)\n%%EOF\n".utf8).write(to: scan)
+		let letter = "A letter scanned on the iPhone \(UUID().uuidString)"
+		try Data("%PDF-1.4\n\(letter)\n%%EOF\n".utf8).write(to: scan)
 		let body = directory.appending(path: "request_body")
 		let prepared = try prepareDocumentSubmission(
 			archiveOrigin: grant.origin,
 			credentialStorage: credentials,
 			documentPath: scan.path(percentEncoded: false),
-			fileName: "Scan 2026-11-22.pdf",
-			mediaType: .pdf,
+			pageTexts: [letter],
+			thumbnailPath: nil,
 			destinationPath: body.path(percentEncoded: false)
 		)
 		var request = try URLRequest(url: XCTUnwrap(URL(string: prepared.url)))
-		request.httpMethod = "POST"
-		request.setValue(prepared.contentType, forHTTPHeaderField: "Content-Type")
-		request.setValue(prepared.authorization, forHTTPHeaderField: "Authorization")
+		request.httpMethod = "PUT"
+		prepared.headers.forEach { request.setValue($1, forHTTPHeaderField: $0) }
 		let (answerBody, response) = try await URLSession.shared.upload(for: request, fromFile: body)
-		let status = try XCTUnwrap(response as? HTTPURLResponse).statusCode
-		let answer = readDocumentSubmissionAnswer(status: UInt16(status), body: answerBody)
-		guard case .archived(_, alreadyHeld: false) = answer else {
+		let answered = try XCTUnwrap(response as? HTTPURLResponse)
+		let answer = readDocumentSubmissionAnswer(
+			status: UInt16(answered.statusCode),
+			contentType: answered.value(forHTTPHeaderField: "Content-Type"),
+			body: answerBody
+		)
+		guard case let .archived(document, alreadyHeld: false) = answer else {
 			return XCTFail("The archive answered \(answer)")
 		}
-
+		let textAddress = try XCTUnwrap(URL(string: "\(grant.origin)/api/v1/documents/\(document.value)/text"))
+		var textRequest = URLRequest(url: textAddress)
+		textRequest.setValue("Bearer \(Self.token)", forHTTPHeaderField: "Authorization")
+		let (text, _) = try await URLSession.shared.data(for: textRequest)
+		XCTAssertEqual(String(bytes: text, encoding: .utf8), "## Page 1\n\n\(letter)\n", "the archive holds the text")
 		gateway.synchronize()
 		_ = try await Self.awaitDocuments(filled.counts.documents + 1, in: gateway)
 		await gateway.shutdown()

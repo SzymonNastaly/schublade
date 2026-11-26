@@ -19,19 +19,11 @@ use archive_replica::replica_records::{
 use archive_replica::{ArchiveReader, OriginalAnswer, PageAnswer, ThumbnailAnswer};
 use collection_core::ArchiveClient;
 use collection_core::archive_connection::SubmissionCondition;
-use collection_core::candidate_classification::{MAXIMUM_CONTENT_BYTES, identify_content_kind};
+use collection_core::candidate_classification::identify_content_kind;
 use collection_core::content_synchronization::{LookupAnswer, SubmissionAuthorization, SubmissionOutcome};
 use collection_core::domain_types::DocumentStatus;
 use collection_core::file_system_observation::VerifiedContent;
 use sha2::{Digest, Sha256};
-
-/// The answer to one file of a person's upload, as the Worker's `UploadOutcome` has it.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum UploadOutcome {
-    Accepted(DocumentIdentifier),
-    AlreadyArchived(DocumentIdentifier),
-    Rejected(String),
-}
 
 /// What a client sent to the reception beside an original: the text it read, the JPEG of the
 /// first page it drew, and the number of pages, each absent when it sent none.
@@ -693,28 +685,6 @@ impl ScriptedArchive {
             .push_back(answer);
     }
 
-    /// One file of `POST /api/documents/ingest`, as a person's upload: bytes of an unaccepted kind
-    /// or above 25 MB are rejected, bytes a document holds answer that document, and any other
-    /// bytes become a new document, even bytes whose document the owner deleted, because a person
-    /// chose to send them.
-    pub fn upload(&self, bytes: &[u8]) -> UploadOutcome {
-        if identify_content_kind(bytes).is_none() {
-            return UploadOutcome::Rejected("Only PDF, JPEG, PNG, and WebP files can be archived.".to_owned());
-        }
-        if u64::try_from(bytes.len()).unwrap_or(u64::MAX) > MAXIMUM_CONTENT_BYTES {
-            return UploadOutcome::Rejected("The file is larger than 25 MB".to_owned());
-        }
-        let digest = ContentDigest::from_bytes(Sha256::digest(bytes).into());
-        let mut archive = self.archive();
-        archive.submissions.push(digest);
-        match archive.contents.get(&digest).cloned() {
-            Some(LookupAnswer::Present(document)) => UploadOutcome::AlreadyArchived(document),
-            Some(LookupAnswer::Deleted | LookupAnswer::Absent) | None => {
-                UploadOutcome::Accepted(archive.archive_new_document(digest, bytes))
-            }
-        }
-    }
-
     /// How the archive stands toward a content, as the lookup answers it, without recording a
     /// lookup.
     pub fn content_standing(&self, digest: &ContentDigest) -> LookupAnswer {
@@ -1023,16 +993,16 @@ mod tests {
     }
 
     #[test]
-    fn a_persons_upload_brings_back_a_document_the_owner_deleted() {
+    fn a_received_original_brings_back_a_document_the_owner_deleted() {
         let archive = ScriptedArchive::new();
         let scan = b"%PDF-1.7 a scanned letter";
-        let UploadOutcome::Accepted(document) = archive.upload(scan) else {
-            panic!("new bytes become a document");
-        };
-        assert_eq!(archive.upload(scan), UploadOutcome::AlreadyArchived(document.clone()));
+        let digest = ContentDigest::from_bytes(Sha256::digest(scan).into());
+        let document = archive.receive(scan, ReceivedRepresentations::default());
 
-        archive.delete(&ContentDigest::from_bytes(Sha256::digest(scan).into()));
-        assert_eq!(archive.upload(scan), UploadOutcome::Accepted(document));
+        archive.delete(&digest);
+        assert!(!archive.holds(&digest));
+        assert_eq!(archive.receive(scan, ReceivedRepresentations::default()), document);
+        assert!(archive.holds(&digest));
     }
 
     #[test]

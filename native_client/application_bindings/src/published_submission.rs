@@ -1,32 +1,23 @@
-//! A person's upload of one file, as the iPhone's application and its share extension prepare and
-//! answer it. Both functions are free, so the share extension calls them without starting an
-//! `ApplicationCore`: the first reads the token from the Keychain and writes the request's body to
-//! a file, the second reads the archive's answer. The platform's background transfer moves the
-//! bytes between them.
+//! A person's document sent to the reception, as the iPhone's application and its share extension
+//! prepare and answer it. Both functions are free, so the share extension calls them without
+//! starting an `ApplicationCore`: the first reads the token from the Keychain and writes the
+//! request's body to a file, the second reads the archive's answer. The platform's background
+//! transfer moves the bytes between them.
 
+use std::collections::HashMap;
 use std::path::Path;
 
-use archive_access::{ArchiveAddress, SubmissionAnswer, SubmissionMediaType, SubmissionPreparationFailure};
+use archive_access::{ArchiveAddress, DerivedRepresentations, SubmissionAnswer, SubmissionPreparationFailure};
 
 use crate::CredentialStorage;
 use crate::published_library::DocumentIdentifier;
 
-/// The kinds of file the archive accepts.
-#[derive(uniffi::Enum, Clone, Copy, Debug, PartialEq, Eq)]
-pub enum DocumentMediaType {
-    Pdf,
-    Jpeg,
-    Png,
-    Webp,
-}
-
-/// The request that sends a prepared body: POST the body's file to `url` with these two headers.
+/// The request that sends a prepared body: PUT the body's file to `url` with exactly these headers.
 #[derive(uniffi::Record, Clone, PartialEq, Eq)]
 pub struct DocumentSubmissionRequest {
     pub url: String,
-    pub content_type: String,
-    /// Holds the token; set it as the Authorization header and never keep or log it.
-    pub authorization: String,
+    /// The Authorization header among them holds the token; set them and never keep or log them.
+    pub headers: HashMap<String, String>,
     pub body_bytes: u64,
 }
 
@@ -35,9 +26,9 @@ impl std::fmt::Debug for DocumentSubmissionRequest {
         formatter
             .debug_struct("DocumentSubmissionRequest")
             .field("url", &self.url)
-            .field("content_type", &self.content_type)
+            .field("header_names", &self.headers.keys().collect::<Vec<_>>())
             .field("body_bytes", &self.body_bytes)
-            .finish_non_exhaustive()
+            .finish()
     }
 }
 
@@ -68,7 +59,7 @@ impl std::fmt::Display for SubmissionPreparationRefusal {
     }
 }
 
-/// What the archive answered to one sent file.
+/// What the archive answered to one sent document.
 #[derive(uniffi::Enum, Clone, Debug, PartialEq, Eq)]
 pub enum DocumentSubmissionAnswer {
     /// The archive holds the bytes, as a new document or, with `already_held`, an existing one.
@@ -86,15 +77,16 @@ pub enum DocumentSubmissionAnswer {
     ArchiveUnavailable,
 }
 
-/// Reads the token of `archive_origin` from `credential_storage` and writes the body that sends
-/// the document at `document_path` under `file_name` to `destination_path`.
+/// Reads the token of `archive_origin` from `credential_storage` and writes to `destination_path`
+/// the body that sends the document at `document_path` with the text of each page and the JPEG at
+/// `thumbnail_path`. A thumbnail that cannot be read is left out, and the archive draws none.
 #[uniffi::export]
 pub fn prepare_document_submission(
     archive_origin: String,
     credential_storage: CredentialStorage,
     document_path: String,
-    file_name: String,
-    media_type: DocumentMediaType,
+    page_texts: Vec<String>,
+    thumbnail_path: Option<String>,
     destination_path: String,
 ) -> Result<DocumentSubmissionRequest, SubmissionPreparationRefusal> {
     let address = ArchiveAddress::parse(&archive_origin).map_err(|_| SubmissionPreparationRefusal::AddressInvalid)?;
@@ -103,18 +95,15 @@ pub fn prepare_document_submission(
         .read(&address)
         .map_err(|failure| SubmissionPreparationRefusal::CredentialStorageFailed { detail: failure.detail })?
         .ok_or(SubmissionPreparationRefusal::TokenMissing)?;
-    let media_type = match media_type {
-        DocumentMediaType::Pdf => SubmissionMediaType::Pdf,
-        DocumentMediaType::Jpeg => SubmissionMediaType::Jpeg,
-        DocumentMediaType::Png => SubmissionMediaType::Png,
-        DocumentMediaType::Webp => SubmissionMediaType::Webp,
+    let derived = DerivedRepresentations {
+        page_texts,
+        thumbnail: thumbnail_path.and_then(|path| std::fs::read(path).ok()),
     };
-    let prepared = archive_access::prepare_ingest_submission(
+    let prepared = archive_access::prepare_submission(
         &address,
         &token,
         Path::new(&document_path),
-        &file_name,
-        media_type,
+        &derived,
         Path::new(&destination_path),
     )
     .map_err(|failure| match failure {
@@ -128,24 +117,22 @@ pub fn prepare_document_submission(
             SubmissionPreparationRefusal::BodyUnwritable { detail }
         }
     })?;
-    let archive_access::PreparedIngestSubmission {
-        url,
-        content_type,
-        authorization,
-        body_bytes,
-    } = prepared;
     Ok(DocumentSubmissionRequest {
-        url,
-        content_type,
-        authorization,
-        body_bytes,
+        url: prepared.url,
+        headers: prepared.headers.into_iter().collect(),
+        body_bytes: prepared.body_bytes,
     })
 }
 
-/// Reads the archive's answer to a sent body: its HTTP status and its body, empty when none came.
+/// Reads the archive's answer to a sent body: its HTTP status, its `Content-Type`, and its body,
+/// empty when none came.
 #[uniffi::export]
-pub fn read_document_submission_answer(status: u16, body: Vec<u8>) -> DocumentSubmissionAnswer {
-    match archive_access::read_ingest_submission_answer(status, &body) {
+pub fn read_document_submission_answer(
+    status: u16,
+    content_type: Option<String>,
+    body: Vec<u8>,
+) -> DocumentSubmissionAnswer {
+    match archive_access::read_submission_answer(status, content_type.as_deref(), &body) {
         SubmissionAnswer::Archived { document, already_held } => DocumentSubmissionAnswer::Archived {
             document: DocumentIdentifier {
                 value: document.as_str().to_owned(),
@@ -154,10 +141,12 @@ pub fn read_document_submission_answer(status: u16, body: Vec<u8>) -> DocumentSu
         },
         SubmissionAnswer::Rejected { reason } => DocumentSubmissionAnswer::Rejected { reason },
         SubmissionAnswer::TokenRefused => DocumentSubmissionAnswer::TokenRefused,
-        // The ingest route exists on every archive, so its reader never answers RouteUnknown.
-        // Unit C2 publishes it with the reception.
-        SubmissionAnswer::NotPermitted | SubmissionAnswer::RouteUnknown => DocumentSubmissionAnswer::NotPermitted,
-        SubmissionAnswer::ArchiveUnavailable => DocumentSubmissionAnswer::ArchiveUnavailable,
+        SubmissionAnswer::NotPermitted => DocumentSubmissionAnswer::NotPermitted,
+        // An Access application that does not list /api/v1 refuses the path until the owner
+        // corrects it, so the submission is sent again later rather than given up.
+        SubmissionAnswer::RouteUnknown | SubmissionAnswer::ArchiveUnavailable => {
+            DocumentSubmissionAnswer::ArchiveUnavailable
+        }
     }
 }
 
@@ -175,8 +164,8 @@ mod tests {
             "https://archive.example.org".to_owned(),
             CredentialStorage::ProcessMemory,
             document.to_string_lossy().into_owned(),
-            "scan.pdf".to_owned(),
-            DocumentMediaType::Pdf,
+            Vec::new(),
+            None,
             directory.path().join("request_body").to_string_lossy().into_owned(),
         )
         .unwrap_err();

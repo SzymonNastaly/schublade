@@ -1,11 +1,10 @@
-import CoreGraphics
 import Foundation
 import UniformTypeIdentifiers
 
 /// What becomes of a file a person shares with Schublade: a submission of its own, a HEIC picture
 /// as a JPEG, or a refusal for a kind the archive does not take.
 public enum ShareIntake {
-	/// The archive takes at most 20 files per upload, and the share extension accepts as many.
+	/// The most files the share extension takes from one share.
 	public static let fileLimit = 20
 
 	public struct SharedFile: Sendable {
@@ -23,14 +22,15 @@ public enum ShareIntake {
 		}
 	}
 
-	/// Converts and enqueues one shared file with its upload claimed, away from the caller's actor,
-	/// with the picture of its first page that the caller drew already, or nil.
-	/// The share extension starts that upload before it receives the next file, so it holds one
-	/// decoded picture at most and leaves no claimed submission waiting for the others.
+	/// Converts, reads, and enqueues one shared file away from the caller's actor. The extension reads
+	/// text layers and draws the first page, but recognizes nothing, because recognition peaks near
+	/// 200 MB and the system ends an extension above about 120 MB. A file that holds a page only
+	/// recognition reads is left unclaimed, and the application reads and sends it when it next
+	/// runs; any other file's upload is claimed, and the extension starts it before it receives the
+	/// next file, so it leaves no claimed submission waiting for the others.
 	@concurrent
 	public static func receive(
 		_ shared: SharedFile,
-		picture: CGImage?,
 		into queue: SubmissionQueue,
 		now: Date = .now
 	) async throws -> SubmissionEntry {
@@ -40,13 +40,14 @@ public enum ShareIntake {
 				type: shared.type,
 				suggestedName: shared.suggestedName
 			)
+			let contents = imported.kind.contents(of: imported.file, recognizing: false)
 			return try queue.enqueue(
 				document: imported.file,
 				fileName: imported.fileName,
 				kind: imported.kind,
 				origin: .share,
-				picture: picture,
-				claimingUpload: true,
+				contents: contents,
+				claimingUpload: contents?.awaitsRecognition != true,
 				now: now
 			)
 		} catch {

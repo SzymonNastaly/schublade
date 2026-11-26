@@ -140,7 +140,6 @@ pub enum IngestionStage {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum FailureReason {
     UnreadableFile,
-    PageLimitExceeded,
     UnreadablePage,
     ProcessingError,
     /// A reason this client does not know. Kept as it came.
@@ -155,7 +154,6 @@ impl DocumentCondition {
             "archived" => DocumentCondition::Archived,
             "failed" => DocumentCondition::Failed(match failure_reason? {
                 "unreadable_file" => FailureReason::UnreadableFile,
-                "page_limit_exceeded" => FailureReason::PageLimitExceeded,
                 "unreadable_page" => FailureReason::UnreadablePage,
                 "processing_error" => FailureReason::ProcessingError,
                 unrecognized => FailureReason::Unrecognized(unrecognized.to_owned()),
@@ -187,7 +185,6 @@ impl DocumentCondition {
             DocumentCondition::Archived | DocumentCondition::Arriving(_) => None,
             DocumentCondition::Failed(reason) => Some(match reason {
                 FailureReason::UnreadableFile => "unreadable_file",
-                FailureReason::PageLimitExceeded => "page_limit_exceeded",
                 FailureReason::UnreadablePage => "unreadable_page",
                 FailureReason::ProcessingError => "processing_error",
                 FailureReason::Unrecognized(reason) => reason,

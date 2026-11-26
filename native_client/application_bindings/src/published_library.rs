@@ -176,7 +176,6 @@ pub enum IngestionStage {
 #[derive(uniffi::Enum, Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum FailureReason {
     UnreadableFile,
-    PageLimitExceeded,
     UnreadablePage,
     ProcessingError,
     Other,
@@ -637,7 +636,6 @@ fn document_condition(condition: replica_records::DocumentCondition) -> Document
         replica_records::DocumentCondition::Failed(reason) => DocumentCondition::Failed {
             reason: match reason {
                 replica_records::FailureReason::UnreadableFile => FailureReason::UnreadableFile,
-                replica_records::FailureReason::PageLimitExceeded => FailureReason::PageLimitExceeded,
                 replica_records::FailureReason::UnreadablePage => FailureReason::UnreadablePage,
                 replica_records::FailureReason::ProcessingError => FailureReason::ProcessingError,
                 replica_records::FailureReason::Unrecognized(_) => FailureReason::Other,

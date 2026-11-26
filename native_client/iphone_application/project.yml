@@ -70,12 +70,22 @@ targets:
         OTHER_SWIFT_FLAGS: -parse-as-library
         ENABLE_USER_SCRIPT_SANDBOXING: NO
 
+  # Foundation, PDFKit, Vision, and ImageIO only, the module the Mac application builds too.
+  DocumentReading:
+    type: library.static
+    platform: iOS
+    sources: [../document_reading]
+    settings:
+      base:
+        SWIFT_DEFAULT_ACTOR_ISOLATION: nonisolated
+
   SubmissionQueue:
     type: library.static
     platform: iOS
     sources: [submission_queue]
     dependencies:
       - target: ApplicationBindings
+      - target: DocumentReading
     settings:
       base:
         SWIFT_DEFAULT_ACTOR_ISOLATION: nonisolated
@@ -106,6 +116,7 @@ targets:
     sources: [application_interface]
     dependencies:
       - target: SubmissionQueue
+      - target: DocumentReading
       - target: LibraryPresentation
       - target: ApplicationBindings
       - target: ScanRequest
@@ -124,6 +135,7 @@ targets:
     dependencies:
       - target: ApplicationInterface
       - target: SubmissionQueue
+      - target: DocumentReading
       - target: LibraryPresentation
       - target: ApplicationBindings
       - target: ScanRequest
@@ -185,6 +197,7 @@ targets:
       - application_interface/PagePicture.swift
     dependencies:
       - target: SubmissionQueue
+      - target: DocumentReading
       - target: ApplicationBindings
     info:
       path: share_extension/Info.plist
@@ -200,8 +213,8 @@ targets:
           NSExtensionPointIdentifier: com.apple.share-services
           NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).ShareViewController
           NSExtensionAttributes:
-            # A share item of at most 20 files, the archive's limit per upload, with a PDF or a picture
-            # among them. The share sheet never offers an extension whose rule holds BETWEEN, although
+            # A share item of at most 20 files, ShareIntake.fileLimit, with a PDF or a picture among
+            # them. The share sheet never offers an extension whose rule holds BETWEEN, although
             # NSPredicate evaluates it.
             NSExtensionActivationRule: >-
               SUBQUERY(extensionItems, $extensionItem, $extensionItem.attachments.@count <= 20
@@ -250,7 +263,7 @@ targets:
   ApplicationEndToEndTests:
     type: bundle.unit-test
     platform: iOS
-    sources: [application_end_to_end_tests, ../library_presentation_tests]
+    sources: [application_end_to_end_tests, ../library_presentation_tests, ../document_reading_tests]
     dependencies:
       - target: Schublade
     settings:
