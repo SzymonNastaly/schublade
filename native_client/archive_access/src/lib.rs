@@ -30,7 +30,7 @@ pub use credential_storage::{
 pub use document_submission::{
     DerivedRepresentations, DocumentReception, MAXIMUM_DOCUMENT_BYTES, MAXIMUM_TEXT_BYTES, MAXIMUM_THUMBNAIL_BYTES,
     PreparedSubmission, SubmissionAnswer, SubmissionPreparationFailure, SubmissionRoute, compose_document_text,
-    prepare_submission, read_document_reception, read_submission_answer, send_document,
+    is_readable_text_layer, prepare_submission, read_document_reception, read_submission_answer, send_document,
 };
 pub use ingest_submission::{
     INGEST_PATH, PreparedIngestSubmission, SubmissionMediaType, prepare_ingest_submission,

@@ -71,6 +71,25 @@ pub fn compose_document_text(page_texts: &[String]) -> String {
         .join("\n")
 }
 
+/// The fewest letters or digits of a readable text layer.
+const MINIMUM_READABLE_CHARACTERS: usize = 40;
+
+/// Whether the text layer of a page reads as text, as `isReadableTextLayer` in
+/// `src/ingestion/document_text.ts` decides: at least 40 letters or digits, and fewer than one
+/// replacement character per ten of them. A font without a Unicode mapping comes out as replacement
+/// characters. A client sends a page that fails empty, or reads it another way.
+pub fn is_readable_text_layer(text: &str) -> bool {
+    let is_replacement = |character: char| {
+        matches!(
+            character,
+            '\u{fffd}' | '\u{e000}'..='\u{f8ff}' | '\u{f0000}'..='\u{ffffd}' | '\u{100000}'..='\u{10fffd}'
+        ) || (character.is_control() && !matches!(character, '\t' | '\n' | '\r'))
+    };
+    let alphanumeric = text.chars().filter(|character| character.is_alphanumeric()).count();
+    let replacements = text.chars().filter(|character| is_replacement(*character)).count();
+    alphanumeric >= MINIMUM_READABLE_CHARACTERS && replacements * 10 < alphanumeric
+}
+
 /// The counted part of a body. A text or a thumbnail beyond the reception's limits, or a
 /// thumbnail that is no JPEG, is left out, because the reception would refuse the original with
 /// it and reads the original without it.

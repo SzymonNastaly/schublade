@@ -1,12 +1,14 @@
 #!/bin/bash
-# The one check of the Mac application: the workspace's cargo checks, SwiftFormat, SwiftLint, the
-# build of every target in both configurations, and both the presentation and end-to-end tests.
+# The one check of the Mac application: the PDFium library the program's test reads, the
+# workspace's cargo checks, SwiftFormat, SwiftLint, the build of every target in both
+# configurations, and both the presentation and end-to-end tests.
 #   native_client/macintosh_application/scripts/check_application.sh
 set -euo pipefail
 export PATH="/opt/homebrew/bin:$HOME/.cargo/bin:$PATH"
 cd "$(dirname "$0")/.."
 
-(cd .. && cargo fmt --check && cargo clippy --all-targets --locked -- -D warnings && cargo test --locked \
+(cd .. && scripts/fetch_pdfium_library.sh \
+	&& cargo fmt --check && cargo clippy --all-targets --locked -- -D warnings && cargo test --locked \
 	&& cargo build --locked -p scripted_archive --bin scripted-archive-server)
 
 # The shared library sources sit beside this directory, so the configuration is named.

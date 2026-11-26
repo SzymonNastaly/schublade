@@ -1,7 +1,10 @@
 //! `schublade-collector`: the command-line program over `collection_core`. It connects an archive,
 //! enrolls folders, waits for a survey, decides a backlog, collects in the foreground, and prints
 //! the status. On macOS the token lives in the Keychain; `SCHUBLADE_INGEST_TOKEN` replaces it
-//! anywhere, and is the only store on Linux.
+//! anywhere, and is the only store on Linux. It reads each PDF's text with PDFium before it sends
+//! it, as `pdfium_document_reader.rs` describes.
+
+mod pdfium_document_reader;
 
 use std::io::Read;
 use std::path::PathBuf;
@@ -12,9 +15,10 @@ use std::time::Duration;
 use archive_access::{ArchiveAddress, ArchiveToken, CredentialStore, FixedCredentialStore, TOKEN_ENVIRONMENT_VARIABLE};
 use collection_core::folder_admission::FolderAdmission;
 use collection_core::{
-    Clock, Collector, CollectorEvent, CollectorSettings, CollectorStatus, ConnectionStatus, EmptyDocumentReader,
-    SystemClock, Timestamp,
+    Clock, Collector, CollectorEvent, CollectorSettings, CollectorStatus, ConnectionStatus, DocumentReader,
+    EmptyDocumentReader, SystemClock, Timestamp,
 };
+use pdfium_document_reader::{PDFIUM_LIBRARY_VARIABLE, PdfiumDocumentReader};
 
 const USAGE: &str = "usage: schublade-collector [--database <path>] <command> [arguments]
 
@@ -26,7 +30,9 @@ commands:
   collect [--until-idle]    collects in the foreground; --until-idle exits once nothing remains
   status [--json]           prints the status
 
-The state database defaults to the application support directory of this user.";
+The state database defaults to the application support directory of this user. PDFium is read from
+SCHUBLADE_PDFIUM_LIBRARY, beside this program, or the system's libraries; without it each document
+is sent without its text.";
 
 /// How long `wait_until_idle` may block before the program reports no progress.
 const IDLE_TIMEOUT: Duration = Duration::from_secs(600);
@@ -169,7 +175,21 @@ fn run(invocation: Invocation) -> Result<(), String> {
         Command::Connect { .. } => Some(read_token()?),
         _ => None,
     };
-    let settings = CollectorSettings::new(invocation.database, credential_store(), Arc::new(EmptyDocumentReader));
+    let reader: Arc<dyn DocumentReader> = match PdfiumDocumentReader::bind() {
+        Ok(reader) => Arc::new(reader),
+        Err(absence) => {
+            if matches!(invocation.command, Command::Decide | Command::Collect { .. }) {
+                eprintln!(
+                    "schublade-collector: PDFium was not found, so documents are sent without their text and the \
+                     archive reads them. Set {PDFIUM_LIBRARY_VARIABLE} or place the library beside this program. \
+                     Looked at: {}",
+                    absence.attempts.join("; ")
+                );
+            }
+            Arc::new(EmptyDocumentReader)
+        }
+    };
+    let settings = CollectorSettings::new(invocation.database, credential_store(), reader);
     let (collector, events) = Collector::start(settings).map_err(|failure| failure.to_string())?;
     let outcome = match invocation.command {
         Command::Connect { address } => {

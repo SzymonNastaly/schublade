@@ -1,6 +1,6 @@
 # Client preprocessing design
 
-How the text and the first-page picture of a document move from the Worker to the clients, drafted on 2026-11-26. It extends `notes/client_protocol.md` with two routes and changes one premise of `notes/iphone_application_design.md`, which says "The PDF carries no text layer: the archive reads its pages as it reads every scan". The owner decided its open questions on 2026-11-26, and units S1, S2, S3, and C1 are built, and the Rust part of C3.
+How the text and the first-page picture of a document move from the Worker to the clients, drafted on 2026-11-26. It extends `notes/client_protocol.md` with two routes and changes one premise of `notes/iphone_application_design.md`, which says "The PDF carries no text layer: the archive reads its pages as it reads every scan". The owner decided its open questions on 2026-11-26, and units S1, S2, S3, C1, C4, and C5 are built, and the Rust part of C3.
 
 Every claim about behaviour carries one of three labels. Documented means a vendor's documentation or this repository's notes say it. Measured means someone ran it, with the date. Inferred means it follows from the other two and nobody ran it.
 
@@ -402,6 +402,13 @@ Unit C5 is built: the web application and the evaluation scripts send to the rec
 - The browser reads and sends at most three files of a tab at once, each a PUT of its own.
 - `document_reading.ts` runs in Node for the evaluation scripts, so its imports name their `.ts` files. Node has no canvas, so the scripts send no thumbnail and the archive draws one.
 - A POST to `/api/documents` now answers the archive's page, as TanStack Start answers a method a route lacks, and archives nothing.
+
+## What unit C4 changed in this design
+
+- PDFium is not linked into `schublade-collector`. pdfium-render binds it when the program starts, from the file `SCHUBLADE_PDFIUM_LIBRARY` names, then beside the executable, then the system's library search path, because bblanchon/pdfium-binaries publishes shared libraries only. `native_client/scripts/fetch_pdfium_library.sh` installs build `chromium/8125`, the one pdfium-render 0.9.6 binds to, after checking the SHA-256 that GitHub records for each archive. Without the library the program sends each original alone and warns once on `decide` and `collect`.
+- A PDF with no readable page goes without text, as from the browser, so the reception records no page count for it. `is_readable_text_layer` in `archive_access` applies the rule of `isReadableTextLayer` to each page, and PDFium's `\r\n` line breaks become `\n`.
+- The thumbnail is the first page drawn at 480 pixels on its longer side and encoded as a JPEG of quality 80. On the test documents an A4 page gave 339 by 480 pixels and 21 to 28 KB (measured, 2026-11-26). A picture original gets neither text nor thumbnail, and the archive serves the picture itself.
+- Measured on 2026-11-26 against `scripted-archive-server`: the program sent `telecommunication_invoice_digital.pdf` and `dental_invoice_scanned.pdf` to `collected_documents`, and the archive held the text of the first, no text for the second, and a JPEG thumbnail of each. Risk 4, PDFium on macOS, is still unmeasured, because the Mac could not be reached.
 
 ## Next implementation step
 
