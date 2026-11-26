@@ -1,6 +1,6 @@
 # Client preprocessing design
 
-How the text and the first-page picture of a document move from the Worker to the clients, drafted on 2026-11-26. It extends `notes/client_protocol.md` with two routes and changes one premise of `notes/iphone_application_design.md`, which says "The PDF carries no text layer: the archive reads its pages as it reads every scan". The owner decided its open questions on 2026-11-26, and units S1, S2, S3, and C1 are built.
+How the text and the first-page picture of a document move from the Worker to the clients, drafted on 2026-11-26. It extends `notes/client_protocol.md` with two routes and changes one premise of `notes/iphone_application_design.md`, which says "The PDF carries no text layer: the archive reads its pages as it reads every scan". The owner decided its open questions on 2026-11-26, and units S1, S2, S3, and C1 are built, and the Rust part of C3.
 
 Every claim about behaviour carries one of three labels. Documented means a vendor's documentation or this repository's notes say it. Measured means someone ran it, with the date. Inferred means it follows from the other two and nobody ran it.
 
@@ -379,6 +379,17 @@ Each unit ends in its check and one commit on `main`. The server comes first and
 - A text above 2,000,000 bytes, a thumbnail above 200,000 bytes, and a thumbnail that does not start with `FF D8 FF` are left out of the body rather than refused, so the archive reads the original itself and the document is never rejected for a derived representation.
 - The multipart writer stays as `prepare_ingest_submission` and `read_ingest_submission_answer` in `ingest_submission.rs` until unit C2 moves the iPhone, and the bindings still call it.
 - The scripted archive reads a person's upload to the reception at `--ingest-pace` too, so a screen examination of unit C2 shows its progress.
+
+## What unit C3 changed in this design
+
+The Rust part is built; the Mac application's PDFKit and Vision conformance is not, because the Mac could not be reached.
+
+- `start_application_core` takes no new parameter. `ApplicationConfiguration` gains `document_reader: Option<DocumentReader>`, which UniFFI gives a default of `nil` in Swift, so the Mac and iPhone applications build unchanged and the Mac's collector sends the original alone until its conformance is passed there.
+- The callback is `read(original: Data, mediaType: DocumentMediaType) -> DocumentReading`. It receives the verified bytes and not a path, so the text always belongs to the bytes the PUT sends, even when the file changes on disk meanwhile.
+- The collector does not ask `read_document_reception` at connecting and once a day. Each submission asks before it reads its source, and `HttpArchiveClient` stops asking once the archive offers the reception, so an archive costs one GET per client. An archive without it holds every submission for an hour in memory, and the next submission after the hour asks again. A PUT that meets the plain 403 counts the same.
+- "Update your archive" is `AttentionItem::ArchiveOutdated` of the collector, not the shared `ConnectionCondition::ArchiveOutdated`. That condition replaces the Mac's library with "Update your archive to use the library", but an archive without the reception still serves the library. Lookups and status reads go on, so a survey completes while uploads wait.
+- A GET that meets a condition before the PUT counts no failure against the content (`SubmissionCondition::ReceptionUnknown`).
+- `ArchiveExchange::put_octets` is gone with its caller. The scripted archive answers `contents` still, as the Worker does for collector build 1.0.
 
 ## Next implementation step
 

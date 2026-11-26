@@ -106,6 +106,7 @@ fn start_over_archive(
                 database_path: directory.join("collector.sqlite"),
                 credential_store: Box::new(Arc::clone(credentials)),
                 archive_clients: Box::new(move |_, _| Arc::clone(&client)),
+                document_reader: Arc::new(collection_core::EmptyDocumentReader),
                 timing,
                 submission_concurrency: 2,
                 clock: Arc::new(SystemClock),

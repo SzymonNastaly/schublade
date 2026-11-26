@@ -5,7 +5,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use crate::archive_connection::{ConnectionState, RequestCapacity, request_capacity};
+use crate::archive_connection::{ConnectionState, ReceptionStanding, RequestCapacity, request_capacity};
 use crate::candidate_classification::ReadableSignature;
 use crate::content_synchronization::{
     ContentRecord, SubmissionAuthorization, SubmissionHindrance, authorize_submission,
@@ -171,13 +171,15 @@ pub struct WorkCandidates {
 }
 
 /// Pure. Never returns work for a reserved key or beyond a lane's capacity or the connection's
-/// capacity. Calls `authorize_submission` for each submission; a stale content goes into the
-/// lookup batch instead. Returns the same plan for the same inputs.
+/// capacity, and no submission while the reception holds them. Calls `authorize_submission` for
+/// each submission; a stale content goes into the lookup batch instead. Returns the same plan for
+/// the same inputs.
 pub fn plan_work(
     candidates: WorkCandidates,
     reservations: &Reservations,
     capacity: &LaneCapacity,
     connection: &ConnectionState,
+    reception: &ReceptionStanding,
     now: Timestamp,
     timing: &TimingPolicy,
 ) -> Vec<Work> {
@@ -216,7 +218,7 @@ pub fn plan_work(
             continue;
         }
         match authorize_submission(&record, now, timing) {
-            Ok(authorization) => {
+            Ok(authorization) if reception.permits_submission(now) => {
                 if let Some((source, signature)) = sources.into_iter().next() {
                     submissions.push(Work::SubmitContent {
                         authorization,
@@ -225,6 +227,7 @@ pub fn plan_work(
                     });
                 }
             }
+            Ok(_) => {}
             Err(SubmissionHindrance::LookupStale) => lookups.push(record.digest),
             Err(SubmissionHindrance::BackingOff { .. } | SubmissionHindrance::NotAbsent) => {}
         }
@@ -365,6 +368,7 @@ mod tests {
             &reservations,
             &capacity,
             &ConnectionState::Available,
+            &ReceptionStanding::Assumed,
             NOW,
             &timing,
         );
@@ -424,6 +428,7 @@ mod tests {
             &Reservations::default(),
             &capacity,
             &deferred,
+            &ReceptionStanding::Assumed,
             NOW,
             &timing,
         );
@@ -438,6 +443,7 @@ mod tests {
             &Reservations::default(),
             &capacity,
             &probing,
+            &ReceptionStanding::Assumed,
             NOW,
             &timing,
         );
@@ -448,7 +454,15 @@ mod tests {
         in_flight
             .contents
             .insert(digest(9), ContentReservation::LookingUp(LookupBatch(1)));
-        let occupied = plan_work(candidates(), &in_flight, &capacity, &probing, NOW, &timing);
+        let occupied = plan_work(
+            candidates(),
+            &in_flight,
+            &capacity,
+            &probing,
+            &ReceptionStanding::Assumed,
+            NOW,
+            &timing,
+        );
         assert_eq!(occupied.len(), 3);
     }
 
@@ -472,6 +486,7 @@ mod tests {
             &Reservations::default(),
             &capacity,
             &ConnectionState::Available,
+            &ReceptionStanding::Assumed,
             NOW,
             &timing,
         );

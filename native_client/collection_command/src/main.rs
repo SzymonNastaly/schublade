@@ -6,12 +6,14 @@
 use std::io::Read;
 use std::path::PathBuf;
 use std::process::ExitCode;
+use std::sync::Arc;
 use std::time::Duration;
 
 use archive_access::{ArchiveAddress, ArchiveToken, CredentialStore, FixedCredentialStore, TOKEN_ENVIRONMENT_VARIABLE};
 use collection_core::folder_admission::FolderAdmission;
 use collection_core::{
-    Clock, Collector, CollectorEvent, CollectorSettings, CollectorStatus, ConnectionStatus, SystemClock, Timestamp,
+    Clock, Collector, CollectorEvent, CollectorSettings, CollectorStatus, ConnectionStatus, EmptyDocumentReader,
+    SystemClock, Timestamp,
 };
 
 const USAGE: &str = "usage: schublade-collector [--database <path>] <command> [arguments]
@@ -167,7 +169,7 @@ fn run(invocation: Invocation) -> Result<(), String> {
         Command::Connect { .. } => Some(read_token()?),
         _ => None,
     };
-    let settings = CollectorSettings::new(invocation.database, credential_store());
+    let settings = CollectorSettings::new(invocation.database, credential_store(), Arc::new(EmptyDocumentReader));
     let (collector, events) = Collector::start(settings).map_err(|failure| failure.to_string())?;
     let outcome = match invocation.command {
         Command::Connect { address } => {

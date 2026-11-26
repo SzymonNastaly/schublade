@@ -9,13 +9,16 @@ use std::sync::mpsc::Receiver;
 use std::time::{Duration, Instant};
 
 use archive_access::{ArchiveAddress, ArchiveCondition, ArchiveToken, FixedCredentialStore};
+use archive_replica::ArchiveReader;
 use collection_core::candidate_classification::{DisregardReason, ExclusionReason};
 use collection_core::content_synchronization::LookupAnswer;
 use collection_core::domain_types::{ContentDigest, DocumentStatus};
+use collection_core::file_system_observation::VerifiedContent;
 use collection_core::folder_admission::{FolderAdmission, FolderAvailability};
 use collection_core::{
     ArchiveClient, AttentionItem, Clock, Collector, CollectorEvent, CollectorSettings, CollectorStatus, CommandRefusal,
-    ConnectionStatus, FolderIdentifier, ManualClock, Timestamp, TimingPolicy,
+    ConnectionStatus, DerivedRepresentations, DocumentReader, EmptyDocumentReader, FolderIdentifier, ManualClock,
+    Timestamp, TimingPolicy,
 };
 use scripted_archive::ScriptedArchive;
 
@@ -135,6 +138,7 @@ struct Scenario {
     corpus: Corpus,
     archive: Arc<ScriptedArchive>,
     clock: Arc<ManualClock>,
+    reader: Arc<dyn DocumentReader>,
     collector: Collector,
     events: Receiver<CollectorEvent>,
     folders: Vec<FolderIdentifier>,
@@ -142,10 +146,14 @@ struct Scenario {
 
 impl Scenario {
     fn start() -> Scenario {
+        Scenario::start_reading_with(Arc::new(EmptyDocumentReader))
+    }
+
+    fn start_reading_with(reader: Arc<dyn DocumentReader>) -> Scenario {
         let corpus = Corpus::copy_to_temporary_directory();
         let archive = Arc::new(ScriptedArchive::new());
         let clock = Arc::new(ManualClock::starting_at(START));
-        let (collector, events) = start_collector(&corpus, &archive, &clock);
+        let (collector, events) = start_collector(&corpus, &archive, &clock, &reader);
         collector
             .connect_archive(
                 ArchiveAddress::parse("https://archive.example.org").unwrap(),
@@ -156,6 +164,7 @@ impl Scenario {
             corpus,
             archive,
             clock,
+            reader,
             collector,
             events,
             folders: Vec::new(),
@@ -202,7 +211,7 @@ impl Scenario {
     /// A new Collector on the same database, as after a quit.
     fn restart(self) -> Scenario {
         self.collector.shutdown();
-        let (collector, events) = start_collector(&self.corpus, &self.archive, &self.clock);
+        let (collector, events) = start_collector(&self.corpus, &self.archive, &self.clock, &self.reader);
         Scenario {
             collector,
             events,
@@ -245,11 +254,13 @@ fn start_collector(
     corpus: &Corpus,
     archive: &Arc<ScriptedArchive>,
     clock: &Arc<ManualClock>,
+    reader: &Arc<dyn DocumentReader>,
 ) -> (Collector, Receiver<CollectorEvent>) {
     let archive: Arc<dyn ArchiveClient> = archive.clone();
     let clock: Arc<dyn Clock> = clock.clone();
     let settings = CollectorSettings {
         credential_store: Box::new(FixedCredentialStore::new(Some(TOKEN.to_owned()))),
+        document_reader: Arc::clone(reader),
         ..CollectorSettings::with_fixed_archive(corpus.database_path(), archive, clock, timing())
     };
     Collector::start(settings).unwrap()
@@ -384,6 +395,34 @@ fn the_decision_submits_each_distinct_content_once_and_never_an_ignored_file() {
             .document_link
             .starts_with("https://archive.example.org/documents/")
     );
+}
+
+/// Reads the same two pages from every document, as a reader that read only these would.
+struct FixedDocumentReader;
+
+impl DocumentReader for FixedDocumentReader {
+    fn read(&self, _content: &VerifiedContent) -> DerivedRepresentations {
+        DerivedRepresentations {
+            page_texts: vec!["Jahresabrechnung Strom 2025-2026".to_owned(), String::new()],
+            thumbnail: Some(vec![0xff, 0xd8, 0xff, 0xd9]),
+        }
+    }
+}
+
+#[test]
+fn each_document_arrives_with_the_text_its_reader_returned() {
+    let mut scenario = Scenario::start_reading_with(Arc::new(FixedDocumentReader));
+
+    scenario.collect_everything();
+
+    scenario.assert_every_candidate_submitted_once();
+    let document =
+        ScriptedArchive::document_of(&scenario.corpus.digest_of("Downloads/Jahresabrechnung_Strom_2026.pdf"));
+    assert_eq!(
+        scenario.archive.read_text(&document).unwrap().as_deref(),
+        Some("## Page 1\n\nJahresabrechnung Strom 2025-2026\n\n## Page 2\n")
+    );
+    assert_eq!(scenario.archive.document(&document).unwrap().page_count, Some(2));
 }
 
 #[test]

@@ -8,6 +8,7 @@ pub mod candidate_classification;
 pub mod collection_coordinator;
 pub mod content_synchronization;
 pub mod directory_reconciliation;
+pub mod document_reading;
 pub mod domain_types;
 pub mod file_system_observation;
 pub mod folder_admission;
@@ -26,13 +27,14 @@ use std::time::Duration;
 
 pub use archive_access::{Clock, ManualClock, SystemClock};
 pub use archive_client::{ArchiveClient, HttpArchiveClient};
+pub use document_reading::{DerivedRepresentations, DocumentReader, EmptyDocumentReader};
 pub use domain_types::{FolderIdentifier, Timestamp, TimingPolicy};
 pub use status_report::{
     Activity, AttentionItem, BacklogSummary, CollectorStatus, ConnectionStatus, FolderStatus, Receipt, StateCounts,
 };
 
 use archive_access::{ArchiveAddress, ArchiveAddressRefusal, ArchiveToken, CredentialStore, FixedCredentialStore};
-use archive_connection::ConnectionState;
+use archive_connection::{ConnectionState, ReceptionStanding};
 use collection_coordinator::{CollectionCoordinator, CoordinatorInput, VolatileState};
 use file_system_observation::FolderWatcher;
 use state_store::{StateStore, StoreOpenFailure};
@@ -47,6 +49,8 @@ pub struct CollectorSettings {
     pub database_path: PathBuf,
     pub credential_store: Box<dyn CredentialStore>,
     pub archive_clients: ArchiveClientConstructor,
+    /// Reads each document before it is sent.
+    pub document_reader: Arc<dyn DocumentReader>,
     pub timing: TimingPolicy,
     /// 1 or 2.
     pub submission_concurrency: usize,
@@ -54,19 +58,26 @@ pub struct CollectorSettings {
 }
 
 impl CollectorSettings {
-    /// Production: the intervals of the design, two submissions, the HTTP client, the wall clock.
-    pub fn new(database_path: PathBuf, credential_store: Box<dyn CredentialStore>) -> CollectorSettings {
+    /// Production: the intervals of the design, two submissions, the HTTP client, the wall clock,
+    /// and the platform's document reader.
+    pub fn new(
+        database_path: PathBuf,
+        credential_store: Box<dyn CredentialStore>,
+        document_reader: Arc<dyn DocumentReader>,
+    ) -> CollectorSettings {
         CollectorSettings {
             database_path,
             credential_store,
             archive_clients: Box::new(|address, token| Arc::new(HttpArchiveClient::new(address, token))),
+            document_reader,
             timing: TimingPolicy::default(),
             submission_concurrency: 2,
             clock: Arc::new(SystemClock),
         }
     }
 
-    /// A scenario: every address reaches the one given archive, and the clock is the given one.
+    /// A scenario: every address reaches the one given archive, the clock is the given one, and
+    /// no document is read.
     pub fn with_fixed_archive(
         database_path: PathBuf,
         archive: Arc<dyn ArchiveClient>,
@@ -77,6 +88,7 @@ impl CollectorSettings {
             database_path,
             credential_store: Box::new(FixedCredentialStore::new(None)),
             archive_clients: Box::new(move |_, _| Arc::clone(&archive)),
+            document_reader: Arc::new(EmptyDocumentReader),
             timing,
             submission_concurrency: 2,
             clock,
@@ -264,6 +276,7 @@ impl Collector {
             database_path,
             credential_store,
             archive_clients,
+            document_reader,
             timing,
             submission_concurrency,
             clock,
@@ -316,8 +329,10 @@ impl Collector {
             initial_walks_completed: BTreeSet::new(),
             disregarded: BTreeMap::new(),
             connection,
+            reception: ReceptionStanding::Assumed,
             archive_origin,
             archive,
+            document_reader,
             reservations: Reservations::default(),
             submissions_in_flight: BTreeMap::new(),
             listing_requests: BTreeMap::new(),

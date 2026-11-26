@@ -1,7 +1,9 @@
 //! The routes of `notes/client_protocol.md` and `POST /api/documents/ingest`, each answered from the
 //! `ScriptedArchive` as the Worker answers it.
 
-use archive_access::{ArchiveCondition, ContentDigest, DocumentIdentifier, PermissionLevel, Timestamp};
+use archive_access::{
+    ArchiveCondition, ContentDigest, DerivedRepresentations, DocumentIdentifier, PermissionLevel, Timestamp,
+};
 use archive_replica::replica_records::{
     CategoryIdentifier, DocumentRecord, FieldValue, JournalCursor, JournalPage, PersonAssignment, RemovedRecord,
     SenderIdentifier, TagIdentifier,
@@ -280,7 +282,8 @@ pub fn submit(archive: &ScriptedArchive, digest: ContentDigest, body: Vec<u8>) -
     };
     let authorization = authorize_submission(&record, Timestamp(0), &TimingPolicy::default())
         .unwrap_or_else(|_| unreachable!("a content looked up at this moment is authorized"));
-    match archive.submit(authorization, content) {
+    // The route of collector builds before derived representations: the original alone.
+    match archive.submit(authorization, content, DerivedRepresentations::default()) {
         Ok(SubmissionOutcome::Accepted { document, status }) => document_status_answer(202, &document, &status),
         Ok(SubmissionOutcome::AlreadyHeld { document, status }) => document_status_answer(200, &document, &status),
         Ok(SubmissionOutcome::Deleted) => Answer::problem(409, "The owner deleted this document."),
@@ -294,6 +297,10 @@ pub fn submit(archive: &ScriptedArchive, digest: ContentDigest, body: Vec<u8>) -
                 collection_core::archive_connection::SubmissionCondition::DigestDisagreement => {
                     return Answer::problem(422, "The body has another SHA-256");
                 }
+                collection_core::archive_connection::SubmissionCondition::ReceptionAbsent => {
+                    return crate::document_reception::access_refusal();
+                }
+                collection_core::archive_connection::SubmissionCondition::ReceptionUnknown(condition) => condition,
             };
             Answer::from_condition(condition)
         }

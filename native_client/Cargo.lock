@@ -317,6 +317,7 @@ name = "collection_core"
 version = "0.1.0"
 dependencies = [
  "archive_access",
+ "archive_replica",
  "notify",
  "rusqlite",
  "scripted_archive",

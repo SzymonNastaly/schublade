@@ -7,20 +7,21 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 
 use crate::archive_client::ArchiveClient;
-use crate::archive_connection::ArchiveAnswer;
+use crate::archive_connection::{ArchiveAnswer, SubmissionCondition};
 use crate::candidate_classification::ReadableSignature;
 use crate::collection_coordinator::{CoordinatorInput, SubmissionResult, WorkResult};
 use crate::content_synchronization::SubmissionAuthorization;
 use crate::directory_reconciliation::ListingOutcome;
+use crate::document_reading::DocumentReader;
 use crate::domain_types::{ContentDigest, DirectoryKey, DocumentIdentifier, FolderIdentifier, PathKey};
 use crate::file_system_observation::{
     absolute_path, compute_digest, list_directory, observe_signature, read_submission_source,
 };
 use crate::work_planning::{LaneCapacity, LookupBatch};
-use archive_access::Clock;
+use archive_access::{Clock, DocumentReception};
 
 /// One planned unit of work with everything its lane needs: the folder root for the disk, the
-/// archive client for a request.
+/// archive client for a request, the document reader for a submission.
 pub enum Assignment {
     ListDirectory {
         folder: FolderIdentifier,
@@ -44,6 +45,7 @@ pub enum Assignment {
         root: PathBuf,
         signature: ReadableSignature,
         archive: Arc<dyn ArchiveClient>,
+        reader: Arc<dyn DocumentReader>,
     },
     ReadDocumentStatus {
         content: ContentDigest,
@@ -169,13 +171,22 @@ fn execute(assignment: Assignment, inbox: &Sender<CoordinatorInput>, clock: &dyn
             root,
             signature,
             archive,
+            reader,
         } => {
             let content = authorization.digest();
             let absolute = absolute_path(&root, &source.directory, source.name.as_os_str());
-            let result = match read_submission_source(&absolute, &signature, content, clock) {
-                Ok(verified) => SubmissionResult::Answered(archive.submit(authorization, verified)),
-                Err(failure) => SubmissionResult::SourceFailed {
-                    current: failure.current,
+            // The reception is asked first, so an archive older than it costs no read.
+            let result = match archive.read_document_reception() {
+                Err(condition) => SubmissionResult::Answered(Err(SubmissionCondition::ReceptionUnknown(condition))),
+                Ok(DocumentReception::Absent) => SubmissionResult::Answered(Err(SubmissionCondition::ReceptionAbsent)),
+                Ok(DocumentReception::Offered) => match read_submission_source(&absolute, &signature, content, clock) {
+                    Ok(verified) => {
+                        let derived = reader.read(&verified);
+                        SubmissionResult::Answered(archive.submit(authorization, verified, derived))
+                    }
+                    Err(failure) => SubmissionResult::SourceFailed {
+                        current: failure.current,
+                    },
                 },
             };
             send(CoordinatorInput::Finished(WorkResult::Submission {

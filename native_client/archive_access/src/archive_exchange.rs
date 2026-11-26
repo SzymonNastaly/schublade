@@ -178,21 +178,6 @@ impl ArchiveExchange {
         response_of(sent, MAXIMUM_ANSWER_BYTES)
     }
 
-    pub fn put_octets(&self, path: &str, octets: &[u8]) -> Result<ArchiveResponse, ArchiveCondition> {
-        let octet_count = u64::try_from(octets.len()).unwrap_or(u64::MAX);
-        let timeout = self.base_timeout + Duration::from_secs(octet_count / BYTES_PER_TIMEOUT_SECOND);
-        let sent = self
-            .agent
-            .put(format!("{}{path}", self.origin))
-            .config()
-            .timeout_global(Some(timeout))
-            .build()
-            .header("Authorization", &self.authorization_header)
-            .header("Content-Type", "application/octet-stream")
-            .send(octets);
-        response_of(sent, MAXIMUM_ANSWER_BYTES)
-    }
-
     /// A PUT whose body is `parts` one after another, sent without joining them, so that an
     /// original of megabytes is never copied to sit behind its prefix. `headers` come after the
     /// token's.

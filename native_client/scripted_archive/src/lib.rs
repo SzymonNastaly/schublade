@@ -8,8 +8,8 @@ use std::io::Write;
 use std::sync::{Mutex, MutexGuard, PoisonError};
 
 use archive_access::{
-    ArchiveAuthorization, ArchiveCondition, ContentDigest, DocumentIdentifier, DownloadFailure, PermissionLevel,
-    Timestamp,
+    ArchiveAuthorization, ArchiveCondition, ContentDigest, DerivedRepresentations, DocumentIdentifier,
+    DocumentReception, DownloadFailure, PermissionLevel, Timestamp, compose_document_text,
 };
 use archive_replica::replica_records::{
     ArchiveRecords, CategoryIdentifier, CategoryRecord, DocumentCondition, DocumentRecord, FailureReason,
@@ -122,9 +122,25 @@ struct Archive {
     submissions: Vec<ContentDigest>,
     status_reads: Vec<DocumentIdentifier>,
     next_arrival_ms: i64,
+    /// False for an archive older than the reception of collected documents.
+    reception_offered: bool,
 }
 
 impl Archive {
+    /// Keeps what a client sent beside an original as the document's text, thumbnail, and page
+    /// count, as the Worker's reception stores them.
+    fn keep_representations(&mut self, document: &DocumentIdentifier, received: ReceivedRepresentations) {
+        if let Some(text) = received.text {
+            self.texts.insert(document.clone(), text);
+        }
+        if let Some(thumbnail) = received.thumbnail {
+            self.thumbnails.insert(document.clone(), thumbnail);
+        }
+        if let Some(record) = self.documents.get_mut(document) {
+            record.page_count = received.page_count;
+        }
+    }
+
     /// Archives bytes the archive does not hold as a new document in ingestion, with its original
     /// and a journal entry, as the Worker's `archiveContent` does.
     fn archive_new_document(&mut self, digest: ContentDigest, bytes: &[u8]) -> DocumentIdentifier {
@@ -468,6 +484,7 @@ impl ScriptedArchive {
                 submissions: Vec::new(),
                 status_reads: Vec::new(),
                 next_arrival_ms: 1_790_000_000_000,
+                reception_offered: true,
             }),
         }
     }
@@ -724,16 +741,14 @@ impl ScriptedArchive {
             return document.clone();
         }
         let document = archive.archive_new_document(digest, original);
-        if let Some(text) = received.text {
-            archive.texts.insert(document.clone(), text);
-        }
-        if let Some(thumbnail) = received.thumbnail {
-            archive.thumbnails.insert(document.clone(), thumbnail);
-        }
-        if let Some(record) = archive.documents.get_mut(&document) {
-            record.page_count = received.page_count;
-        }
+        archive.keep_representations(&document, received);
         document
+    }
+
+    /// Whether the archive offers the reception of collected documents. Without it, the archive
+    /// answers the question and every submission as an archive older than the reception does.
+    pub fn set_reception_offered(&self, offered: bool) {
+        self.archive().reception_offered = offered;
     }
 
     /// Whether the archive holds a document for this content.
@@ -922,6 +937,14 @@ impl ArchiveReader for ScriptedArchive {
 }
 
 impl ArchiveClient for ScriptedArchive {
+    fn read_document_reception(&self) -> Result<DocumentReception, ArchiveCondition> {
+        Ok(if self.archive().reception_offered {
+            DocumentReception::Offered
+        } else {
+            DocumentReception::Absent
+        })
+    }
+
     fn look_up(&self, digests: &[ContentDigest]) -> Result<Vec<(ContentDigest, LookupAnswer)>, ArchiveCondition> {
         let mut archive = self.archive();
         archive.lookups.push(digests.to_vec());
@@ -945,6 +968,7 @@ impl ArchiveClient for ScriptedArchive {
         &self,
         authorization: SubmissionAuthorization,
         content: VerifiedContent,
+        derived: DerivedRepresentations,
     ) -> Result<SubmissionOutcome, SubmissionCondition> {
         let digest = authorization.digest();
         assert_eq!(
@@ -953,6 +977,9 @@ impl ArchiveClient for ScriptedArchive {
             "a submission's authorization and content must name the same digest"
         );
         let mut archive = self.archive();
+        if !archive.reception_offered {
+            return Err(SubmissionCondition::ReceptionAbsent);
+        }
         archive.submissions.push(digest);
         if let Some(condition) = archive.conditions.pop_front() {
             return Err(condition.into());
@@ -968,6 +995,13 @@ impl ArchiveClient for ScriptedArchive {
             }
             Some(LookupAnswer::Absent) | None => {
                 let document = archive.archive_new_document(digest, content.bytes());
+                let page_count = u32::try_from(derived.page_texts.len()).ok().filter(|count| *count > 0);
+                let received = ReceivedRepresentations {
+                    text: page_count.map(|_| compose_document_text(&derived.page_texts)),
+                    thumbnail: derived.thumbnail,
+                    page_count,
+                };
+                archive.keep_representations(&document, received);
                 SubmissionOutcome::Accepted {
                     document,
                     status: DocumentStatus::Processing,
@@ -1032,7 +1066,13 @@ mod tests {
             archive.look_up(&[digest]).unwrap(),
             vec![(digest, LookupAnswer::Absent)]
         );
-        let accepted = archive.submit(authorization(digest), content.clone()).unwrap();
+        let accepted = archive
+            .submit(
+                authorization(digest),
+                content.clone(),
+                DerivedRepresentations::default(),
+            )
+            .unwrap();
         let document = ScriptedArchive::document_of(&digest);
         assert_eq!(
             accepted,
@@ -1050,7 +1090,13 @@ mod tests {
         );
         archive.set_document_status(&document, DocumentStatus::Archived);
         assert_eq!(
-            archive.submit(authorization(digest), content.clone()).unwrap(),
+            archive
+                .submit(
+                    authorization(digest),
+                    content.clone(),
+                    DerivedRepresentations::default()
+                )
+                .unwrap(),
             SubmissionOutcome::AlreadyHeld {
                 document: document.clone(),
                 status: DocumentStatus::Archived
@@ -1072,7 +1118,9 @@ mod tests {
             vec![(digest, LookupAnswer::Deleted)]
         );
         assert_eq!(
-            archive.submit(authorization(digest), content).unwrap(),
+            archive
+                .submit(authorization(digest), content, DerivedRepresentations::default())
+                .unwrap(),
             SubmissionOutcome::Deleted
         );
         assert_eq!(archive.read_document_status(&document).unwrap(), None);
@@ -1094,7 +1142,13 @@ mod tests {
         );
         assert!(!archive.holds(&digest));
         let held = VerifiedContent::from_bytes(b"%PDF-1.7 held".to_vec());
-        archive.submit(authorization(held.digest()), held.clone()).unwrap();
+        archive
+            .submit(
+                authorization(held.digest()),
+                held.clone(),
+                DerivedRepresentations::default(),
+            )
+            .unwrap();
         assert!(archive.holds(&held.digest()));
         assert_eq!(archive.status_reads(), vec![document.clone(), document]);
     }

@@ -105,7 +105,7 @@ public struct StatusItemPresentation: Equatable, Sendable {
 	private static func glyph(_ statuses: ApplicationStatuses, uploading: Bool) -> StatusItemGlyph {
 		let settledOnlyByAPerson = statuses.attentionItems.contains { item in
 			switch item {
-			case .credentialSuspended, .folderUnavailable, .backlogAwaitsDecision:
+			case .credentialSuspended, .archiveOutdated, .folderUnavailable, .backlogAwaitsDecision:
 				true
 			case .contentRefused, .contentFailing:
 				false

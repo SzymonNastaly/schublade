@@ -13,6 +13,7 @@ uniffi::setup_scaffolding!();
 
 #[cfg(test)]
 mod application_fixture;
+mod document_reading;
 mod published_library;
 mod published_status;
 mod published_submission;
@@ -29,7 +30,9 @@ use archive_access::{
 };
 use archive_replica::{Attendance, Replica, ReplicaEvent, ReplicaSettings, WakeReason};
 use collection_core::state_store::StoreOpenFailure;
-use collection_core::{CollectorEvent, CollectorSettings, StartFailure};
+use collection_core::{CollectorEvent, CollectorSettings, EmptyDocumentReader, StartFailure};
+
+pub use document_reading::{DocumentReader, DocumentReading};
 
 pub use published_library::{
     Amount, CalendarDate, CategoryIdentifier, DetailField, DocumentCondition, DocumentDetail, DocumentIdentifier,
@@ -61,8 +64,9 @@ use refusals::{
 };
 use status_following::{LibraryAnnouncements, RevisionAnnouncements};
 
-/// Where the application keeps its databases, its downloaded cache, and its credential.
-#[derive(uniffi::Record, Clone, Debug)]
+/// Where the application keeps its databases, its downloaded cache, and its credential, and what
+/// reads the documents its collector sends.
+#[derive(uniffi::Record, Clone)]
 pub struct ApplicationConfiguration {
     /// Holds `collector.sqlite` (when enabled) and `replica.sqlite`. Created when missing.
     pub data_directory: String,
@@ -72,6 +76,10 @@ pub struct ApplicationConfiguration {
     pub original_storage_limit: Option<u64>,
     pub credential_storage: CredentialStorage,
     pub collection: CollectionPlacement,
+    /// Reads each document the collector sends, so the archive need not. `None` sends the original
+    /// alone, and the archive reads it.
+    #[uniffi(default = None)]
+    pub document_reader: Option<Arc<dyn DocumentReader>>,
 }
 
 /// Whether this application includes the local folder collector. An iPhone application starts
@@ -148,6 +156,7 @@ pub async fn start_application_core(
             original_storage_limit,
             credential_storage,
             collection,
+            document_reader,
         } = configuration;
         let data_directory = PathBuf::from(data_directory);
         std::fs::create_dir_all(&data_directory).map_err(|error| {
@@ -166,7 +175,17 @@ pub async fn start_application_core(
         let started_collector = match collection {
             CollectionPlacement::Collector => {
                 let collector_db = data_directory.join("collector.sqlite");
-                let settings = || CollectorSettings::new(collector_db.clone(), Box::new(Arc::clone(&credentials)));
+                let reader: Arc<dyn collection_core::DocumentReader> = match document_reader {
+                    Some(reader) => Arc::new(document_reading::ApplicationDocumentReader(reader)),
+                    None => Arc::new(EmptyDocumentReader),
+                };
+                let settings = || {
+                    CollectorSettings::new(
+                        collector_db.clone(),
+                        Box::new(Arc::clone(&credentials)),
+                        Arc::clone(&reader),
+                    )
+                };
                 let started = match collection_core::Collector::start(settings()) {
                     // The core renamed the corrupt database aside, so the second start opens a new one.
                     Err(StartFailure::Store(StoreOpenFailure::Unreadable { .. })) => {
