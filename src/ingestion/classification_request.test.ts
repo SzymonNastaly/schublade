@@ -1,5 +1,9 @@
 import { expect, test } from "vitest"
-import { buildFieldExtractionRequest, buildPersonAssignmentRequest } from "./classification_request"
+import {
+	CLASSIFIED_DOCUMENT_CHARACTERS,
+	buildFieldExtractionRequest,
+	buildPersonAssignmentRequest,
+} from "./classification_request"
 
 const context = {
 	markdown: "Rechnung Nr. 4471",
@@ -69,4 +73,13 @@ test("both requests place the email that delivered a document before the documen
 		buildFieldExtractionRequest("@cf/cloudflare/clairic-flash", mailContext).state,
 		buildPersonAssignmentRequest("@cf/cloudflare/clef-flash", mailContext)?.request.state,
 	]).toEqual([expectedState, expectedState])
+})
+
+test("the models read only the beginning of a long document", () => {
+	const markdown = `Rechnung Nr. 4471 ${"x".repeat(100_000)}`
+	const { state } = buildFieldExtractionRequest("@cf/cloudflare/clairic-flash", { ...context, markdown })
+	expect({ length: state.length, start: state.slice(0, 17) }).toEqual({
+		length: CLASSIFIED_DOCUMENT_CHARACTERS,
+		start: "Rechnung Nr. 4471",
+	})
 })

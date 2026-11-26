@@ -141,19 +141,28 @@ function mergeCategoryNames(existingNames: ReadonlyArray<string>): Array<string>
 }
 
 /** The document text, preceded by the email that delivered it, if any. */
+/**
+ * Clairic rejects a request above about 65,000 input tokens and bills the whole text once per read,
+ * so the models read the beginning of a long document, where its sender, date, and amounts stand.
+ * 24,000 characters hold about eight pages of German paperwork.
+ */
+export const CLASSIFIED_DOCUMENT_CHARACTERS = 24_000
+const CLASSIFIED_MAIL_CHARACTERS = 4_000
+
 function composeClassificationState(context: ClassificationContext): string {
-	if (context.mail === undefined) return context.markdown
+	const documentText = context.markdown.slice(0, CLASSIFIED_DOCUMENT_CHARACTERS)
+	if (context.mail === undefined) return documentText
 	return [
 		"Email that delivered the document, sent or forwarded by a household member:",
 		`From: ${context.mail.senderAddress}`,
 		`Subject: ${context.mail.subject}`,
 		"<email>",
-		context.mail.bodyText,
+		context.mail.bodyText.slice(0, CLASSIFIED_MAIL_CHARACTERS),
 		"</email>",
 		"",
 		"Document text:",
 		"<document>",
-		context.markdown,
+		documentText,
 		"</document>",
 	].join("\n")
 }
