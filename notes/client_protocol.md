@@ -12,7 +12,6 @@ The routes under `/api/v1` that a native client reaches with a bearer token, agr
 | GET    | `/api/v1/documents/{id}/text`          | read   | 200, 304          | 400, 404                    |
 | GET    | `/api/v1/documents/{id}/thumbnail`     | read   | 200, 304          | 400, 404                    |
 | POST   | `/api/v1/contents/lookup`              | ingest | 200               | 400, 413, 503               |
-| PUT    | `/api/v1/contents/{sha256}`            | ingest | 200, 202          | 400, 409, 411, 413, 415, 422, 503 |
 | PUT    | `/api/v1/submitted_documents/{sha256}` | ingest | 200, 202          | 400, 411, 413, 415, 422     |
 | PUT    | `/api/v1/collected_documents/{sha256}` | ingest | 200, 202          | 400, 409, 411, 413, 415, 422, 503 |
 | GET    | `/api/v1/documents/{id}`               | ingest | 200               | 404                         |
@@ -43,7 +42,7 @@ The order follows how much of the household's papers a level exposes. Adding a d
 
 | Level    | Settings calls it                              | Routes it reaches                                                                                          |
 | -------- | ---------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
-| `ingest` | "Scanner, script, or Shortcut: adds documents" | `GET /api/v1/authorization`, the collector's routes, `submitted_documents`, and `POST /api/documents/ingest` |
+| `ingest` | "Scanner, script, or Shortcut: adds documents" | `GET /api/v1/authorization`, the collector's routes, and `submitted_documents`                                 |
 | `read`   | "Schublade app: reads and adds documents"      | Every route of `ingest`, and `GET /api/v1/changes`, `/original`, `/text`, and `/thumbnail` of a document  |
 
 A token of level `ingest` never reads a title, a summary, a text, or an original. The document status route and the lookup answer it only an identifier, a status, and a failure reason. Settings issues both kinds, and the form starts with `ingest`. No route for a token needs `modify` or `administer`, and Settings issues neither.
@@ -365,7 +364,7 @@ A token whose scope holds any list is restricted. One function, `scopeAdmission`
 - **Members, senders, categories, and tags.** A restricted token receives such a record when its scope admits at least one document that refers to it, anywhere in the archive, and a `removal` for a record of the page that no admitted document refers to. Measured in workerd with 50,000 documents and a tag on every document: one page of tag entries read up to 400,000 rows for a restricted scope (834 ms), bounded by the links of the page's tags, and an unrestricted page read at most 2,901 rows per statement. So a sender renamed while only an admitted document outside the page refers to it is sent. A record whose last admitted document left stays in the client's copy, where no document refers to it, until its own entry next moves.
 - **A denied tag that no longer exists** makes the scope admit nothing. The changes route asks `deniedTagsAllExist` in `src/archive/document_listing.ts`, as `/mcp` does, then answers 403, and the client keeps its copy and stops requesting.
 - **Representations** apply the same condition to the one document. A document outside the scope answers 404 on every representation route, as one that does not exist.
-- **The collector's routes** refuse a restricted token with 403, as the order of checks says. Before 2026-11-22 the document status route answered such a token the status of a document outside its scope, and the lookup answered `present` with its identifier. `POST /api/documents/ingest` refuses a restricted token with 403 as well, because an upload answers the identifier of the document that holds the bytes already.
+- **The collector's routes** refuse a restricted token with 403, as the order of checks says. Before 2026-11-22 the document status route answered such a token the status of a document outside its scope, and the lookup answered `present` with its identifier. `submitted_documents` refuses a restricted token with 403 as well, because an upload answers the identifier of the document that holds the bytes already.
 - An unrestricted token receives every document in every status and every record.
 
 `token.scope_digest` changes exactly when what the token sees changes. A client empties its copy when the journal's identifier or the scope digest differs from the one its copy was filled under.
@@ -399,9 +398,9 @@ If-None-Match: "a3f1c2d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f90
 
 ## The collector's routes
 
-A token with a restricted scope gets 403 on each, and every answer carries `Cache-Control: no-store`. The lookup and the document status sit in `src/client_protocol/collection_requests.ts` behind the shared gate. `PUT /api/v1/contents/{sha256}` and `collected_documents` reach `receiveDocument` in `src/ingestion/document_reception.ts`, which [Receiving a document](#receiving-a-document) describes.
+A token with a restricted scope gets 403 on each, and every answer carries `Cache-Control: no-store`. The lookup and the document status sit in `src/client_protocol/collection_requests.ts` behind the shared gate. `PUT /api/v1/collected_documents/{sha256}` reaches `receiveDocument` in `src/ingestion/document_reception.ts`, which [Receiving a document](#receiving-a-document) describes.
 
-While a document of an accepted kind lacks its `original_sha256`, the lookup and both PUT routes answer 503 with `Retry-After: 900` and "The archive is still recording the digests of its documents. Send the request again later.", because the lookup would call archived bytes absent. The document status route never answers it.
+While a document of an accepted kind lacks its `original_sha256`, the lookup and `collected_documents` answer 503 with `Retry-After: 900` and "The archive is still recording the digests of its documents. Send the request again later.", because the lookup would call archived bytes absent. The document status route never answers it.
 
 ### POST /api/v1/contents/lookup
 
@@ -439,13 +438,12 @@ The state of each content, in the order asked. The body is at most 128,000 bytes
 
 ## Receiving a document
 
-Three PUT routes receive one document named by the SHA-256 of its original, and one function, `receiveDocument` in `src/ingestion/document_reception.ts`, answers all three. `notes/client_preprocessing_design.md` explains the design.
+Two PUT routes receive one document named by the SHA-256 of its original, and one function, `receiveDocument` in `src/ingestion/document_reception.ts`, answers both. `notes/client_preprocessing_design.md` explains the design.
 
-| Path | Sent by | A deleted content | While a digest is missing | Derived representations |
-| --- | --- | --- | --- | --- |
-| `/api/v1/submitted_documents/{sha256}` | A person: the iPhone application, its share extension, a script, and the browser at `/api/submitted_documents/{sha256}` | Archived again | Received | Accepted |
-| `/api/v1/collected_documents/{sha256}` | A collector | 409 | 503 | Accepted |
-| `/api/v1/contents/{sha256}` | Collector builds before derived representations | 409 | 503 | 400 |
+| Path | Sent by | A deleted content | While a digest is missing |
+| --- | --- | --- | --- |
+| `/api/v1/submitted_documents/{sha256}` | A person: the iPhone application, its share extension, a script, and the browser at `/api/submitted_documents/{sha256}` | Archived again | Received |
+| `/api/v1/collected_documents/{sha256}` | A collector | 409 | 503 |
 
 The body is the client's Markdown text, then its JPEG thumbnail, then the original, with no separator. `Schublade-Text-Byte-Count` and `Schublade-Thumbnail-Byte-Count` give the byte counts of the first two and default to 0, so a body without them is the original alone, as `curl -T scan.pdf` sends it. `Schublade-Page-Count` gives the number of pages the client read, 1 for a picture. The original is `Content-Length` minus both counts. `Content-Type` is not read: the archive identifies the original by its leading bytes.
 
@@ -457,7 +455,7 @@ The checks run in this order:
 | --- | --- |
 | 503 | A collector's route only: a document still awaits its digest. `Retry-After: 900` |
 | 409 | A collector's route only: the owner deleted the document of this content |
-| 400 | A query parameter, a count or page count that is no decimal number, a page count of 0, no byte left for the original, a derived header on `contents`, or a body shorter than its `Content-Length` |
+| 400 | A query parameter, a count or page count that is no decimal number, a page count of 0, no byte left for the original, or a body shorter than its `Content-Length` |
 | 411 | No `Content-Length` |
 | 413 | A text above 2,000,000 bytes, a thumbnail above 200,000 bytes, or an original above 25,000,000 bytes |
 | 200 | A document holds the content. The body is not read and nothing is written |
@@ -466,7 +464,7 @@ The checks run in this order:
 | 422 | R2 received other bytes than the digest in the path names. Nothing is stored |
 | 202 | The content became a new document |
 
-A 202 and a 200 carry the body of the document status route and `Location: /api/v1/documents/<id>`. The Worker reads only the counted bytes and the 12 leading bytes of the original, and pipes the rest into R2 through a `FixedLengthStream`, so R2 checks the digest. The text goes to `documents/<id>/submitted_text.md` and the thumbnail to `documents/<id>/thumbnail.jpg`. Each arrival on these routes and on the multipart uploads logs one line `Document reception: route=<name> text=<submitted|absent> thumbnail=<submitted|absent>`.
+A 202 and a 200 carry the body of the document status route and `Location: /api/v1/documents/<id>`. The Worker reads only the counted bytes and the 12 leading bytes of the original, and pipes the rest into R2 through a `FixedLengthStream`, so R2 checks the digest. The text goes to `documents/<id>/submitted_text.md` and the thumbnail to `documents/<id>/thumbnail.jpg`.
 
 ## What a client does on each answer
 

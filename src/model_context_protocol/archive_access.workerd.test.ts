@@ -193,8 +193,8 @@ test("a client granted one category reads nothing else through search, listing, 
 	const refusedReading = await toolResult(accessToken, "read_document", { documentId: medicalLetter })
 	const grantBearer = { Authorization: `Bearer ${accessToken}` }
 	const adding = [
-		await send("/api/documents/ingest", { method: "POST", headers: grantBearer }),
-		await send(`/api/v1/contents/${"0".repeat(64)}`, { method: "PUT", headers: grantBearer, body: "%PDF-1.7" }),
+		await send(`/api/v1/submitted_documents/${"0".repeat(64)}`, { method: "PUT", headers: grantBearer, body: "%PDF" }),
+		await send(`/api/v1/collected_documents/${"0".repeat(64)}`, { method: "PUT", headers: grantBearer, body: "%PDF" }),
 	]
 
 	expect({

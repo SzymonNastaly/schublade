@@ -4,7 +4,7 @@ import { connectDatabase } from "../database/client"
 import { documents } from "../database/schema"
 import { sha256Hexadecimal } from "./content_identity"
 import { startDocumentIngestion } from "./document_ingestion"
-import { MAXIMUM_FILES_PER_SUBMISSION, acceptDocumentUpload } from "./document_upload"
+import { acceptDocumentUpload } from "./document_upload"
 import { mailContextOf, parseMailWithinLimits } from "./mail_message"
 import { MAIL_MEDIA_TYPE, identifySourceFile } from "./source_file"
 import type { UploadEnvironment, UploadOutcome } from "./document_upload"
@@ -21,6 +21,9 @@ const INLINE_IMAGE_MINIMUM_BYTES = 15_000
 const MAXIMUM_MESSAGE_BYTES = 25 * 1024 * 1024
 const CLOUDFLARE_AUTHENTICATION_SERVICE = "mx.cloudflare.net"
 const LOGGED_HEADER_COUNT = 12
+// Each attachment costs an R2 write, a D1 insert, and a Workflow start in the same invocation, so
+// one message starts at most this many of each.
+const MAXIMUM_ATTACHMENTS = 20
 
 const UNACCEPTED_RECIPIENT = "This address does not accept documents"
 // Every sender check gives the same reason, so a forged sender cannot tell whether an envelope
@@ -231,10 +234,8 @@ export async function receiveInboundMail(message: InboundMessage, environment: M
 	const documentAttachments = email.attachments
 		.map((attachment, index) => ({ attachment, index, content: attachmentBytes(attachment.content) }))
 		.filter(({ attachment, content }) => !isSignatureGraphic(attachment.disposition, content))
-	if (documentAttachments.length > MAXIMUM_FILES_PER_SUBMISSION) {
-		message.setReject(
-			`The message has more than ${MAXIMUM_FILES_PER_SUBMISSION} attachments. Send them in several messages.`,
-		)
+	if (documentAttachments.length > MAXIMUM_ATTACHMENTS) {
+		message.setReject(`The message has more than ${MAXIMUM_ATTACHMENTS} attachments. Send them in several messages.`)
 		return
 	}
 	const candidates = await Promise.all(

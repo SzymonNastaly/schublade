@@ -19,8 +19,6 @@ export interface ReceptionLayout {
 export type ReceptionHeaders =
 	{ kind: "layout"; layout: ReceptionLayout } | { kind: "refused"; status: 400 | 411 | 413; detail: string }
 
-const derivedHeaderNames = ["Schublade-Text-Byte-Count", "Schublade-Thumbnail-Byte-Count", "Schublade-Page-Count"]
-
 function decimalHeader(headers: Headers, name: string): number | undefined | "malformed" {
 	const value = headers.get(name)
 	if (value === null) return undefined
@@ -29,28 +27,16 @@ function decimalHeader(headers: Headers, name: string): number | undefined | "ma
 
 /**
  * Reads the layout of a reception body from its headers alone, so every refusal comes before
- * the body is read. A route that takes the original alone refuses the headers of derived
- * representations, because a client sending them expects the archive to keep them.
+ * the body is read.
  */
 export function parseReceptionHeaders(
 	headers: Headers,
 	searchParams: URLSearchParams,
 	maximumOriginalBytes: number,
-	acceptsDerivedRepresentations: boolean,
 ): ReceptionHeaders {
 	const parameters = [...new Set(searchParams.keys())]
 	if (parameters.length > 0) {
 		return { kind: "refused", status: 400, detail: `This route defines no query parameter: ${parameters.join(", ")}` }
-	}
-	if (!acceptsDerivedRepresentations) {
-		const derivedHeaders = derivedHeaderNames.filter((name) => headers.has(name))
-		if (derivedHeaders.length > 0) {
-			return {
-				kind: "refused",
-				status: 400,
-				detail: `This route takes the original alone, without ${derivedHeaders.join(", ")}. Send the text and the thumbnail to /api/v1/collected_documents.`,
-			}
-		}
 	}
 	const textByteCount = decimalHeader(headers, "Schublade-Text-Byte-Count")
 	const thumbnailByteCount = decimalHeader(headers, "Schublade-Thumbnail-Byte-Count")

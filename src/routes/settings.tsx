@@ -279,9 +279,10 @@ function SettingsPage() {
 						<SectionHeading>API tokens</SectionHeading>
 					</div>
 					<p className="max-w-[760px] text-field-label">
-						A scanner, a script, or an Apple Shortcut uploads documents to POST /api/documents/ingest with the header
-						Authorization: Bearer followed by the token. Its token adds documents and reads nothing. The Schublade app
-						needs a token of its own, which reads every document of the archive and adds documents.
+						A scanner, a script, or an Apple Shortcut uploads a document with PUT /api/v1/submitted_documents/ followed
+						by the SHA-256 of the file, and the header Authorization: Bearer followed by the token. Its token adds
+						documents and reads nothing. The Schublade app needs a token of its own, which reads every document of the
+						archive and adds documents.
 					</p>
 					<TokenIssuance />
 					<TokenTable tokens={tokens} />

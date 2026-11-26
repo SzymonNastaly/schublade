@@ -22,12 +22,6 @@ export type UploadEnvironment = Pick<
 // in the R2 read, the Blob for Markdown conversion, and the PDFium heap, so 25 MB per file
 // keeps that step near 75 MB.
 export const MAXIMUM_DOCUMENT_BYTES = 25_000_000
-// The parsed request stays in memory while each file is buffered once more for R2, so 50 MB
-// per request keeps the upload near 75 MB as well.
-const MAXIMUM_REQUEST_BYTES = 50_000_000
-// Each file costs an R2 write, a D1 insert, and a Workflow start in the same invocation, so one
-// upload request or one mail message starts at most this many of each.
-export const MAXIMUM_FILES_PER_SUBMISSION = 20
 
 /**
  * An accepted file became a new document. An already archived file's bytes belong to a document
@@ -200,63 +194,4 @@ export function limitRequestBody(request: Request, maximumBytes: number) {
 		}),
 	)
 	return { body, exceeded: () => receivedBytes > maximumBytes }
-}
-
-type MultipartBody = { kind: "form"; formData: FormData } | { kind: "too_large" } | { kind: "malformed" }
-
-async function readLimitedFormData(request: Request): Promise<MultipartBody> {
-	const { body, exceeded } = limitRequestBody(request, MAXIMUM_REQUEST_BYTES)
-	const contentType = request.headers.get("Content-Type") ?? ""
-	try {
-		return {
-			kind: "form",
-			formData: await new Response(body, { headers: { "Content-Type": contentType } }).formData(),
-		}
-	} catch (error) {
-		if (exceeded()) return { kind: "too_large" }
-		// workerd raises a TypeError for a body that is not multipart or URL-encoded form data.
-		if (error instanceof TypeError) return { kind: "malformed" }
-		throw error
-	}
-}
-
-/**
- * Accepts the files of a multipart request to the ingest route whose fields are named files, one
- * outcome per file. Multipart carries no text.
- */
-export async function receiveDocumentUploads(environment: UploadEnvironment, request: Request): Promise<Response> {
-	const body = await readLimitedFormData(request)
-	if (body.kind === "too_large") {
-		return Response.json(
-			{ error: `The upload is larger than ${MAXIMUM_REQUEST_BYTES / 1_000_000} MB. Upload fewer files at once.` },
-			{ status: 413 },
-		)
-	}
-	const files = body.kind === "form" ? body.formData.getAll("files").filter((entry) => entry instanceof File) : []
-	if (files.length === 0) {
-		return Response.json({ error: "Send the documents as multipart form fields named files" }, { status: 400 })
-	}
-	const outcomes: Array<UploadOutcome> = []
-	for (const [index, file] of files.entries()) {
-		if (index >= MAXIMUM_FILES_PER_SUBMISSION) {
-			outcomes.push({
-				kind: "rejected",
-				fileName: file.name,
-				reason: `An upload accepts at most ${MAXIMUM_FILES_PER_SUBMISSION} files. Upload this file again.`,
-			})
-			continue
-		}
-		console.log("Document reception: route=ingest text=absent thumbnail=absent")
-		try {
-			outcomes.push(await acceptDocumentUpload(environment, file))
-		} catch (error) {
-			console.error(`Storing the upload ${file.name} failed`, error)
-			outcomes.push({
-				kind: "failed",
-				fileName: file.name,
-				reason: "The archive could not store the file. Upload it again.",
-			})
-		}
-	}
-	return Response.json({ outcomes })
 }

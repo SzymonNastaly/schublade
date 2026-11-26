@@ -4,7 +4,6 @@
  */
 
 import { CLIENT_PATH_PREFIX } from "../src/client_protocol/client_paths.ts"
-import { TOKEN_INGESTION_PATH } from "../src/ingestion/token_ingestion_path.ts"
 import { ACCESS_BYPASS_DESTINATIONS } from "../src/model_context_protocol/authorization_server_paths.ts"
 
 export const ACCESS_SESSION_DURATION = "720h"
@@ -51,7 +50,7 @@ export function bypassPolicyBody(name: string) {
  * Worker admits only the exact routes it knows.
  */
 export function tokenIngestionDestinations(hostname: string): Array<string> {
-	return [`${hostname}${TOKEN_INGESTION_PATH}`, `${hostname}${CLIENT_PATH_PREFIX}`]
+	return [`${hostname}${CLIENT_PATH_PREFIX}`]
 }
 
 export function modelContextProtocolDestinations(hostname: string): Array<string> {

@@ -89,13 +89,6 @@ export const clientRouteDefinitions: ReadonlyArray<RouteDefinition> = [
 	{
 		method: "PUT",
 		level: "ingest",
-		restrictedScope: "collector",
-		pattern: new RegExp(`^${CLIENT_PATH_PREFIX}/contents/(${DIGEST})$`),
-		route: ([, sha256 = ""]) => ({ kind: "document_reception", reception: "contents", sha256 }),
-	},
-	{
-		method: "PUT",
-		level: "ingest",
 		restrictedScope: "submission",
 		pattern: new RegExp(`^${CLIENT_PATH_PREFIX}/submitted_documents/(${DIGEST})$`),
 		route: ([, sha256 = ""]) => ({ kind: "document_reception", reception: "submitted_documents", sha256 }),

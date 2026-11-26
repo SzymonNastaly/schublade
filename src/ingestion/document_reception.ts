@@ -22,14 +22,12 @@ import type { SourceFile } from "./source_file"
 /**
  * The paths that receive one document named by its digest. A collector must never bring back a
  * document the owner deleted and must wait while a digest is missing, because it sends whatever
- * it finds. A person chose to send, so a deleted content is archived again. The route of the
- * collector builds before derived representations takes the original alone.
+ * it finds. A person chose to send, so a deleted content is archived again.
  */
 const receptionRules = {
-	submitted_documents: { collectorRules: false, acceptsDerivedRepresentations: true },
-	collected_documents: { collectorRules: true, acceptsDerivedRepresentations: true },
-	contents: { collectorRules: true, acceptsDerivedRepresentations: false },
-} as const satisfies Record<string, { collectorRules: boolean; acceptsDerivedRepresentations: boolean }>
+	submitted_documents: { collectorRules: false },
+	collected_documents: { collectorRules: true },
+} as const satisfies Record<string, { collectorRules: boolean }>
 
 export type ReceptionRoute = keyof typeof receptionRules
 
@@ -164,7 +162,7 @@ export async function receiveDocument(
 	{ route, sha256 }: { route: ReceptionRoute; sha256: string },
 ): Promise<Response> {
 	const database = connectDatabase(environment.DATABASE)
-	const { collectorRules, acceptsDerivedRepresentations } = receptionRules[route]
+	const { collectorRules } = receptionRules[route]
 	if (collectorRules) {
 		const refusal = await digestBackfillRefusal(database)
 		if (refusal) return refusal
@@ -173,18 +171,9 @@ export async function receiveDocument(
 	if (collectorRules && known?.state === "deleted") {
 		return problem(409, "The owner deleted this document. Only an upload through the browser brings it back.")
 	}
-	const headers = parseReceptionHeaders(
-		request.headers,
-		new URL(request.url).searchParams,
-		MAXIMUM_DOCUMENT_BYTES,
-		acceptsDerivedRepresentations,
-	)
+	const headers = parseReceptionHeaders(request.headers, new URL(request.url).searchParams, MAXIMUM_DOCUMENT_BYTES)
 	if (headers.kind === "refused") return problem(headers.status, headers.detail)
 	const { layout } = headers
-	// Shows whether documents still arrive without a text, from builds before clients read them.
-	console.log(
-		`Document reception: route=${route} text=${layout.textByteCount > 0 ? "submitted" : "absent"} thumbnail=${layout.thumbnailByteCount > 0 ? "submitted" : "absent"}`,
-	)
 	if (known?.state === "present") {
 		const retried =
 			layout.textByteCount > 0 &&

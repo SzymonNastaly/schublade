@@ -149,143 +149,102 @@ test("POST /api/v1/contents/lookup reads 1000 indented digests and refuses a bod
 	})
 })
 
-// Both routes of a collector, the one of builds before derived representations and the one after.
-const collectorRoutes = ["contents", "collected_documents"]
+test("the lookup and PUT /api/v1/collected_documents/{sha256} answer 503 until every archived document has its digest, and the lookup then names the document", async () => {
+	const { database, collect } = await prepareArchive()
+	const legacyId = "4c5d6e7f-8091-4a2b-9c3d-4e5f60718293"
+	await database.insert(documents).values({
+		id: legacyId,
+		storageObjectKey: `documents/${legacyId}/original.pdf`,
+		mimeType: "application/pdf",
+		byteSize: downloadsInvoice.byteLength,
+		status: "archived",
+	})
+	await env.DOCUMENT_STORAGE.put(`documents/${legacyId}/original.pdf`, downloadsInvoice)
+	const lookup = () => collect("POST", "/api/v1/contents/lookup", JSON.stringify({ sha256: [INVOICE_SHA256] }))
 
-test.for(collectorRoutes)(
-	"the lookup and PUT /api/v1/%s/{sha256} answer 503 until every archived document has its digest, and the lookup then names the document",
-	async (collectorRoute) => {
-		const { database, collect } = await prepareArchive()
-		const legacyId = "4c5d6e7f-8091-4a2b-9c3d-4e5f60718293"
-		await database.insert(documents).values({
-			id: legacyId,
-			storageObjectKey: `documents/${legacyId}/original.pdf`,
-			mimeType: "application/pdf",
-			byteSize: downloadsInvoice.byteLength,
-			status: "archived",
-		})
-		await env.DOCUMENT_STORAGE.put(`documents/${legacyId}/original.pdf`, downloadsInvoice)
-		const lookup = () => collect("POST", "/api/v1/contents/lookup", JSON.stringify({ sha256: [INVOICE_SHA256] }))
+	const lookupBeforeBackfill = await lookup()
+	const submissionBeforeBackfill = await collect(
+		"PUT",
+		`/api/v1/collected_documents/${INVOICE_SHA256}`,
+		downloadsInvoice,
+	)
+	await recordMissingContentDigests(database, env.DOCUMENT_STORAGE)
+	const lookupAfterBackfill = await lookup()
 
-		const lookupBeforeBackfill = await lookup()
-		const submissionBeforeBackfill = await collect(
-			"PUT",
-			`/api/v1/${collectorRoute}/${INVOICE_SHA256}`,
-			downloadsInvoice,
-		)
-		await recordMissingContentDigests(database, env.DOCUMENT_STORAGE)
-		const lookupAfterBackfill = await lookup()
-
-		const unavailable = {
+	const unavailable = {
+		status: 503,
+		contentType: "application/problem+json",
+		location: null,
+		body: {
+			type: "about:blank",
+			title: "Service Unavailable",
 			status: 503,
+			detail: "The archive is still recording the digests of its documents. Send the request again later.",
+		},
+	}
+	expect({
+		lookupBeforeBackfill: await answer(lookupBeforeBackfill),
+		retryAfter: [lookupBeforeBackfill.headers.get("Retry-After"), submissionBeforeBackfill.headers.get("Retry-After")],
+		submissionBeforeBackfill: await answer(submissionBeforeBackfill),
+		lookupAfterBackfill: await answer(lookupAfterBackfill),
+		storedDocuments: await database.select({ id: documents.id }).from(documents),
+	}).toEqual({
+		lookupBeforeBackfill: unavailable,
+		retryAfter: ["900", "900"],
+		submissionBeforeBackfill: unavailable,
+		lookupAfterBackfill: {
+			status: 200,
+			contentType: "application/json",
+			location: null,
+			body: { contents: [{ sha256: INVOICE_SHA256, state: "present", document_id: legacyId }] },
+		},
+		storedDocuments: [{ id: legacyId }],
+	})
+})
+
+test("PUT /api/v1/collected_documents/{sha256} refuses the content of a deleted document with 409, and a browser upload archives it again", async () => {
+	const { database, environment, collect } = await prepareArchive()
+	const upload = await acceptDocumentUpload(environment, new File([scannedInvoice], "scan.pdf"))
+	if (upload.kind !== "accepted") throw new Error(`The upload was ${upload.kind}`)
+	await database.update(documents).set({ status: "archived" }).where(eq(documents.id, upload.documentId))
+	await deleteDocument(
+		{ database, storage: env.DOCUMENT_STORAGE, searchIndex: createInMemorySearchIndex().searchIndex },
+		upload.documentId,
+	)
+
+	const refused = await collect("PUT", `/api/v1/collected_documents/${SCANNED_INVOICE_SHA256}`, scannedInvoice)
+	const documentsAfterRefusal = await database.select({ id: documents.id }).from(documents)
+	const revived = await acceptDocumentUpload(environment, new File([scannedInvoice], "scan.pdf"))
+
+	expect({ refused: await answer(refused), documentsAfterRefusal, revived: revived.kind }).toEqual({
+		refused: {
+			status: 409,
 			contentType: "application/problem+json",
 			location: null,
 			body: {
 				type: "about:blank",
-				title: "Service Unavailable",
-				status: 503,
-				detail: "The archive is still recording the digests of its documents. Send the request again later.",
+				title: "Conflict",
+				status: 409,
+				detail: "The owner deleted this document. Only an upload through the browser brings it back.",
 			},
-		}
-		expect({
-			lookupBeforeBackfill: await answer(lookupBeforeBackfill),
-			retryAfter: [
-				lookupBeforeBackfill.headers.get("Retry-After"),
-				submissionBeforeBackfill.headers.get("Retry-After"),
-			],
-			submissionBeforeBackfill: await answer(submissionBeforeBackfill),
-			lookupAfterBackfill: await answer(lookupAfterBackfill),
-			storedDocuments: await database.select({ id: documents.id }).from(documents),
-		}).toEqual({
-			lookupBeforeBackfill: unavailable,
-			retryAfter: ["900", "900"],
-			submissionBeforeBackfill: unavailable,
-			lookupAfterBackfill: {
-				status: 200,
-				contentType: "application/json",
-				location: null,
-				body: { contents: [{ sha256: INVOICE_SHA256, state: "present", document_id: legacyId }] },
-			},
-			storedDocuments: [{ id: legacyId }],
-		})
-	},
-)
-
-test("PUT /api/v1/contents/{sha256} archives new bytes with 202 and answers 200 for bytes a document holds", async () => {
-	const { database, workflowInstances, collect } = await prepareArchive()
-
-	const first = await collect("PUT", `/api/v1/contents/${INVOICE_SHA256}`, downloadsInvoice)
-	const second = await collect("PUT", `/api/v1/contents/${INVOICE_SHA256}`, downloadsInvoice)
-
-	const [document] = await database
-		.select({ id: documents.id, originalSha256: documents.originalSha256, byteSize: documents.byteSize })
-		.from(documents)
-	const documentId = document?.id
-	const expectedAnswer = (status: number) => ({
-		status,
-		contentType: "application/json",
-		location: `/api/v1/documents/${documentId}`,
-		body: { document_id: documentId, status: "processing", failure_reason: null },
-	})
-	expect({
-		first: await answer(first),
-		second: await answer(second),
-		document,
-		workflowInstances: workflowInstances.length,
-	}).toEqual({
-		first: expectedAnswer(202),
-		second: expectedAnswer(200),
-		document: { id: documentId, originalSha256: INVOICE_SHA256, byteSize: 37713 },
-		workflowInstances: 1,
+		},
+		documentsAfterRefusal: [],
+		revived: "accepted",
 	})
 })
 
-test.for(collectorRoutes)(
-	"PUT /api/v1/%s/{sha256} refuses the content of a deleted document with 409, and a browser upload archives it again",
-	async (collectorRoute) => {
-		const { database, environment, collect } = await prepareArchive()
-		const upload = await acceptDocumentUpload(environment, new File([scannedInvoice], "scan.pdf"))
-		if (upload.kind !== "accepted") throw new Error(`The upload was ${upload.kind}`)
-		await database.update(documents).set({ status: "archived" }).where(eq(documents.id, upload.documentId))
-		await deleteDocument(
-			{ database, storage: env.DOCUMENT_STORAGE, searchIndex: createInMemorySearchIndex().searchIndex },
-			upload.documentId,
-		)
-
-		const refused = await collect("PUT", `/api/v1/${collectorRoute}/${SCANNED_INVOICE_SHA256}`, scannedInvoice)
-		const documentsAfterRefusal = await database.select({ id: documents.id }).from(documents)
-		const revived = await acceptDocumentUpload(environment, new File([scannedInvoice], "scan.pdf"))
-
-		expect({ refused: await answer(refused), documentsAfterRefusal, revived: revived.kind }).toEqual({
-			refused: {
-				status: 409,
-				contentType: "application/problem+json",
-				location: null,
-				body: {
-					type: "about:blank",
-					title: "Conflict",
-					status: 409,
-					detail: "The owner deleted this document. Only an upload through the browser brings it back.",
-				},
-			},
-			documentsAfterRefusal: [],
-			revived: "accepted",
-		})
-	},
-)
-
-test("PUT /api/v1/contents/{sha256} refuses a digest mismatch, an unaccepted file, and an oversized body without storing anything", async () => {
+test("PUT /api/v1/collected_documents/{sha256} refuses a digest mismatch, an unaccepted file, and an oversized body without storing anything", async () => {
 	const { database, collect } = await prepareArchive()
 	const oversizedPdf = new Uint8Array(25_000_001)
 	oversizedPdf.set([0x25, 0x50, 0x44, 0x46, 0x2d])
 
-	const mismatch = await collect("PUT", `/api/v1/contents/${UNKNOWN_SHA256}`, downloadsInvoice)
+	const mismatch = await collect("PUT", `/api/v1/collected_documents/${UNKNOWN_SHA256}`, downloadsInvoice)
 	const unaccepted = await collect(
 		"PUT",
-		"/api/v1/contents/185f8db32271fe25f561a6fc938b2e264306ec304eda518007d1764826381969",
+		"/api/v1/collected_documents/185f8db32271fe25f561a6fc938b2e264306ec304eda518007d1764826381969",
 		new TextEncoder().encode("Hello"),
 	)
-	const oversized = await collect("PUT", `/api/v1/contents/${UNKNOWN_SHA256}`, oversizedPdf)
+	const oversized = await collect("PUT", `/api/v1/collected_documents/${UNKNOWN_SHA256}`, oversizedPdf)
 
 	expect({
 		mismatch: await answer(mismatch),

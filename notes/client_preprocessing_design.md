@@ -429,6 +429,16 @@ Unit C5 is built: the web application and the evaluation scripts send to the rec
 - The thumbnail is the first page drawn at 480 pixels on its longer side and encoded as a JPEG of quality 80. On the test documents an A4 page gave 339 by 480 pixels and 21 to 28 KB (measured, 2026-11-26). A picture original gets neither text nor thumbnail, and the archive serves the picture itself.
 - Measured on 2026-11-26 against `scripted-archive-server`: the program sent `telecommunication_invoice_digital.pdf` and `dental_invoice_scanned.pdf` to `collected_documents`, and the archive held the text of the first, no text for the second, and a JPEG thumbnail of each. Risk 4, PDFium on macOS, is still unmeasured, because the Mac could not be reached.
 
+## What unit L1 changed in this design
+
+The owner decided on 2026-11-26 that the archive has no users and keeps no compatibility, so unit L1 ran before the clients' units were all built.
+
+- `POST /api/documents/ingest`, `token_ingestion.ts`, `token_ingestion_path.ts`, and the multipart path of `document_upload.ts` (`receiveDocumentUploads`) are gone. A script or a Shortcut sends `PUT /api/v1/submitted_documents/{sha256}`. The path is now one the Worker does not know, so it stays behind `requireAccess` like any other (the dispatch test asserts the 403).
+- `PUT /api/v1/contents/{sha256}` is gone, and with it the `contents` entry of the route table and of `receptionRules`. `parseReceptionHeaders` lost `acceptsDerivedRepresentations` and its 400 for derived headers, because both remaining routes take them.
+- The log line `Document reception: route=… text=… thumbnail=…` is gone. It existed to decide when R1 could run, and the owner decided that without it.
+- `acceptDocumentUpload` stays for mail, its only caller outside the tests, and `MAXIMUM_FILES_PER_SUBMISSION` became `MAXIMUM_ATTACHMENTS` in `inbound_mail.ts`.
+- The Access application "schublade <worker>: token ingestion" keeps its name, so provisioning finds it, and `tokenIngestionDestinations` names only `/api/v1`. A deployment provisioned before L1 keeps the destination `/api/documents/ingest` until provisioning runs again. The Worker answers that path behind `requireAccess`, so the stale bypass admits nothing.
+
 ## Next implementation step
 
 Unit C2: `DocumentReading` and the iPhone application with its share extension. The bindings publish `prepare_submission` with `page_texts` and `thumbnail_path`, `read_submission_answer` with `RouteUnknown`, and `read_document_reception`, and the iPhone's multipart writer goes.
