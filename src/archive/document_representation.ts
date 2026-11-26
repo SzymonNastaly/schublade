@@ -3,7 +3,12 @@ import { z } from "zod"
 import { connectDatabase } from "../database/client"
 import { documents } from "../database/schema"
 import { rasterizePage } from "../inference/page_rasterizer"
-import { MAIL_MEDIA_TYPE, contentObjectKey, thumbnailObjectKey } from "../ingestion/source_file"
+import {
+	MAIL_MEDIA_TYPE,
+	contentObjectKey,
+	submittedThumbnailObjectKey,
+	thumbnailObjectKey,
+} from "../ingestion/source_file"
 
 type RepresentationEnvironment = Pick<Env, "DATABASE" | "DOCUMENT_STORAGE">
 
@@ -59,16 +64,19 @@ function storedRepresentation(object: R2Object | R2ObjectBody | null): StoredRep
 }
 
 /**
- * The first page of a PDF as a small image, rendered on first request and kept beside the file,
- * so existing documents need no backfill. Concurrent requests write the same object. An image
- * original is its own thumbnail. A page that cannot be drawn is marked, so that asking for its
- * thumbnail again does not read and draw the whole original again.
+ * The first page as a small image: the JPEG its client drew and sent with it, or else one drawn
+ * from a PDF on first request and kept beside the file, so existing documents need no backfill.
+ * Concurrent requests write the same object. An image original is its own thumbnail. A page that
+ * cannot be drawn is marked, so that asking for its thumbnail again does not read and draw the
+ * whole original again.
  */
 async function readThumbnail(
 	storage: R2Bucket,
 	document: RepresentedDocument,
 	conditions: Headers | undefined,
 ): Promise<StoredRepresentation | undefined> {
+	const submitted = await storage.get(submittedThumbnailObjectKey(document.id), { onlyIf: conditions })
+	if (submitted) return storedRepresentation(submitted)
 	const key = thumbnailObjectKey(document.id)
 	const stored = await storage.get(key, { onlyIf: conditions })
 	const marked = stored?.customMetadata?.thumbnail === UNRENDERABLE_MARK.thumbnail

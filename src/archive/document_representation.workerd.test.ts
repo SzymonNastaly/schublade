@@ -31,6 +31,23 @@ test("the thumbnail of a PDF is rendered on first request and served from storag
 	expect(await served.text()).toBe("stored thumbnail")
 })
 
+test("the thumbnail a client submitted is served as a JPEG before any drawing of the PDF", async () => {
+	const documentId = "4a6c8e0b-2d1f-4c35-9b7e-6f1a3c5e7d92"
+	await storePdfDocument(documentId, digitalStatement)
+	await env.DOCUMENT_STORAGE.put(`documents/${documentId}/thumbnail.jpg`, "submitted thumbnail", {
+		httpMetadata: { contentType: "image/jpeg" },
+	})
+
+	const response = await serveDocumentRepresentation(env, { documentId, representation: "thumbnail" })
+
+	expect({
+		status: response.status,
+		type: response.headers.get("content-type"),
+		body: await response.text(),
+		drawnThumbnail: await env.DOCUMENT_STORAGE.head(`documents/${documentId}/thumbnail.png`),
+	}).toEqual({ status: 200, type: "image/jpeg", body: "submitted thumbnail", drawnThumbnail: null })
+})
+
 test("a PDF that cannot be rendered has no thumbnail, and its original is read once however often the thumbnail is requested", async () => {
 	const documentId = "8d2a4b6c-0e3f-4a79-a1d5-4f9b7e2a0c83"
 	await storePdfDocument(documentId, "this is not a PDF")

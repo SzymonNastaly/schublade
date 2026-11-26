@@ -48,7 +48,7 @@ src/
 		archive_changes.workerd.test.ts
 		document_listing.ts                  The document listing query with its filters, one D1 batch per listing, queryDocumentPage, which pages in SQL, scopeAdmission and deniedTagsAllExist, the facet options with their archived document counts, and the status records of given documents
 		document_listing.workerd.test.ts
-		document_representation.ts           The original file, the extracted Markdown, or a first-page thumbnail rendered on first request, served with nosniff and a sandbox policy; the mark of a PDF page that cannot be drawn; readStoredRepresentation, which the client routes share
+		document_representation.ts           The original file, the extracted Markdown, or a first-page thumbnail, the JPEG a client submitted or else one rendered on first request, served with nosniff and a sandbox policy; the mark of a PDF page that cannot be drawn; readStoredRepresentation, which the client routes share
 		document_representation.workerd.test.ts
 		failed_documents.ts                  The documents whose ingestion failed, newest first, and their count
 		failed_documents.workerd.test.ts
