@@ -463,6 +463,7 @@ The checks run in this order:
 | 411 | No `Content-Length` |
 | 413 | A text above 2,000,000 bytes, a thumbnail above 200,000 bytes, or an original above 25,000,000 bytes |
 | 200 | A document holds the content. The body is not read and nothing is written |
+| 202 | A document holds the content, its ingestion failed, and the text holds at least 40 letters or digits. Only the text and the thumbnail are read: they replace the document's, and its ingestion starts again |
 | 415 | The thumbnail does not start with `FF D8 FF`, or the original is no PDF, JPEG, PNG, or WebP file |
 | 422 | R2 received other bytes than the digest in the path names. Nothing is stored |
 | 202 | The content became a new document |

@@ -127,3 +127,40 @@ test("PUT /api/submitted_documents/{sha256} from a member's browser refuses an o
 		storedObjects: [],
 	})
 })
+
+test("PUT /api/v1/submitted_documents/{sha256} with a text retries the failed document that holds the content, without reading the original", async () => {
+	const { database, environment, workflowInstances, token } = await prepareArchive()
+	const dispatch = createRequestDispatcher(() => new Response("archive application"), false)
+	const send = (request: Request) => dispatch(request, environment, context)
+	const path = `/api/v1/submitted_documents/${SCANNED_INVOICE_SHA256}`
+	await send(receptionRequest(path, { Authorization: `Bearer ${token}` }))
+	const [archived] = await database.select({ id: documents.id }).from(documents)
+	const documentId = archived?.id ?? ""
+	await database.update(documents).set({ status: "failed", failureReason: "unreadable_page", pageCount: null })
+	await env.DOCUMENT_STORAGE.delete([
+		`documents/${documentId}/submitted_text.md`,
+		`documents/${documentId}/thumbnail.jpg`,
+	])
+	// The text and the thumbnail alone, under the counts of the whole request.
+	const prefix = new Blob([submittedText, submittedThumbnail])
+	const complete = receptionRequest(path, { Authorization: `Bearer ${token}` })
+
+	const response = await send(new Request(complete, { body: prefix.stream() }))
+
+	const [document] = await database
+		.select({ status: documents.status, failureReason: documents.failureReason, pageCount: documents.pageCount })
+		.from(documents)
+	expect({
+		status: response.status,
+		body: await response.json(),
+		document,
+		objects: (await storedObjects()).map(({ name }) => name),
+		retry: workflowInstances[1],
+	}).toEqual({
+		status: 202,
+		body: { document_id: documentId, status: "processing", failure_reason: null },
+		document: { status: "processing", failureReason: null, pageCount: 3 },
+		objects: ["original.pdf", "submitted_text.md", "thumbnail.jpg"],
+		retry: { id: expect.any(String) as string, params: { documentId } },
+	})
+})

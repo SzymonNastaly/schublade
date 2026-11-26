@@ -1,10 +1,20 @@
+import { and, eq } from "drizzle-orm"
 import { digestBackfillRefusal, documentStatusResponse } from "../client_protocol/collection_requests"
 import { problem } from "../client_protocol/problem_details"
 import { connectDatabase } from "../database/client"
+import { documents } from "../database/schema"
 import { lookupContents } from "./content_identity"
+import { retryDocumentIngestion } from "./document_ingestion"
+import { isUsableSubmittedText } from "./document_text"
 import { MAXIMUM_DOCUMENT_BYTES, archiveContent } from "./document_upload"
 import { parseReceptionHeaders } from "./reception_headers"
-import { UNACCEPTED_FILE_KIND, identifySourceFile } from "./source_file"
+import {
+	UNACCEPTED_FILE_KIND,
+	identifySourceFile,
+	submittedTextObjectKey,
+	submittedThumbnailObjectKey,
+} from "./source_file"
+import type { ArchiveDatabase } from "../database/client"
 import type { DerivedRepresentations, UploadEnvironment } from "./document_upload"
 import type { ReceptionLayout } from "./reception_headers"
 import type { SourceFile } from "./source_file"
@@ -29,14 +39,35 @@ export const MEMBER_RECEPTION_PATTERN = /^\/api\/submitted_documents\/([0-9a-f]{
 // identifySourceFile reads at most the first 12 bytes of a file.
 const SIGNATURE_BYTES = 12
 
+type BodyRefusal = { kind: "refused"; status: 400 | 415; detail: string }
+
 type ReceptionBody =
 	| { kind: "received"; original: ReadableStream<Uint8Array>; sourceFile: SourceFile; derived: DerivedRepresentations }
-	| { kind: "refused"; status: 400 | 415; detail: string }
+	| BodyRefusal
+
+type DerivedPrefix = { kind: "read"; text: Uint8Array<ArrayBuffer>; thumbnail: Uint8Array<ArrayBuffer> } | BodyRefusal
+
+const TRUNCATED_BODY: BodyRefusal = {
+	kind: "refused",
+	status: 400,
+	detail: "The body is shorter than its Content-Length",
+}
 
 async function readCounted(reader: ReadableStreamBYOBReader, byteCount: number) {
 	if (byteCount === 0) return new Uint8Array(0)
 	const { value } = await reader.readAtLeast(byteCount, new Uint8Array(byteCount))
 	return value?.byteLength === byteCount ? value : undefined
+}
+
+/** Reads the counted text and thumbnail that open the body. */
+async function readDerivedPrefix(reader: ReadableStreamBYOBReader, layout: ReceptionLayout): Promise<DerivedPrefix> {
+	const text = await readCounted(reader, layout.textByteCount)
+	const thumbnail = await readCounted(reader, layout.thumbnailByteCount)
+	if (text === undefined || thumbnail === undefined) return TRUNCATED_BODY
+	if (thumbnail.byteLength > 0 && !(thumbnail[0] === 0xff && thumbnail[1] === 0xd8 && thumbnail[2] === 0xff)) {
+		return { kind: "refused", status: 415, detail: "The thumbnail must be a JPEG" }
+	}
+	return { kind: "read", text, thumbnail }
 }
 
 /**
@@ -45,17 +76,14 @@ async function readCounted(reader: ReadableStreamBYOBReader, byteCount: number) 
  * that stream, and the rest of the body is piped through without any code reading it.
  */
 async function readReceptionBody(body: ReadableStream | null, layout: ReceptionLayout): Promise<ReceptionBody> {
-	const truncated = { kind: "refused", status: 400, detail: "The body is shorter than its Content-Length" } as const
-	if (body === null) return truncated
+	if (body === null) return TRUNCATED_BODY
 	const reader = body.getReader({ mode: "byob" })
-	const text = await readCounted(reader, layout.textByteCount)
-	const thumbnail = await readCounted(reader, layout.thumbnailByteCount)
+	const prefix = await readDerivedPrefix(reader, layout)
+	if (prefix.kind === "refused") return prefix
+	const { text, thumbnail } = prefix
 	const leading = await readCounted(reader, Math.min(SIGNATURE_BYTES, layout.originalByteCount))
 	reader.releaseLock()
-	if (text === undefined || thumbnail === undefined || leading === undefined) return truncated
-	if (thumbnail.byteLength > 0 && !(thumbnail[0] === 0xff && thumbnail[1] === 0xd8 && thumbnail[2] === 0xff)) {
-		return { kind: "refused", status: 415, detail: "The thumbnail must be a JPEG" }
-	}
+	if (leading === undefined) return TRUNCATED_BODY
 	const sourceFile = identifySourceFile(leading)
 	if (!sourceFile) return { kind: "refused", status: 415, detail: UNACCEPTED_FILE_KIND }
 	const original = new FixedLengthStream(layout.originalByteCount)
@@ -78,6 +106,46 @@ async function readReceptionBody(body: ReadableStream | null, layout: ReceptionL
 			...(layout.pageCount !== undefined && { pageCount: layout.pageCount }),
 		},
 	}
+}
+
+/**
+ * A failed document holds its content, so the same bytes again would change nothing. A text the
+ * client read lets ingestion succeed without the reading that failed, so the text and thumbnail
+ * replace the document's and it is retried. The original is never read, because the archive holds
+ * it. Returns undefined when the holder has not failed or the text is too short to change anything.
+ */
+async function retryWithSubmittedText(
+	environment: UploadEnvironment,
+	database: ArchiveDatabase,
+	body: ReadableStream | null,
+	layout: ReceptionLayout,
+	documentId: string,
+): Promise<Response | undefined> {
+	const [holder] = await database
+		.select({ status: documents.status })
+		.from(documents)
+		.where(eq(documents.id, documentId))
+	if (holder?.status !== "failed" || body === null) return undefined
+	const reader = body.getReader({ mode: "byob" })
+	const prefix = await readDerivedPrefix(reader, layout)
+	reader.releaseLock()
+	if (prefix.kind === "refused") return problem(prefix.status, prefix.detail)
+	if (!isUsableSubmittedText(new TextDecoder().decode(prefix.text))) return undefined
+	const markdown = { httpMetadata: { contentType: "text/markdown; charset=utf-8" } }
+	await Promise.all([
+		environment.DOCUMENT_STORAGE.put(submittedTextObjectKey(documentId), prefix.text, markdown),
+		prefix.thumbnail.byteLength > 0 &&
+			environment.DOCUMENT_STORAGE.put(submittedThumbnailObjectKey(documentId), prefix.thumbnail, {
+				httpMetadata: { contentType: "image/jpeg" },
+			}),
+		layout.pageCount !== undefined &&
+			database
+				.update(documents)
+				.set({ pageCount: layout.pageCount })
+				.where(and(eq(documents.id, documentId), eq(documents.status, "failed"))),
+	])
+	await retryDocumentIngestion(environment, documentId)
+	return documentStatusResponse(database, documentId, 202)
 }
 
 // R2 names a digest mismatch with this code, and the message carries no other stable part.
@@ -117,7 +185,12 @@ export async function receiveDocument(
 	console.log(
 		`Document reception: route=${route} text=${layout.textByteCount > 0 ? "submitted" : "absent"} thumbnail=${layout.thumbnailByteCount > 0 ? "submitted" : "absent"}`,
 	)
-	if (known?.state === "present") return documentStatusResponse(database, known.documentId)
+	if (known?.state === "present") {
+		const retried =
+			layout.textByteCount > 0 &&
+			(await retryWithSubmittedText(environment, database, request.body, layout, known.documentId))
+		return retried || documentStatusResponse(database, known.documentId)
+	}
 	const body = await readReceptionBody(request.body, layout)
 	if (body.kind === "refused") return problem(body.status, body.detail)
 	try {

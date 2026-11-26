@@ -1,6 +1,6 @@
 # Client preprocessing design
 
-How the text and the first-page picture of a document move from the Worker to the clients, drafted on 2026-11-26. It extends `notes/client_protocol.md` with two routes and changes one premise of `notes/iphone_application_design.md`, which says "The PDF carries no text layer: the archive reads its pages as it reads every scan". The owner decided its open questions on 2026-11-26, and units S1, S2, S3, C1, C4, C5, and M1 are built, and the Rust part of C3.
+How the text and the first-page picture of a document move from the Worker to the clients, drafted on 2026-11-26. It extends `notes/client_protocol.md` with two routes and changes one premise of `notes/iphone_application_design.md`, which says "The PDF carries no text layer: the archive reads its pages as it reads every scan". The owner decided its open questions on 2026-11-26, and units S1, S2, S3, C1, C4, C5, M1, and A1 are built, and the Rust part of C3.
 
 Every claim about behaviour carries one of three labels. Documented means a vendor's documentation or this repository's notes say it. Measured means someone ran it, with the date. Inferred means it follows from the other two and nobody ran it.
 
@@ -412,6 +412,15 @@ Unit C5 is built: the web application and the evaluation scripts send to the rec
 - The picture is a `screenshot` of an A4 viewport, 794 by 1123 CSS pixels, clipped at the scale 480/1123. Browser Run honoured the clip's scale: each answer was a 339 by 480 JPEG of 3.6 to 18 KB (measured, 2026-11-26).
 - Measured on 2026-11-26 through `pnpm dev`, because the shell's token is refused by Browser Run's REST API: three messages, the test's receipt, a forwarded HTML receipt with layout tables, a style sheet, and a hidden preheader, and a plain-text utility statement, each printed, scraped, and pictured once, nine quick actions in all. PDFium's text layer of each recorded PDF and the scraped text held the same letters and digits (64 of 64, 761 of 761, 460 of 460) and the same words, and neither held the hidden preheader. The scrape reported 64 to 84 ms of browser time; the PDF and the screenshot reported none in `X-Browser-Ms-Used`. The browser time is far below the 10 hours a month that Workers Paid includes, so the measurement cost nothing beyond the plan. The three messages also passed classification and indexing, which billed three classifications and three AI Search uploads on the development instance.
 - The receipt's answers are recorded in `test_fixtures/inference_recordings/receipt_email.json` and `receipt_email.pdf`, which the ingestion tests answer with.
+
+## What unit A1 changed in this design
+
+- The rule applies on `submitted_documents` and `collected_documents`, the two routes that take a text. `contents` refuses the headers of a text already.
+- It needs a usable text, at least 40 letters or digits, not any text. A shorter one would run the chain that failed again and bill its recognition, so such a request answers 200 with the failed status, as before.
+- The answer is 202 with the status `processing`, because the document is read again, and a client reads it as archived, not as held already.
+- The page count of the request replaces the document's, so a repaired scan shows the count its client read.
+- The retry starts with an `ingest` token, while the Retry button needs `modify`. The token can change nothing but the text of a document whose reading failed, which the tradeoffs accept.
+- A concurrent second retry of one document fails the reclaim in `retryDocumentIngestion` and answers 500, and the client's next attempt reads the status with 200 (inferred, not tested).
 
 ## What unit C4 changed in this design
 
