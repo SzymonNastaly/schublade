@@ -71,7 +71,7 @@ Measured on 2026-11-26 in workerd 1.20261104.1 through miniflare, over HTTP, wit
 - A wrong digest and a truncated original both fail with "put: The SHA-256 checksum you specified did not match what we received. … (10037)", and no object is stored.
 - When the Worker answered before it read a 20 MB body, a Node client lost the connection with `EPIPE`. A 5 MB body got its answer. See risk 1.
 
-Whether deployed R2 answers a mismatch with the same message and code is not measured. Unit S1 reads it on staging. A put that fails for any other reason answers 500, and a client sends both again later, so a wrong reading of the error costs a wrong status code and no data.
+Deployed R2 answers a mismatch with the same message and code (measured on staging, 2026-11-26): "put: The SHA-256 checksum you specified did not match what we received. You provided a SHA-256 checksum with value: … Actual SHA-256 was: … (10037)". The reception logs it as "R2 refused the original of <sha256>". A put that fails for any other reason answers 500, and a client sends both again later, so a wrong reading of the error costs a wrong status code and no data.
 
 ### Why not multipart, and why not several requests
 
@@ -155,7 +155,18 @@ The text is stored as `submitted_text.md` and not as `content.md`, because `note
 
 ### What a request costs the Worker
 
-Inferred, not measured: the cost no longer grows with the original. The Worker copies the counted prefix once, at most 2,200,000 bytes and usually a few tens of kilobytes, and does two D1 reads, three R2 writes, one D1 batch, and one Workflow start. The 0.8 ms per MiB of hashing, the multipart parse, the full copy into an `ArrayBuffer`, and the `TransformStream` of `limitRequestBody`, which runs JavaScript for every chunk, are gone from this route. Unit S1 measures CPU time on staging for a 1 MB and a 20 MB upload on the old and the new route through `cf o11y telemetry`, which works there (`AGENTS.md`).
+The Worker copies the counted prefix once, at most 2,200,000 bytes and usually a few tens of kilobytes, and does two D1 reads, three R2 writes, one D1 batch, and one Workflow start. The 0.8 ms per MiB of hashing, the multipart parse, the full copy into an `ArrayBuffer`, and the `TransformStream` of `limitRequestBody`, which runs JavaScript for every chunk, are gone from this route.
+
+Measured on staging on 2026-11-26 through `cf o11y telemetry`, with synthetic PDFs and the staging ingest token on `submitted_documents`:
+
+| Request | Status | CPU | Wall |
+| --- | --- | --- | --- |
+| 20 MB, new content, first request after a deploy | 202 | 23 ms | 1,597 ms |
+| The same 20 MB again | 200 | 11 ms, then 2 ms on a later run | 70 ms, 48 ms |
+| 20 MB under a wrong digest | 422 | 12 ms, then 13 ms | 695 ms, 643 ms |
+| 1 MB with an 80-byte text, first request after a deploy | 202 | 11 ms | 924 ms |
+
+The CPU no longer follows the size: the 1 MB and the 20 MB uploads cost about the same. It is still above the 10 ms of Workers Free for a new content and a mismatch, so what remains is the per-request work around the stream (token, D1, R2 calls, the Workflow start), not the bytes. The old route was not measured, because the same deploy moved it onto the reception. `curl -T` got every answer, the 200 answered before the body was read included, so risk 1 did not appear with curl.
 
 `PUT /api/v1/contents/{sha256}`, the route of collector builds already installed, moves to the same function in unit S1, with both counts refused. Its wire stays the same and its body is no longer buffered or hashed in the Worker.
 
@@ -310,8 +321,8 @@ Mail keeps its per-byte cost. The email handler parses the message and hashes ea
 
 ## Risks
 
-1. An answer before the body is read may not reach a client that is still sending. It broke a Node client at 20 MB locally. The 200 for a held content and the 409 are such answers, and the 409 exists today. Unit S1 sends 20 MB twice to staging with `curl` and with the iPhone. If the second answer is lost, the reception reads the body to its end before it answers.
-2. A `Request` built inside a workerd test may not give the byte stream a request over HTTP gives. The probe ran over HTTP. Unit S1 finds out with its first test.
+1. An answer before the body is read may not reach a client that is still sending. It broke a Node client at 20 MB locally. The 200 for a held content and the 409 are such answers. On staging `curl` got the 200 for a held 20 MB content twice (measured, 2026-11-26). The iPhone's background session is not measured yet; unit C2 sends a held content from it. If its answer is lost, the reception reads the body to its end before it answers.
+2. Settled: a `Request` built inside a workerd test gives a byte stream that `readAtLeast` and the `FixedLengthStream` read as one over HTTP does. Such a `Request` carries no `Content-Length`, so the tests set it.
 3. Vision in the share extension, which the system ends above about 120 MB, is not measured on a 25-page scan. If it does not fit, the extension reads text layers only and leaves a submission that needs recognition unclaimed, so the application reads and sends it.
 4. Bundling PDFium into `schublade-collector` on macOS is inferred from its Linux build. If it is awkward, the program on macOS uses PDFKit through objc2-pdf-kit.
 
@@ -351,6 +362,15 @@ Each unit ends in its check and one commit on `main`. The server comes first and
 
 `AGENTS.md` and `notes/client_protocol.md` change with the unit that changes what they describe. `README.md` needs its upload example and its description of ingestion revised after C5 and R1, which the owner writes.
 
+## What the server units changed in this design
+
+- `parseReceptionHeaders` lives in `src/ingestion/reception_headers.ts`, because `document_reception.ts` imports the Workflow and PDFium and cannot run in the Node project.
+- The route table has one entry per path, not one pattern for both, because each refusing route now names its refusal of a restricted token in `restrictedScopeRefusals`: `submitted_documents` says "Adding documents needs an unrestricted token", the collector's routes keep "A collector needs an unrestricted token".
+- A 422 cannot name the digest it received, because the Worker never hashes the original. Its detail is "The original does not have the SHA-256 in the path".
+- `contents` answers 411 to a body without `Content-Length`. The collector of build 1.0 sends one, because ureq sets it for a byte slice.
+- The generated runtime types lack `readAtLeast`, so `src/ambient_declarations.d.ts` declares it.
+- The 415 for an unaccepted original now comes before the 422 on `contents` as well.
+
 ## Next implementation step
 
-Unit S1, starting with its workerd test that sends the prefix and a fixture PDF to `receiveDocument`, because it settles risk 2 before anything is built on the stream.
+Unit C1: the wire in Rust, with `test_fixtures/client_protocol/submitted_document_text.md` shared by the Rust writer and a Worker test, and a scripted archive that answers both routes and the plain 403 of an old archive, so that a client holds its uploads there (decision 2).
