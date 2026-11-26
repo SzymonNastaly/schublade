@@ -6,7 +6,7 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 
-use archive_access::{ArchiveAddress, ArchiveCondition, ArchiveToken, DerivedRepresentations, DocumentReception};
+use archive_access::{ArchiveAddress, ArchiveCondition, ArchiveToken, DerivedRepresentations};
 use collection_core::archive_client::{ArchiveClient, HttpArchiveClient};
 use collection_core::archive_connection::SubmissionCondition;
 use collection_core::content_synchronization::{
@@ -261,63 +261,6 @@ fn a_submission_sends_the_text_beside_the_bytes_under_their_digest_and_reads_eve
     );
     assert_eq!(first.text_byte_count.as_deref(), Some("20"));
     assert_eq!(first.body, b"## Page 1\n\nRechnung\n%PDF-1.7 the bytes");
-}
-
-#[test]
-fn the_reception_is_asked_once_it_is_offered_and_again_after_an_archive_without_it() {
-    let content = VerifiedContent::from_bytes(b"%PDF-1.7 the bytes".to_vec());
-    let access_refusal = ScriptedResponse {
-        status: 403,
-        headers: vec![("Content-Type", "text/plain".to_owned())],
-        body: "Forbidden".to_owned(),
-        delay: Duration::ZERO,
-    };
-    let archive = TestArchive::start(vec![
-        access_refusal,
-        problem(405, "Send this request with PUT"),
-        ScriptedResponse {
-            status: 403,
-            headers: vec![("Content-Type", "text/plain".to_owned())],
-            body: "Forbidden".to_owned(),
-            delay: Duration::ZERO,
-        },
-        problem(405, "Send this request with PUT"),
-    ]);
-    let client = archive.client();
-
-    let older = client.read_document_reception();
-    let offered = client.read_document_reception();
-    let remembered = client.read_document_reception();
-    let refused = client.submit(
-        authorization(content.digest()),
-        content.clone(),
-        DerivedRepresentations::default(),
-    );
-    let asked_again = client.read_document_reception();
-
-    assert_eq!(older, Ok(DocumentReception::Absent));
-    assert_eq!(offered, Ok(DocumentReception::Offered));
-    assert_eq!(remembered, Ok(DocumentReception::Offered));
-    assert_eq!(refused, Err(SubmissionCondition::ReceptionAbsent));
-    assert_eq!(asked_again, Ok(DocumentReception::Offered));
-    let requests: Vec<(String, String)> = archive
-        .requests()
-        .into_iter()
-        .map(|request| (request.method, request.path))
-        .collect();
-    let probe = format!("/api/v1/submitted_documents/{}", "0".repeat(64));
-    assert_eq!(
-        requests,
-        vec![
-            ("GET".to_owned(), probe.clone()),
-            ("GET".to_owned(), probe.clone()),
-            (
-                "PUT".to_owned(),
-                format!("/api/v1/collected_documents/{}", content.digest().hexadecimal())
-            ),
-            ("GET".to_owned(), probe),
-        ]
-    );
 }
 
 #[test]

@@ -1,21 +1,16 @@
 //! The routes of `notes/client_protocol.md` and `POST /api/documents/ingest`, each answered from the
 //! `ScriptedArchive` as the Worker answers it.
 
-use archive_access::{
-    ArchiveCondition, ContentDigest, DerivedRepresentations, DocumentIdentifier, PermissionLevel, Timestamp,
-};
+use archive_access::{ArchiveCondition, ContentDigest, DocumentIdentifier, PermissionLevel, Timestamp};
 use archive_replica::replica_records::{
     CategoryIdentifier, DocumentRecord, FieldValue, JournalCursor, JournalPage, PersonAssignment, RemovedRecord,
     SenderIdentifier, TagIdentifier,
 };
 use archive_replica::{ArchiveReader, OriginalAnswer, PageAnswer, ThumbnailAnswer};
 use collection_core::ArchiveClient;
-use collection_core::candidate_classification::{MAXIMUM_CONTENT_BYTES, identify_content_kind};
-use collection_core::content_synchronization::{
-    ArchiveStanding, ContentRecord, LookupAnswer, SubmissionFailures, SubmissionOutcome, authorize_submission,
-};
-use collection_core::domain_types::{DocumentStatus, TimingPolicy};
-use collection_core::file_system_observation::VerifiedContent;
+use collection_core::candidate_classification::identify_content_kind;
+use collection_core::content_synchronization::LookupAnswer;
+use collection_core::domain_types::DocumentStatus;
 use scripted_archive::{ScriptedArchive, UploadOutcome};
 
 use crate::{Answer, Body};
@@ -260,51 +255,6 @@ pub fn look_up(archive: &ScriptedArchive, body: &[u8]) -> Answer {
         })
         .collect();
     Answer::json(200, serde_json::json!({ "contents": contents }))
-}
-
-pub fn submit(archive: &ScriptedArchive, digest: ContentDigest, body: Vec<u8>) -> Answer {
-    let content = VerifiedContent::from_bytes(body);
-    if content.digest() != digest {
-        return Answer::problem(422, "The body has another SHA-256");
-    }
-    if u64::try_from(content.bytes().len()).unwrap_or(u64::MAX) > MAXIMUM_CONTENT_BYTES {
-        return Answer::problem(413, "The file is larger than 25 MB");
-    }
-    if identify_content_kind(content.bytes()).is_none() {
-        return Answer::problem(415, "Only PDF, JPEG, PNG, and WebP files can be archived.");
-    }
-    let record = ContentRecord {
-        digest,
-        standing: ArchiveStanding::Absent {
-            looked_up_at: Timestamp(0),
-            failures: SubmissionFailures::default(),
-        },
-    };
-    let authorization = authorize_submission(&record, Timestamp(0), &TimingPolicy::default())
-        .unwrap_or_else(|_| unreachable!("a content looked up at this moment is authorized"));
-    // The route of collector builds before derived representations: the original alone.
-    match archive.submit(authorization, content, DerivedRepresentations::default()) {
-        Ok(SubmissionOutcome::Accepted { document, status }) => document_status_answer(202, &document, &status),
-        Ok(SubmissionOutcome::AlreadyHeld { document, status }) => document_status_answer(200, &document, &status),
-        Ok(SubmissionOutcome::Deleted) => Answer::problem(409, "The owner deleted this document."),
-        Ok(SubmissionOutcome::TooLarge) => Answer::problem(413, "The file is larger than 25 MB"),
-        Ok(SubmissionOutcome::UnacceptedKind) => {
-            Answer::problem(415, "Only PDF, JPEG, PNG, and WebP files can be archived.")
-        }
-        Err(condition) => {
-            let condition = match condition {
-                collection_core::archive_connection::SubmissionCondition::Archive(condition) => condition,
-                collection_core::archive_connection::SubmissionCondition::DigestDisagreement => {
-                    return Answer::problem(422, "The body has another SHA-256");
-                }
-                collection_core::archive_connection::SubmissionCondition::ReceptionAbsent => {
-                    return crate::document_reception::access_refusal();
-                }
-                collection_core::archive_connection::SubmissionCondition::ReceptionUnknown(condition) => condition,
-            };
-            Answer::from_condition(condition)
-        }
-    }
 }
 
 pub fn serve_document_status(archive: &ScriptedArchive, identifier: &str) -> Answer {

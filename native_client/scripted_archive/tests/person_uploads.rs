@@ -8,10 +8,9 @@ use std::process::{Child, ChildStdin, Command, Stdio};
 use std::time::{Duration, Instant};
 
 use archive_access::{
-    ArchiveAddress, ArchiveCondition, ArchiveDownload, ArchiveExchange, ArchiveToken, ContentDigest,
-    DerivedRepresentations, DocumentReception, SubmissionAnswer, SubmissionMediaType, SubmissionRoute,
-    compose_document_text, prepare_ingest_submission, prepare_submission, read_document_reception,
-    read_ingest_submission_answer, read_submission_answer, send_document,
+    ArchiveAddress, ArchiveDownload, ArchiveExchange, ArchiveToken, ContentDigest, DerivedRepresentations,
+    SubmissionAnswer, SubmissionMediaType, SubmissionRoute, compose_document_text, prepare_ingest_submission,
+    prepare_submission, read_ingest_submission_answer, read_submission_answer, send_document,
 };
 use sha2::{Digest, Sha256};
 
@@ -201,7 +200,6 @@ fn a_document_reaches_the_reception_with_its_text_and_thumbnail_once_on_either_r
         page_texts: vec!["Stadtwerke Talbrück GmbH".to_owned(), String::new()],
         thumbnail: Some(thumbnail.clone()),
     };
-    assert_eq!(read_document_reception(&exchange), Ok(DocumentReception::Offered));
 
     let SubmissionAnswer::Archived { document, already_held } = server.submit(scan, &derived) else {
         panic!("the first submission of a scan is archived");
@@ -243,35 +241,4 @@ fn a_document_reaches_the_reception_with_its_text_and_thumbnail_once_on_either_r
         .status()
     };
     assert_eq!((send(), send()), (202, 200));
-}
-
-#[test]
-fn an_archive_older_than_the_reception_is_reported_and_takes_no_document() {
-    let server = ScriptedArchiveServer::start(&["--legacy-reception"]);
-    let exchange = server.exchange();
-    let scan = b"%PDF-1.4\nA letter from the Stadtwerke\n%%EOF\n";
-
-    assert_eq!(read_document_reception(&exchange), Ok(DocumentReception::Absent));
-    assert_eq!(
-        server.submit(scan, &DerivedRepresentations::default()),
-        SubmissionAnswer::RouteUnknown
-    );
-    assert_eq!(
-        send_document(
-            &exchange,
-            SubmissionRoute::CollectedDocuments,
-            &ContentDigest::from_bytes(Sha256::digest(scan).into()),
-            &DerivedRepresentations::default(),
-            scan,
-        )
-        .err(),
-        Some(ArchiveCondition::RouteUnknown)
-    );
-    let held = ureq::get(format!("{}/scripted/held", server.address.origin()))
-        .call()
-        .unwrap()
-        .into_body()
-        .read_to_string()
-        .unwrap();
-    assert_eq!(held, "");
 }

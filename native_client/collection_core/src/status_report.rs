@@ -129,9 +129,6 @@ pub enum AttentionItem {
     CredentialSuspended {
         reason: SuspensionReason,
     },
-    /// The archive is older than the reception of collected documents, so nothing uploads until
-    /// the owner updates it.
-    ArchiveOutdated,
     FolderUnavailable {
         folder: FolderIdentifier,
         availability: FolderAvailability,

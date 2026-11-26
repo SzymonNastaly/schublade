@@ -253,9 +253,6 @@ pub struct TimingPolicy {
     pub submission_back_off: &'static [Duration],
     /// Successive probe delays while Unreachable; the last one repeats.
     pub connection_back_off: &'static [Duration],
-    /// Submissions to an archive without the reception of collected documents wait this long
-    /// before the next one asks again.
-    pub reception_recheck_interval: Duration,
 }
 
 pub const SUBMISSION_BACK_OFF: &[Duration] = &[
@@ -290,7 +287,6 @@ impl Default for TimingPolicy {
             document_follow_interval: Duration::from_secs(30),
             submission_back_off: SUBMISSION_BACK_OFF,
             connection_back_off: CONNECTION_BACK_OFF,
-            reception_recheck_interval: Duration::from_secs(60 * 60),
         }
     }
 }

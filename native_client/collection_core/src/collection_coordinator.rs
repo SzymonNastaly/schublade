@@ -13,8 +13,7 @@ use archive_access::{ArchiveAddress, ArchiveToken, CredentialStore};
 
 use crate::archive_client::ArchiveClient;
 use crate::archive_connection::{
-    ArchiveAnswer, ConnectionEvent, ConnectionState, Consequences, ReceptionStanding, advance_connection,
-    advance_reception, consequences, next_timer,
+    ArchiveAnswer, ConnectionEvent, ConnectionState, Consequences, advance_connection, consequences, next_timer,
 };
 use crate::candidate_classification::{DisregardReason, ReadableSignature};
 use crate::content_synchronization::{ContentEvent, SubmissionOutcome, advance_content};
@@ -97,7 +96,6 @@ pub struct VolatileState {
     /// What the latest listing of each directory left without a row, for the backlog summary.
     pub disregarded: BTreeMap<(FolderIdentifier, DirectoryKey), BTreeMap<DisregardReason, u64>>,
     pub connection: ConnectionState,
-    pub reception: ReceptionStanding,
     pub archive_origin: Option<String>,
     pub archive: Option<Arc<dyn ArchiveClient>>,
     pub document_reader: Arc<dyn DocumentReader>,
@@ -443,7 +441,6 @@ impl VolatileState {
         let record = store.connection_record().map_err(store_failure)?;
         self.archive = Some((self.archive_clients)(&address, &token));
         self.archive_origin = Some(address.origin());
-        self.reception = ReceptionStanding::Assumed;
         let connection = match record.and_then(|record| record.suspension) {
             Some((reason, since)) => ConnectionState::Suspended { reason, since },
             None => advance_connection(&self.connection, ConnectionEvent::Configured, &self.timing),
@@ -734,15 +731,8 @@ impl VolatileState {
         answer: ArchiveAnswer,
         at: Timestamp,
     ) -> rusqlite::Result<BTreeSet<ContentDigest>> {
-        let Consequences {
-            connection,
-            contents,
-            reception,
-        } = consequences(answer, at);
+        let Consequences { connection, contents } = consequences(answer, at);
         self.apply_connection_event(transaction, connection)?;
-        if let Some(finding) = reception {
-            self.reception = advance_reception(finding, at, &self.timing);
-        }
         let mut changed = BTreeSet::new();
         for (digest, event) in contents {
             if self.apply_content_event(store, transaction, digest, event)? {
@@ -882,7 +872,6 @@ impl VolatileState {
             &self.reservations,
             &self.capacity,
             &self.connection,
-            &self.reception,
             now,
             &self.timing,
         );
@@ -985,16 +974,10 @@ impl VolatileState {
         let stored = store.next_deadline(now, &self.timing).ok().flatten();
         let hints = self.pending_hints.values().map(|(_, due)| *due).min();
         let walk = Some(self.last_full_walk_at.after(self.timing.full_walk_interval));
-        [
-            stored,
-            next_timer(&self.connection),
-            self.reception.next_timer(now),
-            hints,
-            walk,
-        ]
-        .into_iter()
-        .flatten()
-        .min()
+        [stored, next_timer(&self.connection), hints, walk]
+            .into_iter()
+            .flatten()
+            .min()
     }
 
     pub fn status(&self, store: &StateStore) -> rusqlite::Result<CollectorStatus> {
@@ -1021,9 +1004,6 @@ impl VolatileState {
         }
         if let ConnectionState::Suspended { reason, .. } = &self.connection {
             attention.push(AttentionItem::CredentialSuspended { reason: *reason });
-        }
-        if let ReceptionStanding::Absent { .. } = self.reception {
-            attention.push(AttentionItem::ArchiveOutdated);
         }
         for record in self.folders.values() {
             let availability = self

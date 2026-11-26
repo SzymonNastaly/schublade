@@ -1,13 +1,11 @@
 //! The seam to the archive. `ArchiveClient` returns domain outcomes only, and no wire type leaves
 //! this module; `archive_connection::consequences` decides what each outcome means.
 
-use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use archive_access::{
     ArchiveAddress, ArchiveCondition, ArchiveExchange, ArchiveResponse, ArchiveToken, DerivedRepresentations,
-    DocumentReception, SubmissionRoute, read_document_reception, send_document,
+    SubmissionRoute, send_document,
 };
 
 use crate::archive_connection::SubmissionCondition;
@@ -15,13 +13,9 @@ use crate::content_synchronization::{LookupAnswer, SubmissionAuthorization, Subm
 use crate::domain_types::{ContentDigest, DocumentIdentifier, DocumentStatus};
 use crate::file_system_observation::VerifiedContent;
 
-/// The requests of the collection protocol, answered in domain terms. Shared by the worker
+/// The three requests of the collection protocol, answered in domain terms. Shared by the worker
 /// threads.
 pub trait ArchiveClient: Send + Sync {
-    /// Whether the archive offers `PUT /api/v1/collected_documents/{sha256}`, asked before a
-    /// submission reads its document, so that an archive older than the reception costs no read.
-    fn read_document_reception(&self) -> Result<DocumentReception, ArchiveCondition>;
-
     /// `POST /api/v1/contents/lookup` with 1 to 1000 digests. Answers in request order; an answer
     /// whose digests differ from the request is a protocol violation.
     fn look_up(&self, digests: &[ContentDigest]) -> Result<Vec<(ContentDigest, LookupAnswer)>, ArchiveCondition>;
@@ -44,16 +38,12 @@ pub trait ArchiveClient: Send + Sync {
 #[derive(Clone)]
 pub struct HttpArchiveClient {
     exchange: ArchiveExchange,
-    /// Set once the archive offered the reception, so it is asked once per client and not before
-    /// every submission. A submission the archive answers as an older one clears it.
-    reception_offered: Arc<AtomicBool>,
 }
 
 impl HttpArchiveClient {
     pub fn new(address: &ArchiveAddress, token: &ArchiveToken) -> HttpArchiveClient {
         HttpArchiveClient {
             exchange: ArchiveExchange::new(address, token),
-            reception_offered: Arc::new(AtomicBool::new(false)),
         }
     }
 
@@ -66,7 +56,6 @@ impl HttpArchiveClient {
     ) -> HttpArchiveClient {
         HttpArchiveClient {
             exchange: ArchiveExchange::with_base_timeout(address, token, base_timeout),
-            reception_offered: Arc::new(AtomicBool::new(false)),
         }
     }
 
@@ -111,17 +100,6 @@ struct DocumentStatusAnswer {
 }
 
 impl ArchiveClient for HttpArchiveClient {
-    fn read_document_reception(&self) -> Result<DocumentReception, ArchiveCondition> {
-        if self.reception_offered.load(Ordering::Relaxed) {
-            return Ok(DocumentReception::Offered);
-        }
-        let reception = read_document_reception(&self.exchange)?;
-        if reception == DocumentReception::Offered {
-            self.reception_offered.store(true, Ordering::Relaxed);
-        }
-        Ok(reception)
-    }
-
     fn look_up(&self, digests: &[ContentDigest]) -> Result<Vec<(ContentDigest, LookupAnswer)>, ArchiveCondition> {
         let hexadecimal: Vec<String> = digests.iter().map(ContentDigest::hexadecimal).collect();
         let body = serde_json::to_vec(&LookupRequest { sha256: &hexadecimal })
@@ -166,20 +144,13 @@ impl ArchiveClient for HttpArchiveClient {
             content.digest(),
             "a submission's authorization and content must name the same digest"
         );
-        let sent = send_document(
+        let response = send_document(
             &self.exchange,
             SubmissionRoute::CollectedDocuments,
             &authorization.digest(),
             &derived,
             content.bytes(),
-        );
-        let response = match sent {
-            Err(ArchiveCondition::RouteUnknown) => {
-                self.reception_offered.store(false, Ordering::Relaxed);
-                return Err(SubmissionCondition::ReceptionAbsent);
-            }
-            sent => sent?,
-        };
+        )?;
         Ok(match response.status() {
             202 => {
                 let (document, status) = document_status(&response)?;

@@ -2,13 +2,12 @@
 //! `ScriptedArchive` model so that an uploaded file appears in the journal and in a library that
 //! follows it.
 //!
-//! Prints `listening http://127.0.0.1:<port>` and runs until standard input closes. With
-//! `--legacy-reception` it answers the reception's paths as an archive older than the reception.
+//! Prints `listening http://127.0.0.1:<port>` and runs until standard input closes.
 
 use std::io::{Read, Write};
 use std::sync::{Mutex, PoisonError};
 
-use archive_access::{ArchiveCondition, ContentDigest, INGEST_PATH, PermissionLevel, SubmissionRoute};
+use archive_access::{ArchiveCondition, INGEST_PATH, PermissionLevel, SubmissionRoute};
 use scripted_archive::ScriptedArchive;
 
 mod client_protocol;
@@ -18,9 +17,9 @@ mod paced_reception;
 
 use client_protocol::{
     ingest, look_up, serve_authorization, serve_changes, serve_document_original, serve_document_status,
-    serve_document_text, serve_document_thumbnail, submit,
+    serve_document_text, serve_document_thumbnail,
 };
-use document_reception::{access_refusal, receive_document, reception_route};
+use document_reception::{receive_document, reception_route};
 use document_seeding::{restrict_to_category, seed_corpus, seed_document_endpoint};
 use paced_reception::{limit_receive_buffer, read_body};
 
@@ -28,7 +27,6 @@ const DEFAULT_TOKEN: &str = "scripted-ingest-token";
 const AUTHORIZATION_PATH: &str = "/api/v1/authorization";
 const CHANGES_PATH: &str = "/api/v1/changes";
 const LOOKUP_PATH: &str = "/api/v1/contents/lookup";
-const CONTENT_PATH_PREFIX: &str = "/api/v1/contents/";
 const DOCUMENT_PATH_PREFIX: &str = "/api/v1/documents/";
 const HELD_DIGESTS_PATH: &str = "/scripted/held";
 const SEED_DOCUMENT_PATH: &str = "/scripted/documents";
@@ -116,9 +114,6 @@ struct ScriptedServer {
     /// The `Authorization` header the archive accepts. `POST /scripted/token` replaces it, as an
     /// owner's revocation replaces the token a client holds.
     accepted_authorization: String,
-    /// Whether the archive is older than the reception, so that Cloudflare Access answers its
-    /// paths.
-    legacy_reception: bool,
 }
 
 /// What the router reads of a request besides its body.
@@ -161,16 +156,6 @@ fn route_request(server: &mut ScriptedServer, request: &ArchiveRequest<'_>, body
         (Method::Post, TOKEN_PATH) => return replace_token(server, &body),
         _ => {}
     }
-    if reception_route(path).is_some() {
-        if server.legacy_reception {
-            return access_refusal();
-        }
-        if *request.method != Method::Put {
-            let mut refusal = Answer::problem(405, "Send this request with PUT");
-            refusal.headers.push(("Allow", "PUT".to_owned()));
-            return refusal;
-        }
-    }
     if request.header("Authorization") != Some(server.accepted_authorization.as_str()) {
         return Answer::problem(401, "Send the scripted bearer token");
     }
@@ -182,13 +167,6 @@ fn route_request(server: &mut ScriptedServer, request: &ArchiveRequest<'_>, body
         (Method::Post, INGEST_PATH) => ingest(archive, request.header("Content-Type"), &body),
         (Method::Put, path) if let Some((route, digest)) = reception_route(path) => {
             receive_document(archive, route, digest, request, query, &body)
-        }
-        (Method::Put, path)
-            if let Some(digest) = path
-                .strip_prefix(CONTENT_PATH_PREFIX)
-                .and_then(ContentDigest::parse_hexadecimal) =>
-        {
-            submit(archive, digest, body)
         }
         (Method::Get, path) if let Some(rest) = path.strip_prefix(DOCUMENT_PATH_PREFIX) => {
             if let Some(id) = rest.strip_suffix("/text") {
@@ -231,7 +209,6 @@ struct Options {
     /// reception, is read, so a screen examination can show an upload under way.
     ingest_pace: Option<usize>,
     restricted_category: Option<String>,
-    legacy_reception: bool,
 }
 
 fn parse_options() -> Options {
@@ -242,7 +219,6 @@ fn parse_options() -> Options {
         seed: 0,
         ingest_pace: None,
         restricted_category: None,
-        legacy_reception: false,
     };
     while let Some(arg) = args.next() {
         match arg.as_str() {
@@ -264,7 +240,6 @@ fn parse_options() -> Options {
             "--restrict-to-category" => {
                 options.restricted_category = Some(args.next().expect("--restrict-to-category requires a name"));
             }
-            "--legacy-reception" => options.legacy_reception = true,
             other => panic!("unknown option: {other}"),
         }
     }
@@ -276,7 +251,6 @@ fn main() {
     let server = ScriptedServer {
         archive: ScriptedArchive::new(),
         accepted_authorization: format!("Bearer {}", options.token),
-        legacy_reception: options.legacy_reception,
     };
     server.archive.set_permission_level(options.permission);
     if let Some(name) = &options.restricted_category {

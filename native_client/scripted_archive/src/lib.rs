@@ -8,8 +8,8 @@ use std::io::Write;
 use std::sync::{Mutex, MutexGuard, PoisonError};
 
 use archive_access::{
-    ArchiveAuthorization, ArchiveCondition, ContentDigest, DerivedRepresentations, DocumentIdentifier,
-    DocumentReception, DownloadFailure, PermissionLevel, Timestamp, compose_document_text,
+    ArchiveAuthorization, ArchiveCondition, ContentDigest, DerivedRepresentations, DocumentIdentifier, DownloadFailure,
+    PermissionLevel, Timestamp, compose_document_text,
 };
 use archive_replica::replica_records::{
     ArchiveRecords, CategoryIdentifier, CategoryRecord, DocumentCondition, DocumentRecord, FailureReason,
@@ -122,8 +122,6 @@ struct Archive {
     submissions: Vec<ContentDigest>,
     status_reads: Vec<DocumentIdentifier>,
     next_arrival_ms: i64,
-    /// False for an archive older than the reception of collected documents.
-    reception_offered: bool,
 }
 
 impl Archive {
@@ -484,7 +482,6 @@ impl ScriptedArchive {
                 submissions: Vec::new(),
                 status_reads: Vec::new(),
                 next_arrival_ms: 1_790_000_000_000,
-                reception_offered: true,
             }),
         }
     }
@@ -745,12 +742,6 @@ impl ScriptedArchive {
         document
     }
 
-    /// Whether the archive offers the reception of collected documents. Without it, the archive
-    /// answers the question and every submission as an archive older than the reception does.
-    pub fn set_reception_offered(&self, offered: bool) {
-        self.archive().reception_offered = offered;
-    }
-
     /// Whether the archive holds a document for this content.
     pub fn holds(&self, digest: &ContentDigest) -> bool {
         matches!(self.archive().contents.get(digest), Some(LookupAnswer::Present(_)))
@@ -937,14 +928,6 @@ impl ArchiveReader for ScriptedArchive {
 }
 
 impl ArchiveClient for ScriptedArchive {
-    fn read_document_reception(&self) -> Result<DocumentReception, ArchiveCondition> {
-        Ok(if self.archive().reception_offered {
-            DocumentReception::Offered
-        } else {
-            DocumentReception::Absent
-        })
-    }
-
     fn look_up(&self, digests: &[ContentDigest]) -> Result<Vec<(ContentDigest, LookupAnswer)>, ArchiveCondition> {
         let mut archive = self.archive();
         archive.lookups.push(digests.to_vec());
@@ -977,9 +960,6 @@ impl ArchiveClient for ScriptedArchive {
             "a submission's authorization and content must name the same digest"
         );
         let mut archive = self.archive();
-        if !archive.reception_offered {
-            return Err(SubmissionCondition::ReceptionAbsent);
-        }
         archive.submissions.push(digest);
         if let Some(condition) = archive.conditions.pop_front() {
             return Err(condition.into());

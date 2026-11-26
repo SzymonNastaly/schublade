@@ -189,8 +189,9 @@ pub enum SubmissionAnswer {
     /// 403 with a problem document: the token's level does not permit sending, or its scope is
     /// restricted.
     NotPermitted,
-    /// 403 without a problem document: the archive is older than the reception. The client holds
-    /// the submission and asks the owner to update the archive.
+    /// 403 without a problem document: Cloudflare Access refused the path, so the archive does not
+    /// offer the reception to this client. Sending the same body again changes nothing until the
+    /// owner corrects the archive's Access applications.
     RouteUnknown,
     /// Storing failed, the archive answered 5xx, or its answer could not be read. Sending the same
     /// body again may succeed.
@@ -303,28 +304,6 @@ pub fn read_submission_answer(status: u16, content_type: Option<&str>, body: &[u
                 .unwrap_or_else(|_| format!("The archive refused the document with status {status}.")),
         },
         _ => SubmissionAnswer::ArchiveUnavailable,
-    }
-}
-
-/// Whether an archive offers the reception.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum DocumentReception {
-    Offered,
-    /// The archive is older than the reception, so a client holds its documents until the owner
-    /// updates it.
-    Absent,
-}
-
-/// Asks the archive whether it offers the reception without sending a document: a GET, which the
-/// reception answers 405 before it reads the token, while an older archive answers the plain 403
-/// of Cloudflare Access.
-pub fn read_document_reception(exchange: &ArchiveExchange) -> Result<DocumentReception, ArchiveCondition> {
-    let probe = SubmissionRoute::SubmittedDocuments.path(&ContentDigest::from_bytes([0; 32]));
-    match exchange.get(&probe) {
-        Ok(response) if response.status() == 405 => Ok(DocumentReception::Offered),
-        Ok(response) => Err(response.protocol_violation()),
-        Err(ArchiveCondition::RouteUnknown) => Ok(DocumentReception::Absent),
-        Err(condition) => Err(condition),
     }
 }
 

@@ -166,18 +166,13 @@ pub fn connection_back_off(attempt: u32, timing: &TimingPolicy) -> Duration {
     back_off_after(attempt, timing.connection_back_off)
 }
 
-/// Why a submission produced no outcome: a condition every route shares, or one its route adds.
+/// Why a submission produced no outcome: a condition every route shares, or the one its route
+/// adds.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum SubmissionCondition {
     Archive(ArchiveCondition),
     /// 422: the archive read other bytes than the digest names.
     DigestDisagreement,
-    /// The archive is older than the reception of collected documents, so nothing was sent and
-    /// the collector holds its submissions until the owner updates it.
-    ReceptionAbsent,
-    /// Asking whether the archive offers the reception met a condition, so nothing was sent and
-    /// the content is not to blame.
-    ReceptionUnknown(ArchiveCondition),
 }
 
 impl From<ArchiveCondition> for SubmissionCondition {
@@ -202,74 +197,18 @@ pub enum ArchiveAnswer {
     },
 }
 
-/// What one answer means: one connection event, the content events it carries, and what it shows
-/// of the archive's reception of collected documents.
+/// What one answer means: one connection event, and the content events it carries.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Consequences {
     pub connection: ConnectionEvent,
     pub contents: Vec<(ContentDigest, ContentEvent)>,
-    pub reception: Option<ReceptionFinding>,
-}
-
-/// What a submission showed of the reception: the reception answered it, or the archive lacks it.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum ReceptionFinding {
-    Offered,
-    Absent,
-}
-
-/// Whether the archive takes collected documents, as the last submission found. Held only in
-/// memory, so a start assumes it does and its first submission asks again. Lookups and status
-/// reads go on either way, because the collector's other routes are older than the reception.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum ReceptionStanding {
-    Assumed,
-    /// The archive is older than the reception. Submissions wait until `recheck_at`, and the next
-    /// one asks again.
-    Absent {
-        recheck_at: Timestamp,
-    },
-}
-
-impl ReceptionStanding {
-    pub fn permits_submission(&self, now: Timestamp) -> bool {
-        match self {
-            ReceptionStanding::Assumed => true,
-            ReceptionStanding::Absent { recheck_at } => now >= *recheck_at,
-        }
-    }
-
-    /// When the coordinator must wake to plan the submissions it held, while that lies ahead.
-    pub fn next_timer(&self, now: Timestamp) -> Option<Timestamp> {
-        match self {
-            ReceptionStanding::Absent { recheck_at } if *recheck_at > now => Some(*recheck_at),
-            ReceptionStanding::Absent { .. } | ReceptionStanding::Assumed => None,
-        }
-    }
-}
-
-pub fn advance_reception(finding: ReceptionFinding, at: Timestamp, timing: &TimingPolicy) -> ReceptionStanding {
-    match finding {
-        ReceptionFinding::Offered => ReceptionStanding::Assumed,
-        ReceptionFinding::Absent => ReceptionStanding::Absent {
-            recheck_at: at.after(timing.reception_recheck_interval),
-        },
-    }
 }
 
 /// The one table that decides what an answer means. A PUT timeout and a PUT 500 count against
 /// the content, so one file cannot stall the collector; every condition also reaches the
 /// connection.
 pub fn consequences(answer: ArchiveAnswer, at: Timestamp) -> Consequences {
-    let consequences = |connection, contents| Consequences {
-        connection,
-        contents,
-        reception: None,
-    };
-    let reception = |finding, consequences: Consequences| Consequences {
-        reception: Some(finding),
-        ..consequences
-    };
+    let consequences = |connection, contents| Consequences { connection, contents };
     match answer {
         ArchiveAnswer::Lookup { answer: Ok(answers) } => consequences(
             ConnectionEvent::Answered,
@@ -281,12 +220,9 @@ pub fn consequences(answer: ArchiveAnswer, at: Timestamp) -> Consequences {
         ArchiveAnswer::Submission {
             content,
             answer: Ok(outcome),
-        } => reception(
-            ReceptionFinding::Offered,
-            consequences(
-                ConnectionEvent::Answered,
-                vec![(content, ContentEvent::SubmissionAnswered { outcome, at })],
-            ),
+        } => consequences(
+            ConnectionEvent::Answered,
+            vec![(content, ContentEvent::SubmissionAnswered { outcome, at })],
         ),
         ArchiveAnswer::DocumentStatus {
             content,
@@ -304,16 +240,8 @@ pub fn consequences(answer: ArchiveAnswer, at: Timestamp) -> Consequences {
                 SubmissionCondition::Archive(ArchiveCondition::ServerError) => {
                     consequences(ConnectionEvent::Answered, failed(SubmissionFailure::ServerError))
                 }
-                SubmissionCondition::DigestDisagreement => reception(
-                    ReceptionFinding::Offered,
-                    consequences(ConnectionEvent::Answered, failed(SubmissionFailure::DigestDisagreement)),
-                ),
-                SubmissionCondition::ReceptionAbsent => reception(
-                    ReceptionFinding::Absent,
-                    consequences(ConnectionEvent::Answered, vec![]),
-                ),
-                SubmissionCondition::ReceptionUnknown(condition) => {
-                    consequences(connection_event(condition, at), vec![])
+                SubmissionCondition::DigestDisagreement => {
+                    consequences(ConnectionEvent::Answered, failed(SubmissionFailure::DigestDisagreement))
                 }
                 SubmissionCondition::Archive(ArchiveCondition::TimedOut) => consequences(
                     ConnectionEvent::ConnectionFailed { at },
@@ -334,8 +262,8 @@ fn connection_event(condition: ArchiveCondition, at: Timestamp) -> ConnectionEve
         ArchiveCondition::CredentialRefused => ConnectionEvent::CredentialRefused { at },
         ArchiveCondition::CredentialInsufficient => ConnectionEvent::CredentialInsufficient { at },
         ArchiveCondition::ServiceUnavailable { retry_after } => ConnectionEvent::ServiceUnavailable { retry_after, at },
-        // The lookup and the status read exist in every archive, so one that does not offer them
-        // violates the protocol. A submission reads RouteUnknown as `ReceptionAbsent` before this.
+        // The collector's routes exist in every archive, so one that does not offer them violates
+        // the protocol.
         ArchiveCondition::RouteUnknown
         | ArchiveCondition::ConnectionFailed
         | ArchiveCondition::TimedOut
@@ -764,69 +692,8 @@ mod tests {
             ),
         ];
         for (name, answer, expected) in cases {
-            let Consequences {
-                connection,
-                contents,
-                reception: _,
-            } = consequences(answer, at);
+            let Consequences { connection, contents } = consequences(answer, at);
             assert_eq!((connection, contents), expected, "{name}");
         }
-    }
-
-    #[test]
-    fn a_submission_shows_whether_the_archive_offers_the_reception() {
-        use ArchiveCondition as Condition;
-        let at = Timestamp(7);
-        let submission = |answer| ArchiveAnswer::Submission {
-            content: digest(1),
-            answer,
-        };
-        let cases: Vec<(&str, ArchiveAnswer, Option<ReceptionFinding>)> = vec![
-            (
-                "an outcome shows the reception",
-                submission(Ok(SubmissionOutcome::Deleted)),
-                Some(ReceptionFinding::Offered),
-            ),
-            (
-                "a 422 shows the reception",
-                submission(Err(SubmissionCondition::DigestDisagreement)),
-                Some(ReceptionFinding::Offered),
-            ),
-            (
-                "an archive without the reception shows its absence",
-                submission(Err(SubmissionCondition::ReceptionAbsent)),
-                Some(ReceptionFinding::Absent),
-            ),
-            (
-                "a 500 shows nothing",
-                submission(Err(Condition::ServerError.into())),
-                None,
-            ),
-            (
-                "an unanswered question shows nothing",
-                submission(Err(SubmissionCondition::ReceptionUnknown(Condition::ServerError))),
-                None,
-            ),
-        ];
-        for (name, answer, expected) in cases {
-            assert_eq!(consequences(answer, at).reception, expected, "{name}");
-        }
-        assert_eq!(
-            consequences(submission(Err(SubmissionCondition::ReceptionAbsent)), at).contents,
-            vec![],
-            "a held submission counts no failure against its content"
-        );
-        assert_eq!(
-            consequences(
-                submission(Err(SubmissionCondition::ReceptionUnknown(Condition::TimedOut))),
-                at
-            ),
-            Consequences {
-                connection: ConnectionEvent::ConnectionFailed { at },
-                contents: vec![],
-                reception: None,
-            },
-            "a question that timed out fails the connection and not the content"
-        );
     }
 }

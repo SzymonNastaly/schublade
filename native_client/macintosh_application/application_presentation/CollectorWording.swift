@@ -70,14 +70,6 @@ public enum CollectorWording {
 				group: .archive,
 				action: .replaceToken
 			)
-		case .archiveOutdated:
-			AttentionSentence(
-				text: "This archive does not accept documents from the desktop application yet, "
-					+ "so nothing uploads. Update your archive, and collecting resumes on its own.",
-				symbolName: "arrow.up.circle",
-				group: .archive,
-				action: nil
-			)
 		case let .folderUnavailable(folder, unavailability):
 			folderUnavailableSentence(folderName: context.folderName(folder.root), folder: folder, unavailability)
 		case let .backlogAwaitsDecision(folder):

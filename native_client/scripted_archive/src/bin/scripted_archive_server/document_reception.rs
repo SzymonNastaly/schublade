@@ -1,6 +1,5 @@
 //! `PUT /api/v1/submitted_documents/{sha256}` and `PUT /api/v1/collected_documents/{sha256}`,
-//! answered in the order of `receiveDocument` in `src/ingestion/document_reception.ts`, and the
-//! plain 403 with which an archive older than the reception answers both.
+//! answered in the order of `receiveDocument` in `src/ingestion/document_reception.ts`.
 
 use archive_access::{
     ContentDigest, MAXIMUM_DOCUMENT_BYTES, MAXIMUM_TEXT_BYTES, MAXIMUM_THUMBNAIL_BYTES, SubmissionRoute,
@@ -14,7 +13,7 @@ use scripted_archive::{ReceivedRepresentations, ScriptedArchive};
 use sha2::{Digest, Sha256};
 
 use crate::client_protocol::document_status_answer;
-use crate::{Answer, ArchiveRequest, Body};
+use crate::{Answer, ArchiveRequest};
 
 /// The route and digest of a reception path, or `None` for every other path.
 pub fn reception_route(path: &str) -> Option<(SubmissionRoute, ContentDigest)> {
@@ -23,17 +22,6 @@ pub fn reception_route(path: &str) -> Option<(SubmissionRoute, ContentDigest)> {
         .into_iter()
         .find(|route| route.path(&digest) == path)
         .map(|route| (route, digest))
-}
-
-/// What Cloudflare Access answers for a path the archive does not know: 403 without a problem
-/// document.
-pub fn access_refusal() -> Answer {
-    Answer {
-        status: 403,
-        content_type: Some("text/plain".to_owned()),
-        headers: Vec::new(),
-        body: Body::Text("Forbidden".to_owned()),
-    }
 }
 
 struct ReceptionLayout {

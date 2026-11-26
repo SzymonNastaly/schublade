@@ -34,7 +34,7 @@ pub use status_report::{
 };
 
 use archive_access::{ArchiveAddress, ArchiveAddressRefusal, ArchiveToken, CredentialStore, FixedCredentialStore};
-use archive_connection::{ConnectionState, ReceptionStanding};
+use archive_connection::ConnectionState;
 use collection_coordinator::{CollectionCoordinator, CoordinatorInput, VolatileState};
 use file_system_observation::FolderWatcher;
 use state_store::{StateStore, StoreOpenFailure};
@@ -329,7 +329,6 @@ impl Collector {
             initial_walks_completed: BTreeSet::new(),
             disregarded: BTreeMap::new(),
             connection,
-            reception: ReceptionStanding::Assumed,
             archive_origin,
             archive,
             document_reader,

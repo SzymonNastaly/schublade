@@ -7,7 +7,7 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 
 use crate::archive_client::ArchiveClient;
-use crate::archive_connection::{ArchiveAnswer, SubmissionCondition};
+use crate::archive_connection::ArchiveAnswer;
 use crate::candidate_classification::ReadableSignature;
 use crate::collection_coordinator::{CoordinatorInput, SubmissionResult, WorkResult};
 use crate::content_synchronization::SubmissionAuthorization;
@@ -18,7 +18,7 @@ use crate::file_system_observation::{
     absolute_path, compute_digest, list_directory, observe_signature, read_submission_source,
 };
 use crate::work_planning::{LaneCapacity, LookupBatch};
-use archive_access::{Clock, DocumentReception};
+use archive_access::Clock;
 
 /// One planned unit of work with everything its lane needs: the folder root for the disk, the
 /// archive client for a request, the document reader for a submission.
@@ -175,18 +175,13 @@ fn execute(assignment: Assignment, inbox: &Sender<CoordinatorInput>, clock: &dyn
         } => {
             let content = authorization.digest();
             let absolute = absolute_path(&root, &source.directory, source.name.as_os_str());
-            // The reception is asked first, so an archive older than it costs no read.
-            let result = match archive.read_document_reception() {
-                Err(condition) => SubmissionResult::Answered(Err(SubmissionCondition::ReceptionUnknown(condition))),
-                Ok(DocumentReception::Absent) => SubmissionResult::Answered(Err(SubmissionCondition::ReceptionAbsent)),
-                Ok(DocumentReception::Offered) => match read_submission_source(&absolute, &signature, content, clock) {
-                    Ok(verified) => {
-                        let derived = reader.read(&verified);
-                        SubmissionResult::Answered(archive.submit(authorization, verified, derived))
-                    }
-                    Err(failure) => SubmissionResult::SourceFailed {
-                        current: failure.current,
-                    },
+            let result = match read_submission_source(&absolute, &signature, content, clock) {
+                Ok(verified) => {
+                    let derived = reader.read(&verified);
+                    SubmissionResult::Answered(archive.submit(authorization, verified, derived))
+                }
+                Err(failure) => SubmissionResult::SourceFailed {
+                    current: failure.current,
                 },
             };
             send(CoordinatorInput::Finished(WorkResult::Submission {

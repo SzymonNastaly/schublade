@@ -451,8 +451,6 @@ The body is the client's Markdown text, then its JPEG thumbnail, then the origin
 
 The text is UTF-8 Markdown with one `## Page N` heading per page in page order, a page without text keeping its heading. Each page's text follows its heading after a blank line without its surrounding white space, a blank line separates the pages, and the text ends with a line break. `test_fixtures/client_protocol/submitted_document_text.md` is one such text: `compose_document_text` in `archive_access` writes it from three page texts, and the Worker's reception test sends it. The thumbnail is a JPEG of the first page, at most 480 pixels on its longer side.
 
-A client learns whether an archive offers the reception without sending a document: `GET /api/v1/submitted_documents/<64 zeros>` answers 405 on an archive that offers it, because the gate checks the method first, and the plain 403 of `RouteUnknown` on an older one. A client holds its documents for an archive without the reception and says "Update your archive", and never falls back to the multipart route.
-
 The checks run in this order:
 
 | Status | When |
@@ -476,7 +474,7 @@ A 202 and a 200 carry the body of the document status route and `Location: /api/
 | ----------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------- |
 | 401                                             | Suspends with a refused credential and requests nothing until a new token connects                                   | Suspends, as today                                  |
 | 403 with `application/problem+json`             | Suspends with an insufficient credential, keeps its copy, and requests nothing until a new token connects. A token of level `ingest` gets this answer on every reading route, so a client that read the authorization never causes it | Suspends, as today                                  |
-| 403 without `application/problem+json`          | `RouteUnknown`, because the archive is older than the route. The library says "Update your archive" and asks again hourly    | On the reception, holds its uploads, says "Update your archive", and asks again hourly. On the lookup and the status, a protocol violation |
+| 403 without `application/problem+json`          | `RouteUnknown`, because the archive is older than the route. The library says "Update your archive" and asks again hourly    | Counts `RouteUnknown` as a protocol violation       |
 | 404 on a representation                         | Refuses the representation. The document's removal, when it is one, arrives with the next page                       | Not applicable                                      |
 | 409 on an original                              | Refuses with "not available yet", because the archive has not printed the email                                               | On a PUT, records the content as deleted, as today  |
 | 410 on the changes                              | Discards its copy and requests the first page without `after`                                                        | Not applicable                                      |

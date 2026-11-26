@@ -326,7 +326,6 @@ mod tests {
         ScriptedServer {
             archive: ScriptedArchive::new(),
             accepted_authorization: AUTHORIZATION.to_owned(),
-            legacy_reception: false,
         }
     }
 

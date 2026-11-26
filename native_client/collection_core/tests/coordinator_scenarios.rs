@@ -113,45 +113,6 @@ fn one_file_is_surveyed_then_submitted_once_after_the_decision() {
 }
 
 #[test]
-fn an_archive_without_the_reception_holds_the_submissions_until_it_offers_it() {
-    let temporary = tempfile::tempdir().unwrap();
-    let folder_root = temporary.path().join("Downloads");
-    std::fs::create_dir(&folder_root).unwrap();
-    std::fs::write(folder_root.join("Invoice.pdf"), b"%PDF-1.7 one invoice").unwrap();
-    let digest = content_digest_of(b"%PDF-1.7 one invoice");
-    let archive = Arc::new(ScriptedArchive::new());
-    archive.set_reception_offered(false);
-    let clock = Arc::new(ManualClock::starting_at(Timestamp(1_700_000_000_000)));
-    let (collector, _events) = start(&temporary.path().join("collector.sqlite"), &archive, &clock);
-    collector
-        .connect_archive(
-            ArchiveAddress::parse("https://archive.example.org").unwrap(),
-            ArchiveToken::new("token".to_owned()),
-        )
-        .unwrap();
-    let folder = collector.enroll_folder(folder_root).unwrap();
-    settle(&collector, &clock, Duration::from_secs(60));
-    collector.decide_backlog(&[folder]).unwrap();
-
-    let held = settle(&collector, &clock, Duration::from_secs(60));
-
-    assert!(!archive.holds(&digest));
-    assert_eq!(held.attention, vec![AttentionItem::ArchiveOutdated]);
-    assert_eq!(held.counts.contents_awaiting_submission, 1);
-    assert!(matches!(held.connection, ConnectionStatus::Connected { .. }));
-
-    archive.set_reception_offered(true);
-    let waiting = settle(&collector, &clock, HOUR / 2);
-    assert!(!archive.holds(&digest), "the collector asks again only after an hour");
-    assert_eq!(waiting.attention, vec![AttentionItem::ArchiveOutdated]);
-    let updated = settle(&collector, &clock, HOUR);
-
-    assert_eq!(archive.submission_count(&digest), 1);
-    assert!(archive.holds(&digest));
-    assert_eq!(updated.attention, vec![]);
-}
-
-#[test]
 fn the_probe_of_an_unreachable_archive_raises_the_revision() {
     let temporary = tempfile::tempdir().unwrap();
     let folder_root = temporary.path().join("Downloads");

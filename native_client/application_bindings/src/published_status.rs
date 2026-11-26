@@ -183,9 +183,6 @@ pub enum AttentionItem {
     CredentialSuspended {
         reason: SuspensionReason,
     },
-    /// The archive is older than the reception of collected documents, so nothing uploads until
-    /// the owner updates it. The library goes on reading, because its routes are older.
-    ArchiveOutdated,
     FolderUnavailable {
         folder: FolderReference,
         unavailability: FolderUnavailability,
@@ -591,7 +588,6 @@ fn attention_items(
         collection_core::AttentionItem::CredentialSuspended { reason } => vec![AttentionItem::CredentialSuspended {
             reason: suspension_reason(reason),
         }],
-        collection_core::AttentionItem::ArchiveOutdated => vec![AttentionItem::ArchiveOutdated],
         collection_core::AttentionItem::FolderUnavailable { folder, availability } => reference(folder)
             .zip(folder_unavailability(availability))
             .map(|(folder, unavailability)| AttentionItem::FolderUnavailable { folder, unavailability })

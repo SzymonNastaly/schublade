@@ -283,8 +283,6 @@ The consequences of each answer of the archive come from one table, `archive_con
 | PUT 202, 200 | `Answered` | `SubmissionAnswered(Accepted or AlreadyHeld)` |
 | PUT 413, 415 | `Answered` | `SubmissionAnswered(TooLarge or UnacceptedKind)` |
 | PUT 422 | `Answered` | `SubmissionFailed(DigestDisagreement)` |
-| PUT 403 without a problem document, or the reception's GET answering so | `Answered` | none; every submission waits an hour, see below |
-| the reception's GET meets a condition | that condition's event, as for a lookup | none |
 | PUT 500 | `Answered` | `SubmissionFailed(ServerError)` |
 | lookup 500, 400, unparseable body | `ConnectionFailed` | none |
 | 401 | `CredentialRefused` | none |
@@ -293,7 +291,7 @@ The consequences of each answer of the archive come from one table, `archive_con
 | connection failure | `ConnectionFailed` | none |
 | PUT timeout | `ConnectionFailed` | `SubmissionFailed(TimedOut)` |
 
-A collector sends each content to `PUT /api/v1/collected_documents/{sha256}` with the page texts and the first-page JPEG its `DocumentReader` read, as `notes/client_preprocessing_design.md` describes. Before it reads a source, the submission asks whether the archive offers that route, and `HttpArchiveClient` stops asking once it does. An archive older than the route moves the in-memory `ReceptionStanding` to Absent: no submission is planned for `reception_recheck_interval` (an hour), the status carries `AttentionItem::ArchiveOutdated`, and the next submission after the hour asks again. Lookups and status reads go on, so a survey still completes and its counts are right.
+A collector sends each content to `PUT /api/v1/collected_documents/{sha256}` with the page texts and the first-page JPEG its `DocumentReader` read, as `notes/client_preprocessing_design.md` describes.
 
 A PUT 500 counts against the content because one malformed file must not stop the whole collector. A PUT timeout counts against both, so a 25 MB file over a slow line backs off instead of starving the lane.
 
