@@ -449,7 +449,9 @@ Three PUT routes receive one document named by the SHA-256 of its original, and 
 
 The body is the client's Markdown text, then its JPEG thumbnail, then the original, with no separator. `Schublade-Text-Byte-Count` and `Schublade-Thumbnail-Byte-Count` give the byte counts of the first two and default to 0, so a body without them is the original alone, as `curl -T scan.pdf` sends it. `Schublade-Page-Count` gives the number of pages the client read, 1 for a picture. The original is `Content-Length` minus both counts. `Content-Type` is not read: the archive identifies the original by its leading bytes.
 
-The text is UTF-8 Markdown with one `## Page N` heading per page in page order, a page without text keeping its heading. The thumbnail is a JPEG of the first page, at most 480 pixels on its longer side.
+The text is UTF-8 Markdown with one `## Page N` heading per page in page order, a page without text keeping its heading. Each page's text follows its heading after a blank line without its surrounding white space, a blank line separates the pages, and the text ends with a line break. `test_fixtures/client_protocol/submitted_document_text.md` is one such text: `compose_document_text` in `archive_access` writes it from three page texts, and the Worker's reception test sends it. The thumbnail is a JPEG of the first page, at most 480 pixels on its longer side.
+
+A client learns whether an archive offers the reception without sending a document: `GET /api/v1/submitted_documents/<64 zeros>` answers 405 on an archive that offers it, because the gate checks the method first, and the plain 403 of `RouteUnknown` on an older one. A client holds its documents for an archive without the reception and says "Update your archive", and never falls back to the multipart route.
 
 The checks run in this order:
 

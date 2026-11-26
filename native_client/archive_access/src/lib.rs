@@ -11,6 +11,7 @@ mod archive_token;
 mod clock;
 mod credential_storage;
 mod document_submission;
+mod ingest_submission;
 
 pub use archive_address::{ArchiveAddress, ArchiveAddressRefusal};
 pub use archive_authorization::{ArchiveAuthorization, PermissionLevel, UNRESTRICTED_SCOPE_DIGEST, read_authorization};
@@ -27,6 +28,11 @@ pub use credential_storage::{
     TOKEN_ENVIRONMENT_VARIABLE,
 };
 pub use document_submission::{
-    INGEST_PATH, MAXIMUM_DOCUMENT_BYTES, PreparedSubmission, SubmissionAnswer, SubmissionMediaType,
-    SubmissionPreparationFailure, prepare_submission, read_submission_answer,
+    DerivedRepresentations, DocumentReception, MAXIMUM_DOCUMENT_BYTES, MAXIMUM_TEXT_BYTES, MAXIMUM_THUMBNAIL_BYTES,
+    PreparedSubmission, SubmissionAnswer, SubmissionPreparationFailure, SubmissionRoute, compose_document_text,
+    prepare_submission, read_document_reception, read_submission_answer, send_document,
+};
+pub use ingest_submission::{
+    INGEST_PATH, PreparedIngestSubmission, SubmissionMediaType, prepare_ingest_submission,
+    read_ingest_submission_answer,
 };

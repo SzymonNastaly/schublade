@@ -210,7 +210,7 @@ pub fn serve_changes(archive: &ScriptedArchive, query: Option<&str>) -> Answer {
     }
 }
 
-fn document_status_answer(status: u16, document: &DocumentIdentifier, document_status: &DocumentStatus) -> Answer {
+pub fn document_status_answer(status: u16, document: &DocumentIdentifier, document_status: &DocumentStatus) -> Answer {
     let failure_reason = match document_status {
         DocumentStatus::Failed { failure_reason } => failure_reason.clone(),
         _ => None,

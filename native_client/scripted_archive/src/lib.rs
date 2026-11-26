@@ -33,6 +33,15 @@ pub enum UploadOutcome {
     Rejected(String),
 }
 
+/// What a client sent to the reception beside an original: the text it read, the JPEG of the
+/// first page it drew, and the number of pages, each absent when it sent none.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct ReceivedRepresentations {
+    pub text: Option<String>,
+    pub thumbnail: Option<Vec<u8>>,
+    pub page_count: Option<u32>,
+}
+
 /// What a token may see: the four lists of the server's `AuthorizationScope`. A scope without a
 /// list sees every record, and one with any list is restricted.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -690,6 +699,41 @@ impl ScriptedArchive {
                 UploadOutcome::Accepted(archive.archive_new_document(digest, bytes))
             }
         }
+    }
+
+    /// How the archive stands toward a content, as the lookup answers it, without recording a
+    /// lookup.
+    pub fn content_standing(&self, digest: &ContentDigest) -> LookupAnswer {
+        self.archive()
+            .contents
+            .get(digest)
+            .cloned()
+            .unwrap_or(LookupAnswer::Absent)
+    }
+
+    /// One original the reception read, archived with what its client sent beside it, as the
+    /// Worker's `archiveContent` stores a reception: the text serves as the document's text and the
+    /// JPEG as its thumbnail. Bytes a document holds answer that document and store nothing, and
+    /// bytes whose document the owner deleted become a document again, so the reception decides
+    /// beforehand whether its sender may bring one back.
+    pub fn receive(&self, original: &[u8], received: ReceivedRepresentations) -> DocumentIdentifier {
+        let digest = ContentDigest::from_bytes(Sha256::digest(original).into());
+        let mut archive = self.archive();
+        archive.submissions.push(digest);
+        if let Some(LookupAnswer::Present(document)) = archive.contents.get(&digest) {
+            return document.clone();
+        }
+        let document = archive.archive_new_document(digest, original);
+        if let Some(text) = received.text {
+            archive.texts.insert(document.clone(), text);
+        }
+        if let Some(thumbnail) = received.thumbnail {
+            archive.thumbnails.insert(document.clone(), thumbnail);
+        }
+        if let Some(record) = archive.documents.get_mut(&document) {
+            record.page_count = received.page_count;
+        }
+        document
     }
 
     /// Whether the archive holds a document for this content.

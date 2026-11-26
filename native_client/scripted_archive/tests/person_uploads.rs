@@ -1,13 +1,19 @@
-//! A person's upload as the iPhone sends it: a body written by `prepare_submission`, posted to the
-//! scripted archive's ingest route, and its answer read by `read_submission_answer`.
+//! Documents sent to the scripted archive as the clients send them: a body that
+//! `prepare_submission` wrote for the iPhone, put to the reception and read by
+//! `read_submission_answer`, the parts a collector puts with `send_document`, and the multipart body
+//! of `prepare_ingest_submission` posted to the ingest route.
 
 use std::io::{BufRead, BufReader};
 use std::process::{Child, ChildStdin, Command, Stdio};
 use std::time::{Duration, Instant};
 
 use archive_access::{
-    ArchiveAddress, ArchiveToken, SubmissionAnswer, SubmissionMediaType, prepare_submission, read_submission_answer,
+    ArchiveAddress, ArchiveCondition, ArchiveDownload, ArchiveExchange, ArchiveToken, ContentDigest,
+    DerivedRepresentations, DocumentReception, SubmissionAnswer, SubmissionMediaType, SubmissionRoute,
+    compose_document_text, prepare_ingest_submission, prepare_submission, read_document_reception,
+    read_ingest_submission_answer, read_submission_answer, send_document,
 };
+use sha2::{Digest, Sha256};
 
 const TOKEN: &str = "scripted-person-upload-token";
 
@@ -45,7 +51,7 @@ impl ScriptedArchiveServer {
         let document = directory.path().join(file_name);
         std::fs::write(&document, contents).unwrap();
         let body = directory.path().join("request_body");
-        let prepared = prepare_submission(
+        let prepared = prepare_ingest_submission(
             &self.address,
             &ArchiveToken::new(token.to_owned()),
             &document,
@@ -63,7 +69,44 @@ impl ScriptedArchiveServer {
             .send(std::fs::read(&body).unwrap())
             .unwrap();
         let status = answer.status().as_u16();
-        read_submission_answer(status, &answer.into_body().read_to_vec().unwrap())
+        read_ingest_submission_answer(status, &answer.into_body().read_to_vec().unwrap())
+    }
+
+    fn exchange(&self) -> ArchiveExchange {
+        ArchiveExchange::new(&self.address, &ArchiveToken::new(TOKEN.to_owned()))
+    }
+
+    /// Writes the body as the iPhone writes it and puts it to the reception as its background
+    /// transfer does.
+    fn submit(&self, original: &[u8], derived: &DerivedRepresentations) -> SubmissionAnswer {
+        let directory = tempfile::tempdir().unwrap();
+        let document = directory.path().join("Scan.pdf");
+        std::fs::write(&document, original).unwrap();
+        let body = directory.path().join("request_body");
+        let prepared = prepare_submission(
+            &self.address,
+            &ArchiveToken::new(TOKEN.to_owned()),
+            &document,
+            derived,
+            &body,
+        )
+        .unwrap();
+        let mut request = ureq::put(&prepared.url).config().http_status_as_error(false).build();
+        for (name, value) in &prepared.headers {
+            request = request.header(name, value);
+        }
+        let answer = request.send(std::fs::read(&body).unwrap()).unwrap();
+        let status = answer.status().as_u16();
+        let content_type = answer
+            .headers()
+            .get("Content-Type")
+            .and_then(|value| value.to_str().ok())
+            .map(str::to_owned);
+        read_submission_answer(
+            status,
+            content_type.as_deref(),
+            &answer.into_body().read_to_vec().unwrap(),
+        )
     }
 }
 
@@ -146,4 +189,89 @@ fn the_archive_answers_other_requests_while_it_reads_a_paced_upload() {
             }
         ));
     });
+}
+
+#[test]
+fn a_document_reaches_the_reception_with_its_text_and_thumbnail_once_on_either_route() {
+    let server = ScriptedArchiveServer::start(&[]);
+    let exchange = server.exchange();
+    let scan = b"%PDF-1.4\nA letter from the Stadtwerke\n%%EOF\n";
+    let thumbnail = vec![0xff, 0xd8, 0xff, 0xe0, 0xff, 0xd9];
+    let derived = DerivedRepresentations {
+        page_texts: vec!["Stadtwerke Talbrück GmbH".to_owned(), String::new()],
+        thumbnail: Some(thumbnail.clone()),
+    };
+    assert_eq!(read_document_reception(&exchange), Ok(DocumentReception::Offered));
+
+    let SubmissionAnswer::Archived { document, already_held } = server.submit(scan, &derived) else {
+        panic!("the first submission of a scan is archived");
+    };
+    assert!(!already_held);
+    assert_eq!(
+        server.submit(scan, &derived),
+        SubmissionAnswer::Archived {
+            document: document.clone(),
+            already_held: true
+        }
+    );
+    let text = exchange
+        .get(&format!("/api/v1/documents/{}/text", document.as_str()))
+        .unwrap();
+    assert_eq!(text.body(), compose_document_text(&derived.page_texts));
+    let mut served_thumbnail = Vec::new();
+    let downloaded = exchange
+        .download(
+            &format!("/api/v1/documents/{}/thumbnail", document.as_str()),
+            &mut served_thumbnail,
+            200_000,
+        )
+        .unwrap();
+    assert!(matches!(downloaded, ArchiveDownload::Written));
+    assert_eq!(served_thumbnail, thumbnail);
+
+    let collected = b"%PDF-1.4\nA letter from the tax office\n%%EOF\n";
+    let digest = ContentDigest::from_bytes(Sha256::digest(collected).into());
+    let send = || {
+        send_document(
+            &exchange,
+            SubmissionRoute::CollectedDocuments,
+            &digest,
+            &derived,
+            collected,
+        )
+        .unwrap()
+        .status()
+    };
+    assert_eq!((send(), send()), (202, 200));
+}
+
+#[test]
+fn an_archive_older_than_the_reception_is_reported_and_takes_no_document() {
+    let server = ScriptedArchiveServer::start(&["--legacy-reception"]);
+    let exchange = server.exchange();
+    let scan = b"%PDF-1.4\nA letter from the Stadtwerke\n%%EOF\n";
+
+    assert_eq!(read_document_reception(&exchange), Ok(DocumentReception::Absent));
+    assert_eq!(
+        server.submit(scan, &DerivedRepresentations::default()),
+        SubmissionAnswer::RouteUnknown
+    );
+    assert_eq!(
+        send_document(
+            &exchange,
+            SubmissionRoute::CollectedDocuments,
+            &ContentDigest::from_bytes(Sha256::digest(scan).into()),
+            &DerivedRepresentations::default(),
+            scan,
+        )
+        .err(),
+        Some(ArchiveCondition::RouteUnknown)
+    );
+    let held = ureq::get(format!("{}/scripted/held", server.address.origin()))
+        .call()
+        .unwrap()
+        .into_body()
+        .read_to_string()
+        .unwrap();
+    assert_eq!(held, "");
 }

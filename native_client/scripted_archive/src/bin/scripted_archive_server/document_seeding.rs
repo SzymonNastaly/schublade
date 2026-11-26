@@ -326,16 +326,19 @@ mod tests {
         ScriptedServer {
             archive: ScriptedArchive::new(),
             accepted_authorization: AUTHORIZATION.to_owned(),
+            legacy_reception: false,
         }
     }
 
     fn request(server: &mut ScriptedServer, method: tiny_http::Method, url: &str, body: Vec<u8>) -> Answer {
+        let headers = [
+            ("Authorization".to_owned(), AUTHORIZATION.to_owned()),
+            ("Content-Type".to_owned(), "application/json".to_owned()),
+        ];
         let request = ArchiveRequest {
             method: &method,
             url,
-            authorization: Some(AUTHORIZATION),
-            if_none_match: None,
-            content_type: Some("application/json"),
+            headers: &headers,
         };
         route_request(server, &request, body)
     }

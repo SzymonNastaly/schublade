@@ -109,7 +109,7 @@ pub fn prepare_document_submission(
         DocumentMediaType::Png => SubmissionMediaType::Png,
         DocumentMediaType::Webp => SubmissionMediaType::Webp,
     };
-    let prepared = archive_access::prepare_submission(
+    let prepared = archive_access::prepare_ingest_submission(
         &address,
         &token,
         Path::new(&document_path),
@@ -128,7 +128,7 @@ pub fn prepare_document_submission(
             SubmissionPreparationRefusal::BodyUnwritable { detail }
         }
     })?;
-    let archive_access::PreparedSubmission {
+    let archive_access::PreparedIngestSubmission {
         url,
         content_type,
         authorization,
@@ -145,7 +145,7 @@ pub fn prepare_document_submission(
 /// Reads the archive's answer to a sent body: its HTTP status and its body, empty when none came.
 #[uniffi::export]
 pub fn read_document_submission_answer(status: u16, body: Vec<u8>) -> DocumentSubmissionAnswer {
-    match archive_access::read_submission_answer(status, &body) {
+    match archive_access::read_ingest_submission_answer(status, &body) {
         SubmissionAnswer::Archived { document, already_held } => DocumentSubmissionAnswer::Archived {
             document: DocumentIdentifier {
                 value: document.as_str().to_owned(),
@@ -154,7 +154,9 @@ pub fn read_document_submission_answer(status: u16, body: Vec<u8>) -> DocumentSu
         },
         SubmissionAnswer::Rejected { reason } => DocumentSubmissionAnswer::Rejected { reason },
         SubmissionAnswer::TokenRefused => DocumentSubmissionAnswer::TokenRefused,
-        SubmissionAnswer::NotPermitted => DocumentSubmissionAnswer::NotPermitted,
+        // The ingest route exists on every archive, so its reader never answers RouteUnknown.
+        // Unit C2 publishes it with the reception.
+        SubmissionAnswer::NotPermitted | SubmissionAnswer::RouteUnknown => DocumentSubmissionAnswer::NotPermitted,
         SubmissionAnswer::ArchiveUnavailable => DocumentSubmissionAnswer::ArchiveUnavailable,
     }
 }

@@ -42,7 +42,7 @@ fn parse_retry_after(header: Option<&str>) -> Duration {
 }
 
 /// Whether a `Content-Type` header names `application/problem+json` (ignoring case and parameters).
-fn is_problem_json(content_type: Option<&str>) -> bool {
+pub(crate) fn is_problem_json(content_type: Option<&str>) -> bool {
     let Some(value) = content_type else {
         return false;
     };
@@ -191,6 +191,43 @@ impl ArchiveExchange {
             .header("Content-Type", "application/octet-stream")
             .send(octets);
         response_of(sent, MAXIMUM_ANSWER_BYTES)
+    }
+
+    /// A PUT whose body is `parts` one after another, sent without joining them, so that an
+    /// original of megabytes is never copied to sit behind its prefix. `headers` come after the
+    /// token's.
+    pub fn put_document(
+        &self,
+        path: &str,
+        headers: &[(String, String)],
+        parts: &[&[u8]],
+    ) -> Result<ArchiveResponse, ArchiveCondition> {
+        let byte_count: u64 = parts
+            .iter()
+            .map(|part| u64::try_from(part.len()).unwrap_or(u64::MAX))
+            .sum();
+        let timeout = self.base_timeout + Duration::from_secs(byte_count / BYTES_PER_TIMEOUT_SECOND);
+        let mut request = self
+            .agent
+            .put(format!("{}{path}", self.origin))
+            .config()
+            .timeout_global(Some(timeout))
+            .build()
+            .header("Authorization", &self.authorization_header)
+            .header("Content-Type", "application/octet-stream")
+            .header("Content-Length", byte_count);
+        for (name, value) in headers {
+            request = request.header(name, value);
+        }
+        let mut body = parts
+            .iter()
+            .fold(Box::new(std::io::empty()) as Box<dyn Read>, |body, part| {
+                Box::new(body.chain(*part))
+            });
+        response_of(
+            request.send(ureq::SendBody::from_reader(&mut body)),
+            MAXIMUM_ANSWER_BYTES,
+        )
     }
 }
 

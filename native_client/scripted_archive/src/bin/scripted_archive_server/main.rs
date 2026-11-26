@@ -2,15 +2,17 @@
 //! `ScriptedArchive` model so that an uploaded file appears in the journal and in a library that
 //! follows it.
 //!
-//! Prints `listening http://127.0.0.1:<port>` and runs until standard input closes.
+//! Prints `listening http://127.0.0.1:<port>` and runs until standard input closes. With
+//! `--legacy-reception` it answers the reception's paths as an archive older than the reception.
 
 use std::io::{Read, Write};
 use std::sync::{Mutex, PoisonError};
 
-use archive_access::{ArchiveCondition, ContentDigest, INGEST_PATH, PermissionLevel};
+use archive_access::{ArchiveCondition, ContentDigest, INGEST_PATH, PermissionLevel, SubmissionRoute};
 use scripted_archive::ScriptedArchive;
 
 mod client_protocol;
+mod document_reception;
 mod document_seeding;
 mod paced_reception;
 
@@ -18,6 +20,7 @@ use client_protocol::{
     ingest, look_up, serve_authorization, serve_changes, serve_document_original, serve_document_status,
     serve_document_text, serve_document_thumbnail, submit,
 };
+use document_reception::{access_refusal, receive_document, reception_route};
 use document_seeding::{restrict_to_category, seed_corpus, seed_document_endpoint};
 use paced_reception::{limit_receive_buffer, read_body};
 
@@ -113,15 +116,25 @@ struct ScriptedServer {
     /// The `Authorization` header the archive accepts. `POST /scripted/token` replaces it, as an
     /// owner's revocation replaces the token a client holds.
     accepted_authorization: String,
+    /// Whether the archive is older than the reception, so that Cloudflare Access answers its
+    /// paths.
+    legacy_reception: bool,
 }
 
 /// What the router reads of a request besides its body.
-struct ArchiveRequest<'request> {
+pub struct ArchiveRequest<'request> {
     method: &'request tiny_http::Method,
     url: &'request str,
-    authorization: Option<&'request str>,
-    if_none_match: Option<&'request str>,
-    content_type: Option<&'request str>,
+    headers: &'request [(String, String)],
+}
+
+impl ArchiveRequest<'_> {
+    pub fn header(&self, name: &str) -> Option<&str> {
+        self.headers
+            .iter()
+            .find(|(field, _)| field.eq_ignore_ascii_case(name))
+            .map(|(_, value)| value.as_str())
+    }
 }
 
 /// The `/scripted/` routes answer without the token, so a test or an examination can arrange the
@@ -148,7 +161,17 @@ fn route_request(server: &mut ScriptedServer, request: &ArchiveRequest<'_>, body
         (Method::Post, TOKEN_PATH) => return replace_token(server, &body),
         _ => {}
     }
-    if request.authorization != Some(server.accepted_authorization.as_str()) {
+    if reception_route(path).is_some() {
+        if server.legacy_reception {
+            return access_refusal();
+        }
+        if *request.method != Method::Put {
+            let mut refusal = Answer::problem(405, "Send this request with PUT");
+            refusal.headers.push(("Allow", "PUT".to_owned()));
+            return refusal;
+        }
+    }
+    if request.header("Authorization") != Some(server.accepted_authorization.as_str()) {
         return Answer::problem(401, "Send the scripted bearer token");
     }
     let archive = &server.archive;
@@ -156,7 +179,10 @@ fn route_request(server: &mut ScriptedServer, request: &ArchiveRequest<'_>, body
         (Method::Get, AUTHORIZATION_PATH) => serve_authorization(archive, query),
         (Method::Get, CHANGES_PATH) => serve_changes(archive, query),
         (Method::Post, LOOKUP_PATH) => look_up(archive, &body),
-        (Method::Post, INGEST_PATH) => ingest(archive, request.content_type, &body),
+        (Method::Post, INGEST_PATH) => ingest(archive, request.header("Content-Type"), &body),
+        (Method::Put, path) if let Some((route, digest)) = reception_route(path) => {
+            receive_document(archive, route, digest, request, query, &body)
+        }
         (Method::Put, path)
             if let Some(digest) = path
                 .strip_prefix(CONTENT_PATH_PREFIX)
@@ -168,7 +194,7 @@ fn route_request(server: &mut ScriptedServer, request: &ArchiveRequest<'_>, body
             if let Some(id) = rest.strip_suffix("/text") {
                 serve_document_text(archive, id, query)
             } else if let Some(id) = rest.strip_suffix("/original") {
-                serve_document_original(archive, id, query, request.if_none_match)
+                serve_document_original(archive, id, query, request.header("If-None-Match"))
             } else if let Some(id) = rest.strip_suffix("/thumbnail") {
                 serve_document_thumbnail(archive, id, query)
             } else {
@@ -201,10 +227,11 @@ struct Options {
     token: String,
     permission: PermissionLevel,
     seed: usize,
-    /// Bytes per second at which the body of an upload to the ingest route is read, so a screen
-    /// examination can show an upload under way.
+    /// Bytes per second at which the body of a person's upload, to the ingest route or the
+    /// reception, is read, so a screen examination can show an upload under way.
     ingest_pace: Option<usize>,
     restricted_category: Option<String>,
+    legacy_reception: bool,
 }
 
 fn parse_options() -> Options {
@@ -215,6 +242,7 @@ fn parse_options() -> Options {
         seed: 0,
         ingest_pace: None,
         restricted_category: None,
+        legacy_reception: false,
     };
     while let Some(arg) = args.next() {
         match arg.as_str() {
@@ -236,6 +264,7 @@ fn parse_options() -> Options {
             "--restrict-to-category" => {
                 options.restricted_category = Some(args.next().expect("--restrict-to-category requires a name"));
             }
+            "--legacy-reception" => options.legacy_reception = true,
             other => panic!("unknown option: {other}"),
         }
     }
@@ -247,6 +276,7 @@ fn main() {
     let server = ScriptedServer {
         archive: ScriptedArchive::new(),
         accepted_authorization: format!("Bearer {}", options.token),
+        legacy_reception: options.legacy_reception,
     };
     server.archive.set_permission_level(options.permission);
     if let Some(name) = &options.restricted_category {
@@ -277,19 +307,22 @@ fn main() {
     });
 }
 
-/// Reads the body of a request, at `ingest_pace` for an upload to the ingest route, routes it, and
-/// sends the answer.
+/// Reads the body of a request, at `ingest_pace` for a person's upload, routes it, and sends the
+/// answer.
 fn answer_request(server: &Mutex<ScriptedServer>, ingest_pace: Option<usize>, mut request: tiny_http::Request) {
-    let header = |name: &'static str| {
-        request
-            .headers()
-            .iter()
-            .find(|header| header.field.equiv(name))
-            .map(|header| header.value.as_str().to_owned())
-    };
-    let (authorization, if_none_match, content_type) =
-        (header("Authorization"), header("If-None-Match"), header("Content-Type"));
-    let pace = ingest_pace.filter(|_| request.url() == INGEST_PATH);
+    let headers: Vec<(String, String)> = request
+        .headers()
+        .iter()
+        .map(|header| {
+            (
+                header.field.as_str().as_str().to_owned(),
+                header.value.as_str().to_owned(),
+            )
+        })
+        .collect();
+    let persons_upload = request.url() == INGEST_PATH
+        || reception_route(request.url()).is_some_and(|(route, _)| route == SubmissionRoute::SubmittedDocuments);
+    let pace = ingest_pace.filter(|_| persons_upload);
     let mut body = Vec::new();
     let answer = if read_body(request.as_reader(), pace, &mut body).is_err() {
         Answer::problem(400, "The body could not be read")
@@ -297,9 +330,7 @@ fn answer_request(server: &Mutex<ScriptedServer>, ingest_pace: Option<usize>, mu
         let routed = ArchiveRequest {
             method: request.method(),
             url: request.url(),
-            authorization: authorization.as_deref(),
-            if_none_match: if_none_match.as_deref(),
-            content_type: content_type.as_deref(),
+            headers: &headers,
         };
         route_request(
             &mut server.lock().unwrap_or_else(PoisonError::into_inner),

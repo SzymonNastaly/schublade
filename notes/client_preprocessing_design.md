@@ -1,6 +1,6 @@
 # Client preprocessing design
 
-How the text and the first-page picture of a document move from the Worker to the clients, drafted on 2026-11-26. It extends `notes/client_protocol.md` with two routes and changes one premise of `notes/iphone_application_design.md`, which says "The PDF carries no text layer: the archive reads its pages as it reads every scan". The owner decided its open questions on 2026-11-26, and units S1, S2, and S3 are built.
+How the text and the first-page picture of a document move from the Worker to the clients, drafted on 2026-11-26. It extends `notes/client_protocol.md` with two routes and changes one premise of `notes/iphone_application_design.md`, which says "The PDF carries no text layer: the archive reads its pages as it reads every scan". The owner decided its open questions on 2026-11-26, and units S1, S2, S3, and C1 are built.
 
 Every claim about behaviour carries one of three labels. Documented means a vendor's documentation or this repository's notes say it. Measured means someone ran it, with the date. Inferred means it follows from the other two and nobody ran it.
 
@@ -371,6 +371,15 @@ Each unit ends in its check and one commit on `main`. The server comes first and
 - The generated runtime types lack `readAtLeast`, so `src/ambient_declarations.d.ts` declares it.
 - The 415 for an unaccepted original now comes before the 422 on `contents` as well.
 
+## What unit C1 changed in this design
+
+- `DerivedRepresentations.thumbnail` holds the JPEG's bytes, not a path, so the iPhone's body writer and a collector's `send_document` take one type. The bindings of unit C2 read `thumbnail.jpg` into it.
+- `prepare_submission` takes no route, because only a person's submission is written to a file, and `PreparedSubmission` names no method, because it is always PUT. A collector sends from memory with `send_document(exchange, route, digest, derived, original)`, over `ArchiveExchange::put_document`.
+- `read_submission_answer` takes the answer's `Content-Type`, because `RouteUnknown` is a 403 without `application/problem+json`, as every other route reads it.
+- A text above 2,000,000 bytes, a thumbnail above 200,000 bytes, and a thumbnail that does not start with `FF D8 FF` are left out of the body rather than refused, so the archive reads the original itself and the document is never rejected for a derived representation.
+- The multipart writer stays as `prepare_ingest_submission` and `read_ingest_submission_answer` in `ingest_submission.rs` until unit C2 moves the iPhone, and the bindings still call it.
+- The scripted archive reads a person's upload to the reception at `--ingest-pace` too, so a screen examination of unit C2 shows its progress.
+
 ## Next implementation step
 
-Unit C1: the wire in Rust, with `test_fixtures/client_protocol/submitted_document_text.md` shared by the Rust writer and a Worker test, and a scripted archive that answers both routes and the plain 403 of an old archive, so that a client holds its uploads there (decision 2).
+Unit C2: `DocumentReading` and the iPhone application with its share extension. The bindings publish `prepare_submission` with `page_texts` and `thumbnail_path`, `read_submission_answer` with `RouteUnknown`, and `read_document_reception`, and the iPhone's multipart writer goes.

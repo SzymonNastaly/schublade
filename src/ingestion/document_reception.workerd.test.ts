@@ -1,5 +1,6 @@
 import { applyD1Migrations, createExecutionContext, env, reset } from "cloudflare:test"
 import { expect, inject, test } from "vitest"
+import submittedDocumentText from "../../test_fixtures/client_protocol/submitted_document_text.md?raw"
 import scannedInvoice from "../../test_fixtures/documents/electricity_invoice_scanned.pdf"
 import { issueApiToken } from "../authentication/api_tokens"
 import { connectDatabase } from "../database/client"
@@ -8,9 +9,8 @@ import { createRequestDispatcher } from "../request_dispatch"
 
 // The digest of test_fixtures/documents/electricity_invoice_scanned.pdf.
 const SCANNED_INVOICE_SHA256 = "3551f8806c62a6b604bfbeab63ececeac46ee9df4e7db1ff5835377ff07ab0ed"
-const submittedText = new TextEncoder().encode(
-	"## Page 1\n\nStadtwerke Talbrück GmbH\nJahresabrechnung Strom 2025-2026\n",
-)
+// The text the native client's prepare_submission writes for the same three pages.
+const submittedText = new TextEncoder().encode(submittedDocumentText)
 // The archive checks only the leading bytes of a thumbnail.
 const submittedThumbnail = new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46, 0x49, 0x46, 0xff, 0xd9])
 
@@ -47,7 +47,7 @@ function receptionRequest(path: string, headers: Record<string, string>): Reques
 			"Content-Length": String(body.size),
 			"Schublade-Text-Byte-Count": String(submittedText.byteLength),
 			"Schublade-Thumbnail-Byte-Count": String(submittedThumbnail.byteLength),
-			"Schublade-Page-Count": "2",
+			"Schublade-Page-Count": "3",
 		},
 		body: body.stream(),
 	})
@@ -91,11 +91,11 @@ test("PUT /api/v1/submitted_documents/{sha256} stores the original, the text, an
 		second: { status: 200, body: { document_id: document?.id, status: "processing", failure_reason: null } },
 		objectsAfterFirst: [
 			{ name: "original.pdf", size: 190941, contentType: "application/pdf" },
-			{ name: "submitted_text.md", size: 70, contentType: "text/markdown; charset=utf-8" },
+			{ name: "submitted_text.md", size: 176, contentType: "text/markdown; charset=utf-8" },
 			{ name: "thumbnail.jpg", size: 12, contentType: "image/jpeg" },
 		],
 		objectsAfterSecond: objectsAfterFirst,
-		document: { id: document?.id, byteSize: 190941, pageCount: 2 },
+		document: { id: document?.id, byteSize: 190941, pageCount: 3 },
 		workflowInstances: 1,
 	})
 })
