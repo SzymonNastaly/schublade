@@ -1,5 +1,4 @@
 import handler from "@tanstack/react-start/server-entry"
-import { recordMissingContentDigestsOnSchedule } from "./ingestion/content_identity"
 import { startWaitingMailRendering } from "./ingestion/document_ingestion"
 import { receiveInboundMail } from "./ingestion/inbound_mail"
 import { createRequestDispatcher } from "./request_dispatch"
@@ -34,7 +33,6 @@ export default {
 		const tasks: Array<[string, Promise<void>]> = [
 			["search indexing", indexMissingDocumentsOnSchedule(environment)],
 			["mail rendering", startWaitingMailRendering(environment)],
-			["content digests", recordMissingContentDigestsOnSchedule(environment)],
 		]
 		await Promise.all(
 			tasks.map(([name, task]) => task.catch((error: unknown) => console.error(`Scheduled ${name} failed`, error))),

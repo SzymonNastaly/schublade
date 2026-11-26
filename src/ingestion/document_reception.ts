@@ -1,5 +1,5 @@
 import { and, eq } from "drizzle-orm"
-import { digestBackfillRefusal, documentStatusResponse } from "../client_protocol/collection_requests"
+import { documentStatusResponse } from "../client_protocol/collection_requests"
 import { problem } from "../client_protocol/problem_details"
 import { connectDatabase } from "../database/client"
 import { documents } from "../database/schema"
@@ -21,8 +21,8 @@ import type { SourceFile } from "./source_file"
 
 /**
  * The paths that receive one document named by its digest. A collector must never bring back a
- * document the owner deleted and must wait while a digest is missing, because it sends whatever
- * it finds. A person chose to send, so a deleted content is archived again.
+ * document the owner deleted, because it sends whatever it finds. A person chose to send, so a
+ * deleted content is archived again.
  */
 const receptionRules = {
 	submitted_documents: { collectorRules: false },
@@ -163,10 +163,6 @@ export async function receiveDocument(
 ): Promise<Response> {
 	const database = connectDatabase(environment.DATABASE)
 	const { collectorRules } = receptionRules[route]
-	if (collectorRules) {
-		const refusal = await digestBackfillRefusal(database)
-		if (refusal) return refusal
-	}
 	const [known] = await lookupContents(database, [sha256])
 	if (collectorRules && known?.state === "deleted") {
 		return problem(409, "The owner deleted this document. Only an upload through the browser brings it back.")

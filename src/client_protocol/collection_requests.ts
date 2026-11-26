@@ -1,32 +1,19 @@
 import { z } from "zod"
 import { queryDocumentStatuses } from "../archive/document_listing"
 import { sha256Pattern } from "../database/schema"
-import { awaitsContentDigests, lookupContents } from "../ingestion/content_identity"
+import { lookupContents } from "../ingestion/content_identity"
 import { limitRequestBody } from "../ingestion/document_upload"
 import { documentStatusPath } from "./client_paths"
 import { documentNotFound, problem } from "./problem_details"
 import type { ArchiveDatabase } from "../database/client"
 
 const MAXIMUM_LOOKUP_DIGESTS = 1000
-// The Cron Trigger runs the digest backfill every 15 minutes.
-const DIGEST_BACKFILL_INTERVAL_SECONDS = 900
 // 1000 digests take 67 KB as compact JSON, so this leaves room for indentation and line breaks.
 const MAXIMUM_LOOKUP_BYTES = 128_000
 
 const contentLookupSchema = z.strictObject({
 	sha256: z.array(z.string().regex(sha256Pattern)).min(1).max(MAXIMUM_LOOKUP_DIGESTS),
 })
-
-/**
- * Until every document has its digest, a lookup would call archived bytes absent, and an upload of
- * them would make a second document, so both wait for the scheduled backfill.
- */
-export async function digestBackfillRefusal(database: ArchiveDatabase): Promise<Response | undefined> {
-	if (!(await awaitsContentDigests(database))) return undefined
-	return problem(503, "The archive is still recording the digests of its documents. Send the request again later.", {
-		"Retry-After": String(DIGEST_BACKFILL_INTERVAL_SECONDS),
-	})
-}
 
 export async function documentStatusResponse(
 	database: ArchiveDatabase,
@@ -42,8 +29,6 @@ export async function documentStatusResponse(
 }
 
 export async function serveContentLookup(database: ArchiveDatabase, request: Request): Promise<Response> {
-	const refusal = await digestBackfillRefusal(database)
-	if (refusal) return refusal
 	const limited = limitRequestBody(request, MAXIMUM_LOOKUP_BYTES)
 	const body: unknown = await new Response(limited.body).json().catch(() => undefined)
 	if (limited.exceeded()) {

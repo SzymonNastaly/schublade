@@ -11,9 +11,9 @@ The routes under `/api/v1` that a native client reaches with a bearer token, agr
 | GET    | `/api/v1/documents/{id}/original`      | read   | 200, 304          | 400, 404, 409               |
 | GET    | `/api/v1/documents/{id}/text`          | read   | 200, 304          | 400, 404                    |
 | GET    | `/api/v1/documents/{id}/thumbnail`     | read   | 200, 304          | 400, 404                    |
-| POST   | `/api/v1/contents/lookup`              | ingest | 200               | 400, 413, 503               |
+| POST   | `/api/v1/contents/lookup`              | ingest | 200               | 400, 413                    |
 | PUT    | `/api/v1/submitted_documents/{sha256}` | ingest | 200, 202          | 400, 411, 413, 415, 422     |
-| PUT    | `/api/v1/collected_documents/{sha256}` | ingest | 200, 202          | 400, 409, 411, 413, 415, 422, 503 |
+| PUT    | `/api/v1/collected_documents/{sha256}` | ingest | 200, 202          | 400, 409, 411, 413, 415, 422 |
 | GET    | `/api/v1/documents/{id}`               | ingest | 200               | 404                         |
 
 Every route also answers 401, 403 for a token below its level, 405, and 500, and each route from the lookup on answers 403 to a token with a restricted scope. `{id}` is a lowercase UUID, `[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}`. `{sha256}` is 64 lowercase hexadecimal digits, `[0-9a-f]{64}`. The lookup, `contents`, `collected_documents`, and the document status are the collector's routes, and `submitted_documents` is a person's. [Receiving a document](#receiving-a-document) describes the three PUT routes. A member's browser reaches the reception of `submitted_documents` at `PUT /api/submitted_documents/{sha256}`, behind Access.
@@ -75,7 +75,7 @@ An archive deployed before a route lacks it. Its path then falls through to `req
 
 ## GET /api/v1/authorization
 
-What the token may do in which archive. A client sends it before it stores anything, for the library and the collector alike. The route needs only `ingest`, the lowest level, so every token can ask. A client reads `permission_level` before it requests anything else: with `ingest` it connects the collector alone and never requests the changes or a representation, and with `read` or a level above it connects the library as well. It replaces the collector's former credential check, a lookup of the all-zero digest, which needs the ingest level and answers 503 during the digest backfill.
+What the token may do in which archive. A client sends it before it stores anything, for the library and the collector alike. The route needs only `ingest`, the lowest level, so every token can ask. A client reads `permission_level` before it requests anything else: with `ingest` it connects the collector alone and never requests the changes or a representation, and with `read` or a level above it connects the library as well. It replaces the collector's former credential check, a lookup of the all-zero digest.
 
 ```http
 GET /api/v1/authorization HTTP/1.1
@@ -399,8 +399,6 @@ If-None-Match: "a3f1c2d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f90
 
 A token with a restricted scope gets 403 on each, and every answer carries `Cache-Control: no-store`. The lookup and the document status sit in `src/client_protocol/collection_requests.ts` behind the shared gate. `PUT /api/v1/collected_documents/{sha256}` reaches `receiveDocument` in `src/ingestion/document_reception.ts`, which [Receiving a document](#receiving-a-document) describes.
 
-While a document of an accepted kind lacks its `original_sha256`, the lookup and `collected_documents` answer 503 with `Retry-After: 900` and "The archive is still recording the digests of its documents. Send the request again later.", because the lookup would call archived bytes absent. The document status route never answers it.
-
 ### POST /api/v1/contents/lookup
 
 The state of each content, in the order asked. The body is at most 128,000 bytes and lists 1 to 1000 digests.
@@ -439,10 +437,10 @@ The state of each content, in the order asked. The body is at most 128,000 bytes
 
 Two PUT routes receive one document named by the SHA-256 of its original, and one function, `receiveDocument` in `src/ingestion/document_reception.ts`, answers both. `notes/client_preprocessing_design.md` explains the design.
 
-| Path | Sent by | A deleted content | While a digest is missing |
-| --- | --- | --- | --- |
-| `/api/v1/submitted_documents/{sha256}` | A person: the iPhone application, its share extension, a script, and the browser at `/api/submitted_documents/{sha256}` | Archived again | Received |
-| `/api/v1/collected_documents/{sha256}` | A collector | 409 | 503 |
+| Path | Sent by | A deleted content |
+| --- | --- | --- |
+| `/api/v1/submitted_documents/{sha256}` | A person: the iPhone application, its share extension, a script, and the browser at `/api/submitted_documents/{sha256}` | Archived again |
+| `/api/v1/collected_documents/{sha256}` | A collector | 409 |
 
 The body is the client's Markdown text, then its JPEG thumbnail, then the original, with no separator. `Schublade-Text-Byte-Count` and `Schublade-Thumbnail-Byte-Count` give the byte counts of the first two and default to 0, so a body without them is the original alone, as `curl -T scan.pdf` sends it. `Schublade-Page-Count` gives the number of pages the client read, 1 for a picture. The original is `Content-Length` minus both counts. `Content-Type` is not read: the archive identifies the original by its leading bytes.
 
@@ -452,7 +450,6 @@ The checks run in this order:
 
 | Status | When |
 | --- | --- |
-| 503 | A collector's route only: a document still awaits its digest. `Retry-After: 900` |
 | 409 | A collector's route only: the owner deleted the document of this content |
 | 400 | A query parameter, a count or page count that is no decimal number, a page count of 0, no byte left for the original, or a body shorter than its `Content-Length` |
 | 411 | No `Content-Length` |

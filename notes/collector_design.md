@@ -321,7 +321,7 @@ stateDiagram-v2
     Folder --> [*]: withdrawn (rows of its paths deleted, contents kept)
 ```
 
-The survey is complete when the folder's initial walk has finished in this process, no path of the folder is Stabilizing or Stable, and every content of its Digested paths is resolved (not Unresolved). Unreadable and Excluded paths do not hold the survey back. The coordinator evaluates this predicate after every batch, so the transition needs no event source. The first transition needs the archive. While the connection is Deferred (the archive still records old digests) or Unreachable, the folder stays Surveying, and the status says why.
+The survey is complete when the folder's initial walk has finished in this process, no path of the folder is Stabilizing or Stable, and every content of its Digested paths is resolved (not Unresolved). Unreadable and Excluded paths do not hold the survey back. The coordinator evaluates this predicate after every batch, so the transition needs no event source. The first transition needs the archive. While the connection is Deferred (the archive answered 503) or Unreachable, the folder stays Surveying, and the status says why.
 
 `decide_backlog` is accepted only for folders in AwaitingDecision and only for the folders the caller names. A folder still Surveying answers `CommandRefusal::SurveyIncomplete`.
 
