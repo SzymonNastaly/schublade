@@ -63,6 +63,19 @@ function isReadableTextLayer(text: string): boolean {
 }
 
 /**
+ * Whether a text a client submitted holds at least 40 letters or digits, so the archive takes it
+ * as the document's text. The count stops at the 40th, so a long text costs nothing.
+ */
+export function isUsableSubmittedText(text: string): boolean {
+	let alphanumericCount = 0
+	for (const _ of text.matchAll(ALPHANUMERIC_CHARACTER)) {
+		alphanumericCount += 1
+		if (alphanumericCount >= MINIMUM_ALPHANUMERIC_CHARACTERS) return true
+	}
+	return false
+}
+
+/**
  * Takes the text of each page from the first source that holds it: the converted section, which
  * keeps tables as Markdown, then the PDFium text layer, then Moondream. `toMarkdown()` returns empty
  * or partial sections for tagged PDFs whose structure tree it cannot follow, although PDFium reads

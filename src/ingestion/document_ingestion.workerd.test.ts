@@ -177,6 +177,75 @@ test("ingestDocument recognizes, classifies, archives, and indexes a scanned inv
 	expect(searchIndexUploads[0]?.content.endsWith(`${markdown?.trim()}\n`)).toBe(true)
 })
 
+// A client read this text from the scanned invoice and sent it with the original.
+const submittedText =
+	"## Page 1\n\nStadtwerke Talbrück GmbH\nJahresabrechnung Strom\nRechnungsnummer JA-2026-0381547\nNachzahlungsbetrag 72,09 €\n"
+
+async function storeSubmittedText(documentId: string, text: string) {
+	const database = await storeScannedInvoice(documentId)
+	await env.DOCUMENT_STORAGE.put(`documents/${documentId}/submitted_text.md`, text)
+	await database.update(documents).set({ pageCount: 3 }).where(eq(documents.id, documentId))
+	return database
+}
+
+test("ingestDocument archives a document with a submitted text without converting or recognizing it", async () => {
+	const documentId = "5b8d1f2a-3c47-4e69-a0b2-7c9e4d1f6a83"
+	const database = await storeSubmittedText(documentId, submittedText)
+	const refusingRuntime = {
+		toMarkdown: () => Promise.reject(new Error("A document with a submitted text is not converted")),
+		run: (model: string) =>
+			model === "@cf/moondream/moondream3.1-9B-A2B"
+				? Promise.reject(new Error("A document with a submitted text is not recognized"))
+				: recordedRuntime.run(model),
+	}
+	const { stepNames, step } = createRecordingStep()
+
+	await ingestDocument(step, { ...recordedEnvironment, AI_RUNTIME: refusingRuntime as unknown as Ai }, documentId)
+
+	const [document] = await database.select({ status: documents.status, pageCount: documents.pageCount }).from(documents)
+	expect({
+		stepNames,
+		document,
+		markdown: await (await env.DOCUMENT_STORAGE.get(contentObjectKey(documentId)))?.text(),
+	}).toEqual({
+		stepNames: [
+			"render email",
+			"extract text",
+			"store markdown",
+			"record status classifying",
+			"classify document",
+			"archive document",
+			"index document",
+		],
+		document: { status: "archived", pageCount: 3 },
+		markdown: submittedText,
+	})
+})
+
+test("ingestDocument reads a scan itself when its submitted text holds fewer than 40 letters or digits", async () => {
+	const documentId = "8e2c4a6b-1d93-4f57-b0e8-3a5c7d9f1b24"
+	const database = await storeSubmittedText(documentId, "## Page 1\n\nRechnung 1\n")
+	const { stepNames, step } = createRecordingStep()
+
+	await ingestDocument(step, recordedEnvironment, documentId)
+
+	const [document] = await database.select({ status: documents.status, pageCount: documents.pageCount }).from(documents)
+	expect({ stepNames, document }).toEqual({
+		stepNames: [
+			"render email",
+			"extract text",
+			"record status recognizing_text",
+			"recognize page 1",
+			"store markdown",
+			"record status classifying",
+			"classify document",
+			"archive document",
+			"index document",
+		],
+		document: { status: "archived", pageCount: 1 },
+	})
+})
+
 test("a browser open during ingestion hears each status the workflow records", async () => {
 	const documentId = "2a6e4d0c-7f93-4b5a-8c14-5d3f9e0b6a32"
 	await storeScannedInvoice(documentId)

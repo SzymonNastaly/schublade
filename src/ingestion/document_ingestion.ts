@@ -19,6 +19,7 @@ import { claimContent, sha256Hexadecimal } from "./content_identity"
 import { findStandardCategory } from "./document_classification"
 import {
 	assembleDocumentMarkdown,
+	isUsableSubmittedText,
 	recognitionLimitViolation,
 	selectPageTextSources,
 	selectPrintedMailTextSources,
@@ -26,7 +27,13 @@ import {
 import { predecessorStatuses } from "./document_lifecycle"
 import { composePrintableMail, mailContextOf, parseMailWithinLimits, printedHeaderText } from "./mail_message"
 import { printMail } from "./mail_rendering"
-import { MAIL_MEDIA_TYPE, contentObjectKey, originalObjectKey, parseSourceFile } from "./source_file"
+import {
+	MAIL_MEDIA_TYPE,
+	contentObjectKey,
+	originalObjectKey,
+	parseSourceFile,
+	submittedTextObjectKey,
+} from "./source_file"
 import { resolveTaxonomyName } from "./taxonomy_resolution"
 import type { WorkflowStep, WorkflowStepConfig } from "cloudflare:workers"
 import type { InferInsertModel, SQL } from "drizzle-orm"
@@ -65,8 +72,10 @@ type DocumentStatusChange =
 	{ status: Exclude<DocumentStatus, "failed"> } | { status: "failed"; failureReason: DocumentFailureReason }
 
 // A refusal is a step result, so its reason survives the step boundary, which does not promise
-// to keep the class of a thrown error.
+// to keep the class of a thrown error. A submitted text stays in R2, because a step's result is
+// limited to 1 MiB.
 type TextExtractionOutcome =
+	| { kind: "submitted" }
 	| { kind: "extracted"; extraction: TextExtraction }
 	| { kind: "refused"; failureReason: DocumentFailureReason; explanation: string }
 
@@ -409,7 +418,7 @@ async function archiveDocument(
 	database: ArchiveDatabase,
 	documentId: string,
 	classification: DocumentClassification,
-	pageCount: number,
+	pageCount: number | undefined,
 ): Promise<void> {
 	const [document] = await database
 		.select({ status: documents.status })
@@ -573,6 +582,8 @@ async function archiveIngestedDocument(
 
 		const textExtraction = await step.do("extract text", inferenceStep, async () => {
 			await recordDocumentStatus(environment, documentId, { status: "extracting" })
+			const submittedText = await environment.DOCUMENT_STORAGE.get(submittedTextObjectKey(documentId))
+			if (submittedText && isUsableSubmittedText(await submittedText.text())) return { kind: "submitted" as const }
 			const { sourceFile, bytes } = await readOriginal(database, environment.DOCUMENT_STORAGE, documentId)
 			return extractText(
 				environment,
@@ -585,36 +596,46 @@ async function archiveIngestedDocument(
 			failureReason = textExtraction.failureReason
 			throw new Error(textExtraction.explanation)
 		}
-		const { extraction } = textExtraction
-
 		const transcriptions: Array<PageTranscription> = []
-		const recognitionPages = extraction.pages.filter((page) => page.kind === "recognition")
-		if (recognitionPages.length > 0) {
-			await step.do("record status recognizing_text", recordStep, () =>
-				recordDocumentStatus(environment, documentId, { status: "recognizing_text" }),
-			)
-			for (const { pageIndex } of recognitionPages) {
-				// Each page is its own step, so a failed page retries without repeating the others.
-				const recognition = await recognizePage(step, environment, database, documentId, pageIndex)
-				if (recognition.kind === "refused") {
-					failureReason = recognition.failureReason
-					throw new Error(recognition.explanation)
-				}
-				transcriptions.push(recognition.transcription)
-			}
-		}
-
-		const markdown = assembleDocumentMarkdown(extraction, transcriptions)
-		await step.do("store markdown", recordStep, async () => {
-			await environment.DOCUMENT_STORAGE.put(contentObjectKey(documentId), markdown, {
-				httpMetadata: { contentType: "text/markdown; charset=utf-8" },
+		if (textExtraction.kind === "submitted") {
+			await step.do("store markdown", recordStep, async () => {
+				const submittedText = await environment.DOCUMENT_STORAGE.get(submittedTextObjectKey(documentId))
+				if (!submittedText) throw new NonRetryableError(`Document ${documentId} lost its submitted text`)
+				await environment.DOCUMENT_STORAGE.put(contentObjectKey(documentId), submittedText.body, {
+					httpMetadata: { contentType: "text/markdown; charset=utf-8" },
+				})
 			})
-		})
+		} else {
+			const { extraction } = textExtraction
+			const recognitionPages = extraction.pages.filter((page) => page.kind === "recognition")
+			if (recognitionPages.length > 0) {
+				await step.do("record status recognizing_text", recordStep, () =>
+					recordDocumentStatus(environment, documentId, { status: "recognizing_text" }),
+				)
+				for (const { pageIndex } of recognitionPages) {
+					// Each page is its own step, so a failed page retries without repeating the others.
+					const recognition = await recognizePage(step, environment, database, documentId, pageIndex)
+					if (recognition.kind === "refused") {
+						failureReason = recognition.failureReason
+						throw new Error(recognition.explanation)
+					}
+					transcriptions.push(recognition.transcription)
+				}
+			}
+			const markdown = assembleDocumentMarkdown(extraction, transcriptions)
+			await step.do("store markdown", recordStep, async () => {
+				await environment.DOCUMENT_STORAGE.put(contentObjectKey(documentId), markdown, {
+					httpMetadata: { contentType: "text/markdown; charset=utf-8" },
+				})
+			})
+		}
 
 		await step.do("record status classifying", recordStep, () =>
 			recordDocumentStatus(environment, documentId, { status: "classifying" }),
 		)
 		const result = await step.do("classify document", inferenceStep, async () => {
+			const markdown = await (await environment.DOCUMENT_STORAGE.get(contentObjectKey(documentId)))?.text()
+			if (markdown === undefined) throw new NonRetryableError(`Document ${documentId} has no stored text`)
 			const { senderRecords, categoryRecords, tagRecords, members } = await readTaxonomy(database)
 			return classifyDocument(
 				environment.AI_RUNTIME,
@@ -635,7 +656,9 @@ async function archiveIngestedDocument(
 		})
 
 		await step.do("archive document", recordStep, async () => {
-			await archiveDocument(database, documentId, result.classification, extraction.pages.length)
+			// A client's page count, recorded at the reception, stands when the client's text does.
+			const pageCount = textExtraction.kind === "extracted" ? textExtraction.extraction.pages.length : undefined
+			await archiveDocument(database, documentId, result.classification, pageCount)
 			await announceArchiveChange(environment)
 		})
 		return {
