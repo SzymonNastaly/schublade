@@ -54,7 +54,7 @@ function convertedSectionsByPage(convertedMarkdown: string): Map<number, string>
  * replacement character per ten of them. A few symbol font bullets pass; a font without a Unicode
  * mapping, whose glyphs come out as replacement characters, sends the page to recognition.
  */
-function isReadableTextLayer(text: string): boolean {
+export function isReadableTextLayer(text: string): boolean {
 	const alphanumericCount = countMatches(text, ALPHANUMERIC_CHARACTER)
 	return (
 		alphanumericCount >= MINIMUM_ALPHANUMERIC_CHARACTERS &&

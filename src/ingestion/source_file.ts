@@ -14,6 +14,8 @@ const acceptedSourceFiles: ReadonlyArray<SourceFile> = [
 /** A stored email awaiting its rendering. It is not an accepted upload. */
 export const MAIL_MEDIA_TYPE = "message/rfc822"
 
+export const UNACCEPTED_FILE_KIND = "Only PDF, JPEG, PNG, and WebP files can be archived."
+
 export const acceptedMediaTypes = acceptedSourceFiles.map((sourceFile) => sourceFile.mediaType)
 
 export function parseSourceFile(mediaType: string): SourceFile | undefined {

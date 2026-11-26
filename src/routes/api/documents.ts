@@ -2,7 +2,6 @@ import { createFileRoute } from "@tanstack/react-router"
 import { env } from "cloudflare:workers"
 import { z } from "zod"
 import { database } from "../../database/client"
-import { receiveDocumentUploads } from "../../ingestion/document_upload"
 import { searchCriteriaSchema } from "../../search/search_criteria"
 import { searchDocuments } from "../../search/document_search"
 
@@ -17,7 +16,6 @@ export const Route = createFileRoute("/api/documents")({
 				if (!criteria.success) return Response.json({ error: z.prettifyError(criteria.error) }, { status: 400 })
 				return Response.json({ documents: await searchDocuments(database, env.SEARCH_INDEX, criteria.data) })
 			},
-			POST: ({ request }) => receiveDocumentUploads(env, request, "documents"),
 		},
 	},
 })

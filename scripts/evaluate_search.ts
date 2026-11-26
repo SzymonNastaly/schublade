@@ -3,6 +3,7 @@ import { readFile, stat } from "node:fs/promises"
 import { fileURLToPath } from "node:url"
 import { parseArgs, promisify } from "node:util"
 import { z } from "zod"
+import { submitFixtureDocument } from "./fixture_submission.ts"
 
 // Ensures the test documents are archived in a running `VITE_ACCESS_DEVELOPMENT_EXEMPTION=true
 // pnpm dev` server and indexed in its AI Search instance, then runs fixed searches and compares
@@ -46,9 +47,6 @@ const indexingReportSchema = z.object({
 	indexedDocumentIds: z.array(z.string()),
 	failedDocuments: z.array(z.object({ documentId: z.string(), reason: z.string() })),
 	remainingDocumentCount: z.number(),
-})
-const uploadResponseSchema = z.object({
-	outcomes: z.array(z.object({ kind: z.string(), fileName: z.string(), documentId: z.string().optional() })),
 })
 const itemListSchema = z.array(z.object({ id: z.string(), key: z.string(), status: z.string() }))
 const itemLogsSchema = z.array(z.object({ timestamp: z.string(), action: z.string() }))
@@ -118,14 +116,13 @@ let fileNameById = await archivedFixtureDocuments()
 const missingFixtures = fixtures.filter((fixture) => ![...fileNameById.values()].includes(fixture.file_name))
 if (missingFixtures.length > 0) {
 	console.log(`Archiving ${missingFixtures.length} test documents through the ingestion workflow`)
-	const formData = new FormData()
+	const outcomes = []
 	for (const fixture of missingFixtures) {
 		const bytes = await readFile(new URL(fixture.file_name, fixtureDirectory))
-		formData.append("files", new File([bytes], fixture.file_name, { type: fixture.media_type }))
+		outcomes.push(
+			await submitFixtureDocument(baseUrl, new File([bytes], fixture.file_name, { type: fixture.media_type })),
+		)
 	}
-	const { outcomes } = uploadResponseSchema.parse(
-		await requestJson(`${baseUrl}/api/documents`, { method: "POST", body: formData }),
-	)
 	// An already archived file names a document that is not archived yet, which the loop below awaits.
 	const rejected = outcomes.filter((outcome) => outcome.kind !== "accepted" && outcome.kind !== "already_archived")
 	if (rejected.length > 0) throw new Error(`The server did not accept ${rejected.map((outcome) => outcome.fileName)}`)

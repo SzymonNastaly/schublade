@@ -3,11 +3,12 @@ import { readFile } from "node:fs/promises"
 import { parseArgs, promisify } from "node:util"
 import { z } from "zod"
 import { normalizeTaxonomyName } from "../src/ingestion/taxonomy_resolution.ts"
+import { submitFixtureDocument } from "./fixture_submission.ts"
 
-// Uploads every test document to a running `VITE_ACCESS_DEVELOPMENT_EXEMPTION=true pnpm dev`
-// server, waits until each is archived or failed, and compares the result with
-// test_fixtures/documents/expected_extraction.json. The dev server calls the real,
-// billed Workers AI models.
+// Sends every test document with the text the web application reads to a running
+// `VITE_ACCESS_DEVELOPMENT_EXEMPTION=true pnpm dev` server, waits until each is archived or
+// failed, and compares the result with test_fixtures/documents/expected_extraction.json. The dev
+// server calls the real, billed Workers AI models.
 
 const commandLine = process.argv.slice(2)
 // `pnpm evaluate:extraction -- --gateway-id …` passes the separator through to the script.
@@ -54,17 +55,6 @@ const listedDocumentSchema = z.object({
 	fields: z.array(z.object({ fieldKey: z.string(), value: z.union([z.string(), z.number()]).nullable() })),
 })
 type ListedDocument = z.infer<typeof listedDocumentSchema>
-
-const uploadResponseSchema = z.object({
-	outcomes: z.array(
-		z.discriminatedUnion("kind", [
-			z.object({ kind: z.literal("accepted"), fileName: z.string(), documentId: z.string() }),
-			z.object({ kind: z.literal("already_archived"), fileName: z.string(), documentId: z.string() }),
-			z.object({ kind: z.literal("rejected"), fileName: z.string(), reason: z.string() }),
-			z.object({ kind: z.literal("failed"), fileName: z.string(), reason: z.string() }),
-		]),
-	),
-})
 
 const workflowInstanceSchema = z.object({
 	result: z.object({
@@ -165,16 +155,13 @@ async function listDocuments(): Promise<Array<ListedDocument>> {
 }
 
 async function uploadDocuments(expectedDocuments: Array<ExpectedDocument>): Promise<Map<string, string>> {
-	const formData = new FormData()
+	const documentIds = new Map<string, string>()
 	for (const document of expectedDocuments) {
 		const bytes = await readFile(new URL(document.file_name, fixtureDirectory))
-		formData.append("files", new File([bytes], document.file_name, { type: document.media_type }))
-	}
-	const response = uploadResponseSchema.parse(
-		await requestJson(`${baseUrl}/api/documents`, { method: "POST", body: formData }),
-	)
-	const documentIds = new Map<string, string>()
-	for (const outcome of response.outcomes) {
+		const outcome = await submitFixtureDocument(
+			baseUrl,
+			new File([bytes], document.file_name, { type: document.media_type }),
+		)
 		if (outcome.kind === "rejected" || outcome.kind === "failed") {
 			throw new Error(`The server did not accept ${outcome.fileName}: ${outcome.reason}`)
 		}

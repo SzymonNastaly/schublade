@@ -12,8 +12,8 @@ import { StatusBadge } from "./controls/status_badge"
 import { textLinkClasses } from "./controls/text_link"
 import { documentFailureSentences, documentStatusBadges } from "./document_status_presentation"
 import { useDocumentStatusUpdates } from "./document_status_updates"
+import { submitBrowserDocument } from "./document_submission"
 import { isFinishedUpload, reduceTrackedUploads, unfinishedDocumentIds } from "./tracked_uploads"
-import type { UploadOutcome } from "../ingestion/document_upload"
 import type { TrackedUpload, TrackedUploadEvent } from "./tracked_uploads"
 import type { ActionDispatch, ReactNode } from "react"
 
@@ -32,18 +32,6 @@ export function useDocumentUploads(): DocumentUploads {
 	return documentUploads
 }
 
-async function uploadDocuments(files: Array<File>): Promise<Array<UploadOutcome>> {
-	const formData = new FormData()
-	for (const file of files) formData.append("files", file)
-	const response = await fetch("/api/documents", { method: "POST", body: formData })
-	if (!response.ok) {
-		const failure = await response.json<{ error?: string }>().catch(() => ({ error: undefined }))
-		throw new Error(failure.error ?? `The upload failed with status ${response.status}`)
-	}
-	const { outcomes } = await response.json<{ outcomes: Array<UploadOutcome> }>()
-	return outcomes
-}
-
 /** Holds the uploads above the routes, so they continue while a member moves between pages. */
 export function DocumentUploadsProvider({ children }: { children: ReactNode }) {
 	const router = useRouter()
@@ -56,16 +44,14 @@ export function DocumentUploadsProvider({ children }: { children: ReactNode }) {
 	}, [statusRecords, router])
 
 	const start = (files: Array<File>) => {
-		const submitted = files.map((file) => ({ key: crypto.randomUUID(), fileName: file.name }))
-		dispatch({ kind: "submitted", uploads: submitted })
-		void uploadDocuments(files)
-			.catch((error: Error) =>
-				files.map((file): UploadOutcome => ({ kind: "failed", fileName: file.name, reason: error.message })),
-			)
-			.then((outcomes) => {
-				dispatch({ kind: "answered", keys: submitted.map((upload) => upload.key), outcomes })
+		const submissions = files.map((file) => ({ key: crypto.randomUUID(), file }))
+		dispatch({ kind: "submitted", uploads: submissions.map(({ key, file }) => ({ key, fileName: file.name })) })
+		for (const { key, file } of submissions) {
+			void submitBrowserDocument(file).then((outcome) => {
+				dispatch({ kind: "answered", keys: [key], outcomes: [outcome] })
 				void router.invalidate()
 			})
+		}
 	}
 	const retry = async (documentId: string) => {
 		await submitDocumentIngestionRetry({ data: { documentId } })

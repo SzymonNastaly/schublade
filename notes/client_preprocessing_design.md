@@ -391,6 +391,18 @@ The Rust part is built; the Mac application's PDFKit and Vision conformance is n
 - A GET that meets a condition before the PUT counts no failure against the content (`SubmissionCondition::ReceptionUnknown`).
 - `ArchiveExchange::put_octets` is gone with its caller. The scripted archive answers `contents` still, as the Worker does for collector build 1.0.
 
+## What unit C5 changed in this design
+
+Unit C5 is built: the web application and the evaluation scripts send to the reception, and `POST /api/documents` is gone.
+
+- The browser sends no text when no page holds a readable text layer, so a scanned PDF arrives without one and the archive reads it. The Rust writer sends the headings alone for such a document. Both reach today's chain, because the Workflow needs 40 letters or digits.
+- `Schublade-Page-Count` goes only with page texts, as in Rust, so a picture from the browser carries no page count and the Workflow records 1.
+- The page texts follow `isReadableTextLayer` of `document_text.ts`, and the limits of a text and a thumbnail come from `reception_headers.ts`, so the browser and the reception share one rule. The sentence for an unaccepted kind moved to `source_file.ts`, and the browser answers it without sending the file.
+- PDF.js reads the text and draws the page in its own workers, so no worker of our own was needed. The longest main-thread task while a digital PDF and a photograph were read and sent was 125 ms, in the development build (measured, 2026-11-26).
+- The browser reads and sends at most three files of a tab at once, each a PUT of its own.
+- `document_reading.ts` runs in Node for the evaluation scripts, so its imports name their `.ts` files. Node has no canvas, so the scripts send no thumbnail and the archive draws one.
+- A POST to `/api/documents` now answers the archive's page, as TanStack Start answers a method a route lacks, and archives nothing.
+
 ## Next implementation step
 
 Unit C2: `DocumentReading` and the iPhone application with its share extension. The bindings publish `prepare_submission` with `page_texts` and `thumbnail_path`, `read_submission_answer` with `RouteUnknown`, and `read_document_reception`, and the iPhone's multipart writer goes.

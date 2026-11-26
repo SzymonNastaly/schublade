@@ -49,7 +49,6 @@ test("receiveDocumentUploads identifies each file by its content and rejects an 
 			new File([scannedInvoice], "invoice.pdf"),
 			new File([heicHeader], "IMG_0001.heic", { type: "image/heic" }),
 		]),
-		"documents",
 	)
 
 	const [document] = await connectDatabase(env.DATABASE)
@@ -94,7 +93,6 @@ test("receiveDocumentUploads rejects an oversized file and reports a failed one 
 			new File([new Uint8Array(pngSignature)], "photograph.png", { type: "image/png" }),
 			new File([new Uint8Array(jpegSignature)], "receipt.jpg", { type: "image/jpeg" }),
 		]),
-		"documents",
 	)
 
 	const storedDocuments = await connectDatabase(env.DATABASE)
@@ -138,7 +136,7 @@ test("receiveDocumentUploads archives the first 20 files of a request and reject
 			new File([new Uint8Array([...jpegSignature, index])], `receipt-${index + 1}.jpg`, { type: "image/jpeg" }),
 	)
 
-	const response = await receiveDocumentUploads(environment, uploadRequest(receipts), "documents")
+	const response = await receiveDocumentUploads(environment, uploadRequest(receipts))
 
 	const { outcomes } = await response.json<{ outcomes: Array<{ kind: string; fileName: string }> }>()
 	expect({
@@ -166,7 +164,6 @@ test("receiveDocumentUploads answers a request without a multipart body with 400
 	const response = await receiveDocumentUploads(
 		environment,
 		new Request("https://archive.test/api/documents", { method: "POST", body: "not a form" }),
-		"documents",
 	)
 
 	expect({ status: response.status, body: await response.json() }).toEqual({
@@ -185,7 +182,6 @@ test("receiveDocumentUploads refuses a request larger than 50 MB", async () => {
 			new File([new Uint8Array(24_000_000)], "second.pdf"),
 			new File([new Uint8Array(2_000_000)], "third.pdf"),
 		]),
-		"documents",
 	)
 
 	expect({ status: response.status, body: await response.json() }).toEqual({
@@ -205,7 +201,6 @@ test("receiveDocumentUploads removes the stored original when its row cannot be 
 	const response = await receiveDocumentUploads(
 		{ ...environment, DATABASE: unavailableDatabase as unknown as D1Database },
 		uploadRequest([new File([new Uint8Array(pngSignature)], "photograph.png", { type: "image/png" })]),
-		"documents",
 	)
 
 	expect({
@@ -235,12 +230,10 @@ test("the same bytes become one document however many files carry them, and ever
 			new File([downloadsInvoice], "Invoice-PLK-2026-004817.pdf"),
 			new File([desktopInvoice], "Invoice-PLK-2026-004817.pdf"),
 		]),
-		"documents",
 	)
 	const secondResponse = await receiveDocumentUploads(
 		environment,
 		uploadRequest([new File([cloudStorageInvoice], "Invoice-PLK-2026-004817.pdf")]),
-		"documents",
 	)
 
 	const storedDocuments = await database

@@ -137,6 +137,7 @@ src/
 		document_formatting.test.ts
 		page_load_failure.tsx                What a page shows when its loader failed; it recovers on the next announcement
 		document_original.tsx                The original file in the document box, or the note that an email has no PDF yet
+		pdf_opening.ts                       PDF.js with its workers and bundled image decoders, for the page box and the upload
 		pdf_page_box.tsx                     PDF.js in a box of constant size: sideways pages below md, stacked pages from md upward, only pages near the visible one drawn
 		document_details.tsx                 The original and the extracted text as tabs, and the details as a table or the edit form
 		document_panels.tsx                  The Actions and More from this sender panels
@@ -149,6 +150,9 @@ src/
 		tracked_uploads.ts                   The union of tracked upload rows and its reducer
 		tracked_uploads.test.ts
 		document_file_picker.tsx             The hidden file input and the control that opens it; on a phone the system picker offers camera, photos, and files
+		document_reading.ts                  The page texts through PDF.js, the text as `submitted_document_text.md` composes it, the counted body, and one PUT to /api/submitted_documents/{sha256}; it runs in Node too, for the evaluation scripts
+		document_reading.test.ts
+		document_submission.ts               The browser's reading: the page texts, the first page or the picture as a JPEG of 480 pixels, at most three files at once
 		upload_tray.tsx                      Upload context provider, the tray, and the Retry and Delete controls of a failed document
 	utilities/
 		server_functions.ts                  TanStack Start server functions, each refused below its level by authorizeOperation
@@ -159,7 +163,7 @@ src/
 		settings.tsx                         Settings page: issue a token that adds documents or one that also reads the archive, shown once, list and revoke tokens, list and disconnect the clients of /mcp
 		failed_documents.tsx                 Failed documents page: each document whose ingestion failed, with its failure sentence, Retry, and Delete
 		documents.$documentId.tsx            Document page: the panels, title, the summary of a document classified before Clairic, the original beside its details; after a deletion, the previous page or the archive
-		api/documents.ts                     GET searches or lists documents by the searchCriteriaSchema parameters, POST accepts multipart uploads in fields named files
+		api/documents.ts                     GET searches or lists documents by the searchCriteriaSchema parameters
 		api/documents.$documentId.$representation.ts   GET the original file or the extracted Markdown
 		api/search_index.ts                  POST indexes archived documents that AI Search lacks and reports failedDocuments; repeat while it indexes some
 	router.tsx                             Router factory
@@ -180,8 +184,9 @@ scripts/
 	provision_environment.ts               `pnpm run provision`: creates or reuses the resources, deploys behind Access, custom hostname, Email Routing, token ingestion bypass
 	provisioning_requests.ts               Access bodies, protected hostnames, zone candidates, routing rule matching, and the MX records that block Email Routing, tested in Node
 	generate_test_documents.ts             Deterministic generator for test_fixtures/documents
-	evaluate_extraction.ts                 `pnpm evaluate:extraction`: uploads the test documents to a dev server and scores the results
+	evaluate_extraction.ts                 `pnpm evaluate:extraction`: sends the test documents with their PDF.js text to a dev server and scores the results
 	evaluate_search.ts                     `pnpm evaluate:search`: archives and indexes the test documents on a dev server, then checks fixed searches
+	fixture_submission.ts                  Sends one test document as the web application does, without a thumbnail, for both evaluation scripts
 	execute_on_macintosh.sh                Copies what git tracks to the build account on the Mac (`ssh mac`) and runs a command there, for FSEvents, st_flags, and the Keychain
 	test_document_generation/              Document catalog, page layout, and scan and photograph simulation
 native_client/                           The native client's Cargo workspace apart from pnpm: the crate every client of the archive shares, the collector's crates, the bindings, the library's Swift wording both applications share, and both applications; `notes/collector_design.md` is the collector's design
@@ -368,7 +373,7 @@ eslint.config.js, .prettierrc.json, knip.json, tsconfig.json
 - **The manifest link needs `crossOrigin: "use-credentials"`.** Access protects `public/` like everything else, and a browser sends no cookie for a manifest without that attribute.
 - **Tokens are bound to the origin of the request.** `authorizationServerOptions` receives it from `request.url`, so a local dev server works at `http://localhost:3000` with no configuration and a token issued for one hostname is refused on another.
 - **`pnpm dev` waits for an answer before a pending migration.** In a tool that cannot type into the terminal, start it with `CI=true VITE_ACCESS_DEVELOPMENT_EXEMPTION=true pnpm dev`, which accepts the prompt.
-- **PDF.js stays on `pdfjs-dist` 6.5.438, legacy build.** The standard build hung while drawing in iOS Safari. Version 6 needs both `workerSrc` and `rendererSrc`, and it decodes CCITT, JBIG2, and JPX images, the usual encodings of scans, only through the WebAssembly files that `BundledDecoderFactory` in `pdf_page_box.tsx` serves. Without them those images draw blank and nothing fails.
+- **PDF.js stays on `pdfjs-dist` 6.5.438, legacy build.** The standard build hung while drawing in iOS Safari. Version 6 needs both `workerSrc` and `rendererSrc`, and it decodes CCITT, JBIG2, and JPX images, the usual encodings of scans, only through the WebAssembly files that `BundledDecoderFactory` in `pdf_opening.ts` serves. Without them those images draw blank and nothing fails.
 - **`vi.mock` fails in the workerd test project.** Vitest's module mocker calls `AsyncLocalStorage.disable()`, which workerd does not implement. Spy on a module export with `vi.spyOn` and import the module under test afterwards, as `server_functions.workerd.test.ts` does.
 - **Server functions read the caller through a cast.** The Worker entry passes `{ caller }` to `handler.fetch` as request context, and TanStack Start delivers it to server functions at run time, but types their `context` as undefined. `authorizeOperation` in `caller_authorization.ts` reads it and refuses a request without a caller.
 - **Cloudflare's results live in the block Email Routing prepends.** On the first live delivery, from Gmail to staging, Email Routing prepended Received, ARC-Seal, ARC-Message-Signature, ARC-Authentication-Results, Received-SPF, Authentication-Results, and X-CF-SpamH-Score above Gmail's own Received header. Every relay prepends, so a sender's headers always sit below that second Received header. `inbound_mail.ts` therefore requires a Received header first, takes the block up to the next Received header, and rejects a message without one. It trusts only the one Authentication-Results header from `mx.cloudflare.net` inside the block and ignores every Authentication-Results header below it. The one From mailbox must equal the envelope sender. Every delivery the handler reads logs one `Inbound mail header layout` line with the names of its first 12 headers, the position and authserv-id of each Authentication-Results and ARC-Authentication-Results header, the trusted dmarc result unless it names a mailbox, and whether the delivery was admitted. Email Routing delivers mail from domains whose DMARC policy is `none`, such as gmail.com, so the allowlist means nothing without the `dmarc=pass` check.

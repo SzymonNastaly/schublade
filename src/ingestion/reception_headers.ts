@@ -1,8 +1,8 @@
 // The limits of the representations a client derives. A text this long belongs to a PDF with a
 // text layer, which the archive reads itself, and a JPEG of 480 pixels on its longer side stays
 // far below the thumbnail limit.
-const MAXIMUM_TEXT_BYTES = 2_000_000
-const MAXIMUM_THUMBNAIL_BYTES = 200_000
+export const MAXIMUM_TEXT_BYTES = 2_000_000
+export const MAXIMUM_THUMBNAIL_BYTES = 200_000
 
 /**
  * The byte counts of one reception body: the Markdown text, then the JPEG thumbnail, then the

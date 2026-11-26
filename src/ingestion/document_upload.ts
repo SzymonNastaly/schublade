@@ -4,6 +4,7 @@ import { contents, documents } from "../database/schema"
 import { claimContent, lookupContents, sha256Hexadecimal } from "./content_identity"
 import { recordIngestionStartFailure, startDocumentIngestion } from "./document_ingestion"
 import {
+	UNACCEPTED_FILE_KIND,
 	identifySourceFile,
 	originalObjectKey,
 	submittedTextObjectKey,
@@ -27,8 +28,6 @@ const MAXIMUM_REQUEST_BYTES = 50_000_000
 // Each file costs an R2 write, a D1 insert, and a Workflow start in the same invocation, so one
 // upload request or one mail message starts at most this many of each.
 export const MAXIMUM_FILES_PER_SUBMISSION = 20
-
-export const UNACCEPTED_FILE_KIND = "Only PDF, JPEG, PNG, and WebP files can be archived."
 
 /**
  * An accepted file became a new document. An already archived file's bytes belong to a document
@@ -222,14 +221,10 @@ async function readLimitedFormData(request: Request): Promise<MultipartBody> {
 }
 
 /**
- * Accepts the files of a multipart request whose fields are named files, one outcome per file. The
- * route is the ingest route of a token or the browser's upload, and multipart carries no text.
+ * Accepts the files of a multipart request to the ingest route whose fields are named files, one
+ * outcome per file. Multipart carries no text.
  */
-export async function receiveDocumentUploads(
-	environment: UploadEnvironment,
-	request: Request,
-	route: "ingest" | "documents",
-): Promise<Response> {
+export async function receiveDocumentUploads(environment: UploadEnvironment, request: Request): Promise<Response> {
 	const body = await readLimitedFormData(request)
 	if (body.kind === "too_large") {
 		return Response.json(
@@ -251,7 +246,7 @@ export async function receiveDocumentUploads(
 			})
 			continue
 		}
-		console.log(`Document reception: route=${route} text=absent thumbnail=absent`)
+		console.log("Document reception: route=ingest text=absent thumbnail=absent")
 		try {
 			outcomes.push(await acceptDocumentUpload(environment, file))
 		} catch (error) {
