@@ -111,6 +111,13 @@ struct DocumentPresentationTests {
 		#expect(underMonth.dateText == "22 Sep")
 	}
 
+	@Test func storageSizesReadAsEverySizeOfTheApplicationDoes() {
+		let device = DeviceWording(phrase: "this iPhone", storageLimitChoices: [])
+		#expect(StorageWording.heldSentence(1_284_000_000, device: device)
+			== "Downloaded originals take 1.3 GB on this iPhone.")
+		#expect(StorageWording.limitTitle(500_000_000) == "500 MB")
+	}
+
 	@Test func detailPresentationFormatsDecimalAmountsIbanPeriodsAndOfflinePlaceholder() {
 		let context = Self.fixedContext()
 		let senderScope = NamedScope(scope: .sender(sender: SenderIdentifier(value: "s1")), name: "Nordbank AG")

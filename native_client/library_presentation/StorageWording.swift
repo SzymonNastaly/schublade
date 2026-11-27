@@ -6,19 +6,12 @@ public enum StorageWording {
 		guard let bytes else {
 			return "No Limit"
 		}
-		return size(bytes)
+		return DocumentFormatting.byteSize(bytes, fractionLength: 0)
 	}
 
 	public static func heldSentence(_ bytes: UInt64, device: DeviceWording) -> String {
 		bytes == 0
 			? "No originals are downloaded on \(device.phrase)."
-			: "Downloaded originals take \(size(bytes)) on \(device.phrase)."
-	}
-
-	private static func size(_ bytes: UInt64) -> String {
-		let formatter = ByteCountFormatter()
-		formatter.countStyle = .file
-		formatter.allowedUnits = [.useBytes, .useKB, .useMB, .useGB]
-		return formatter.string(fromByteCount: Int64(clamping: bytes))
+			: "Downloaded originals take \(DocumentFormatting.byteSize(bytes)) on \(device.phrase)."
 	}
 }
