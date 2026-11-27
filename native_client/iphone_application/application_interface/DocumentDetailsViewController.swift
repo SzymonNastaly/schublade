@@ -7,6 +7,17 @@ import UIKit
 /// and to the archive in the browser.
 final class DocumentDetailsViewController: UIViewController, UICollectionViewDataSource, UICollectionViewDelegate {
 	private static let copiedDuration = Duration.seconds(1)
+	/// The top of the sheet, where the grabber sits, which the list leaves clear.
+	private static let grabberClearance: CGFloat = 12
+	private static let fadeLength: CGFloat = 16
+	/// The sheet has no bar whose scroll edge effect would fade what scrolls up under the grabber, so
+	/// the list fades out above the head's place at rest instead of passing under the grabber.
+	private let grabberFade: CAGradientLayer = {
+		let fade = CAGradientLayer()
+		fade.colors = [UIColor.clear, UIColor.black].map(\.cgColor)
+		return fade
+	}()
+
 	private let showScope: (NamedScope) -> Void
 	private let showText: () -> Void
 	private(set) var sections: [DocumentDetailSection] = []
@@ -80,6 +91,22 @@ final class DocumentDetailsViewController: UIViewController, UICollectionViewDat
 		collectionView.delegate = self
 		collectionView.accessibilityIdentifier = "document.details"
 		view.addSubview(collectionView)
+		if #available(iOS 26, *) {
+			view.layer.mask = grabberFade
+		}
+	}
+
+	override func viewDidLayoutSubviews() {
+		super.viewDidLayoutSubviews()
+		guard view.layer.mask === grabberFade, view.bounds.height > 0 else {
+			return
+		}
+		CATransaction.begin()
+		CATransaction.setDisableActions(true)
+		grabberFade.frame = view.bounds
+		grabberFade.startPoint = CGPoint(x: 0.5, y: Self.grabberClearance / view.bounds.height)
+		grabberFade.endPoint = CGPoint(x: 0.5, y: (Self.grabberClearance + Self.fadeLength) / view.bounds.height)
+		CATransaction.commit()
 	}
 
 	func show(_ detail: DocumentDetailPresentation) {

@@ -451,7 +451,7 @@ A persistent sheet at half height is the phone's form of the Mac's reader with i
 | Item | Symbol | Title | Behaviour |
 | --- | --- | --- | --- |
 | `shareItem` | `square.and.arrow.up` | Share | `UIActivityViewController` with the named copy, as today |
-| `detailsItem` | `info.circle` | Details | Presents or dismisses the sheet. `isSelected` while it shows |
+| `detailsItem` | `info.circle` | Details | Presents or dismisses the sheet. The sheet's copy is `.prominent` from iOS 26, because a selected item draws its tint as a disc of its own that the glass leaves behind when the sheet moves it, and `isSelected` before |
 
 Quick Look goes, because it showed the same file as the page under it. Printing and Markup remain in the share sheet. "Open in Browser" moves to the foot of the details.
 
@@ -468,6 +468,7 @@ Quick Look goes, because it showed the same file as the page under it. Printing 
 
 - `sheetPresentationController`: `detents = [.medium(), .large()]`, `prefersGrabberVisible = true`, `largestUndimmedDetentIdentifier = .medium`, `prefersScrollingExpandsWhenScrolledToEdge = true`.
 - The collection view's background is clear from iOS 26, so the sheet's glass shows, and `systemGroupedBackground` before.
+- The sheet has no bar, so from iOS 26 a gradient mask clears the top 12 points under the grabber and fades the next 16, and a list scrolled up never runs under the grabber.
 - **It remembers.** `UserDefaults` holds `document.detailsShown`, true by default. Opening the sheet sets it and dismissing the sheet clears it. A page whose detail has loaded presents the sheet at the medium detent in `viewDidAppear` while the value is true. The Mac's inspector starts visible too.
 - `viewWillDisappear` dismisses the sheet with the same `animated` flag. A back swipe that the person cancels brings `viewDidAppear` again, which presents it again.
 

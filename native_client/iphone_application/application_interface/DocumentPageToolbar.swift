@@ -44,7 +44,13 @@ final class DocumentPageToolbar {
 			image: UIImage(systemName: "info.circle"),
 			primaryAction: UIAction(title: "Details") { [weak self] _ in self?.toggleDetails() }
 		)
-		details.isSelected = detailsShown
+		if #available(iOS 26, *) {
+			// The sheet's item is tinted glass rather than selected: a selected item draws its tint as a
+			// disc of its own inside the glass, which the glass leaves behind when the sheet moves it.
+			details.style = detailsShown ? .prominent : .plain
+		} else {
+			details.isSelected = detailsShown
+		}
 		share.accessibilityIdentifier = "document.share"
 		details.accessibilityIdentifier = detailsShown ? "document.details.hide" : "document.details.show"
 		for item in [share, details] {
