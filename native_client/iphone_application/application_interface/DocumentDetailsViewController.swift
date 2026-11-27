@@ -10,6 +10,10 @@ final class DocumentDetailsViewController: UIViewController, UICollectionViewDat
 	/// The top of the sheet, where the grabber sits, which the list leaves clear.
 	private static let grabberClearance: CGFloat = 12
 	private static let fadeLength: CGFloat = 16
+	/// The space above the head at rest, below the fade. The list sets it itself, because the system's
+	/// inset of a sheet's list differs between versions: iOS 27 placed the head 32 points higher than
+	/// iOS 26, under the fade.
+	private static let headClearance: CGFloat = 34
 	/// The sheet has no bar whose scroll edge effect would fade what scrolls up under the grabber, so
 	/// the list fades out above the head's place at rest instead of passing under the grabber.
 	private let grabberFade: CAGradientLayer = {
@@ -37,6 +41,7 @@ final class DocumentDetailsViewController: UIViewController, UICollectionViewDat
 			// The head and the facts under it read as one block at the medium detent, so the gap
 			// between two inset grouped sections stays out between them.
 			if index == 0 {
+				section.contentInsets.top = Self.headClearance
 				section.contentInsets.bottom = 0
 			} else if index == 1, let self, sections.count > 1, sections[1].header == nil {
 				section.contentInsets.top = 8
@@ -83,6 +88,7 @@ final class DocumentDetailsViewController: UIViewController, UICollectionViewDat
 		super.viewDidLoad()
 		view.backgroundColor = Self.sheetBackground
 		collectionView.backgroundColor = .clear
+		collectionView.contentInsetAdjustmentBehavior = .never
 		collectionView.frame = view.bounds
 		collectionView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
 		// A registration made during the first dequeue fails an assertion.
@@ -94,6 +100,25 @@ final class DocumentDetailsViewController: UIViewController, UICollectionViewDat
 		if #available(iOS 26, *) {
 			view.layer.mask = grabberFade
 		}
+	}
+
+	/// The sheet's toolbar is the only inset the list takes from the system.
+	override func viewSafeAreaInsetsDidChange() {
+		super.viewSafeAreaInsetsDidChange()
+		let bottom = view.safeAreaInsets.bottom
+		collectionView.contentInset.bottom = bottom
+		collectionView.verticalScrollIndicatorInsets = UIEdgeInsets(
+			top: Self.grabberClearance + Self.fadeLength,
+			left: 0,
+			bottom: bottom,
+			right: 0
+		)
+	}
+
+	/// A sheet opened again starts at its head, not where the person left the last one.
+	override func viewWillAppear(_ animated: Bool) {
+		super.viewWillAppear(animated)
+		collectionView.contentOffset = CGPoint(x: 0, y: -collectionView.adjustedContentInset.top)
 	}
 
 	override func viewDidLayoutSubviews() {
