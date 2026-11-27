@@ -10,7 +10,8 @@ import UIKit
 /// section shows: the documents still being written, every submission with its answer, the fraction
 /// sent of those under way, and what the copy holds of each archived one. It prepares a body when it
 /// starts an upload, sends an unavailable submission again on its schedule, asks the library to read
-/// the archive once a submission is archived, and lets a filed submission go when the person leaves.
+/// the archive once a submission is archived, lets a filed submission go when the person leaves, and
+/// lets one go at once whose document the copy lacks after reading the archive.
 @Observable
 final class SubmissionCoordinator {
 	private(set) var preparing: [PreparingSubmission] = []
@@ -31,6 +32,8 @@ final class SubmissionCoordinator {
 	@ObservationIgnored private var resumption: Task<Void, Never>?
 	/// The archive's origin while one is connected.
 	@ObservationIgnored var archiveOrigin: String?
+	/// What the copy has read of the archive, set before each `contentChanged`.
+	@ObservationIgnored var libraryCopy = LibraryCopy.absent
 
 	init(queue: SubmissionQueue, credentials: CredentialStorage, gateway: ApplicationGateway) {
 		self.queue = queue
@@ -267,26 +270,41 @@ extension SubmissionCoordinator {
 		send(entry)
 	}
 
-	/// Reads what the copy holds of each archived submission's document, after the copy changed.
-	/// A day's submissions are a handful, so these are a few local reads.
+	/// Reads what the copy holds of each archived submission's document, after the copy changed or
+	/// read the archive. A day's submissions are a handful, so these are a few local reads. A
+	/// submission whose document the copy lacks after a read requested since the archive named it is
+	/// finished: the archive deleted the document, or the answer came from another archive, and the
+	/// row would otherwise say Sent until the seven days are up.
 	func contentChanged() {
 		guard documentReading == nil else {
 			documentsStale = true
 			return
 		}
 		documentsStale = false
-		let archived = entries.compactMap { entry -> (UUID, DocumentIdentifier)? in
-			guard case let .archived(document, _, _)? = entry.answer else {
-				return nil
-			}
-			return (entry.id, DocumentIdentifier(value: document))
-		}
+		let copy = libraryCopy
+		let submitted = entries
 		documentReading = Task {
 			var read: [UUID: DocumentDetail] = [:]
-			for (identifier, document) in archived {
-				if let detail = try? await gateway.document(document) {
-					read[identifier] = detail
+			var gone: [UUID] = []
+			for entry in submitted {
+				guard case let .archived(document, _, answeredAt)? = entry.answer else {
+					continue
 				}
+				do throws(ApplicationFault) {
+					if let detail = try await gateway.document(DocumentIdentifier(value: document)) {
+						read[entry.id] = detail
+					} else if copy.hasReadArchive(after: answeredAt) {
+						gone.append(entry.id)
+					}
+				} catch {
+					continue
+				}
+			}
+			for identifier in gone {
+				queue.remove(identifier)
+			}
+			if !gone.isEmpty {
+				reload()
 			}
 			if read != documents {
 				documents = read

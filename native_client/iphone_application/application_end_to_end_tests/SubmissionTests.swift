@@ -127,6 +127,38 @@ final class SubmissionTests: XCTestCase {
 		await controller.gateway.shutdown()
 	}
 
+	/// An archived submission whose document the copy lacks after reading the archive, as one the
+	/// archive deleted since or one another archive answered, leaves instead of saying Sent for days.
+	@MainActor
+	func testAnArchivedSubmissionWhoseDocumentTheCopyLacksLeaves() async throws {
+		let environment = ApplicationEnvironment.isolated()
+		let controller = ApplicationController(environment: environment)
+		controller.launch()
+		let address = try XCTUnwrap(ProcessInfo.processInfo.environment["SCHUBLADE_SCRIPTED_ARCHIVE"])
+		try await waitUntil("the core starts") { controller.situation != .starting }
+		_ = await controller.connect(address: address, token: "scripted-end-to-end-token")
+		try await waitUntil("five documents") { Self.documents(controller) >= 5 }
+		let queue = environment.sharedContainer.submissionQueue
+		let deleted = try queue.enqueue(
+			document: Self.letter("A letter the archive deleted"),
+			fileName: "Letter.pdf",
+			kind: .pdf,
+			origin: .importedFile
+		)
+		try queue.record(
+			.archived(document: UUID().uuidString.lowercased(), alreadyHeld: false, answeredAt: .now - 60),
+			for: deleted.id
+		)
+		controller.submissions.resume()
+		XCTAssertEqual(controller.submissions.entries.map(\.id), [deleted.id])
+
+		_ = await controller.refreshLibrary()
+
+		try await waitUntil("the submission leaves") { controller.submissions.entries.isEmpty }
+		XCTAssertNil(queue.entry(deleted.id))
+		await controller.gateway.shutdown()
+	}
+
 	/// A scan whose row the person removed while its PDF was written is deleted once written, and
 	/// never queued or sent.
 	@MainActor

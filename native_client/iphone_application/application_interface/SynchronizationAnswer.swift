@@ -32,6 +32,16 @@ enum SynchronizationAnswer: Equatable {
 }
 
 extension LibraryCopy {
+	/// The longest a request for a page of changes takes.
+	private static let pageRequestLimit: TimeInterval = 30
+
+	/// Whether the copy holds every document the archive had named by `time`: a read it applied this
+	/// long after `time` was requested after the archive named them. A document the archive named that
+	/// the copy lacks after such a read is gone from the archive or belongs to another one.
+	func hasReadArchive(after time: Date) -> Bool {
+		hasRead(since: time.addingTimeInterval(Self.pageRequestLimit))
+	}
+
 	/// Whether the copy completed a read of the archive at or after a time. The copy records its times
 	/// in whole milliseconds, so the two times are compared in whole milliseconds: a read completed in
 	/// the millisecond of the time counts, or a request would wait for a read that never comes.

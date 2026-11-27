@@ -156,13 +156,14 @@ final class ApplicationController {
 			do throws(ApplicationFault) {
 				let status = try await gateway.libraryStatusAfter(revision)
 				revision = status.revision
-				let contentChanged: Bool = if case let .running(previous) = situation {
-					previous.contentRevision != status.contentRevision
+				let copyChanged: Bool = if case let .running(previous) = situation {
+					previous.contentRevision != status.contentRevision || previous.copy != status.copy
 				} else {
 					true
 				}
 				situation = .running(status)
-				if contentChanged {
+				if copyChanged {
+					submissions.libraryCopy = status.copy
 					submissions.contentChanged()
 				}
 				record(Self.connectedArchive(status.archive))

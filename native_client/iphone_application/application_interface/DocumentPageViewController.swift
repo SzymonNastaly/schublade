@@ -28,10 +28,6 @@ final class DocumentPageViewController: UIViewController {
 		case failed(ApplicationFault)
 	}
 
-	/// The longest a request for a page of changes takes. A page the copy applied this long after a
-	/// page began awaiting a document was requested after the archive named it.
-	private static let pageRequestLimit: TimeInterval = 30
-
 	let document: DocumentIdentifier
 	private let opening: DocumentOpening
 	private let controller: ApplicationController
@@ -177,7 +173,7 @@ final class DocumentPageViewController: UIViewController {
 		guard let awaitingSince else {
 			return true
 		}
-		return status.copy.hasRead(since: awaitingSince.addingTimeInterval(Self.pageRequestLimit))
+		return status.copy.hasReadArchive(after: awaitingSince)
 	}
 
 	private func loadDetail(revision: UInt64) {
