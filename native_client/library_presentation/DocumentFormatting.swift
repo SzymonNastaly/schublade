@@ -30,8 +30,12 @@ public enum DocumentFormatting {
 		return "\(groupedNumber(value)) \(noun)"
 	}
 
+	public static func byteSize(_ bytes: UInt64) -> String {
+		byteSize(bytes, fractionLength: 1)
+	}
+
 	/// `fractionLength` 0 suits sizes chosen as whole units, such as a storage limit.
-	public static func byteSize(_ bytes: UInt64, fractionLength: Int = 1) -> String {
+	public static func byteSize(_ bytes: UInt64, fractionLength: Int) -> String {
 		let units = ["bytes", "KB", "MB", "GB"]
 		var scaled = Double(bytes)
 		var unitIndex = 0
