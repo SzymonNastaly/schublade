@@ -194,7 +194,7 @@ final class ScreenRenderer {
 		appearance.performAsCurrentDrawingAppearance {
 			controller.view.layoutSubtreeIfNeeded()
 			let bounds = controller.view.bounds
-			guard let bitmap = controller.view.bitmapImageRepForCachingDisplay(in: bounds) else {
+			guard let bitmap = Self.retinaBitmap(of: bounds.size) else {
 				return
 			}
 			controller.view.cacheDisplay(in: bounds, to: bitmap)
@@ -206,6 +206,26 @@ final class ScreenRenderer {
 		}
 		try pngData.write(to: fileURL)
 		window.orderOut(nil)
+	}
+
+	/// A bitmap at two pixels a point, as a Retina screen draws the window. The build account owns no
+	/// screen, so `bitmapImageRepForCachingDisplay` would draw one pixel a point and hide what is off
+	/// by half a point.
+	private static func retinaBitmap(of size: NSSize) -> NSBitmapImageRep? {
+		let bitmap = NSBitmapImageRep(
+			bitmapDataPlanes: nil,
+			pixelsWide: Int(size.width * 2),
+			pixelsHigh: Int(size.height * 2),
+			bitsPerSample: 8,
+			samplesPerPixel: 4,
+			hasAlpha: true,
+			isPlanar: false,
+			colorSpaceName: .deviceRGB,
+			bytesPerRow: 0,
+			bitsPerPixel: 0
+		)
+		bitmap?.size = size
+		return bitmap
 	}
 
 	/// Waits until no query has been asked or answered for 300 ms, so the listing, the detail, the

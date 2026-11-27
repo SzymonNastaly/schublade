@@ -63,7 +63,7 @@ final class PaintedToolbarView: NSView {
 		let subtitleLabel = NSTextField(labelWithString: subtitle ?? "")
 		subtitleLabel.font = NSFont.systemFont(ofSize: NSFont.smallSystemFontSize)
 		subtitleLabel.textColor = .secondaryLabelColor
-		subtitleLabel.isHidden = subtitle == nil
+		subtitleLabel.isHidden = subtitle?.isEmpty ?? true
 		titleStack.setViews([titleLabel, subtitleLabel], in: .leading)
 		titleStack.orientation = .vertical
 		titleStack.alignment = .leading
