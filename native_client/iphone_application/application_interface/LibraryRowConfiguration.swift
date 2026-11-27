@@ -84,6 +84,7 @@ enum LibraryRowConfiguration {
 		content.secondaryText = "\(suggestion.kind) · "
 			+ DocumentFormatting.countText(suggestion.documents, singular: "document")
 		content.secondaryTextProperties.color = .secondaryLabel
+		alignWithDocumentText(&content)
 		cell.contentConfiguration = content
 		cell.accessories = []
 		cell.isAccessibilityElement = true
@@ -105,6 +106,7 @@ enum LibraryRowConfiguration {
 		content.secondaryTextProperties.color = .secondaryLabel
 		content.secondaryTextProperties.font = .preferredFont(forTextStyle: .subheadline)
 		content.textToSecondaryTextVerticalPadding = 3
+		alignWithDocumentText(&content)
 		cell.contentConfiguration = content
 		cell.accessories = attention.replacesToken ? [.disclosureIndicator()] : []
 		cell.isAccessibilityElement = true
@@ -113,6 +115,13 @@ enum LibraryRowConfiguration {
 		cell.accessibilityTraits = attention.replacesToken ? [.button] : [.staticText]
 		cell.accessibilityIdentifier = "library.attention"
 		cell.accessibilityHint = nil
+	}
+
+	/// The symbol takes the width of a row's picture, so the text of every row starts in one column.
+	private static func alignWithDocumentText(_ content: inout UIListContentConfiguration) {
+		content.directionalLayoutMargins.leading = DocumentRowContent.textLeading - RowPicture.size.width - 12
+		content.imageProperties.reservedLayoutSize.width = RowPicture.size.width
+		content.imageToTextPadding = 12
 	}
 
 	static func configure(_ cell: UICollectionViewListCell, notice: UIContentUnavailableConfiguration?) {
