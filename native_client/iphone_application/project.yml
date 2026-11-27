@@ -16,7 +16,7 @@ settings:
     ARCHS: arm64
     # The version every bundle states, as App Store Connect requires of an extension. The build
     # number is the one scripts/upload_application_to_app_store.sh passes.
-    MARKETING_VERSION: "1.0"
+    MARKETING_VERSION: "1.1"
     CURRENT_PROJECT_VERSION: "1"
     SWIFT_VERSION: "6.0"
     SWIFT_STRICT_CONCURRENCY: complete
