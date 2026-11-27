@@ -82,7 +82,7 @@ final class DocumentDetailsViewController: UIViewController, UICollectionViewDat
 	override func viewDidLoad() {
 		super.viewDidLoad()
 		view.backgroundColor = Self.sheetBackground
-		collectionView.backgroundColor = Self.sheetBackground
+		collectionView.backgroundColor = .clear
 		collectionView.frame = view.bounds
 		collectionView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
 		// A registration made during the first dequeue fails an assertion.
@@ -107,6 +107,27 @@ final class DocumentDetailsViewController: UIViewController, UICollectionViewDat
 		grabberFade.startPoint = CGPoint(x: 0.5, y: Self.grabberClearance / view.bounds.height)
 		grabberFade.endPoint = CGPoint(x: 0.5, y: (Self.grabberClearance + Self.fadeLength) / view.bounds.height)
 		CATransaction.commit()
+	}
+
+	/// From iOS 26 the sheet is glass at its medium height and opaque at its large height, where its
+	/// white matched the rows' white in the light appearance and the sections lost their edges. At the
+	/// large height the list therefore takes the grouped background that sets the rows apart.
+	func fill(forLargeDetent large: Bool, animated: Bool) {
+		guard #available(iOS 26, *) else {
+			return
+		}
+		// The navigation controller's view is the sheet's whole page, which the grabber's fade does not
+		// mask, so the background reaches the sheet's top edge.
+		guard let sheetView = navigationController?.view else {
+			return
+		}
+		let background: UIColor? = large ? .systemGroupedBackground : nil
+		guard sheetView.backgroundColor != background else {
+			return
+		}
+		UIView.animate(withDuration: animated ? 0.25 : 0) {
+			sheetView.backgroundColor = background
+		}
 	}
 
 	func show(_ detail: DocumentDetailPresentation) {

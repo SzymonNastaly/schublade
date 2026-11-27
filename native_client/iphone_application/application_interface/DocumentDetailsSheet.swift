@@ -65,6 +65,7 @@ final class DocumentDetailsSheet: NSObject, UISheetPresentationControllerDelegat
 			sheet.prefersScrollingExpandsWhenScrolledToEdge = true
 			sheet.delegate = self
 		}
+		details.fill(forLargeDetent: detent == .large, animated: false)
 		coverPageToolbar(true)
 		page.present(navigation, animated: animated) { [weak self] in
 			self?.measureCovering()
@@ -96,6 +97,7 @@ final class DocumentDetailsSheet: NSObject, UISheetPresentationControllerDelegat
 
 	func sheetPresentationControllerDidChangeSelectedDetentIdentifier(_ sheet: UISheetPresentationController) {
 		detent = sheet.selectedDetentIdentifier ?? .medium
+		details.fill(forLargeDetent: detent == .large, animated: true)
 		measureCovering()
 	}
 

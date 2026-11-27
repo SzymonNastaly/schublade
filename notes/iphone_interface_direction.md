@@ -467,7 +467,7 @@ Quick Look goes, because it showed the same file as the page under it. Printing 
 `DocumentDetailsViewController`, presented by the page.
 
 - `sheetPresentationController`: `detents = [.medium(), .large()]`, `prefersGrabberVisible = true`, `largestUndimmedDetentIdentifier = .medium`, `prefersScrollingExpandsWhenScrolledToEdge = true`.
-- The collection view's background is clear from iOS 26, so the sheet's glass shows, and `systemGroupedBackground` before.
+- The collection view's background is clear from iOS 26 at the medium detent, so the sheet's glass shows, and `systemGroupedBackground` at the large detent, where the opaque sheet is as white as the rows in the light appearance, and before iOS 26.
 - The sheet has no bar, so from iOS 26 a gradient mask clears the top 12 points under the grabber and fades the next 16, and a list scrolled up never runs under the grabber.
 - **It remembers.** `UserDefaults` holds `document.detailsShown`, true by default. Opening the sheet sets it and dismissing the sheet clears it. A page whose detail has loaded presents the sheet at the medium detent in `viewDidAppear` while the value is true. The Mac's inspector starts visible too.
 - `viewWillDisappear` dismisses the sheet with the same `animated` flag. A back swipe that the person cancels brings `viewDidAppear` again, which presents it again.
