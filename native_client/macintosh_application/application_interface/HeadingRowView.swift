@@ -1,6 +1,7 @@
 import AppKit
 
 /// A month's heading, or Arriving and the two sections of a search, floating over the rows under it.
+/// Its text starts where the rows' pictures do.
 final class HeadingRowView: NSTableCellView {
 	private static let titleFont = NSFont.systemFont(
 		ofSize: NSFont.preferredFont(forTextStyle: .subheadline).pointSize,
@@ -22,8 +23,8 @@ final class HeadingRowView: NSTableCellView {
 		addSubview(titleField)
 
 		NSLayoutConstraint.activate([
-			titleField.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 16),
-			titleField.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -16),
+			titleField.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
+			titleField.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -12),
 			titleField.centerYAnchor.constraint(equalTo: centerYAnchor),
 		])
 	}

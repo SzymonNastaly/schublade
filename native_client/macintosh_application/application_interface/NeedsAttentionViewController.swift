@@ -93,8 +93,12 @@ final class NeedsAttentionViewController: NSViewController {
 		row.distribution = .fill
 		row.alignment = .centerY
 		row.spacing = 10
+		row.heightAnchor.constraint(greaterThanOrEqualToConstant: Self.pushButtonHeight).isActive = true
 		return row
 	}
+
+	/// A row without a button stands as tall as one with, so the box's rows keep one rhythm.
+	private static let pushButtonHeight = NSButton(title: "", target: nil, action: nil).fittingSize.height
 
 	private func button(for action: AttentionAction?) -> NSButton? {
 		guard let action else {

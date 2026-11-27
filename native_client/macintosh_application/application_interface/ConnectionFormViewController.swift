@@ -285,7 +285,7 @@ private extension ConnectionFormViewController {
 		let addressLabel = NSTextField(labelWithString: "Address:")
 		let tokenLabel = NSTextField(labelWithString: "Token:")
 		refusalRow.orientation = .horizontal
-		refusalRow.alignment = .top
+		refusalRow.alignment = .firstBaseline
 		refusalRow.spacing = 5
 		let notes = NSStackView(views: [noteLabel, refusalRow])
 		notes.orientation = .vertical
