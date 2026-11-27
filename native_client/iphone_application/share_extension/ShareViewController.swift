@@ -57,7 +57,9 @@ final class ShareViewController: UIViewController {
 	private var leftOutNames: [String?] = []
 	private var overLimit = 0
 
-	private let bar = UINavigationBar()
+	/// The page under the bar. A navigation controller gives its bar the top inset of a sheet's bar,
+	/// which a bar of the view's own lacked: on the iPhone its buttons touched the sheet's top edge.
+	private let page = UIViewController()
 	private lazy var sheet = ShareSheetView(
 		tiles: files.map { ShareTile(name: nil, isPicture: !$0.type.conforms(to: .pdf)) }
 	)
@@ -65,7 +67,7 @@ final class ShareViewController: UIViewController {
 
 	override func viewDidLoad() {
 		super.viewDidLoad()
-		view.backgroundColor = .systemBackground
+		page.view.backgroundColor = .systemBackground
 		// The sheet lives in the host's window, which carries the host's tint, not the extension's.
 		view.tintColor = UIColor(resource: .accent)
 		let shared = ShareContents(items: extensionContext?.inputItems ?? [])
@@ -117,24 +119,27 @@ final class ShareViewController: UIViewController {
 	}
 
 	private func buildLayout() {
-		navigationItem.title = "Schublade"
-		bar.items = [navigationItem]
-		for subview in [sheet, unavailableView, bar] as [UIView] {
+		page.navigationItem.title = "Schublade"
+		let navigation = UINavigationController(rootViewController: page)
+		addChild(navigation)
+		navigation.view.frame = view.bounds
+		navigation.view.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+		view.addSubview(navigation.view)
+		navigation.didMove(toParent: self)
+		for subview in [sheet, unavailableView] as [UIView] {
 			subview.translatesAutoresizingMaskIntoConstraints = false
-			view.addSubview(subview)
+			page.view.addSubview(subview)
 		}
+		let guide = page.view.safeAreaLayoutGuide
 		NSLayoutConstraint.activate([
-			bar.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor),
-			bar.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-			bar.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-			sheet.topAnchor.constraint(equalTo: bar.bottomAnchor),
-			sheet.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-			sheet.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-			sheet.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor),
-			unavailableView.topAnchor.constraint(equalTo: bar.bottomAnchor),
-			unavailableView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-			unavailableView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-			unavailableView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+			sheet.topAnchor.constraint(equalTo: guide.topAnchor),
+			sheet.leadingAnchor.constraint(equalTo: page.view.leadingAnchor),
+			sheet.trailingAnchor.constraint(equalTo: page.view.trailingAnchor),
+			sheet.bottomAnchor.constraint(equalTo: guide.bottomAnchor),
+			unavailableView.topAnchor.constraint(equalTo: guide.topAnchor),
+			unavailableView.leadingAnchor.constraint(equalTo: page.view.leadingAnchor),
+			unavailableView.trailingAnchor.constraint(equalTo: page.view.trailingAnchor),
+			unavailableView.bottomAnchor.constraint(equalTo: page.view.bottomAnchor),
 		])
 	}
 
@@ -146,43 +151,43 @@ final class ShareViewController: UIViewController {
 			sheet.isHidden = true
 			unavailableView.isHidden = false
 			unavailableView.configuration = unavailability.configuration
-			navigationItem.leftBarButtonItem = cancelItem()
-			navigationItem.rightBarButtonItem = nil
+			page.navigationItem.leftBarButtonItem = cancelItem()
+			page.navigationItem.rightBarButtonItem = nil
 		case .ready:
 			sheet.show(ShareSheetView.Words(
 				headline: files.count == 1 ? "1 document" : "\(files.count) documents",
 				destination: destination.map { "to your archive at \($0.archive.host)" },
 				footnote: leftOutSentence
 			))
-			navigationItem.leftBarButtonItem = cancelItem()
-			navigationItem.rightBarButtonItem = sendItem()
+			page.navigationItem.leftBarButtonItem = cancelItem()
+			page.navigationItem.rightBarButtonItem = sendItem()
 		case let .sending(current):
 			sheet.show(ShareSheetView.Words(
 				headline: files.count == 1 ? "Sending…" : "Sending \(current + 1) of \(files.count)…",
 				destination: destination.map { "to your archive at \($0.archive.host)" },
 				footnote: leftOutSentence
 			))
-			if !(navigationItem.rightBarButtonItem?.customView is UIActivityIndicatorView) {
+			if !(page.navigationItem.rightBarButtonItem?.customView is UIActivityIndicatorView) {
 				let indicator = UIActivityIndicatorView(style: .medium)
 				indicator.startAnimating()
 				let item = UIBarButtonItem(customView: indicator)
 				if #available(iOS 26, *) {
 					item.hidesSharedBackground = true
 				}
-				navigationItem.rightBarButtonItem = item
+				page.navigationItem.rightBarButtonItem = item
 			}
-			navigationItem.leftBarButtonItem?.isEnabled = false
+			page.navigationItem.leftBarButtonItem?.isEnabled = false
 		case let .handedOver(leftToApplication):
 			sheet.show(handedOverWords(leftToApplication: leftToApplication))
-			navigationItem.leftBarButtonItem?.isEnabled = false
-			navigationItem.rightBarButtonItem = leftToApplication == 0 ? nil : doneItem()
+			page.navigationItem.leftBarButtonItem?.isEnabled = false
+			page.navigationItem.rightBarButtonItem = leftToApplication == 0 ? nil : doneItem()
 		case let .partlyUnread(unreadNames, sentCount):
 			sheet.show(ShareSheetView.Words(
 				headline: "Schublade could not read \(ListFormatter.localizedString(byJoining: unreadNames)).",
 				destination: sentCount == 0 ? nil : "The other files are on their way to your archive."
 			))
-			navigationItem.leftBarButtonItem = nil
-			navigationItem.rightBarButtonItem = doneItem()
+			page.navigationItem.leftBarButtonItem = nil
+			page.navigationItem.rightBarButtonItem = doneItem()
 		}
 	}
 
@@ -320,9 +325,12 @@ private extension ShareViewController {
 	}
 
 	func doneItem() -> UIBarButtonItem {
-		UIBarButtonItem(systemItem: .done, primaryAction: UIAction { [weak self] _ in
+		let item = UIBarButtonItem(systemItem: .done, primaryAction: UIAction { [weak self] _ in
 			self?.extensionContext?.completeRequest(returningItems: nil)
 		})
+		// Done is prominent from iOS 26, and like Send takes only the item's own tint.
+		item.tintColor = UIColor(resource: .accent)
+		return item
 	}
 
 	func cancelItem() -> UIBarButtonItem {
