@@ -1,12 +1,3 @@
-/**
- * The two git-ignored parameter files of a clone. A clone holds at most one deployed environment:
- *
- *   schublade.deploy.json        written only by `pnpm run provision`, read by every build mode
- *   schublade.development.json   written by hand, optional, read only by local modes
- *
- * cloudflare.config.ts chooses the file by its mode, so a local mode never sees a deployed
- * environment's identifiers or Access values, and a build never starts without the identifiers.
- */
 import { existsSync, readFileSync, writeFileSync } from "node:fs"
 import { z } from "zod"
 
@@ -23,7 +14,6 @@ export const deploymentAdmissionSchema = z.enum(["main_branch_commits", "release
 
 export type DeploymentAdmission = z.infer<typeof deploymentAdmissionSchema>
 
-// `accessEmails` and `householdMembersFile` are command-line answers that a rerun of provisioning reuses.
 const deploymentParametersSchema = z.strictObject({
 	workerName: z
 		.string()
@@ -38,14 +28,11 @@ const deploymentParametersSchema = z.strictObject({
 	authorizationStateNamespaceIdentifier: z.string().min(1).optional(),
 	aiGatewayIdentifier: z.string().min(1).optional(),
 	workerHostname: z.hostname().optional(),
-	// A Clairic model for every field but the person, and a Clef model for the person.
 	classificationModel: z.string().min(1).optional(),
 	personAssignmentModel: z.string().min(1).optional(),
 	accessTeamDomain: z.hostname().optional(),
 	accessAudience: z.string().min(1).optional(),
-	// The Email Routing address whose mail the Worker archives. Without it, the Worker rejects all mail.
 	ingestionEmailAddress: z.email().optional(),
-	// A Workers custom domain, such as staging.schublade.org, that replaces the workers.dev hostname.
 	customHostname: z.hostname().optional(),
 	// The custom hostname that the last deployment of `pnpm run provision` attached. cf cannot list a
 	// Worker's custom domains, so a differing customHostname tells the script to deploy again.
@@ -67,7 +54,6 @@ const provisionedParametersSchema = deploymentParametersSchema.required({
 
 export type ProvisionedParameters = z.infer<typeof provisionedParametersSchema>
 
-// Only the values a local mode reads. A file that names a database or an Access value does not parse.
 const developmentParametersSchema = deploymentParametersSchema
 	.pick({
 		documentStorageBucketName: true,
@@ -117,10 +103,6 @@ export function requireProvisioned(parameters: DeploymentParameters): Provisione
 	)
 }
 
-/**
- * The Worker a run of provisioning sets up. A clone that names a Worker stays with it, because
- * its identifiers, its Access applications, and its live version belong to that environment.
- */
 export function workerNameToProvision(
 	requested: string | undefined,
 	saved: string | undefined,

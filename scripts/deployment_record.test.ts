@@ -26,8 +26,6 @@ test("a version's annotations record its commit and release, and only that messa
 })
 
 test("parseReleaseTags takes an annotated tag with its staging proof as a release and nothing else", () => {
-	// What git 2.43 printed for RELEASE_TAG_LISTING_FORMAT: an annotated tag with the proof, a
-	// lightweight tag, and an annotated tag without the proof.
 	const listing =
 		"archive-1\0tag\x00581aa4e54db7701b86ff68b18f993a9123fa53dc\0Proven-On: schublade-staging\nProven-Version: e20252fe-cc22-4429-9a3e-0ada4c7662a3\nProven-At: 2026-11-26T21:31:18.215209Z\n\0\n" +
 		"archive-2\0commit\0\0\0\n" +

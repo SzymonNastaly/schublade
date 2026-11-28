@@ -1,7 +1,3 @@
-/**
- * The processes the provisioning and deployment scripts start: git, pnpm, and cf from
- * node_modules, and the parsing of cf's JSON answers.
- */
 import { spawn } from "node:child_process"
 import { basename } from "node:path"
 import { fileURLToPath } from "node:url"
@@ -33,7 +29,6 @@ export async function runCommand(executable: string, commandArguments: Array<str
 	throw new Error(`\`${describeCommand(executable, commandArguments)}\` exited with ${exitCode}:\n${output}`)
 }
 
-/** Runs a command on this process's terminal, so that a person can answer its questions. */
 function runCommandInTerminal(executable: string, commandArguments: Array<string>) {
 	return new Promise<void>((resolve, reject) => {
 		const child = spawn(executable, commandArguments, { stdio: "inherit" })

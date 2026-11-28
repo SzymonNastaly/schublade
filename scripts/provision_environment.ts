@@ -277,8 +277,6 @@ async function ensureHouseholdMember(databaseIdentifier: string, displayName: st
 	return { outcome: inserted ? "created" : "already present", detail: statement.params[0] }
 }
 
-// The build reads the Access values and resource identifiers from schublade.deploy.json. Both
-// deployments refuse what `pnpm run deploy` refuses and record the commit on the version.
 async function deployWorker(parameters: DeploymentParameters): Promise<string> {
 	writeDeploymentParameters(parameters)
 	const { commandOutput } = await deployWorkerVersion({ dryRun: false, output: "captured" })

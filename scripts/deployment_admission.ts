@@ -1,7 +1,3 @@
-/**
- * Every refusal of `pnpm run deploy` and `pnpm release:mark` is decided here, from facts that the command read before.
- * Nothing in this file runs git or cf.
- */
 import { describeVersionRecord, nextReleaseNumber, releaseTagName } from "./deployment_record.ts"
 import type { DeploymentAdmission } from "./deployment_parameters.ts"
 import type {
@@ -13,26 +9,20 @@ import type {
 	VersionRecord,
 } from "./deployment_record.ts"
 
-/** How a commit relates to HEAD, or that this clone does not hold the commit. */
 export type RelationToHead = "same_commit" | "ancestor" | "not_an_ancestor" | "commit_unknown"
 
 export interface RepositoryState {
 	headCommit: CommitIdentifier
-	/** What `git status --porcelain` lists. Empty for a clean working tree. */
 	modifiedPaths: Array<string>
-	/** Whether the local branch `main` contains HEAD. */
 	headOnMainBranch: boolean
 	releaseTags: ReleaseTags
 }
 
-/** What only origin can say, read for an environment that admits releases only. */
 export interface OriginState {
 	headOnOriginMain: boolean
-	/** The commit each `archive-<n>` tag on origin names. */
 	releaseCommits: Map<string, CommitIdentifier>
 }
 
-/** The admission of the environment, with the facts that admission needs. */
 export type AdmissionFacts = { admission: "main_branch_commits" } | { admission: "releases_only"; origin: OriginState }
 
 export type LiveVersion = { versionIdentifier: string } & (
@@ -44,7 +34,6 @@ export type LiveDeployment =
 
 export interface DeploymentPlan {
 	workerName: string
-	/** What the new version records. It names the release whenever HEAD is one, in either admission. */
 	record: VersionRecord
 	replaces: LiveDeployment
 }
@@ -59,7 +48,6 @@ export type DeploymentRefusal =
 			tagsWithoutProof: Array<string>
 	  }
 	| { kind: "release_not_on_origin"; release: Release }
-	/** Migrations only go forward, so the Worker never moves to a commit that does not contain the live one. */
 	| { kind: "live_version_not_an_ancestor"; live: VersionRecord; relation: "not_an_ancestor" | "commit_unknown" }
 
 function releaseOnHead(repository: RepositoryState): Release | undefined {
@@ -161,7 +149,6 @@ export function describeDeploymentRefusal(refusal: DeploymentRefusal): { message
 }
 
 export type ReleaseMarkingRefusal =
-	/** Such a clone's Worker runs only releases, so it proves nothing new. */
 	| { kind: "installation_proves_no_release"; workerName: string }
 	| { kind: "working_tree_modified"; paths: Array<string> }
 	| { kind: "commit_not_on_origin_main"; commit: CommitIdentifier }
@@ -173,10 +160,6 @@ export type ReleaseMarking =
 	| { kind: "already_marked"; release: Release }
 	| { kind: "refused"; refusal: ReleaseMarkingRefusal }
 
-/**
- * HEAD becomes the next release only while this clone's Worker serves exactly HEAD, as one
- * recorded version, and HEAD contains the newest release.
- */
 export function decideReleaseMarking(input: {
 	workerName: string
 	admission: DeploymentAdmission

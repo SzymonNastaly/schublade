@@ -1,16 +1,4 @@
-/**
- * The two records of what an environment runs, each with its one written format and its parser:
- *
- *   1. On a Worker version: the commit, and the release if any, that the version was built from,
- *      written with `cf deploy --tag <tag> --message <message>` and read back from the version's
- *      `annotations`.
- *   2. On an annotated git tag `archive-<n>`: that a commit is release n, and which staging
- *      version served it when the release was marked. The proof travels with the tag, so an
- *      installation without staging checks it with git alone.
- */
-
 declare const commitIdentifierBrand: unique symbol
-/** 40 lowercase hexadecimal digits, as `git rev-parse HEAD` prints them. */
 export type CommitIdentifier = string & { readonly [commitIdentifierBrand]: true }
 
 export function parseCommitIdentifier(text: string): CommitIdentifier {
@@ -20,7 +8,6 @@ export function parseCommitIdentifier(text: string): CommitIdentifier {
 }
 
 declare const releaseNumberBrand: unique symbol
-/** A positive integer. Release n + 1 follows release n, and no number is reused. */
 export type ReleaseNumber = number & { readonly [releaseNumberBrand]: true }
 
 const releaseTagPattern = /^archive-([1-9][0-9]*)$/
@@ -53,7 +40,6 @@ export function composeVersionAnnotations(record: VersionRecord): { tag: string;
 
 const versionMessagePattern = /^commit ([0-9a-f]{40})(?: release (archive-[1-9][0-9]*))?$/
 
-/** Undefined for a version that a bare `cf deploy` uploaded, whose message is absent or cf's own. */
 export function parseVersionRecord(message: string | undefined): VersionRecord | undefined {
 	const match = versionMessagePattern.exec(message ?? "")
 	if (match?.[1] === undefined) return undefined
@@ -68,11 +54,9 @@ export function describeVersionRecord(record: VersionRecord): string {
 	return record.release === undefined ? commit : `${releaseTagName(record.release)} (${commit})`
 }
 
-/** The staging version that served the release's commit when the release was marked. */
 export interface StagingProof {
 	workerName: string
 	versionIdentifier: string
-	/** The `created_on` of the staging deployment, in ISO 8601. */
 	deployedAt: string
 }
 
@@ -107,7 +91,6 @@ export const RELEASE_TAG_LISTING_FORMAT =
 export interface ReleaseTags {
 	/** Ascending by number. */
 	releases: Array<Release>
-	/** Tags named `archive-<n>` that are lightweight or lack the proof: made by hand, and no releases. */
 	tagsWithoutProof: Array<string>
 }
 
@@ -141,13 +124,11 @@ export function parseReleaseTags(listing: string): ReleaseTags {
 	return { releases, tagsWithoutProof }
 }
 
-/** One above every number that a tag here or on origin uses, releases and hand-made tags alike. */
 export function nextReleaseNumber(tagNames: Array<string>): ReleaseNumber {
 	const numbers = tagNames.map(parseReleaseTagName).filter((number) => number !== undefined)
 	return (Math.max(0, ...numbers) + 1) as ReleaseNumber
 }
 
-/** The commit each `archive-<n>` tag on a remote names, from `git ls-remote --tags <remote>`. */
 export function parseRemoteReleaseCommits(listing: string): Map<string, CommitIdentifier> {
 	const direct = new Map<string, CommitIdentifier>()
 	const peeled = new Map<string, CommitIdentifier>()

@@ -1,18 +1,7 @@
-/**
- * `pnpm run deploy [-- --dry-run]` deploys HEAD to the one environment this clone names in
- * schublade.deploy.json: it refuses a commit the environment does not admit, builds, applies
- * pending D1 migrations, uploads the version with the commit it was built from, and asks the
- * Worker one unauthenticated question.
- */
 import { parseArgs } from "node:util"
 import { describeVersionRecord } from "./deployment_record.ts"
 import { CommandRefused, deployWorkerVersion } from "./worker_version_deployment.ts"
 
-/**
- * `GET /api/v1/authorization` without a token reaches no billed service. Its 401 problem document
- * shows that the hostname serves the Worker, that Access lets the client routes through, and that
- * request dispatch reached the bearer gate.
- */
 async function confirmWorkerAnswers(hostname: string): Promise<void> {
 	const address = `https://${hostname}/api/v1/authorization`
 	const response = await fetch(address, { redirect: "manual" })

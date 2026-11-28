@@ -94,7 +94,6 @@ function hosting(target: ConfigurationTarget) {
 export default defineConfig(({ mode }) => {
 	const target = configurationTarget(mode)
 	const { workerName: name, parameters } = target
-	// A local mode has no Access values, so the Worker rejects every browser request there.
 	const bindingValues = parameterBindingValues(parameters)
 	return {
 		worker: {

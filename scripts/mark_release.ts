@@ -1,9 +1,3 @@
-/**
- * `pnpm release:mark` makes HEAD the next release, the annotated tag `archive-<n>`, once staging,
- * the Worker of this clone, serves exactly HEAD. The tag carries that staging version as its
- * proof. It is created locally and never pushed: the command prints the push, which needs the
- * owner's go.
- */
 import { runCommand } from "./command_execution.ts"
 import { decideReleaseMarking, describeReleaseMarkingRefusal } from "./deployment_admission.ts"
 import { readDeploymentParameters, requireProvisioned } from "./deployment_parameters.ts"

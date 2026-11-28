@@ -1,8 +1,3 @@
-/**
- * The one way the scripts upload a Worker version. `pnpm run deploy` and both deployments of
- * `pnpm run provision` call deployWorkerVersion, so no version goes up without its admission, its
- * migrations, and the record of the commit it was built from.
- */
 import { readFileSync } from "node:fs"
 import { z } from "zod"
 import {
@@ -38,7 +33,6 @@ import type { CommitIdentifier } from "./deployment_record.ts"
 const MIGRATIONS_DIRECTORY = "drizzle"
 const BUILT_WORKER_CONFIGURATION = ".cloudflare/output/v0/workers/default/worker.config.json"
 
-/** A decided refusal: nothing was built, migrated, or uploaded. */
 export class CommandRefused extends Error {
 	readonly remedy: string
 
@@ -81,7 +75,6 @@ export async function readRepositoryState(): Promise<RepositoryState> {
 	}
 }
 
-/** Fetches origin's main branch and lists origin's release tags. */
 export async function readOriginState(): Promise<OriginState> {
 	await git(["fetch", "--quiet", "origin", "main"])
 	return {
@@ -103,7 +96,6 @@ const workerVersionSchema = z.object({
 	annotations: z.object({ "workers/message": z.string().optional() }).optional(),
 })
 
-/** The deployment that serves the Worker now. A Worker that does not exist yet is absent. */
 export async function readLiveDeployment(workerName: string, headCommit: CommitIdentifier): Promise<LiveDeployment> {
 	const listing = await findCloudflareResource(deploymentListSchema, [
 		"workers",
@@ -141,7 +133,6 @@ export async function readLiveDeployment(workerName: string, headCommit: CommitI
 	return { kind: "serving", deployedAt: current.created_on, versions: [first, ...others] }
 }
 
-/** Lists the migrations the database lacks and, unless this is a dry run, applies them. */
 export async function applyPendingMigrations(
 	databaseIdentifier: string,
 	options: { dryRun: boolean },
@@ -169,21 +160,10 @@ function describeLiveDeployment(live: LiveDeployment): string {
 
 export interface DeploymentReport {
 	plan: DeploymentPlan
-	/** `customHostname`, else `workerHostname`; undefined before the first deployment printed its address. */
 	hostname: string | undefined
-	/** The output of `cf deploy` when it was captured, in which provisioning finds the workers.dev address. */
 	commandOutput: string
 }
 
-/**
- * Deploys HEAD to the one environment of this clone: decide, build, confirm that the checkout did
- * not move during the build, apply pending migrations, upload with the record, and read the record
- * back. A failed build leaves the database alone. A dry run decides, lists the pending migrations,
- * and runs `cf deploy --dry-run`; it migrates and uploads nothing.
- *
- * `output: "terminal"` lets a person answer cf's questions, such as the replacement of an Email
- * Routing rule. `"captured"` returns cf's output instead.
- */
 export async function deployWorkerVersion(options: {
 	dryRun: boolean
 	output: "terminal" | "captured"
