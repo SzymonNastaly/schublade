@@ -8,6 +8,7 @@ public_website/dist/
 .wrangler/
 .dev.vars
 schublade.deploy.json
+schublade.development.json
 *.local
 .DS_Store
 .tanstack/

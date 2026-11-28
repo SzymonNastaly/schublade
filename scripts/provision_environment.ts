@@ -21,15 +21,11 @@ import { basename } from "node:path"
 import { fileURLToPath } from "node:url"
 import { parseArgs } from "node:util"
 import { z } from "zod"
-import {
-	parameterBindingValues,
-	readDeploymentParameters,
-	resourceNamesFor,
-	writeDeploymentParameters,
-} from "../cloudflare.config.ts"
+import { parameterBindingValues, resourceNamesFor } from "../cloudflare.config.ts"
 import { searchIndexMetadataFields } from "../src/search/search_index_item.ts"
 import { CLIENT_PATH_PREFIX } from "../src/client_protocol/client_paths.ts"
 import { MODEL_CONTEXT_PROTOCOL_PATH } from "../src/model_context_protocol/authorization_server_paths.ts"
+import { readDeploymentParameters, workerNameToProvision, writeDeploymentParameters } from "./deployment_parameters.ts"
 import {
 	ACCESS_SESSION_DURATION,
 	accessApplicationBody,
@@ -41,9 +37,8 @@ import {
 	tokenIngestionDestinations,
 	zoneNameCandidates,
 } from "./provisioning_requests.ts"
-import type { DeploymentParameters } from "../cloudflare.config.ts"
+import type { DeploymentParameters } from "./deployment_parameters.ts"
 
-const DEFAULT_WORKER_NAME = "schublade"
 const MIGRATIONS_DIRECTORY = "drizzle"
 const USAGE =
 	"Usage: pnpm run provision [--worker-name <name>] [--access-email <address>]... [--household-members <file.json>] [--hostname <name>] [--email-address <address>] [--replace-mail-records]"
@@ -685,10 +680,17 @@ async function ensureAccessDeployment(parameters: DeploymentParameters & { worke
 async function main(): Promise<void> {
 	const commandLine = await attempt("Command line", USAGE, () => parseCommandLine(process.argv.slice(2)))
 	const saved = readDeploymentParameters()
-	const workerName = commandLine.workerName ?? saved.workerName ?? DEFAULT_WORKER_NAME
+	const workerNaming = workerNameToProvision(commandLine.workerName, saved.workerName)
+	if (workerNaming.kind === "refused") {
+		throw new StepFailure(
+			"Command line",
+			"Run `pnpm run provision` without --worker-name to provision this clone's environment again.",
+			workerNaming.reason,
+		)
+	}
+	const { workerName } = workerNaming
 	let parameters: DeploymentParameters & { workerName: string } = {
-		// Identifiers recorded under another Worker name belong to another environment.
-		...(workerName === saved.workerName ? saved : {}),
+		...saved,
 		workerName,
 		accessEmails: commandLine.accessEmails ?? saved.accessEmails,
 		householdMembersFile: commandLine.householdMembersFile ?? saved.householdMembersFile,
