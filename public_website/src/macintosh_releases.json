@@ -1,0 +1,11 @@
+[
+	{
+		"version": "1.0",
+		"build": "1",
+		"published": "2026-11-28T09:02:30.492Z",
+		"minimumSystemVersion": "14.0",
+		"diskImageUrl": "https://github.com/SzymonNastaly/schublade/releases/download/mac-1.0/Schublade-1.0.dmg",
+		"length": 7986133,
+		"edSignature": "TYmiyIgslisfkvPUEhNweHT10SOcxpmZO6H0uoGmul3kVaZaE25Vffd0iPa0gUwsXAXYQJpoDsiJG8gRXxMcAg=="
+	}
+]

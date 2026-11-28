@@ -16,6 +16,7 @@ import {
 	REPOSITORY_URL,
 	type Platform,
 } from "../../site_configuration.ts"
+import { LATEST_MACINTOSH_RELEASE } from "../../macintosh_releases.ts"
 import { softwareApplication } from "../../structured_data.ts"
 
 export function getStaticPaths() {
@@ -44,6 +45,9 @@ const sections = PLATFORM_SECTIONS[platform].map((section) => ({
 	screenshot: "screenshot" in section ? (section.screenshot as ScreenshotName) : undefined,
 }))
 const { availability, path: pagePath, label } = PLATFORMS[platform]
+if (platform === "mac" && !LATEST_MACINTOSH_RELEASE) {
+	throw new Error("The Mac page offers a download, but macintosh_releases.json lists no release.")
+}
 
 const postsOfLocale = (await readBlogPosts()).filter((post) => post.locale === locale)
 const isAboutPlatform = (tags: ReadonlyArray<string>) =>
@@ -73,6 +77,15 @@ const comparisons = (await readComparisons()).filter((comparison) => comparison.
 					<>
 						<a class="app-store-badge" href={APP_STORE_URL}>
 							<img src="/app_store_badge.svg" alt={text.platformPage.appStoreAction} width="150" height="50" />
+						</a>
+						<a class="button button--secondary" href={DEPLOYMENT_GUIDE_URL}>
+							{text.platformPage.deployArchiveAction}
+						</a>
+					</>
+				) : platform === "mac" && LATEST_MACINTOSH_RELEASE ? (
+					<>
+						<a class="button button--primary" href={LATEST_MACINTOSH_RELEASE.diskImageUrl}>
+							{text.platformPage.macintoshDownloadAction} {LATEST_MACINTOSH_RELEASE.version}
 						</a>
 						<a class="button button--secondary" href={DEPLOYMENT_GUIDE_URL}>
 							{text.platformPage.deployArchiveAction}

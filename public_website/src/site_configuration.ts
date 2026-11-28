@@ -9,7 +9,7 @@ export type PlatformAvailability = "available" | "coming_soon"
 export const PLATFORMS = {
 	web: { label: "Web", availability: "available", path: "web/" },
 	iphone: { label: "iPhone", availability: "available", path: "iphone/" },
-	mac: { label: "Mac", availability: "coming_soon", path: "mac/" },
+	mac: { label: "Mac", availability: "available", path: "mac/" },
 } as const satisfies Record<string, { label: string; availability: PlatformAvailability; path: string }>
 
 export type Platform = keyof typeof PLATFORMS

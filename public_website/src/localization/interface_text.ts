@@ -56,6 +56,8 @@ export interface InterfaceText {
 	platformPage: {
 		deployAction: string
 		appStoreAction: string
+		/** The Mac page's download button, followed by the version it downloads. */
+		macintoshDownloadAction: string
 		deployArchiveAction: string
 		relatedPostsHeading: string
 		comparisonsHeading: string
@@ -266,7 +268,8 @@ const english: InterfaceText = {
 			heading: "Your archive as a Mac library",
 			introduction:
 				"The Mac app is a native window onto your archive, with a sidebar, a list, a reader, and an inspector. It also collects the folders where your paperwork lands.",
-			availabilityNote: "The app works with your archive today. There is no public download yet.",
+			availabilityNote:
+				"A free download for macOS 14 or later. It updates itself, and it connects to an archive you deployed yourself.",
 			landingSummary: "A native library with a reader and an inspector. It collects the folders you choose.",
 			sections: {
 				library: {
@@ -301,6 +304,7 @@ const english: InterfaceText = {
 	platformPage: {
 		deployAction: "Deploy it",
 		appStoreAction: "Download on the App Store",
+		macintoshDownloadAction: "Download for Mac",
 		deployArchiveAction: "Deploy your archive",
 		relatedPostsHeading: "From the blog",
 		comparisonsHeading: "Compare Schublade",
@@ -556,7 +560,8 @@ const german: InterfaceText = {
 			heading: "Dein Archiv als Mac-Bibliothek",
 			introduction:
 				"Die Mac-App ist ein natives Fenster auf dein Archiv, mit Seitenleiste, Liste, Leseansicht und Informationen. Außerdem sammelt sie die Ordner ein, in denen dein Papierkram landet.",
-			availabilityNote: "Die App funktioniert schon mit deinem Archiv. Einen öffentlichen Download gibt es noch nicht.",
+			availabilityNote:
+				"Kostenlos für macOS 14 oder neuer. Sie aktualisiert sich selbst und verbindet sich mit einem Archiv, das du selbst eingerichtet hast.",
 			landingSummary:
 				"Eine native Bibliothek mit Leseansicht und Informationen. Sie sammelt die Ordner ein, die du auswählst.",
 			sections: {
@@ -592,6 +597,7 @@ const german: InterfaceText = {
 	platformPage: {
 		deployAction: "Selbst einrichten",
 		appStoreAction: "Laden im App Store",
+		macintoshDownloadAction: "Für Mac laden",
 		deployArchiveAction: "Archiv einrichten",
 		relatedPostsHeading: "Aus dem Blog",
 		comparisonsHeading: "Schublade im Vergleich",
