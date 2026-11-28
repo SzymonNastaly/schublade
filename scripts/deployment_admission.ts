@@ -48,7 +48,12 @@ export type DeploymentRefusal =
 			tagsWithoutProof: Array<string>
 	  }
 	| { kind: "release_not_on_origin"; release: Release }
-	| { kind: "live_version_not_an_ancestor"; live: VersionRecord; relation: "not_an_ancestor" | "commit_unknown" }
+	| {
+			kind: "live_version_not_an_ancestor"
+			live: VersionRecord
+			relation: "not_an_ancestor" | "commit_unknown"
+			admission: DeploymentAdmission
+	  }
 
 function releaseOnHead(repository: RepositoryState): Release | undefined {
 	return repository.releaseTags.releases.find((release) => release.commit === repository.headCommit)
@@ -91,7 +96,12 @@ export function decideDeployment(input: {
 				version.kind === "recorded" &&
 				(version.relationToHead === "not_an_ancestor" || version.relationToHead === "commit_unknown")
 			) {
-				return refuse({ kind: "live_version_not_an_ancestor", live: version.record, relation: version.relationToHead })
+				return refuse({
+					kind: "live_version_not_an_ancestor",
+					live: version.record,
+					relation: version.relationToHead,
+					admission: facts.admission,
+				})
 			}
 		}
 	}
@@ -143,7 +153,9 @@ export function describeDeploymentRefusal(refusal: DeploymentRefusal): { message
 						? `The Worker serves ${describeVersionRecord(refusal.live)}, a commit this clone does not hold.`
 						: `The Worker serves ${describeVersionRecord(refusal.live)}, which HEAD does not contain. Migrations only go forward, so a deployment never moves the Worker back.`,
 				remedy:
-					"Run `git fetch`, then check out a commit that contains the live one, such as the newest commit of main.",
+					refusal.admission === "releases_only"
+						? "Run `git fetch --tags`, then check out the newest release with `git checkout archive-<n>` and run `pnpm install`."
+						: "Run `git fetch`, then check out a commit that contains the live one, such as the newest commit of main.",
 			}
 	}
 }

@@ -108,6 +108,7 @@ test("a live version that HEAD does not contain is refused, and an unrecorded on
 			kind: "live_version_not_an_ancestor",
 			live: { commit: earlierCommit, release: 12 },
 			relation: "not_an_ancestor",
+			admission: "main_branch_commits",
 		},
 	})
 	expect(decide(mainBranchCommits, cleanCheckout, serving("ancestor")).kind).toBe("admitted")
