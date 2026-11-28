@@ -11,10 +11,10 @@ enum MainMenuBuilder {
 	/// only a weak reference to its delegate.
 	private static var shareMenuUpdater: ShareMenuUpdater?
 
-	static func installMainMenu(shareableItems: @escaping () -> [Any]) {
+	static func installMainMenu(offersUpdates: Bool, shareableItems: @escaping () -> [Any]) {
 		NSWindow.allowsAutomaticWindowTabbing = false
 		let mainMenu = NSMenu()
-		mainMenu.addItem(makeApplicationMenu())
+		mainMenu.addItem(makeApplicationMenu(offersUpdates: offersUpdates))
 		mainMenu.addItem(makeFileMenu(shareableItems: shareableItems))
 		mainMenu.addItem(makeEditMenu())
 		mainMenu.addItem(makeViewMenu())
@@ -27,7 +27,7 @@ enum MainMenuBuilder {
 		NSApp.helpMenu = help.submenu
 	}
 
-	private static func makeApplicationMenu() -> NSMenuItem {
+	private static func makeApplicationMenu(offersUpdates: Bool) -> NSMenuItem {
 		let root = NSMenuItem()
 		let menu = NSMenu()
 		menu.addItem(
@@ -35,6 +35,13 @@ enum MainMenuBuilder {
 			action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)),
 			keyEquivalent: ""
 		)
+		if offersUpdates {
+			menu.addItem(
+				withTitle: "Check for Updates…",
+				action: #selector(ApplicationDelegate.checkForUpdates(_:)),
+				keyEquivalent: ""
+			)
+		}
 		menu.addItem(.separator())
 		menu.addItem(
 			withTitle: "Settings…",

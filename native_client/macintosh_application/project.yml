@@ -5,6 +5,12 @@ options:
   deploymentTarget:
     macOS: "14.0"
   createIntermediateGroups: true
+# Sparkle updates the Release application from the appcast on schublade.org. Its version changes together
+# with the one scripts/fetch_sparkle_tools.sh fetches.
+packages:
+  Sparkle:
+    url: https://github.com/sparkle-project/Sparkle
+    exactVersion: 2.10.1
 configFiles:
   Debug: configuration/signing.xcconfig
   Release: configuration/signing.xcconfig
@@ -116,6 +122,7 @@ targets:
       - target: ApplicationPresentation
       - target: LibraryPresentation
       - target: ApplicationBindings
+      - package: Sparkle
     info:
       path: application/Info.plist
       properties:
@@ -131,6 +138,12 @@ targets:
         NSDocumentsFolderUsageDescription: *folder_usage_description
         NSNetworkVolumesUsageDescription: *folder_usage_description
         NSRemovableVolumesUsageDescription: *folder_usage_description
+        # The appcast lists each release's disk image on GitHub with the EdDSA signature that
+        # sign_update made with the private half of this key, which only the Mac's build account holds.
+        SUFeedURL: https://schublade.org/mac/appcast.xml
+        SUPublicEDKey: ckfLzcn983vJXaWFh87JG01cxxkkE34TdL58NGSEZTc=
+        SUEnableAutomaticChecks: true
+        SUAutomaticallyUpdate: true
     settings:
       base:
         PRODUCT_NAME: $(APPLICATION_PRODUCT_NAME)

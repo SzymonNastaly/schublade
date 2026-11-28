@@ -6,9 +6,23 @@ public final class ApplicationDelegate: NSObject, NSApplicationDelegate {
 	private static let log = Logger(subsystem: "org.schublade.application", category: "lifecycle")
 
 	let controller = ApplicationController(environment: .current())
+	private let softwareUpdate: (any SoftwareUpdate)?
 	/// Set once a quit goes on, so a second Command-Q while the cores shut down neither asks again
 	/// nor shuts them down twice.
 	private var isTerminating = false
+	/// Set when an update quits the application to replace it, which asks nothing, because the
+	/// application opens again at once and collects on.
+	private var quitsForUpdate = false
+
+	public init(softwareUpdate: (any SoftwareUpdate)? = nil) {
+		self.softwareUpdate = softwareUpdate
+		super.init()
+	}
+
+	/// Called before an update quits the application to install itself and open it again.
+	public func prepareForUpdateRelaunch() {
+		quitsForUpdate = true
+	}
 
 	public func applicationWillFinishLaunching(_: Notification) {
 		// A copy started outside Launch Services finds the first one, shows its window, and ends.
@@ -28,8 +42,11 @@ public final class ApplicationDelegate: NSObject, NSApplicationDelegate {
 	}
 
 	public func applicationDidFinishLaunching(_: Notification) {
-		MainMenuBuilder.installMainMenu { [weak self] in
+		MainMenuBuilder.installMainMenu(offersUpdates: softwareUpdate != nil) { [weak self] in
 			self?.controller.mainWindowController.workspaceController?.shareableItems() ?? []
+		}
+		if let softwareUpdate {
+			controller.statusItem.onCheckForUpdates = { softwareUpdate.checkForUpdates() }
 		}
 		let origin = Self.launchOrigin()
 		Self.log.info("Launched by \(origin == .loginItem ? "the login item" : "a person", privacy: .public)")
@@ -73,6 +90,10 @@ public final class ApplicationDelegate: NSObject, NSApplicationDelegate {
 		controller.showSettings()
 	}
 
+	@objc func checkForUpdates(_: Any?) {
+		softwareUpdate?.checkForUpdates()
+	}
+
 	@objc func showLibraryWindow(_: Any?) {
 		controller.showMainWindow()
 	}
@@ -97,7 +118,7 @@ public final class ApplicationDelegate: NSObject, NSApplicationDelegate {
 		let preferences = controller.preferences
 		let quitBySystem = NSAppleEventManager.shared().currentAppleEvent?
 			.attributeDescriptor(forKeyword: AEKeyword(kAEQuitReason)) != nil
-		guard !quitBySystem, !controller.environment.isIsolated,
+		guard !quitBySystem, !quitsForUpdate, !controller.environment.isIsolated,
 		      LifecyclePresentation.asksBeforeQuitting(
 		      	situation: controller.situation,
 		      	suppressed: preferences.quitAlertSuppressed

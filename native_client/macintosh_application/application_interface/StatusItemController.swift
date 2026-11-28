@@ -4,7 +4,8 @@ import ApplicationPresentation
 
 /// The menu bar item: the drawer glyph of the application's state, the upload animation, and a
 /// menu with the status line, one line for the uploads, what needs attention, the five newest
-/// documents with their senders, Open Schublade, Add Folder…, Settings…, and Quit.
+/// documents with their senders, Open Schublade, Add Folder…, Check for Updates… when the
+/// application updates itself, Settings…, and Quit.
 public final class StatusItemController: NSObject, NSMenuDelegate {
 	private static let newestDocumentCount = 5
 	private static let frameInterval: TimeInterval = 0.11
@@ -25,6 +26,10 @@ public final class StatusItemController: NSObject, NSMenuDelegate {
 	var onOpenDocument: ((DocumentIdentifier) -> Void)?
 	var onAddFolder: (() -> Void)?
 	var onOpenSettings: (() -> Void)?
+	/// Set only when the application updates itself, which adds Check for Updates… to the menu.
+	var onCheckForUpdates: (() -> Void)? {
+		didSet { rebuildMenu() }
+	}
 
 	public init(queries: any LibraryQueries) {
 		self.queries = queries
@@ -156,6 +161,9 @@ public final class StatusItemController: NSObject, NSMenuDelegate {
 		if presentation.offersAddFolder {
 			menu.addItem(actionItem("Add Folder…", symbolName: "folder.badge.plus", #selector(addFolder)))
 		}
+		if onCheckForUpdates != nil {
+			menu.addItem(actionItem("Check for Updates…", symbolName: nil, #selector(checkForUpdates)))
+		}
 		menu.addItem(actionItem("Settings…", symbolName: nil, #selector(openSettings)))
 		menu.addItem(.separator())
 		menu.addItem(NSMenuItem(
@@ -233,6 +241,10 @@ public final class StatusItemController: NSObject, NSMenuDelegate {
 
 	@objc private func openSettings() {
 		onOpenSettings?()
+	}
+
+	@objc private func checkForUpdates() {
+		onCheckForUpdates?()
 	}
 
 	@objc private func attentionChosen(_ sender: NSMenuItem) {
