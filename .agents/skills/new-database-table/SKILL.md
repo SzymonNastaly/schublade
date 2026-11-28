@@ -52,7 +52,7 @@ cf d1 raw 00000000-0000-4000-8000-000000000000 --local --persist-to .cloudflare/
 	--sql "select name from sqlite_master where type = 'table'"
 ```
 
-The remote databases receive migrations through `cf d1 migrations apply <DATABASE_ID> --dir drizzle` without `--local`. Run that only when the user asks, with the identifier from `schublade.deploy.json`.
+A deployed database receives its pending migrations from `pnpm run deploy`, after the build and before the upload, so the migration must leave the code of the previous release working. Deploy only when the user asks, and never apply a migration to a deployed database by hand.
 
 ## 4. Query the table
 

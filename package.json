@@ -8,7 +8,7 @@
 		"predev": "pnpm run database:migrate:local",
 		"dev": "cf dev",
 		"build": "cf build",
-		"deploy": "cf deploy",
+		"deploy": "node scripts/deploy_environment.ts",
 		"provision": "node scripts/provision_environment.ts",
 		"database:generate": "drizzle-kit generate",
 		"database:migrate:local": "cf d1 migrations apply 00000000-0000-4000-8000-000000000000 --local --persist-to .cloudflare/state --dir drizzle",

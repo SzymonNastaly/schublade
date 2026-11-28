@@ -13,12 +13,21 @@ import { z } from "zod"
 const DEPLOYMENT_PARAMETERS_FILE = "schublade.deploy.json"
 const DEVELOPMENT_PARAMETERS_FILE = "schublade.development.json"
 
+/**
+ * Which commits `pnpm run deploy` admits into the environment. `main_branch_commits`, which a file
+ * without the key means, admits a clean checkout of a commit the local main branch holds.
+ * `releases_only` admits only a release, an `archive-<n>` tag with its proof from staging, that
+ * origin holds on its main branch.
+ */
+export const deploymentAdmissionSchema = z.enum(["main_branch_commits", "releases_only"])
+
 // `accessEmails` and `householdMembersFile` are command-line answers that a rerun of provisioning reuses.
 const deploymentParametersSchema = z.strictObject({
 	workerName: z
 		.string()
 		.regex(/^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/, "use lowercase letters, digits, and inner hyphens")
 		.optional(),
+	deploymentAdmission: deploymentAdmissionSchema.optional(),
 	accessEmails: z.array(z.email()).min(1).optional(),
 	householdMembersFile: z.string().min(1).optional(),
 	databaseIdentifier: z.uuid().optional(),

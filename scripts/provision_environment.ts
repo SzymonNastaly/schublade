@@ -14,18 +14,21 @@
  * rewrites the zone's MX and SPF records, so it stops while the zone has MX records of its own,
  * unless --replace-mail-records allows replacing them. That flag is not saved.
  */
-import { spawn } from "node:child_process"
 import { createHash } from "node:crypto"
 import { readFileSync } from "node:fs"
-import { basename } from "node:path"
-import { fileURLToPath } from "node:url"
 import { parseArgs } from "node:util"
 import { z } from "zod"
 import { parameterBindingValues, resourceNamesFor } from "../cloudflare.config.ts"
 import { searchIndexMetadataFields } from "../src/search/search_index_item.ts"
 import { CLIENT_PATH_PREFIX } from "../src/client_protocol/client_paths.ts"
 import { MODEL_CONTEXT_PROTOCOL_PATH } from "../src/model_context_protocol/authorization_server_paths.ts"
-import { readDeploymentParameters, workerNameToProvision, writeDeploymentParameters } from "./deployment_parameters.ts"
+import { findCloudflareResource, listCloudflareResources, queryCloudflare, runCloudflare } from "./command_execution.ts"
+import {
+	deploymentAdmissionSchema,
+	readDeploymentParameters,
+	workerNameToProvision,
+	writeDeploymentParameters,
+} from "./deployment_parameters.ts"
 import {
 	ACCESS_SESSION_DURATION,
 	accessApplicationBody,
@@ -37,14 +40,14 @@ import {
 	tokenIngestionDestinations,
 	zoneNameCandidates,
 } from "./provisioning_requests.ts"
+import { applyPendingMigrations, deployWorkerVersion } from "./worker_version_deployment.ts"
 import type { DeploymentParameters } from "./deployment_parameters.ts"
 
 const MIGRATIONS_DIRECTORY = "drizzle"
 const USAGE =
-	"Usage: pnpm run provision [--worker-name <name>] [--access-email <address>]... [--household-members <file.json>] [--hostname <name>] [--email-address <address>] [--replace-mail-records]"
+	"Usage: pnpm run provision [--worker-name <name>] [--access-email <address>]... [--household-members <file.json>] [--hostname <name>] [--email-address <address>] [--admit main-branch-commits|releases-only] [--replace-mail-records]"
 const RERUN = "then run `pnpm run provision` again"
 
-const cloudflareExecutable = fileURLToPath(new URL("../node_modules/.bin/cf", import.meta.url))
 const workersDevHostnamePattern = /https:\/\/([a-z0-9-]+\.[a-z0-9-]+\.workers\.dev)\b/
 
 type StepOutcome = "created" | "updated" | "applied" | "enabled" | "deployed" | "already present"
@@ -92,75 +95,6 @@ async function performStep<TReport extends StepReport>(
 	return report
 }
 
-function runCommand(executable: string, commandArguments: Array<string>) {
-	return new Promise<{ standardOutput: string; standardError: string }>((resolve, reject) => {
-		const child = spawn(executable, commandArguments, { stdio: ["ignore", "pipe", "pipe"] })
-		let standardOutput = ""
-		let standardError = ""
-		child.stdout.on("data", (chunk: Buffer) => (standardOutput += chunk.toString()))
-		child.stderr.on("data", (chunk: Buffer) => (standardError += chunk.toString()))
-		child.on("error", reject)
-		child.on("close", (exitCode) => {
-			if (exitCode === 0) {
-				resolve({ standardOutput, standardError })
-				return
-			}
-			const output = `${standardOutput}\n${standardError}`.trim().split("\n").slice(-40).join("\n")
-			reject(
-				new Error(`\`${[basename(executable), ...commandArguments].join(" ")}\` exited with ${exitCode}:\n${output}`),
-			)
-		})
-	})
-}
-
-function runCloudflare(commandArguments: Array<string>) {
-	return runCommand(cloudflareExecutable, commandArguments)
-}
-
-// List commands print a `result_info: {...}` line before the JSON document.
-function parseJsonDocument(standardOutput: string): unknown {
-	const start = standardOutput.search(/^[[{]/m)
-	if (start === -1) throw new Error(`cf printed no JSON document:\n${standardOutput}`)
-	return JSON.parse(standardOutput.slice(start))
-}
-
-async function queryCloudflare<TOutput>(schema: z.ZodType<TOutput>, commandArguments: Array<string>): Promise<TOutput> {
-	const { standardOutput } = await runCloudflare(commandArguments)
-	return schema.parse(parseJsonDocument(standardOutput))
-}
-
-async function findCloudflareResource<TOutput>(
-	schema: z.ZodType<TOutput>,
-	commandArguments: Array<string>,
-): Promise<TOutput | undefined> {
-	try {
-		return await queryCloudflare(schema, commandArguments)
-	} catch (error) {
-		if (error instanceof Error && /\b404 Not Found\b/.test(error.message)) return undefined
-		throw error
-	}
-}
-
-const resultInformationSchema = z.object({ total_count: z.number() })
-
-async function listCloudflareResources<TItem>(
-	itemSchema: z.ZodType<TItem>,
-	commandArguments: Array<string>,
-): Promise<Array<TItem>> {
-	const items: Array<TItem> = []
-	for (let page = 1; ; page += 1) {
-		const { standardOutput } = await runCloudflare([...commandArguments, "--page", String(page)])
-		const pageItems = z.array(itemSchema).parse(parseJsonDocument(standardOutput))
-		items.push(...pageItems)
-		const resultInformation = /^result_info: (.+)$/m.exec(standardOutput)?.[1]
-		const totalCount =
-			resultInformation === undefined
-				? items.length
-				: resultInformationSchema.parse(JSON.parse(resultInformation)).total_count
-		if (pageItems.length === 0 || items.length >= totalCount) return items
-	}
-}
-
 function parseCommandLine(commandLine: Array<string>) {
 	const { values } = parseArgs({
 		// pnpm forwards a `--` separator to the script unchanged.
@@ -171,6 +105,7 @@ function parseCommandLine(commandLine: Array<string>) {
 			"household-members": { type: "string" },
 			hostname: { type: "string" },
 			"email-address": { type: "string" },
+			admit: { type: "string" },
 			"replace-mail-records": { type: "boolean", default: false },
 		},
 	})
@@ -180,6 +115,7 @@ function parseCommandLine(commandLine: Array<string>) {
 		householdMembersFile: values["household-members"],
 		customHostname: z.hostname().optional().parse(values.hostname?.trim().toLowerCase()),
 		ingestionEmailAddress: z.email().optional().parse(values["email-address"]?.trim().toLowerCase()),
+		deploymentAdmission: deploymentAdmissionSchema.optional().parse(values.admit?.replaceAll("-", "_")),
 		replaceMailRecords: values["replace-mail-records"],
 	}
 }
@@ -317,17 +253,9 @@ async function ensureSearchInstance(instanceIdentifier: string, gatewayIdentifie
 }
 
 async function applyMigrations(databaseIdentifier: string): Promise<StepReport> {
-	const directory = ["--dir", MIGRATIONS_DIRECTORY]
-	const pending = await queryCloudflare(z.array(z.unknown()), [
-		"d1",
-		"migrations",
-		"list",
-		databaseIdentifier,
-		...directory,
-	])
-	if (pending.length === 0) return { outcome: "already present" }
-	await runCloudflare(["d1", "migrations", "apply", databaseIdentifier, ...directory])
-	return { outcome: "applied", detail: `${pending.length} migration${pending.length === 1 ? "" : "s"}` }
+	const { pending } = await applyPendingMigrations(databaseIdentifier, { dryRun: false })
+	if (pending === 0) return { outcome: "already present" }
+	return { outcome: "applied", detail: `${pending} migration${pending === 1 ? "" : "s"}` }
 }
 
 const queryResultSchema = z.array(z.object({ results: z.array(z.unknown()) }))
@@ -349,12 +277,12 @@ async function ensureHouseholdMember(databaseIdentifier: string, displayName: st
 	return { outcome: inserted ? "created" : "already present", detail: statement.params[0] }
 }
 
-// The build reads the Access values and resource identifiers from schublade.deploy.json.
+// The build reads the Access values and resource identifiers from schublade.deploy.json. Both
+// deployments refuse what `pnpm run deploy` refuses and record the commit on the version.
 async function deployWorker(parameters: DeploymentParameters): Promise<string> {
 	writeDeploymentParameters(parameters)
-	await runCommand("pnpm", ["build"])
-	const { standardOutput, standardError } = await runCloudflare(["deploy", "--prebuilt"])
-	return `${standardOutput}\n${standardError}`
+	const { commandOutput } = await deployWorkerVersion({ dryRun: false, output: "captured" })
+	return commandOutput
 }
 
 async function ensureLockedDeployment(
@@ -696,6 +624,7 @@ async function main(): Promise<void> {
 		householdMembersFile: commandLine.householdMembersFile ?? saved.householdMembersFile,
 		customHostname: commandLine.customHostname ?? saved.customHostname,
 		ingestionEmailAddress: commandLine.ingestionEmailAddress ?? saved.ingestionEmailAddress,
+		deploymentAdmission: commandLine.deploymentAdmission ?? saved.deploymentAdmission,
 	}
 	const { accessEmails, householdMembersFile, customHostname, ingestionEmailAddress } = parameters
 	if (accessEmails === undefined) {
@@ -775,7 +704,7 @@ async function main(): Promise<void> {
 
 	const { workerHostname } = await performStep(
 		"Locked first deployment",
-		`Run \`pnpm build\` and \`pnpm exec cf deploy --prebuilt\` to see the full error. If the deployment succeeded but its address was not found, add "workerHostname" to schublade.deploy.json, ${RERUN}.`,
+		`Run \`pnpm run deploy -- --dry-run\` to see the full error. If the deployment succeeded but its address was not found, add "workerHostname" to schublade.deploy.json, ${RERUN}.`,
 		() => ensureLockedDeployment(parameters),
 	)
 	parameters = { ...parameters, workerHostname }
@@ -869,7 +798,7 @@ async function main(): Promise<void> {
 	parameters = { ...parameters, accessTeamDomain: teamDomain, accessAudience: audience }
 	await performStep(
 		"Deployment behind Access",
-		`Run \`pnpm build\` and \`pnpm exec cf deploy --prebuilt\` to see the full error. When cf deploy asks to replace or remove an Email Routing rule, run \`pnpm run deploy\` in a terminal and confirm, ${RERUN}.`,
+		`Run \`pnpm run deploy -- --dry-run\` to see the full error. When cf deploy asks to replace or remove an Email Routing rule, run \`pnpm run deploy\` in a terminal and confirm, ${RERUN}.`,
 		() => ensureAccessDeployment(parameters),
 	)
 	// Only now, with the deployment serving its final hostnames, does Access drop the others.
