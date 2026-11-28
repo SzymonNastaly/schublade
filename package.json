@@ -10,6 +10,7 @@
 		"build": "cf build",
 		"deploy": "node scripts/deploy_environment.ts",
 		"provision": "node scripts/provision_environment.ts",
+		"release:mark": "node scripts/mark_release.ts",
 		"database:generate": "drizzle-kit generate",
 		"database:migrate:local": "cf d1 migrations apply 00000000-0000-4000-8000-000000000000 --local --persist-to .cloudflare/state --dir drizzle",
 		"generate:test-documents": "node scripts/generate_test_documents.ts",

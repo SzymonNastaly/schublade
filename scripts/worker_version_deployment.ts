@@ -70,7 +70,7 @@ async function readWorkingTree(): Promise<{ headCommit: CommitIdentifier; modifi
 	}
 }
 
-async function readRepositoryState(): Promise<RepositoryState> {
+export async function readRepositoryState(): Promise<RepositoryState> {
 	const workingTree = await readWorkingTree()
 	return {
 		...workingTree,
@@ -82,7 +82,7 @@ async function readRepositoryState(): Promise<RepositoryState> {
 }
 
 /** Fetches origin's main branch and lists origin's release tags. */
-async function readOriginState(): Promise<OriginState> {
+export async function readOriginState(): Promise<OriginState> {
 	await git(["fetch", "--quiet", "origin", "main"])
 	return {
 		headOnOriginMain: await gitAnswers(["merge-base", "--is-ancestor", "HEAD", "refs/remotes/origin/main"]),
@@ -90,7 +90,7 @@ async function readOriginState(): Promise<OriginState> {
 	}
 }
 
-async function relationToHead(commit: CommitIdentifier, headCommit: CommitIdentifier): Promise<RelationToHead> {
+export async function relationToHead(commit: CommitIdentifier, headCommit: CommitIdentifier): Promise<RelationToHead> {
 	if (commit === headCommit) return "same_commit"
 	if (!(await gitAnswers(["cat-file", "-e", `${commit}^{commit}`]))) return "commit_unknown"
 	return (await gitAnswers(["merge-base", "--is-ancestor", commit, headCommit])) ? "ancestor" : "not_an_ancestor"
@@ -104,7 +104,7 @@ const workerVersionSchema = z.object({
 })
 
 /** The deployment that serves the Worker now. A Worker that does not exist yet is absent. */
-async function readLiveDeployment(workerName: string, headCommit: CommitIdentifier): Promise<LiveDeployment> {
+export async function readLiveDeployment(workerName: string, headCommit: CommitIdentifier): Promise<LiveDeployment> {
 	const listing = await findCloudflareResource(deploymentListSchema, [
 		"workers",
 		"deployments",

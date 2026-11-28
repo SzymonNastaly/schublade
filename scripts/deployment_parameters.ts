@@ -21,6 +21,8 @@ const DEVELOPMENT_PARAMETERS_FILE = "schublade.development.json"
  */
 export const deploymentAdmissionSchema = z.enum(["main_branch_commits", "releases_only"])
 
+export type DeploymentAdmission = z.infer<typeof deploymentAdmissionSchema>
+
 // `accessEmails` and `householdMembersFile` are command-line answers that a rerun of provisioning reuses.
 const deploymentParametersSchema = z.strictObject({
 	workerName: z

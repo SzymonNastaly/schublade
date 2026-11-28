@@ -69,7 +69,7 @@ export function describeVersionRecord(record: VersionRecord): string {
 }
 
 /** The staging version that served the release's commit when the release was marked. */
-interface StagingProof {
+export interface StagingProof {
 	workerName: string
 	versionIdentifier: string
 	/** The `created_on` of the staging deployment, in ISO 8601. */
@@ -80,6 +80,20 @@ export interface Release {
 	number: ReleaseNumber
 	commit: CommitIdentifier
 	proof: StagingProof
+}
+
+/**
+ * The message of the annotated tag. git reads its last paragraph as trailers, which
+ * RELEASE_TAG_LISTING_FORMAT lists and parseReleaseTags reads back.
+ */
+export function composeReleaseAnnotation(release: ReleaseNumber, proof: StagingProof): string {
+	return [
+		`Schublade archive release ${release}`,
+		"",
+		`Proven-On: ${proof.workerName}`,
+		`Proven-Version: ${proof.versionIdentifier}`,
+		`Proven-At: ${proof.deployedAt}`,
+	].join("\n")
 }
 
 /**
@@ -125,6 +139,12 @@ export function parseReleaseTags(listing: string): ReleaseTags {
 	}
 	releases.sort((left, right) => left.number - right.number)
 	return { releases, tagsWithoutProof }
+}
+
+/** One above every number that a tag here or on origin uses, releases and hand-made tags alike. */
+export function nextReleaseNumber(tagNames: Array<string>): ReleaseNumber {
+	const numbers = tagNames.map(parseReleaseTagName).filter((number) => number !== undefined)
+	return (Math.max(0, ...numbers) + 1) as ReleaseNumber
 }
 
 /** The commit each `archive-<n>` tag on a remote names, from `git ls-remote --tags <remote>`. */

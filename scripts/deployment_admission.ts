@@ -1,9 +1,17 @@
 /**
- * Every refusal of `pnpm run deploy` is decided here, from facts that the command read before.
+ * Every refusal of `pnpm run deploy` and `pnpm release:mark` is decided here, from facts that the command read before.
  * Nothing in this file runs git or cf.
  */
-import { describeVersionRecord, releaseTagName } from "./deployment_record.ts"
-import type { CommitIdentifier, Release, ReleaseTags, VersionRecord } from "./deployment_record.ts"
+import { describeVersionRecord, nextReleaseNumber, releaseTagName } from "./deployment_record.ts"
+import type { DeploymentAdmission } from "./deployment_parameters.ts"
+import type {
+	CommitIdentifier,
+	Release,
+	ReleaseNumber,
+	ReleaseTags,
+	StagingProof,
+	VersionRecord,
+} from "./deployment_record.ts"
 
 /** How a commit relates to HEAD, or that this clone does not hold the commit. */
 export type RelationToHead = "same_commit" | "ancestor" | "not_an_ancestor" | "commit_unknown"
@@ -148,6 +156,94 @@ export function describeDeploymentRefusal(refusal: DeploymentRefusal): { message
 						: `The Worker serves ${describeVersionRecord(refusal.live)}, which HEAD does not contain. Migrations only go forward, so a deployment never moves the Worker back.`,
 				remedy:
 					"Run `git fetch`, then check out a commit that contains the live one, such as the newest commit of main.",
+			}
+	}
+}
+
+export type ReleaseMarkingRefusal =
+	/** Such a clone's Worker runs only releases, so it proves nothing new. */
+	| { kind: "installation_proves_no_release"; workerName: string }
+	| { kind: "working_tree_modified"; paths: Array<string> }
+	| { kind: "commit_not_on_origin_main"; commit: CommitIdentifier }
+	| { kind: "proving_environment_serves_another_commit"; workerName: string; live: LiveDeployment }
+	| { kind: "newest_release_not_an_ancestor"; newestRelease: Release }
+
+export type ReleaseMarking =
+	| { kind: "mark"; release: ReleaseNumber; commit: CommitIdentifier; proof: StagingProof }
+	| { kind: "already_marked"; release: Release }
+	| { kind: "refused"; refusal: ReleaseMarkingRefusal }
+
+/**
+ * HEAD becomes the next release only while this clone's Worker serves exactly HEAD, as one
+ * recorded version, and HEAD contains the newest release.
+ */
+export function decideReleaseMarking(input: {
+	workerName: string
+	admission: DeploymentAdmission
+	repository: RepositoryState
+	origin: OriginState
+	live: LiveDeployment
+	newestReleaseRelation: RelationToHead | undefined
+}): ReleaseMarking {
+	const { workerName, repository, origin, live } = input
+	const refuse = (refusal: ReleaseMarkingRefusal) => ({ kind: "refused" as const, refusal })
+	if (input.admission === "releases_only") return refuse({ kind: "installation_proves_no_release", workerName })
+	if (repository.modifiedPaths.length > 0)
+		return refuse({ kind: "working_tree_modified", paths: repository.modifiedPaths })
+	if (!origin.headOnOriginMain) return refuse({ kind: "commit_not_on_origin_main", commit: repository.headCommit })
+	const marked = releaseOnHead(repository)
+	if (marked !== undefined) return { kind: "already_marked", release: marked }
+	const [version, ...otherVersions] = live.kind === "serving" ? live.versions : []
+	if (
+		live.kind !== "serving" ||
+		version?.kind !== "recorded" ||
+		otherVersions.length > 0 ||
+		version.record.commit !== repository.headCommit
+	) {
+		return refuse({ kind: "proving_environment_serves_another_commit", workerName, live })
+	}
+	const newestRelease = repository.releaseTags.releases.at(-1)
+	if (newestRelease !== undefined && input.newestReleaseRelation !== "ancestor") {
+		return refuse({ kind: "newest_release_not_an_ancestor", newestRelease })
+	}
+	return {
+		kind: "mark",
+		release: nextReleaseNumber([
+			...repository.releaseTags.releases.map((release) => releaseTagName(release.number)),
+			...repository.releaseTags.tagsWithoutProof,
+			...origin.releaseCommits.keys(),
+		]),
+		commit: repository.headCommit,
+		proof: { workerName, versionIdentifier: version.versionIdentifier, deployedAt: live.deployedAt },
+	}
+}
+
+export function describeReleaseMarkingRefusal(refusal: ReleaseMarkingRefusal): { message: string; remedy: string } {
+	switch (refusal.kind) {
+		case "installation_proves_no_release":
+			return {
+				message: `${refusal.workerName} admits releases only, so it cannot prove a new one.`,
+				remedy: "Mark releases in the clone whose Worker is staging.",
+			}
+		case "working_tree_modified":
+			return {
+				message: `The working tree differs from its commit (${refusal.paths.join(", ")}).`,
+				remedy: "Commit or remove the changes; a release is a commit, not a working tree.",
+			}
+		case "commit_not_on_origin_main":
+			return {
+				message: `origin/main does not contain ${refusal.commit.slice(0, 7)}.`,
+				remedy: "Push the commit to origin's main branch, then mark the release.",
+			}
+		case "proving_environment_serves_another_commit":
+			return {
+				message: `${refusal.workerName} does not serve exactly HEAD as one recorded version.`,
+				remedy: "Run `pnpm run deploy`, check staging, then mark the release.",
+			}
+		case "newest_release_not_an_ancestor":
+			return {
+				message: `HEAD does not contain the newest release, ${releaseTagName(refusal.newestRelease.number)}.`,
+				remedy: "Check out a commit of main that contains it.",
 			}
 	}
 }

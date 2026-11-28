@@ -1,5 +1,5 @@
 import { expect, test } from "vitest"
-import { decideDeployment } from "./deployment_admission"
+import { decideDeployment, decideReleaseMarking } from "./deployment_admission"
 import { parseCommitIdentifier } from "./deployment_record"
 import type { AdmissionFacts, LiveDeployment, RepositoryState } from "./deployment_admission"
 import type { Release, ReleaseNumber } from "./deployment_record"
@@ -111,4 +111,51 @@ test("a live version that HEAD does not contain is refused, and an unrecorded on
 		},
 	})
 	expect(decide(mainBranchCommits, cleanCheckout, serving("ancestor")).kind).toBe("admitted")
+})
+
+test("decideReleaseMarking marks HEAD only while staging serves exactly HEAD", () => {
+	const origin = { headOnOriginMain: true, releaseCommits: new Map([["archive-12", earlierCommit]]) }
+	const servingHead: LiveDeployment = {
+		kind: "serving",
+		deployedAt: "2026-11-28T09:14:02Z",
+		versions: [
+			{
+				versionIdentifier: "e20252fe-cc22-4429-9a3e-0ada4c7662a3",
+				kind: "recorded",
+				record: { commit: headCommit, release: undefined },
+				relationToHead: "same_commit",
+			},
+		],
+	}
+	const mark = (overrides: Partial<Parameters<typeof decideReleaseMarking>[0]>) =>
+		decideReleaseMarking({
+			workerName: "schublade-staging",
+			admission: "main_branch_commits",
+			repository: cleanCheckout,
+			origin,
+			live: servingHead,
+			newestReleaseRelation: "ancestor",
+			...overrides,
+		})
+	expect(mark({})).toEqual({
+		kind: "mark",
+		release: 13,
+		commit: headCommit,
+		proof: {
+			workerName: "schublade-staging",
+			versionIdentifier: "e20252fe-cc22-4429-9a3e-0ada4c7662a3",
+			deployedAt: "2026-11-28T09:14:02Z",
+		},
+	})
+	expect(mark({ live: absent })).toEqual({
+		kind: "refused",
+		refusal: { kind: "proving_environment_serves_another_commit", workerName: "schublade-staging", live: absent },
+	})
+	expect(
+		mark({ repository: { ...cleanCheckout, releaseTags: { releases: [releaseOfHead], tagsWithoutProof: [] } } }),
+	).toEqual({ kind: "already_marked", release: releaseOfHead })
+	expect(mark({ admission: "releases_only" })).toEqual({
+		kind: "refused",
+		refusal: { kind: "installation_proves_no_release", workerName: "schublade-staging" },
+	})
 })
